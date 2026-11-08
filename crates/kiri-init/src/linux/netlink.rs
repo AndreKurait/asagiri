@@ -368,10 +368,78 @@ const NFNL_SUBSYS_NFTABLES: u16 = 10;
 const NFNL_MSG_BATCH_BEGIN: u16 = 0x10;
 const NFNL_MSG_BATCH_END: u16 = 0x11;
 const NFT_MSG_NEWTABLE: u16 = 0;
+/// Fails with ENOENT when there is no such table.
+const NFT_MSG_DELTABLE: u16 = 2;
 /// Like DELTABLE, but no error when there is no such table (Linux 6.3+).
 const NFT_MSG_DESTROYTABLE: u16 = 26;
 const NFT_MSG_NEWCHAIN: u16 = 3;
 const NFT_MSG_NEWRULE: u16 = 6;
+
+/// `msgs` as one nf_tables batch: applied whole, or not at all.
+fn batch(msgs: Vec<Msg>) -> Vec<Msg> {
+    let mut begin = Msg::new(NFNL_MSG_BATCH_BEGIN, 0);
+    begin.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
+    let mut end = Msg::new(NFNL_MSG_BATCH_END, 0);
+    end.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
+    let mut out = Vec::with_capacity(msgs.len() + 2);
+    out.push(begin);
+    out.extend(msgs);
+    out.push(end);
+    out
+}
+
+/// Whether this kernel knows NFT_MSG_DESTROYTABLE (Linux 6.3+), found once
+/// by destroying a table that need not exist. Before 6.3 (Ubuntu 22.04,
+/// WSL2's 5.15 kernel) the message is unknown, and a batch with an unknown
+/// message is refused whole: Kiri's table was never made, so containers on
+/// a bridge reached the gateway and nothing beyond it (#44).
+fn has_destroytable() -> bool {
+    static HAS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HAS.get_or_init(|| {
+        let probe = || -> io::Result<()> {
+            let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
+            let mut destroy = nft(NFT_MSG_DESTROYTABLE, NLM_F_ACK);
+            destroy.attr_str(1, "kiri-probe");
+            nl.request(&mut batch(vec![destroy]))
+        };
+        match probe() {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("kiri-init: no NFT_MSG_DESTROYTABLE in this kernel ({e}); the nftables table is removed and made again in two steps");
+                false
+            }
+        }
+    })
+}
+
+/// Replaces Kiri's table of `family` with `body` (its NEWTABLE and all that
+/// goes in it; nothing, to remove it). One batch where the kernel can
+/// destroy a table that may not exist, so a refused `body` keeps the old
+/// table; elsewhere the old table goes first on its own, and a refused
+/// `body` leaves none.
+fn replace_table(family: u8, body: Vec<Msg>) -> io::Result<()> {
+    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
+    if has_destroytable() {
+        let mut destroy = nft_in(family, NFT_MSG_DESTROYTABLE, NLM_F_ACK);
+        destroy.attr_str(1, "kiri");
+        let mut msgs = vec![destroy];
+        msgs.extend(body);
+        return nl.request(&mut batch(msgs));
+    }
+    let mut del = nft_in(family, NFT_MSG_DELTABLE, NLM_F_ACK);
+    del.attr_str(1, "kiri");
+    match nl.request(&mut batch(vec![del])) {
+        Ok(()) => {}
+        Err(e) if e.raw_os_error() == Some(libc::ENOENT) => {}
+        Err(e) => return Err(e),
+    }
+    if body.is_empty() {
+        return Ok(());
+    }
+    // A fresh socket: nothing of the refused batch is left to read on it.
+    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
+    nl.request(&mut batch(body))
+}
 
 fn nfgen(family: u8, res_id: u16) -> [u8; 4] {
     let mut b = [0u8; 4];
@@ -767,14 +835,7 @@ fn masq6_rule(subnet: [u8; 16], prefix: u8) -> Msg {
 /// ```
 pub fn install_nat6(subnets: &[([u8; 16], u8)], bridges: &[String]) -> io::Result<()> {
     let v6 = libc::NFPROTO_IPV6 as u8;
-    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
-    let mut begin = Msg::new(NFNL_MSG_BATCH_BEGIN, 0);
-    begin.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
-    let mut destroy = nft_in(v6, NFT_MSG_DESTROYTABLE, NLM_F_ACK);
-    destroy.attr_str(1, "kiri");
-    let mut end = Msg::new(NFNL_MSG_BATCH_END, 0);
-    end.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
-    let mut msgs = vec![begin, destroy];
+    let mut msgs = Vec::new();
     if !subnets.is_empty() {
         let mut table = nft_in(v6, NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
         table.attr_str(1, "kiri");
@@ -787,20 +848,12 @@ pub fn install_nat6(subnets: &[([u8; 16], u8)], bridges: &[String]) -> io::Resul
         msgs.extend(subnets.iter().map(|(s, p)| masq6_rule(*s, *p)));
         msgs.extend(forward_filter_in(v6, bridges));
     }
-    msgs.push(end);
-    nl.request(&mut msgs)
+    replace_table(v6, msgs)
 }
 
 /// Removes Kiri's table (a Linux host's engine stopping), if there is one.
 pub fn remove_nat() -> io::Result<()> {
-    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
-    let mut begin = Msg::new(NFNL_MSG_BATCH_BEGIN, 0);
-    begin.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
-    let mut destroy = nft(NFT_MSG_DESTROYTABLE, NLM_F_ACK);
-    destroy.attr_str(1, "kiri");
-    let mut end = Msg::new(NFNL_MSG_BATCH_END, 0);
-    end.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
-    nl.request(&mut [begin, destroy, end])
+    replace_table(libc::NFPROTO_IPV4 as u8, Vec::new())
 }
 
 /// Kiri's NAT table:
@@ -825,15 +878,8 @@ pub fn remove_nat() -> io::Result<()> {
 /// network, or the LAN routed through the Mac, never reach a container.
 #[allow(clippy::too_many_arguments)]
 pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, redirect: bool, dnat: &[Dnat], gateway: [u8; 4], bridges: &[String], local: Option<&[[u8; 4]]>) -> io::Result<()> {
-    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
     // The table is replaced, not appended to (on a Linux host it outlives
-    // the agent and changes with every published port). Destroying it in
-    // the same batch keeps the old one if anything below is refused.
-    let mut begin = Msg::new(NFNL_MSG_BATCH_BEGIN, 0);
-    begin.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
-    let mut destroy = nft(NFT_MSG_DESTROYTABLE, NLM_F_ACK);
-    destroy.attr_str(1, "kiri");
-
+    // the agent and changes with every published port): see `replace_table`.
     let mut table = nft(NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
     table.attr_str(1, "kiri"); // NFTA_TABLE_NAME
 
@@ -854,13 +900,11 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
     rule.nest(1).attr_str(1, "masq").end();
     rule.end();
 
-    let mut end = Msg::new(NFNL_MSG_BATCH_END, 0);
-    end.raw(&nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
     if !redirect {
         // A Linux host: no host.docker.internal redirect, but its published
         // ports are DNATed here (prerouting for the LAN, output for the host
-        // itself), the whole table rebuilt on every change, atomically.
-        let mut msgs = vec![begin, destroy, table, chain, rule];
+        // itself), the whole table rebuilt on every change.
+        let mut msgs = vec![table, chain, rule];
         msgs.extend(forward_filter(bridges));
         msgs.extend(localnet_guard());
         msgs.push(nat_chain("prerouting", 0, -100));
@@ -869,8 +913,7 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
             msgs.extend(dnat_rules("prerouting", d, local));
             msgs.extend(dnat_rules("output", d, local));
         }
-        msgs.push(end);
-        return nl.request(&mut msgs);
+        return replace_table(libc::NFPROTO_IPV4 as u8, msgs);
     }
     let pre = nat_chain("prerouting", 0, -100); // NF_INET_PRE_ROUTING
     let out = nat_chain("output", 3, -100); // NF_INET_LOCAL_OUT
@@ -878,7 +921,7 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
     let pre_rule = redirect_rule("prerouting", host_addr, host_port, true);
     // The host's own connections (and `--network host` containers).
     let out_rule = redirect_rule("output", host_addr, host_port, false);
-    let mut msgs = vec![begin, destroy, table, chain, rule, pre, out, dns_redirect_rule(host_addr), pre_rule, out_rule];
+    let mut msgs = vec![table, chain, rule, pre, out, dns_redirect_rule(host_addr), pre_rule, out_rule];
     msgs.extend(forward_filter(bridges));
     msgs.extend(localnet_guard());
     msgs.push(host_relay_guard(host_port));
@@ -888,8 +931,7 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
     if dnat.iter().any(|d| !d.udp) {
         msgs.push(published_masq_rule(uplink_index, gateway));
     }
-    msgs.push(end);
-    nl.request(&mut msgs)
+    replace_table(libc::NFPROTO_IPV4 as u8, msgs)
 }
 
 #[cfg(test)]
@@ -914,6 +956,21 @@ mod tests {
 
     fn be32(d: &[u8]) -> u32 {
         u32::from_be_bytes(d.try_into().unwrap())
+    }
+
+    #[test]
+    fn a_batch_is_framed_for_nf_tables() {
+        let mut table = nft(NFT_MSG_NEWTABLE, NLM_F_ACK);
+        table.attr_str(1, "kiri");
+        let b = batch(vec![table]);
+        assert_eq!(b.len(), 3);
+        let ty = |m: &Msg| u16::from_ne_bytes([m.buf[4], m.buf[5]]);
+        assert_eq!((ty(&b[0]), ty(&b[2])), (NFNL_MSG_BATCH_BEGIN, NFNL_MSG_BATCH_END));
+        // begin and end carry the nf_tables subsystem as their res_id
+        for m in [&b[0], &b[2]] {
+            assert_eq!(m.buf[16..20], nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
+        }
+        assert_eq!(ty(&b[1]), (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWTABLE);
     }
 
     #[test]
