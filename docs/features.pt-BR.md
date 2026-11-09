@@ -27,8 +27,10 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
   Docker, se esse container reiniciar, os que compartilham a rede dele ficam com o
   namespace antigo, agora vazio, até serem reiniciados também), IPAM (`--subnet`,
   `--gateway`, `--ip-range`, `--aux-address`), `--ip`, `--mac-address`,
-  `--dns`, `--dns-search`, `--dns-option`, `--domainname` e `--link`
-  (redes IPv6 são recusadas, não ignoradas), e
+  `--dns`, `--dns-search`, `--dns-option`, `--domainname`, `--link`,
+  `--ipv6` (`enable_ipv6` do Compose: uma sub-rede IPv6 ao lado da IPv4, vinda de
+  `--subnet` ou de um /64 do próprio Kiri dentro de fd00::/8; a bridge padrão continua
+  só IPv4, como a do Docker), e
   `http://<nome>.kiri.local` depois que você ativa (o app pergunta na primeira abertura;
   Settings → Domains altera isso), ou `http://<nome>.kiri.localhost` sem
   configuração. Os serviços do Compose respondem em `<serviço>.<projeto>.kiri.local`, e um

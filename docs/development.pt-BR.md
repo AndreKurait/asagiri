@@ -53,8 +53,12 @@ containers do OrbStack ou do Docker Desktop.) As ferramentas sem daemon,
 que iniciam o próprio guest, são `kiri raw run|pull|images|rmi`.
 
 O `kiri` guarda os dados em `~/Library/Application Support/Kiri` (altere com
-`KIRI_DATA_DIR`). Ele não mexe em `/usr/local/bin/docker` nem em
-`/var/run/docker.sock`.
+`KIRI_DATA_DIR`). Ele não mexe em `/usr/local/bin/docker`.
+O `/var/run/docker.sock` só muda quando você pede: `kiri setup --docker-socket`
+(ou o pedido de senha para os nomes `*.kiri.local`) o liga ao socket do Kiri
+quando nenhum outro engine o usa, depois que o macOS pede uma senha de administrador,
+e instala `/Library/LaunchDaemons/dev.kiri.docker-socket.plist` para refazer a
+ligação após reiniciar. Um socket de outro engine nunca é substituído.
 
 ## Arquitetura
 
@@ -94,6 +98,7 @@ kiri UI ────┘
 | `guest/kernel` | configuração e patches do kernel |
 | `tests/e2e.sh` | ~350 verificações pelo `docker` CLI real, mais um soak de vazamentos (`K8S=1` adiciona Kubernetes) |
 | `tests/linux-host.sh` | o build para host Linux, executado em um container privilegiado |
+| `tests/finder-mount.sh` | o mount do Finder no Mac em `~/Kiri`: cobre só uma pasta vazia ou o próprio mount antigo, nunca seus arquivos nem outro mount |
 | `contrib/` | unit do systemd, scripts de instalação para WSL2 e Windows |
 | `installer/windows` | o MSI do Windows (WiX 5): `kiri.wxs`, licença, bitmaps dos diálogos |
 | `packaging/` | `.deb` e `.rpm` para Linux (`kiri` com o docker CLI, `kiri-lite` só o engine), o plano para Homebrew |
