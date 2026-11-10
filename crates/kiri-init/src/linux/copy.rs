@@ -196,19 +196,22 @@ impl<R: Read> Read for Chunks<R> {
 
 /// Answers with the path's metadata; for `OUT` an archive of it follows.
 fn copy_out(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
-    let path = std::path::Path::new(spec.path);
+    // Docker archives a path with its "." and ".." resolved by name, but
+    // stats it as given.
+    let cleaned;
+    let source = if spec.op == copy_op::OUT && !spec.path.is_empty() {
+        cleaned = clean(spec.path);
+        cleaned.as_str()
+    } else {
+        spec.path
+    };
+    let path = std::path::Path::new(source);
     let meta = fs::symlink_metadata(path)
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, format!("notfound: Could not find the file {} in container {}", spec.path, spec.id)))?;
     let link = if meta.file_type().is_symlink() { fs::read_link(path)?.to_string_lossy().into_owned() } else { String::new() };
-    // Path::file_name normalizes away a final ".", but Docker uses it to
-    // request a directory's contents rather than the directory itself.
-    let name = if spec.path.trim_end_matches('/').rsplit('/').next() == Some(".") {
-        ".".to_owned()
-    } else {
-        path.file_name().map_or_else(|| "/".to_owned(), |n| n.to_string_lossy().into_owned())
-    };
+    let name = base(source);
     let entry = FsEntry {
-        name: &name,
+        name,
         mode: meta.mode(),
         size: meta.len(),
         mtime: meta.mtime(),
@@ -225,16 +228,46 @@ fn copy_out(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     {
         let mut b = tar::Builder::new(&mut w);
         b.follow_symlinks(false);
-        // The root itself archives as its contents under ".".
-        let top = if name == "/" { "." } else { name.as_str() };
         if meta.is_dir() {
-            append_tree(&mut b, path, std::path::Path::new(top))?;
+            append_tree(&mut b, path, std::path::Path::new(name))?;
         } else {
-            append_one(&mut b, path, std::path::Path::new(top), &meta)?;
+            append_one(&mut b, path, std::path::Path::new(name), &meta)?;
         }
         b.finish()?;
     }
     w.flush()
+}
+
+/// The last component of `path` as Docker names it: "." and ".." are kept,
+/// and the root is "/".
+fn base(path: &str) -> &str {
+    path.trim_end_matches('/').rsplit('/').next().filter(|name| !name.is_empty()).unwrap_or("/")
+}
+
+/// `path` from the root, with "." and ".." resolved by name. A final "." (a
+/// directory's contents) and a trailing "/" (a link's directory) are kept.
+fn clean(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            name => parts.push(name),
+        }
+    }
+    let mut cleaned = format!("/{}", parts.join("/"));
+    if base(path) == "." {
+        if !cleaned.ends_with('/') {
+            cleaned.push('/');
+        }
+        cleaned.push('.');
+    }
+    if path.ends_with('/') && !cleaned.ends_with('/') {
+        cleaned.push('/');
+    }
+    cleaned
 }
 
 /// Like `append_dir_all`, but sockets (which tar cannot hold) are skipped,
@@ -260,11 +293,13 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
     if ft.is_socket() {
         return Ok(());
     }
+    // A directory's contents under "./" and the root's under "/" keep those names.
+    let verbatim = name.as_os_str().as_bytes().starts_with(b"./") || name.has_root();
     if ft.is_file() {
         let mut h = tar::Header::new_gnu();
         h.set_metadata(meta);
         let mut f = fs::File::open(src)?;
-        if name.as_os_str().as_bytes().starts_with(b"./") {
+        if verbatim {
             return append_contents(b, &mut h, name, None, &mut f);
         }
         return b.append_data(&mut h, name, &mut f);
@@ -275,7 +310,7 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
         h.set_size(0);
         if ft.is_symlink() {
             let link = fs::read_link(src)?;
-            if name.as_os_str().as_bytes().starts_with(b"./") {
+            if verbatim {
                 return append_contents(b, &mut h, name, Some(&link), io::empty());
             }
             return b.append_link(&mut h, name, link);
@@ -285,7 +320,7 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
             h.set_device_major(libc::major(rdev))?;
             h.set_device_minor(libc::minor(rdev))?;
         }
-        if name.as_os_str().as_bytes().starts_with(b"./") {
+        if verbatim {
             return append_contents(b, &mut h, name, None, io::empty());
         }
         return b.append_data(&mut h, name, io::empty());
@@ -293,9 +328,10 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
     Ok(())
 }
 
-/// tar's path setter drops "./". Docker's client needs that prefix when it
-/// rebases a directory-contents archive into a destination that does not exist.
-/// These paths come from append_tree's "." plus directory entry names.
+/// tar's path setter drops "./" and refuses a leading "/". Docker's client
+/// needs "./" when it rebases a directory-contents archive into a destination
+/// that does not exist, and puts the new name in front of the root's "/".
+/// These paths come from append_tree's "." or "/" plus directory entry names.
 fn append_contents(b: &mut tar::Builder<impl Write>, h: &mut tar::Header, name: &std::path::Path, link: Option<&std::path::Path>, data: impl Read) -> io::Result<()> {
     fn field(b: &mut tar::Builder<impl Write>, slot: &mut [u8], bytes: &[u8], kind: u8) -> io::Result<()> {
         if bytes.len() > slot.len() {
@@ -501,6 +537,55 @@ mod tests {
             assert_eq!(entry.link_name_bytes().unwrap().as_ref(), link.as_bytes());
             assert!(entries.next().is_none());
         }
+    }
+
+    #[test]
+    fn archived_paths_resolve_dots_by_name_and_stats_keep_them() {
+        for (path, cleaned, name) in [
+            ("/t/dir", "/t/dir", "dir"),
+            ("/t/dir/", "/t/dir/", "dir"),
+            ("/t/dir/.", "/t/dir/.", "."),
+            ("/t/dir/./", "/t/dir/./", "."),
+            ("/t/dir//.", "/t/dir/.", "."),
+            ("/t/dir/sub/..", "/t/dir", "dir"),
+            ("/t/dir/sub/../", "/t/dir/", "dir"),
+            ("/t/dir/sub/../.", "/t/dir/.", "."),
+            ("/t/link/../dir", "/t/dir", "dir"),
+            ("t/dir/..", "/t", "t"),
+            ("../../t/dir/.", "/t/dir/.", "."),
+            ("/", "/", "/"),
+            ("//", "/", "/"),
+            ("/.", "/.", "."),
+            ("/..", "/", "/"),
+            ("/etc/..", "/", "/"),
+            ("/etc/../.", "/.", "."),
+            (".", "/.", "."),
+            ("..", "/", "/"),
+        ] {
+            assert_eq!(clean(path), cleaned, "{path}");
+            assert_eq!(base(cleaned), name, "{path}");
+        }
+        for (path, name) in [("/t/dir/sub/..", ".."), ("/t/dir/sub/../", ".."), ("/t/dir/.", "."), ("/t/dir/", "dir"), ("/", "/"), ("//", "/")] {
+            assert_eq!(base(path), name, "{path}");
+        }
+    }
+
+    #[test]
+    fn root_and_contents_entries_keep_their_prefix() {
+        let root = std::path::Path::new("/");
+        let meta = fs::symlink_metadata(root).unwrap();
+        let names = ["/", "/etc", ".", "./etc", "etc"];
+        let mut bytes = Vec::new();
+        {
+            let mut archive = tar::Builder::new(&mut bytes);
+            for name in names {
+                append_one(&mut archive, root, std::path::Path::new(name), &meta).unwrap();
+            }
+            archive.finish().unwrap();
+        }
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let got: Vec<_> = archive.entries().unwrap().map(|entry| String::from_utf8(entry.unwrap().path_bytes().into_owned()).unwrap()).collect();
+        assert_eq!(got, names);
     }
 
     #[test]
