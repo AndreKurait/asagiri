@@ -55,12 +55,12 @@ impl Request {
     }
 
     pub fn version_error(&self) -> Option<String> {
+        use std::cmp::Ordering::{Greater, Less};
         let version = self.api_version.as_deref()?;
-        let requested = parse_version(version)?;
-        if requested > parse_version(API_VERSION)? {
-            Some(format!("client version {version} is too new. Maximum supported API version is {API_VERSION}"))
-        } else if requested < parse_version(MIN_API_VERSION)? {
+        if compare_versions(version, MIN_API_VERSION) == Less {
             Some(format!("client version {version} is too old. Minimum supported API version is {MIN_API_VERSION}, please upgrade your client to a newer version"))
+        } else if compare_versions(version, API_VERSION) == Greater {
+            Some(format!("client version {version} is too new. Maximum supported API version is {API_VERSION}"))
         } else {
             None
         }
@@ -212,18 +212,30 @@ impl Read for Body<'_> {
 fn strip_version(path: &str) -> &str {
     if let Some(rest) = path.strip_prefix("/v")
         && let Some(i) = rest.find('/')
-            && parse_version(&rest[..i]).is_some() {
+            && i > 0 && rest[..i].bytes().all(|b| b.is_ascii_digit() || b == b'.') {
                 return &rest[i..];
             }
     path
 }
 
-fn parse_version(version: &str) -> Option<(u32, u32)> {
-    let (major, minor) = version.split_once('.')?;
-    if major.is_empty() || minor.is_empty() || !major.bytes().chain(minor.bytes()).all(|b| b.is_ascii_digit()) {
-        return None;
+/// Orders two versions the way Docker does: number by number between the
+/// dots, a missing or empty one counting as 0, so `1.47.0` is `1.47` and
+/// `1.` is `1.0`.
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    // A prefix holds digits and dots only: a number that does not fit is
+    // simply larger than any real version.
+    let number = |part: Option<&str>| part.filter(|p| !p.is_empty()).map_or(0, |p| p.parse::<u64>().unwrap_or(u64::MAX));
+    let (mut a, mut b) = (a.split('.'), b.split('.'));
+    loop {
+        let (x, y) = (a.next(), b.next());
+        if x.is_none() && y.is_none() {
+            return std::cmp::Ordering::Equal;
+        }
+        let order = number(x).cmp(&number(y));
+        if order.is_ne() {
+            return order;
+        }
     }
-    Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -386,14 +398,58 @@ mod tests {
         assert_eq!(strip_version("/v1.47/containers/json"), "/containers/json");
         assert_eq!(strip_version("/_ping"), "/_ping");
         assert_eq!(strip_version("/volumes"), "/volumes");
-        for path in ["/v/info", "/v1/info", "/v1..47/info", "/v+1.47/info"] {
+        for path in ["/v1/info", "/v1./info", "/v.47/info", "/v./info", "/v1..47/info", "/v1.47.0/info"] {
+            assert_eq!(strip_version(path), "/info");
+        }
+        for path in ["/v/info", "/v1.x/info", "/V1.47/info", "/v+1.47/info", "/v1.47"] {
             assert_eq!(strip_version(path), path);
         }
     }
 
     #[test]
+    fn versions_compare_number_by_number() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        for (a, b, order) in [
+            ("1.47", "1.47", Equal),
+            ("1.47.0", "1.47", Equal),
+            ("1.047", "1.47", Equal),
+            ("01.47", "1.47", Equal),
+            ("1.47.1", "1.47", Greater),
+            ("1.100", "1.47", Greater),
+            ("2", "1.47", Greater),
+            ("1.99999999999999999999", "1.47", Greater),
+            ("99999999999999999999.1", "1.47", Greater),
+            ("1.9", "1.24", Less),
+            ("1", "1.24", Less),
+            ("1.", "1.24", Less),
+            (".47", "1.24", Less),
+            (".", "1.24", Less),
+            ("1..47", "1.24", Less),
+        ] {
+            assert_eq!(compare_versions(a, b), order, "{a} against {b}");
+            assert_eq!(compare_versions(b, a), order.reverse(), "{b} against {a}");
+        }
+    }
+
+    #[test]
     fn rejects_outside_the_advertised_version_range_without_reading_a_body() {
-        for (version, rejected) in [("1.23", true), ("1.24", false), (API_VERSION, false), ("1.48", true), ("2.0", true)] {
+        for (version, rejected) in [
+            ("1.23", true),
+            ("1.24", false),
+            (API_VERSION, false),
+            ("1.47.0", false),
+            ("1.24.0", false),
+            ("1.47.1", true),
+            ("1.48", true),
+            ("2.0", true),
+            ("1", true),
+            ("2", true),
+            ("1.", true),
+            (".47", true),
+            (".", true),
+            ("1..47", true),
+            ("1.99999999999999999999", true),
+        ] {
             let (mut client, server) = UnixStream::pair().unwrap();
             let body = if rejected { "Content-Length: 100\r\nExpect: 100-continue\r\n" } else { "" };
             client.write_all(format!("GET /v{version}/info HTTP/1.1\r\n{body}\r\n").as_bytes()).unwrap();
@@ -404,6 +460,23 @@ mod tests {
             assert_eq!(request.version_error().is_some(), rejected, "{version}");
         }
         assert!(Request::internal("GET", "/info", &[], Vec::new()).version_error().is_none());
+    }
+
+    #[test]
+    fn version_errors_read_as_dockers_do() {
+        let error = |target: &str| {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
+            read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap().version_error()
+        };
+        assert_eq!(error("/v1.23/info").as_deref(), Some("client version 1.23 is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
+        assert_eq!(error("/v1./info").as_deref(), Some("client version 1. is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
+        assert_eq!(error("/v2/info").as_deref(), Some("client version 2 is too new. Maximum supported API version is 1.47"));
+        assert_eq!(error("/v1.47.1/info").as_deref(), Some("client version 1.47.1 is too new. Maximum supported API version is 1.47"));
+        // Not a version prefix at all: the router answers these with 404.
+        for target in ["/v/info", "/v1.x/info", "/V1.47/info", "/info"] {
+            assert_eq!(error(target), None, "{target}");
+        }
     }
 
     #[test]
