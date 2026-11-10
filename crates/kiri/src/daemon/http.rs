@@ -71,13 +71,13 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         };
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-        let path = strip_version(raw_path).to_owned();
+        let path = percent_decode(strip_version(raw_path), false);
         let query: Vec<(String, String)> = raw_query
             .split('&')
             .filter(|kv| !kv.is_empty())
             .map(|kv| {
                 let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-                (percent_decode(k), percent_decode(v))
+                (percent_decode(k, true), percent_decode(v, true))
             })
             .collect();
         let mut headers = Vec::new();
@@ -200,14 +200,14 @@ fn strip_version(path: &str) -> &str {
     path
 }
 
-fn percent_decode(s: &str) -> String {
+fn percent_decode(s: &str, form: bool) -> String {
     let b = s.as_bytes();
     let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         match b[i] {
-            b'+' => out.push(b' '),
+            b'+' if form => out.push(b' '),
             b'%' if i + 2 < b.len() && hex(b[i + 1]).is_some() && hex(b[i + 2]).is_some() => {
                 out.push(hex(b[i + 1]).unwrap_or(0) << 4 | hex(b[i + 2]).unwrap_or(0));
                 i += 2;
@@ -216,7 +216,7 @@ fn percent_decode(s: &str) -> String {
         }
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 fn reason(status: u16) -> &'static str {
@@ -364,9 +364,20 @@ mod tests {
 
     #[test]
     fn decodes_query_values() {
-        assert_eq!(percent_decode("docker.io%2Flibrary%2Falpine"), "docker.io/library/alpine");
-        assert_eq!(percent_decode("a+b"), "a b");
-        assert_eq!(percent_decode("100%"), "100%");
-        assert_eq!(percent_decode("%7B%22a%22%3A1%7D"), "{\"a\":1}");
+        assert_eq!(percent_decode("docker.io%2Flibrary%2Falpine", true), "docker.io/library/alpine");
+        assert_eq!(percent_decode("a+b", true), "a b");
+        assert_eq!(percent_decode("100%", true), "100%");
+        assert_eq!(percent_decode("%7B%22a%22%3A1%7D", true), "{\"a\":1}");
+    }
+
+    #[test]
+    fn paths_decode_escapes_without_form_plus_conversion() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(b"GET /v1.47/images/registry%3A5000%2Frepository:tag+suffix/json?name=a+b HTTP/1.1\r\n\r\n").unwrap();
+        let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+        assert_eq!(request.path, "/images/registry:5000/repository:tag+suffix/json");
+        assert_eq!(request.query("name"), Some("a b"));
+        assert_eq!(percent_decode("/%E2%82%AC+%2B", false), "/€++");
+        assert_eq!(percent_decode("/%FF", false), "/\u{fffd}");
     }
 }
