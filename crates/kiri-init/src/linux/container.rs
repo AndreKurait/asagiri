@@ -803,9 +803,11 @@ pub struct LateDns {
 
 impl LateDns {
     /// Names 127.0.0.11 in the container's resolv.conf. A file the container
-    /// has changed since start is left as it is, as Docker leaves it.
+    /// has changed since start is left as it is, as Docker leaves it; so is
+    /// one that cannot be read. Compared as bytes: what the container wrote
+    /// there need not be text.
     pub fn switch(&self) -> io::Result<()> {
-        if fs::read_to_string(&self.file)? == self.written {
+        if fs::read(&self.file).is_ok_and(|now| now == self.written.as_bytes()) {
             // In place: the container has this very file bound.
             fs::write(&self.file, &self.embedded)?;
         }
@@ -1696,6 +1698,13 @@ mod tests {
             std::fs::write(&file, "nameserver 192.0.2.53\n").unwrap();
             l.switch().unwrap();
             assert_eq!(std::fs::read_to_string(&file).unwrap(), "nameserver 192.0.2.53\n");
+            // Nor one that is not text, or not there.
+            std::fs::write(&file, b"# caf\xe9\nnameserver 192.0.2.53\n").unwrap();
+            l.switch().unwrap();
+            assert_eq!(std::fs::read(&file).unwrap(), b"# caf\xe9\nnameserver 192.0.2.53\n");
+            std::fs::remove_file(&file).unwrap();
+            l.switch().unwrap();
+            assert!(!file.exists());
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
