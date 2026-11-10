@@ -1669,8 +1669,10 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "IPv6Gateway": v6.map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default(),
                 "GlobalIPv6Address": ip6.map(super::network::ip6_str).unwrap_or_default(),
                 "GlobalIPv6PrefixLen": v6.map_or(0, |v| v.prefix),
-                // The names the network's DNS answers; the default bridge has none.
-                "DNSNames": if net.is_some_and(|n| !n.builtin()) { json!(super::engine::endpoint_names(&c.name, aliases, &c.id, &c.spec.hostname)) } else { Value::Null },
+                // The names the network's DNS answers; the default bridge has
+                // none, and Docker lists none on the network a container was
+                // created on until its first start.
+                "DNSNames": if net.is_some_and(|n| !n.builtin()) && (c.started.is_some() || name != c.spec.network_mode) { json!(super::engine::endpoint_names(&c.name, aliases, &c.id, &c.spec.hostname)) } else { Value::Null },
             }),
         );
     };
