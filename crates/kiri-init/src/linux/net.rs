@@ -74,6 +74,9 @@ pub struct Plug {
     /// A macvlan network, with the kernel's number for its mode: the
     /// interface is a macvlan link, not a veth on a bridge.
     pub macvlan: Option<u32>,
+    /// An ipvlan network, with the kernel's numbers for its mode and its
+    /// flag: the interface is an ipvlan link.
+    pub ipvlan: Option<(u16, u16)>,
 }
 
 impl Plug {
@@ -83,7 +86,15 @@ impl Plug {
             internal: k::values(opts, k::INTERNAL).next().is_some(),
             no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(),
             macvlan: k::values(opts, k::MACVLAN).next().map(macvlan_mode),
+            ipvlan: k::values(opts, k::IPVLAN).next().map(|mode| (ipvlan_mode(mode), ipvlan_flag(k::values(opts, k::IPVLAN_FLAG).next().unwrap_or_default()))),
         }
+    }
+
+    /// A macvlan or ipvlan network: the interface is a link of the
+    /// container's own on the network's link, with no bridge, no gateway
+    /// and no default route.
+    pub fn own_link(&self) -> bool {
+        self.macvlan.is_some() || self.ipvlan.is_some()
     }
 }
 
@@ -98,9 +109,29 @@ fn macvlan_mode(name: &str) -> u32 {
     }
 }
 
-/// A container's macvlan link. It has no side outside the container to
-/// delete it by, as a veth has: it is kept by the namespace it is in and
-/// its name there.
+/// The kernel's `IPVLAN_MODE_*` for Docker's `ipvlan_mode`; `l2`, the
+/// default, for anything else.
+fn ipvlan_mode(name: &str) -> u16 {
+    match name {
+        "l3" => 1,
+        "l3s" => 2,
+        _ => 0,
+    }
+}
+
+/// The kernel's `IPVLAN_F_*` for Docker's `ipvlan_flag`; none, which is
+/// `bridge`, the default, for anything else.
+fn ipvlan_flag(name: &str) -> u16 {
+    match name {
+        "private" => 1,
+        "vepa" => 2,
+        _ => 0,
+    }
+}
+
+/// A container's macvlan or ipvlan link. It has no side outside the
+/// container to delete it by, as a veth has: it is kept by the namespace it
+/// is in and its name there.
 #[derive(Debug, Clone)]
 pub struct Macvlan {
     netns: std::sync::Arc<std::fs::File>,
@@ -640,13 +671,13 @@ fn ipv6_forwarding(on: bool) -> io::Result<()> {
 /// Every bridge this agent brought up, for `remove_bridges`.
 static MADE_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-/// Every link this agent made for a macvlan network, for
+/// Every link this agent made for a macvlan or ipvlan network, for
 /// `remove_host_network`. Not among the bridges: nothing is forwarded
 /// through one, so the forward filter has no rule for it.
 static MADE_PARENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-/// The link a macvlan network's interfaces are made on, up: a dummy link
-/// of the network's own, as Docker makes for a macvlan network without a
+/// The link a macvlan or ipvlan network's interfaces are made on, up: a
+/// dummy link of the network's own, as Docker makes for one without a
 /// parent. Made when it is not there, and brought up each time: one that
 /// did not come up the first time is not left down.
 fn macvlan_parent(nl: &mut Netlink, name: &str) -> io::Result<i32> {
@@ -714,29 +745,28 @@ pub fn attach_container(
 /// IPv6-only network `ip` is only the name the container is kept by (its
 /// MAC is made from it): neither the interface nor the bridge gets it.
 ///
-/// On a macvlan network `bridge` names the link the interface is made on,
-/// as a macvlan link: there is no bridge, no gateway and so no default
-/// route, as with a Docker macvlan network that has no parent. The link is
+/// On a macvlan or ipvlan network `bridge` names the link the interface is
+/// made on, as a link of that kind: there is no bridge, no gateway and so
+/// no default route, as with such a Docker network that has no parent. An
+/// ipvlan link has its parent's MAC, whatever was asked for. The link is
 /// returned, for the caller to keep with the container.
 #[allow(clippy::too_many_arguments)]
 pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<Option<Macvlan>> {
-    let Plug { internal, no_ipv4, macvlan } = plug;
-    let internal = internal || macvlan.is_some();
+    let Plug { internal, no_ipv4, macvlan, ipvlan } = plug;
+    let internal = internal || plug.own_link();
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
     let mut host = Netlink::open(libc::NETLINK_ROUTE)?;
-    let parent = match macvlan {
-        Some(_) => macvlan_parent(&mut host, bridge)?,
-        None => bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?,
-    };
+    let parent = if plug.own_link() { macvlan_parent(&mut host, bridge)? } else { bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)? };
     let netns = std::sync::Arc::new(std::fs::File::open(format!("/proc/{pid}/ns/net"))?);
     // A stopped container's link may still hold this address and MAC.
     delete_retired(&mut host);
     let ifname = format!("eth{n}");
-    match macvlan {
-        Some(mode) => netlink::create_macvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mac, mode)?,
-        None => netlink::create_veth(&mut host, host_ifname, parent, &netns, CONTAINER_MTU, &ifname, mac)?,
+    match (macvlan, ipvlan) {
+        (Some(mode), _) => netlink::create_macvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mac, mode)?,
+        (None, Some((mode, flags))) => netlink::create_ipvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mode, flags)?,
+        (None, None) => netlink::create_veth(&mut host, host_ifname, parent, &netns, CONTAINER_MTU, &ifname, mac)?,
     }
-    let link = macvlan.map(|_| Macvlan { netns: netns.clone(), ifname: ifname.clone() });
+    let link = plug.own_link().then(|| Macvlan { netns: netns.clone(), ifname: ifname.clone() });
     let set = (|| -> io::Result<()> {
         // By name: a new namespace may have tunl0, gre0 … before it.
         let index = netlink::index_in(&netns, &ifname)?;
@@ -763,8 +793,8 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
         Ok(())
     })();
     // A veth that is left has a name in the host namespace, which the
-    // next try or the container's end clears away. A macvlan link has
-    // none, and would keep its name in the container.
+    // next try or the container's end clears away. A macvlan or ipvlan
+    // link has none, and would keep its name in the container.
     if let (Err(_), Some(m)) = (&set, &link) {
         let _ = unplug(m);
     }
@@ -794,7 +824,7 @@ fn delete_retired(nl: &mut Netlink) {
     }
 }
 
-/// Deletes a container's macvlan link, in the namespace it is in.
+/// Deletes a container's macvlan or ipvlan link, in the namespace it is in.
 pub fn unplug(link: &Macvlan) -> io::Result<()> {
     let mut inner = Netlink::open_in(&link.netns)?;
     netlink::delete_link(&mut inner, &link.ifname)
@@ -845,6 +875,29 @@ mod tests {
         kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
         assert_eq!(Ip6::from_opts(net.opts), None);
+    }
+
+    #[test]
+    fn an_ipvlan_network_is_told_by_its_options() {
+        let plug = |opts: &[&str]| {
+            let mut buf = Vec::new();
+            kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kirii2", [10, 5, 0, 2], 24, [0; 4], &[], opts);
+            let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+            Plug::from_opts(net.opts)
+        };
+        assert_eq!(plug(&[]).ipvlan, None, "a bridge network");
+        assert!(!plug(&["internal=1"]).own_link());
+        assert_eq!(plug(&["macvlan=bridge"]).ipvlan, None);
+        assert!(plug(&["macvlan=bridge"]).own_link());
+        for (mode, number) in [("l2", 0), ("l3", 1), ("l3s", 2)] {
+            assert_eq!(plug(&[format!("ipvlan={mode}").as_str()]).ipvlan, Some((number, 0)), "{mode}");
+        }
+        for (flag, number) in [("bridge", 0), ("private", 1), ("vepa", 2)] {
+            assert_eq!(plug(&["ipvlan=l2", format!("ipvlan_flag={flag}").as_str()]).ipvlan, Some((0, number)), "{flag}");
+        }
+        assert!(plug(&["ipvlan=l3", "ipvlan_flag=private"]).own_link());
+        // The flag alone makes no ipvlan network.
+        assert_eq!(plug(&["ipvlan_flag=private"]).ipvlan, None);
     }
 
     #[test]

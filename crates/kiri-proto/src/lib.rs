@@ -429,6 +429,12 @@ pub mod net_opts {
     /// link on the network's own link, which `bridge` names here: no
     /// bridge, no gateway and no default route.
     pub const MACVLAN: &str = "macvlan";
+    /// `ipvlan=l2`: an ipvlan network (`--driver ipvlan`), with its mode
+    /// (`-o ipvlan_mode`). As with `macvlan`, the container's interface is
+    /// a link of that kind on the network's own link.
+    pub const IPVLAN: &str = "ipvlan";
+    /// `ipvlan_flag=bridge`: an ipvlan network's `-o ipvlan_flag`.
+    pub const IPVLAN_FLAG: &str = "ipvlan_flag";
 
     /// The values given for `key`, in order.
     pub fn values<'a>(opts: super::StrList<'a>, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {

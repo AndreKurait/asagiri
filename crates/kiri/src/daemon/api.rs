@@ -1647,9 +1647,9 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
         let ip = ip.filter(|_| running && !net.is_some_and(|n| n.no_ipv4));
         let ip6 = ip6.filter(|_| running);
-        // A macvlan network is no way out, whatever gateway it was given:
-        // a container has none there, as Docker shows it.
-        let routed = net.filter(|n| n.driver != "macvlan");
+        // A macvlan or ipvlan network is no way out, whatever gateway it
+        // was given: a container has none there, as Docker shows it.
+        let routed = net.filter(|n| !n.own_link());
         let gateway = match (ip, routed) {
             (Some(_), Some(n)) if n.gateway != [0; 4] => super::network::ip_str(n.gateway),
             _ => String::new(),
@@ -1875,8 +1875,8 @@ fn network_settings(c: &Container, nets: &[super::network::Network]) -> Value {
     let v6 = |name: &str, ip6: Option<[u8; 16]>| {
         let net = nets.iter().find(|n| n.name == name);
         let n = net.and_then(|n| n.v6.as_ref()).filter(|_| ip6.is_some());
-        // None on a macvlan network, as in the endpoints.
-        let gateway = n.filter(|_| net.is_some_and(|n| n.driver != "macvlan")).map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default();
+        // None on a macvlan or ipvlan network, as in the endpoints.
+        let gateway = n.filter(|_| net.is_some_and(|n| !n.own_link())).map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default();
         (ip6.map(super::network::ip6_str).unwrap_or_default(), n.map_or(0, |v| v.prefix), gateway)
     };
     let mut networks = serde_json::Map::new();
@@ -1931,7 +1931,7 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
     let ipam = if n.bridge.is_empty() {
         json!([])
     } else {
-        // A macvlan network has a gateway only when it was given one.
+        // A macvlan or ipvlan network has a gateway only when it was given one.
         let mut c = json!({"Subnet": n.subnet_str()});
         if n.gateway != [0; 4] {
             c["Gateway"] = super::network::ip_str(n.gateway).into();
@@ -2005,15 +2005,16 @@ fn network_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
 fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let name = body["Name"].as_str().unwrap_or_default();
-    let macvlan = match body["Driver"].as_str().unwrap_or("bridge") {
-        "" | "bridge" => false,
-        "macvlan" => true,
-        d => return Err(Error::BadRequest(format!("Kiri supports only bridge and macvlan networks, not {d}"))),
+    let driver = match body["Driver"].as_str().unwrap_or("bridge") {
+        "" => "bridge",
+        d @ ("bridge" | "macvlan" | "ipvlan") => d,
+        d => return Err(Error::BadRequest(format!("Kiri supports only bridge, macvlan and ipvlan networks, not {d}"))),
     };
     let (ipam, ipam6) = super::network::parse_ipam_both(&body["IPAM"]).map_err(Error::BadRequest)?;
     let settings = super::network::Settings {
         labels: body["Labels"].clone(),
-        macvlan,
+        macvlan: driver == "macvlan",
+        ipvlan: driver == "ipvlan",
         internal: body["Internal"].as_bool().unwrap_or(false),
         attachable: body["Attachable"].as_bool().unwrap_or(false),
         options: body["Options"].clone(),
