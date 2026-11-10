@@ -337,6 +337,13 @@ pub fn end(w: &mut impl Write) -> io::Result<()> {
     w.flush()
 }
 
+/// Accepts a WebSocket upgrade. Nothing but the handshake, as Docker sends
+/// it: no body follows a 101, so it carries no Content-Type or Content-Length.
+pub fn upgrade_websocket(w: &mut impl Write, accept: &str) -> io::Result<()> {
+    write!(w, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n")?;
+    w.flush()
+}
+
 /// Switches the connection to Docker's raw stream for `attach`. After this
 /// the connection carries multiplexed output frames until it closes.
 pub fn upgrade(w: &mut impl Write) -> io::Result<()> {
@@ -363,6 +370,13 @@ mod tests {
         assert_eq!(strip_version("/v1.47/containers/json"), "/containers/json");
         assert_eq!(strip_version("/_ping"), "/_ping");
         assert_eq!(strip_version("/volumes"), "/volumes");
+    }
+
+    #[test]
+    fn websocket_upgrade_is_the_handshake_alone() {
+        let mut out = Vec::new();
+        upgrade_websocket(&mut out, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=").unwrap();
+        assert_eq!(out, b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
     }
 
     #[test]

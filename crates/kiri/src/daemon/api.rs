@@ -2050,13 +2050,13 @@ fn wait(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
 
 fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     use super::websocket::Output;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
     let (want_out, want_err, want_in) = (req.flag("stdout"), req.flag("stderr"), req.flag("stdin"));
     let keys = match super::detach::Keys::parse(req.query("detachKeys")) {
         Ok(keys) => keys,
         Err(message) => { http::error(w, 400, message)?; return Ok(Next::KeepAlive); }
     };
-    let (id, tty) = match engine.with(key, |c| (c.id.clone(), c.spec.tty)) {
+    let (id, tty, open_stdin, close) = match engine.with(key, |c| (c.id.clone(), c.spec.tty, c.spec.open_stdin, c.spec.stdin_once && !c.spec.tty)) {
         Ok(v) => v,
         Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
     };
@@ -2072,44 +2072,46 @@ fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut UnixStream, r:
             Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
         }
     } else { Output::Empty };
-    let stopped = Arc::new(AtomicBool::new(false));
+    // As with Docker, only a container created with its stdin open takes
+    // input, and only its input can end the session before the output does.
+    let stopped = (want_in && req.flag("stream") && open_stdin).then(|| Arc::new(AtomicBool::new(false)));
     http::upgrade(w)?;
-    if want_in && req.flag("stream") {
-        let close = engine.with(&id, |c| c.spec.stdin_once && !c.spec.tty).unwrap_or(false);
+    if let Some(stopped) = &stopped {
         forward_stdin(engine.clone(), id, r, close, tty.then_some(keys), Some(stopped.clone()))?;
     }
     let mut result = Ok(());
-    output.pump(&stopped, |stream, data| {
+    output.pump(stopped.as_deref(), |stream, data| {
         let wanted = match stream { Stream::Stdout => want_out, Stream::Stderr => want_err };
         if !wanted { return Ok(()); }
         let sent = if tty { io::Write::write_all(w, data) } else { http::mux_frame(w, stream as u8, data) };
         if let Err(e) = sent { result = Err(e); return Err(io::Error::new(io::ErrorKind::BrokenPipe, "attach closed")); }
         Ok(())
     });
-    stopped.store(true, Ordering::Relaxed);
     let _ = w.shutdown(std::net::Shutdown::Both);
     result?;
     Ok(Next::Close)
 }
 
 /// Copies the client's side of a hijacked connection into the process's
-/// stdin, on its own thread, ending with CloseStdin at EOF.
+/// stdin, on its own thread. At EOF, `close` ends the process's stdin too;
+/// otherwise, as for a detach, `stopped` is set and the connection shut down,
+/// which ends the session and leaves stdin open for the next one.
 fn forward_stdin(engine: Arc<Engine>, id: String, r: &mut BufReader<UnixStream>, close: bool, mut keys: Option<super::detach::Keys>, stopped: Option<Arc<std::sync::atomic::AtomicBool>>) -> io::Result<()> {
     // Anything the client sent right behind the request is already buffered.
     let early = r.buffer().to_vec();
     let mut stream = r.get_ref().try_clone()?;
     std::thread::Builder::new().name("kiri-stdin".into()).spawn(move || {
         let cancel = stream.try_clone().ok();
+        let end = || {
+            if let Some(stop) = &stopped { stop.store(true, std::sync::atomic::Ordering::Relaxed); }
+            if let Some(cancel) = &cancel { let _ = cancel.shutdown(std::net::Shutdown::Both); }
+        };
         let mut send = |data: &[u8]| -> bool {
             let Some(keys) = &mut keys else { return data.is_empty() || engine.input(&id, data).is_ok(); };
             let (bytes, detached) = keys.feed(data);
             if !bytes.is_empty() && engine.input(&id, &bytes).is_err() { return false; }
-            if detached {
-                if let Some(stop) = &stopped { stop.store(true, std::sync::atomic::Ordering::Relaxed); }
-                if let Some(cancel) = &cancel { let _ = cancel.shutdown(std::net::Shutdown::Both); }
-                return false;
-            }
-            true
+            if detached { end(); }
+            !detached
         };
         if !send(&early) { return; }
         let mut buf = vec![0u8; 32 * 1024];
@@ -2129,6 +2131,8 @@ fn forward_stdin(engine: Arc<Engine>, id: String, r: &mut BufReader<UnixStream>,
         }
         if close {
             let _ = engine.close_stdin(&id);
+        } else {
+            end();
         }
     })?;
     Ok(())

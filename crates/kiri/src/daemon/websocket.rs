@@ -55,18 +55,24 @@ pub(super) fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut Uni
     let tty = engine.with(&id, |c| c.spec.tty).unwrap_or(false);
     let mut detached = false;
     let accept = tungstenite::handshake::derive_accept_key(key_header.as_bytes());
-    http::respond_with(w, 101, "application/octet-stream",
-        &format!("Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {accept}\r\n"), b"")?;
+    http::upgrade_websocket(w, &accept)?;
     let early = r.buffer().to_vec();
     let minor = req.api_version.as_deref().and_then(|v| v.split_once('.')).and_then(|(_, n)| n.parse::<u32>().ok()).unwrap_or(48);
-    let stdin = minor < 42 || req.flag("stdin");
+    // Input belongs to the live stream: a replay of the logs alone takes none.
+    let stdin = req.flag("stream") && (minor < 42 || req.flag("stdin"));
+    // Input the container no longer takes is dropped, and the session goes
+    // on: what the container wrote must still reach the client.
+    let mut refused = false;
     let result = bridge(w.try_clone()?, early, output, minor < 42 || req.flag("stdout"), minor < 42 || req.flag("stderr"), minor >= 28, |data| {
-        if !stdin { return Ok(()); }
-        if !tty { return engine.input(&id, data); }
+        if !stdin || refused { return true; }
+        if !tty {
+            refused = engine.input(&id, data).is_err();
+            return true;
+        }
         let (bytes, stop) = detach.feed(data);
-        if !bytes.is_empty() { engine.input(&id, &bytes)?; }
-        if stop { detached = true; return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "detached")); }
-        Ok(())
+        if !bytes.is_empty() { refused = engine.input(&id, &bytes).is_err(); }
+        detached = stop;
+        !stop
     });
     if stdin && !detached {
         let pending = detach.finish();
@@ -75,7 +81,7 @@ pub(super) fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut Uni
     if stdin && !detached && engine.with(&id, |c| c.spec.stdin_once && !c.spec.tty).unwrap_or(false) {
         let _ = engine.close_stdin(&id);
     }
-    if !detached { result?; }
+    result?;
     Ok(Next::Close)
 }
 
@@ -96,35 +102,41 @@ fn forward(mut pipe: UnixStream, output: Output, stop: &AtomicBool, stdout: bool
         }
         Ok(())
     };
-    output.pump(stop, &mut send);
+    output.pump(Some(stop), &mut send);
 }
 
 impl Output {
-    pub(super) fn pump(self, stop: &AtomicBool, mut send: impl FnMut(Stream, &[u8]) -> io::Result<()>) {
-    match self {
-        Self::Live(rx) => while !stop.load(Ordering::Relaxed) {
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok((stream, bytes)) => if send(stream, &bytes).is_err() { break; },
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+    /// Sends the output to `send` until it ends, `send` fails or `stop` is
+    /// set. `stop` is polled, so a caller that never cancels passes none and
+    /// sleeps until there is output.
+    pub(super) fn pump(self, stop: Option<&AtomicBool>, mut send: impl FnMut(Stream, &[u8]) -> io::Result<()>) {
+        fn next<T>(rx: &mpsc::Receiver<T>, stop: Option<&AtomicBool>) -> Option<T> {
+            let Some(stop) = stop else { return rx.recv().ok() };
+            while !stop.load(Ordering::Relaxed) {
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(item) => return Some(item),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
             }
-        },
-        Self::Logs(logs) => {
-            for record in logs.past.tail(None) {
-                if stop.load(Ordering::Relaxed) || send(record.stream, &record.data).is_err() { return; }
-            }
-            if let Some(rx) = logs.live {
-                while !stop.load(Ordering::Relaxed) {
-                    match rx.recv_timeout(Duration::from_millis(100)) {
-                        Ok(record) => if send(record.stream, &record.data).is_err() { break; },
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+            None
+        }
+        match self {
+            Self::Live(rx) => while let Some((stream, bytes)) = next(&rx, stop) {
+                if send(stream, &bytes).is_err() { break; }
+            },
+            Self::Logs(logs) => {
+                for record in logs.past.tail(None) {
+                    if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) || send(record.stream, &record.data).is_err() { return; }
+                }
+                if let Some(rx) = logs.live {
+                    while let Some(record) = next(&rx, stop) {
+                        if send(record.stream, &record.data).is_err() { break; }
                     }
                 }
             }
+            Self::Empty => {}
         }
-        Self::Empty => {}
-    }
     }
 }
 
@@ -132,7 +144,17 @@ fn blocked(error: &tungstenite::Error) -> bool {
     matches!(error, tungstenite::Error::Io(e) if e.kind() == io::ErrorKind::WouldBlock)
 }
 
-fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stderr: bool, binary: bool, mut input: impl FnMut(&[u8]) -> io::Result<()>) -> io::Result<()> {
+/// Starts the closing handshake; the frame may still be waiting to be flushed.
+fn close(ws: &mut WebSocket<UnixStream>) -> io::Result<()> {
+    match ws.close(None) {
+        Err(e) if !blocked(&e) => Err(io::Error::other(e)),
+        _ => Ok(()),
+    }
+}
+
+/// Carries `output` to the client and the client's messages to `input`, which
+/// returns false to end the session (a detach).
+fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stderr: bool, binary: bool, mut input: impl FnMut(&[u8]) -> bool) -> io::Result<()> {
     let (mut incoming, outgoing) = UnixStream::pair()?;
     let stop = Stop(Arc::new(AtomicBool::new(false)));
     let stopping = stop.0.clone();
@@ -145,14 +167,19 @@ fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stde
         // its HTTP upgrade request.
         if !closing {
             loop {
-                match ws.read() {
-                    Ok(Message::Binary(bytes)) => input(&bytes)?,
-                    Ok(Message::Text(text)) => input(text.as_bytes())?,
+                let more = match ws.read() {
+                    Ok(Message::Binary(bytes)) => input(&bytes),
+                    Ok(Message::Text(text)) => input(text.as_bytes()),
                     Ok(Message::Close(_)) => { closing = true; break; }
-                    Ok(_) => {} // tungstenite queues replies to Ping automatically.
+                    Ok(_) => true, // tungstenite queues replies to Ping automatically.
                     Err(e) if blocked(&e) => break,
                     Err(tungstenite::Error::ConnectionClosed) => return Ok(()),
                     Err(e) => return Err(io::Error::other(e)),
+                };
+                if !more {
+                    closing = true;
+                    close(&mut ws)?;
+                    break;
                 }
             }
         }
@@ -163,8 +190,11 @@ fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stde
             Err(tungstenite::Error::ConnectionClosed) => return Ok(()),
             Err(e) => return Err(io::Error::other(e)),
         };
+        // Once closing, nothing more is read: waiting for input as well would
+        // spin on whatever the client has sent since.
+        let events = if closing { libc::POLLOUT } else if pending { libc::POLLIN | libc::POLLOUT } else { libc::POLLIN };
         let mut fds = [
-            libc::pollfd { fd: ws.get_ref().as_raw_fd(), events: libc::POLLIN | if pending { libc::POLLOUT } else { 0 }, revents: 0 },
+            libc::pollfd { fd: ws.get_ref().as_raw_fd(), events, revents: 0 },
             libc::pollfd { fd: if pending || closing { -1 } else { incoming.as_raw_fd() }, events: libc::POLLIN, revents: 0 },
         ];
         // SAFETY: two initialized pollfd entries, valid for this call.
@@ -179,15 +209,12 @@ fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stde
                 Ok(()) => {
                     let mut bytes = vec![0; u32::from_be_bytes(length) as usize];
                     incoming.read_exact(&mut bytes)?;
-                    if let Err(e) = ws.send(if binary { Message::Binary(bytes.into()) } else { Message::Frame(tungstenite::protocol::frame::Frame::message(bytes, tungstenite::protocol::frame::coding::OpCode::Data(tungstenite::protocol::frame::coding::Data::Text), true)) }) {
-                        if !blocked(&e) { return Err(io::Error::other(e)); }
-                    }
+                    if let Err(e) = ws.send(if binary { Message::Binary(bytes.into()) } else { Message::Frame(tungstenite::protocol::frame::Frame::message(bytes, tungstenite::protocol::frame::coding::OpCode::Data(tungstenite::protocol::frame::coding::Data::Text), true)) })
+                        && !blocked(&e) { return Err(io::Error::other(e)); }
                 }
                 Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                     closing = true;
-                    if let Err(e) = ws.close(None) {
-                        if !blocked(&e) { return Err(io::Error::other(e)); }
-                    }
+                    close(&mut ws)?;
                 }
                 Err(e) => return Err(e),
             }
@@ -207,7 +234,7 @@ mod tests {
         let (received, input) = mpsc::channel();
         let worker = std::thread::spawn(move || bridge(server, vec![], Output::Live(rx), true, false, true, |data| {
             received.send(data.to_vec()).unwrap();
-            Ok(())
+            true
         }));
         let mut ws = WebSocket::from_raw_socket(client, Role::Client, None);
         ws.send(Message::Binary(b"stdin".to_vec().into())).unwrap();
@@ -220,5 +247,36 @@ mod tests {
         drop(tx);
         assert!(matches!(ws.read().unwrap(), Message::Close(_)));
         worker.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn input_can_end_the_session_with_a_close_frame() {
+        let (client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        // Held open: the output has not ended, the input ends the session.
+        let (_tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || bridge(server, vec![], Output::Live(rx), true, true, true, |data| data != b"detach"));
+        let mut ws = WebSocket::from_raw_socket(client, Role::Client, None);
+        ws.send(Message::Binary(b"kept".to_vec().into())).unwrap();
+        ws.send(Message::Binary(b"detach".to_vec().into())).unwrap();
+        assert!(matches!(ws.read().unwrap(), Message::Close(_)));
+        worker.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn pump_without_a_canceller_ends_with_the_output() {
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            Output::Live(rx).pump(None, |stream, bytes| { seen.push((stream, bytes.to_vec())); Ok(()) });
+            seen
+        });
+        tx.send((Stream::Stdout, b"one".to_vec())).unwrap();
+        tx.send((Stream::Stderr, b"two".to_vec())).unwrap();
+        drop(tx);
+        assert_eq!(worker.join().unwrap(), [(Stream::Stdout, b"one".to_vec()), (Stream::Stderr, b"two".to_vec())]);
+        let stop = AtomicBool::new(true);
+        let (_tx, rx) = mpsc::channel();
+        Output::Live(rx).pump(Some(&stop), |_, _| panic!("stopped before any output"));
     }
 }

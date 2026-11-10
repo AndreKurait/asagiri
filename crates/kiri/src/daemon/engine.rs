@@ -146,7 +146,9 @@ pub struct Spec {
     pub tty: bool,
     #[serde(default)]
     pub open_stdin: bool,
-    #[serde(default)]
+    /// Before this was kept, stdin was closed whenever an attached client's
+    /// input ended: a record without it loads as set, and still does that.
+    #[serde(default = "enabled")]
     pub stdin_once: bool,
     #[serde(default)]
     pub restart: RestartPolicy,
@@ -285,6 +287,10 @@ impl Limits {
             shm_size: self.shm_size,
         }
     }
+}
+
+fn enabled() -> bool {
+    true
 }
 
 impl Spec {
@@ -3379,6 +3385,24 @@ mod net_opts_tests {
         }))
         .unwrap();
         assert!(super::net_opts(&old, None, "").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod stdin_once_tests {
+    #[test]
+    fn a_record_without_it_still_closes_stdin_with_the_clients_input() {
+        let spec = |stdin_once: Option<bool>| -> super::Spec {
+            let mut record = serde_json::json!({
+                "image": "alpine", "image_id": "sha256:x", "entrypoint": [], "cmd": ["cat"], "env": [], "cwd": "", "user": "",
+                "auto_remove": false, "network_mode": "bridge", "labels": {}, "open_stdin": true,
+            });
+            if let Some(once) = stdin_once { record["stdin_once"] = once.into(); }
+            serde_json::from_value(record).unwrap()
+        };
+        assert!(spec(None).stdin_once);
+        assert!(spec(Some(true)).stdin_once);
+        assert!(!spec(Some(false)).stdin_once);
     }
 }
 
