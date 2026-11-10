@@ -55,6 +55,24 @@ def response(reader):
     return status, data
 
 
+def refused(path, wire):
+    """Send raw bytes; return every reply's status once the engine has closed."""
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.settimeout(5)
+        sock.connect(path)
+        sock.sendall(wire)
+        data = bytearray()
+        while True:
+            try:
+                piece = sock.recv(65536)
+            except ConnectionResetError:
+                break
+            if not piece:
+                break
+            data.extend(piece)
+    return [int(line.split()[1]) for line in bytes(data).split(b"\r\n") if line.startswith(b"HTTP/1.1 ")]
+
+
 def check(path, image):
     owned = []
 
@@ -128,6 +146,35 @@ def check(path, image):
                         if reader is not None:
                             reader.close()
                         connection.close()
+        # Framing that cannot be trusted is refused and the connection closed:
+        # the request behind it must not be answered.
+        for name, framing, want in (
+                ("conflicting-length", b"Content-Length: 2\r\nContent-Length: 3\r\n", 400),
+                ("signed-length", b"Content-Length: +2\r\n", 400),
+                ("padded-length-name", b"Content-Length : 2\r\n", 400),
+                ("unsupported-coding", b"Transfer-Encoding: gzip\r\n", 501),
+                ("repeated-coding", b"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n", 501)):
+            statuses = refused(path, b"POST /v1.47/containers/create HTTP/1.1\r\nHost: localhost\r\n"
+                               b"Content-Type: application/json\r\n" + framing + b"\r\n{}"
+                               b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            assert statuses == [want], (name, statuses)
+            count += 1
+            print("PASS refused", name, flush=True)
+        # An upload refused before its body is read gets no interim reply.
+        connection = Connection(path)
+        try:
+            connection.putrequest("PUT", "/v1.47/containers/http-framing-missing/archive?path=/tmp")
+            connection.putheader("Content-Type", "application/x-tar")
+            connection.putheader("Content-Length", str(len(archive.getvalue())))
+            connection.putheader("Expect", "100-continue")
+            connection.endheaders()
+            with connection.sock.makefile("rb") as reader:
+                status, data = response(reader)
+            assert status == 404, (status, data)
+            count += 1
+            print("PASS refused missing-container expect", flush=True)
+        finally:
+            connection.close()
         print(count, "HTTP upload framing cases passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
