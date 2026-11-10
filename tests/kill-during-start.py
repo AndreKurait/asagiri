@@ -40,11 +40,9 @@ def check(path, image):
             connection.close()
 
     def create():
-        # Many small mounts: a start that takes a while to set up.
         _, created = request("POST", "/containers/create", (201,), {
             "Image": image, "Cmd": ["sleep", "120"],
-            "HostConfig": {"NetworkMode": "none",
-                           "Tmpfs": {"/slow-start-" + str(n): "rw,size=4k" for n in range(64)}}})
+            "HostConfig": {"NetworkMode": "none"}})
         owned.append(created["Id"])
         return created["Id"]
 
