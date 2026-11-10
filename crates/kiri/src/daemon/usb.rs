@@ -81,10 +81,13 @@ pub fn attach(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut B
         return reply(w, Err(Error::BadRequest("location (letters, digits, dashes) and speed (1-6) are required".into())), 200);
     }
     // Claimed before the guest is asked, so two attaches of one device
-    // can't both get through.
-    if !PENDING.lock().unwrap_or_else(|e| e.into_inner()).insert(location.clone())
-        || SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|s| s.location == location)
-    {
+    // can't both get through. Check the live session first (no side
+    // effects), then claim: inserting into PENDING must not happen
+    // before any early return, or the location would be stuck pending.
+    if SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|s| s.location == location) {
+        return reply(w, Err(Error::Conflict(format!("USB device {location} is already attached"))), 200);
+    }
+    if !PENDING.lock().unwrap_or_else(|e| e.into_inner()).insert(location.clone()) {
         return reply(w, Err(Error::Conflict(format!("USB device {location} is already attached"))), 200);
     }
     let result = attach_claimed(&location, &name, speed, devid, engine, w, r);
