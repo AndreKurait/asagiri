@@ -554,8 +554,9 @@ const CT_STATUS_DNAT: u32 = 1 << 5;
 /// chain forward { type filter hook forward priority 0; policy accept;
 ///   oifname != "kiri*" accept            # not to a container: not ours
 ///   ct state established,related accept
+///   iifname "kiri2" oifname "kiri2" drop     # enable_icc off, one per such bridge
 ///   ct status dnat accept                # a published port
-///   iifname "kiri1" oifname "kiri1" accept   # same network, one per bridge
+///   iifname "kiri1" oifname "kiri1" accept   # same network, one per other bridge
 ///   drop
 /// }
 /// ```
@@ -577,12 +578,19 @@ const CT_STATUS_DNAT: u32 = 1 << 5;
 /// and it passes. A container on two networks talks to each over its own
 /// interface there; a published port on another network is still reached
 /// through the host's address (ct status dnat), as with Docker.
-fn forward_filter(bridges: &[String]) -> Vec<Msg> {
-    forward_filter_in(libc::NFPROTO_IPV4 as u8, bridges)
+///
+/// A bridge in `apart` (its network has `enable_icc` off) gets a drop in
+/// place of its accept, ahead of the published ports as Docker has it. Its
+/// ports are isolated, which stops what the bridge switches; this stops
+/// what is routed instead: a packet sent to the gateway's MAC for a peer's
+/// address, a peer's published port through the host's address, and the
+/// switched traffic itself where br_netfilter is loaded.
+fn forward_filter(bridges: &[String], apart: &[String]) -> Vec<Msg> {
+    forward_filter_in(libc::NFPROTO_IPV4 as u8, bridges, apart)
 }
 
 /// `forward_filter` for a table of `family`: the same rules hold for IPv6.
-fn forward_filter_in(family: u8, bridges: &[String]) -> Vec<Msg> {
+fn forward_filter_in(family: u8, bridges: &[String], apart: &[String]) -> Vec<Msg> {
     let nft = |msg, flags| nft_in(family, msg, flags);
     let mut chain = nft(NFT_MSG_NEWCHAIN, NLM_F_ACK | NLM_F_CREATE);
     chain.attr_str(1, "kiri").attr_str(3, "forward");
@@ -627,13 +635,15 @@ fn forward_filter_in(family: u8, bridges: &[String]) -> Vec<Msg> {
         }
     };
     let (accept, drop) = (libc::NF_ACCEPT as u32, libc::NF_DROP as u32);
+    let (off, on): (Vec<&String>, Vec<&String>) = bridges.iter().partition(|b| apart.contains(*b));
     let mut msgs = vec![
         chain,
         rule(&ifname(7, 1), accept),                           // NFT_CMP_NEQ
         rule(&ct_any(0, CT_ESTABLISHED | CT_RELATED), accept), // NFT_CT_STATE
-        rule(&ct_any(2, CT_STATUS_DNAT), accept),              // NFT_CT_STATUS
     ];
-    msgs.extend(bridges.iter().map(|b| rule(&same_bridge(b), accept)));
+    msgs.extend(off.iter().map(|b| rule(&same_bridge(b), drop)));
+    msgs.push(rule(&ct_any(2, CT_STATUS_DNAT), accept)); // NFT_CT_STATUS
+    msgs.extend(on.iter().map(|b| rule(&same_bridge(b), accept)));
     msgs.push(rule(&|_| {}, drop));
     msgs
 }
@@ -765,7 +775,7 @@ fn masq6_rule(subnet: [u8; 16], prefix: u8) -> Msg {
 ///   chain forward { … }   (the IPv4 table's `forward_filter`)
 /// }
 /// ```
-pub fn install_nat6(subnets: &[([u8; 16], u8)], bridges: &[String]) -> io::Result<()> {
+pub fn install_nat6(subnets: &[([u8; 16], u8)], bridges: &[String], apart: &[String]) -> io::Result<()> {
     let v6 = libc::NFPROTO_IPV6 as u8;
     let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
     let mut begin = Msg::new(NFNL_MSG_BATCH_BEGIN, 0);
@@ -785,7 +795,7 @@ pub fn install_nat6(subnets: &[([u8; 16], u8)], bridges: &[String]) -> io::Resul
         msgs.push(table);
         msgs.push(chain);
         msgs.extend(subnets.iter().map(|(s, p)| masq6_rule(*s, *p)));
-        msgs.extend(forward_filter_in(v6, bridges));
+        msgs.extend(forward_filter_in(v6, bridges, apart));
     }
     msgs.push(end);
     nl.request(&mut msgs)
@@ -823,8 +833,9 @@ pub fn remove_nat() -> io::Result<()> {
 /// Mac reaches over the NAT network, so they match only connections from
 /// the uplink's gateway `gateway` (the Mac itself): other VMs on the NAT
 /// network, or the LAN routed through the Mac, never reach a container.
+/// `apart` are the bridges of `bridges` whose network has `enable_icc` off.
 #[allow(clippy::too_many_arguments)]
-pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, redirect: bool, dnat: &[Dnat], gateway: [u8; 4], bridges: &[String], local: Option<&[[u8; 4]]>) -> io::Result<()> {
+pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, redirect: bool, dnat: &[Dnat], gateway: [u8; 4], bridges: &[String], apart: &[String], local: Option<&[[u8; 4]]>) -> io::Result<()> {
     let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
     // The table is replaced, not appended to (on a Linux host it outlives
     // the agent and changes with every published port). Destroying it in
@@ -861,7 +872,7 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
         // ports are DNATed here (prerouting for the LAN, output for the host
         // itself), the whole table rebuilt on every change, atomically.
         let mut msgs = vec![begin, destroy, table, chain, rule];
-        msgs.extend(forward_filter(bridges));
+        msgs.extend(forward_filter(bridges, apart));
         msgs.extend(localnet_guard());
         msgs.push(nat_chain("prerouting", 0, -100));
         msgs.push(nat_chain("output", 3, -100));
@@ -879,7 +890,7 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
     // The host's own connections (and `--network host` containers).
     let out_rule = redirect_rule("output", host_addr, host_port, false);
     let mut msgs = vec![begin, destroy, table, chain, rule, pre, out, dns_redirect_rule(host_addr), pre_rule, out_rule];
-    msgs.extend(forward_filter(bridges));
+    msgs.extend(forward_filter(bridges, apart));
     msgs.extend(localnet_guard());
     msgs.push(host_relay_guard(host_port));
     for d in dnat.iter().filter(|d| !d.udp) {
@@ -956,7 +967,7 @@ mod tests {
 
     #[test]
     fn forward_keeps_networks_apart() {
-        let msgs = forward_filter(&["kiri1".to_owned(), "kiri22".to_owned()]);
+        let msgs = forward_filter(&["kiri1".to_owned(), "kiri22".to_owned()], &[]);
         assert_eq!(msgs.len(), 7);
         let rules = &msgs[1..];
         // Nothing from a bridge is accepted on the interface name alone: that
@@ -992,6 +1003,36 @@ mod tests {
     }
 
     #[test]
+    fn forward_drops_what_is_routed_back_into_a_bridge_with_icc_off() {
+        let bridges = ["kiri1".to_owned(), "kiri2".to_owned(), "kiri3".to_owned()];
+        for family in [libc::NFPROTO_IPV4, libc::NFPROTO_IPV6] {
+            let msgs = forward_filter_in(family as u8, &bridges, &["kiri2".to_owned()]);
+            assert_eq!(msgs.len(), 8);
+            let rules = &msgs[1..];
+            let same = |r: &Msg| {
+                assert_eq!(names(r), ["meta", "cmp", "meta", "cmp", "immediate"]);
+                let e = exprs(r);
+                assert_eq!((be32(get(&e[0].1, 2)), be32(get(&e[2].1, 2))), (6, 7), "meta iifname, oifname");
+                let name = get(&attrs(get(&e[1].1, 3)), 1);
+                assert_eq!(name, get(&attrs(get(&e[3].1, 3)), 1));
+                (String::from_utf8(name.split(|b| *b == 0).next().unwrap().to_vec()).unwrap(), verdict(r))
+            };
+            // Replies first, then the drop: before the published ports, so
+            // a peer's port is not reached through the host's address.
+            assert_eq!(be32(get(&exprs(&rules[1])[0].1, 2)), 0, "ct state");
+            assert_eq!(same(&rules[2]), ("kiri2".to_owned(), libc::NF_DROP as u32));
+            assert_eq!(be32(get(&exprs(&rules[3])[0].1, 2)), 2, "ct status");
+            // The other bridges keep their accept; this one has none.
+            assert_eq!(same(&rules[4]), ("kiri1".to_owned(), libc::NF_ACCEPT as u32));
+            assert_eq!(same(&rules[5]), ("kiri3".to_owned(), libc::NF_ACCEPT as u32));
+            assert_eq!(names(&rules[6]), ["immediate"]);
+            assert_eq!(verdict(&rules[6]), libc::NF_DROP as u32);
+        }
+        // A bridge that is not among the ones made gets no rule.
+        assert_eq!(forward_filter(&["kiri1".to_owned()], &["kiri9".to_owned()]).len(), 6);
+    }
+
+    #[test]
     fn ipv6_masquerade_matches_the_network_by_source() {
         let subnet = [0xfd, 0, 0, 1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0];
         let r = masq6_rule(subnet, 64);
@@ -1010,8 +1051,8 @@ mod tests {
         assert_eq!(get(&attrs(get(&e[1].1, 4)), 1)[..8], [255, 255, 255, 255, 255, 255, 255, 0xf8]);
         // the IPv6 forward filter is the IPv4 one in another family
         let bridges = ["kiri3".to_owned()];
-        let f = forward_filter_in(libc::NFPROTO_IPV6 as u8, &bridges);
-        assert_eq!(f.len(), forward_filter(&bridges).len());
+        let f = forward_filter_in(libc::NFPROTO_IPV6 as u8, &bridges, &[]);
+        assert_eq!(f.len(), forward_filter(&bridges, &[]).len());
         assert!(f[1..].iter().all(|m| !names(m).contains(&"fib".to_owned())), "no nft_fib_ipv6 needed");
         assert!(f.iter().all(|m| m.buf[16] == libc::NFPROTO_IPV6 as u8));
     }

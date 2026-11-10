@@ -149,8 +149,9 @@ static NO_FIB4: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 fn install_nat(nat: Nat) -> io::Result<()> {
     use std::sync::atomic::Ordering;
     let bridges = MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let apart = APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let any_addr = nat.dnat.iter().any(|d| d.host_ip == [0; 4]);
-    let install = |local: Option<&[[u8; 4]]>| netlink::install_nat_from(nat.uplink, HOST_ADDR, HOST_RELAY_PORT, nat.redirect, &nat.dnat, nat.gateway, &bridges, local);
+    let install = |local: Option<&[[u8; 4]]>| netlink::install_nat_from(nat.uplink, HOST_ADDR, HOST_RELAY_PORT, nat.redirect, &nat.dnat, nat.gateway, &bridges, &apart, local);
     let r = if any_addr && NO_FIB4.load(Ordering::Relaxed) {
         install(Some(&local_addrs()))
     } else {
@@ -487,6 +488,7 @@ impl Bridges {
                 let _ = netlink::delete_link(&mut nl, name);
             }
             MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
+            APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
             let had6 = matches!(self.made.remove(name), Some((.., Some(_))));
             let _ = refresh_nat();
             if had6 {
@@ -534,6 +536,7 @@ impl Bridges {
             let _ = netlink::delete_link(&mut nl, name);
         }
         MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
+        APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
         if let Err(e) = refresh_nat() {
             eprintln!("kiri-init: NAT: {e}");
         }
@@ -542,6 +545,31 @@ impl Bridges {
                 eprintln!("kiri-init: IPv6 NAT: {e}");
             }
         }
+    }
+
+    /// Notes whether `name`'s containers are kept apart (`enable_icc` off)
+    /// and rebuilds the tables when that is new: the forward filter drops
+    /// what is routed from such a bridge back into it. On an error nothing
+    /// is noted, so the next container tries again.
+    pub fn keep_apart(&mut self, name: &str, apart: bool) -> io::Result<()> {
+        let mut list = APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner());
+        if list.iter().any(|m| m == name) == apart {
+            return Ok(());
+        }
+        let before = list.clone();
+        if apart {
+            list.push(name.to_owned());
+        } else {
+            list.retain(|m| m != name);
+        }
+        drop(list);
+        let has6 = matches!(self.made.get(name), Some((.., Some(_))));
+        let r = refresh_nat().and_then(|()| if has6 { self.update_v6(None) } else { Ok(()) });
+        if r.is_err() {
+            *APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()) = before;
+            let _ = refresh_nat();
+        }
+        r
     }
 
     /// Brings the IPv6 table in line with the IPv6 bridges: forwarding on
@@ -559,7 +587,8 @@ impl Bridges {
         if added.is_some() {
             ipv6_forwarding(true)?;
         }
-        let r = netlink::install_nat6(&subnets, &names);
+        let apart = APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let r = netlink::install_nat6(&subnets, &names, &apart);
         if subnets.is_empty() {
             let _ = ipv6_forwarding(false);
         }
@@ -613,12 +642,16 @@ fn ipv6_forwarding(on: bool) -> io::Result<()> {
 
 /// Every bridge this agent brought up, for `remove_bridges`.
 static MADE_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// Those of them whose network has `enable_icc` off, for the forward
+/// filter (see `Bridges::keep_apart`).
+static APART_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// Linux host, stopping: removes the bridges this agent brought up (only
 /// those: another engine's may share the network namespace) and Kiri's
 /// nftables table, so nothing of the engine is left in the host's network.
 pub fn remove_host_network() {
     let names = std::mem::take(&mut *MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()));
+    APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clear();
     if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
         for name in names {
             let _ = netlink::delete_link(&mut nl, &name);
@@ -627,7 +660,7 @@ pub fn remove_host_network() {
     if let Err(e) = netlink::remove_nat() {
         eprintln!("kiri-init: removing the nftables table: {e}");
     }
-    let _ = netlink::install_nat6(&[], &[]);
+    let _ = netlink::install_nat6(&[], &[], &[]);
     let _ = ipv6_forwarding(false);
 }
 
@@ -663,6 +696,7 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     let Plug { internal, no_ipv4, no_icc } = plug;
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
     let bridge_index = bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?;
+    bridges.keep_apart(bridge, no_icc)?;
     let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
     let mut host = Netlink::open(libc::NETLINK_ROUTE)?;
     // A stopped container's veth may still hold this address and MAC.
@@ -674,8 +708,14 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
         // reaches the forward filter, so the bridge itself keeps them apart:
         // isolated ports exchange nothing with each other, and still reach
         // the bridge's own address (the gateway, DNS, the way out). Before
-        // the interface inside is up, so nothing passes first.
-        sys::write_file(&format!("/sys/class/net/{host_ifname}/brport/isolated"), "1")?;
+        // the interface inside is up, so nothing passes first. What a
+        // container has routed through the gateway instead is the forward
+        // filter's to drop (`keep_apart` above).
+        if let Err(e) = sys::write_file(&format!("/sys/class/net/{host_ifname}/brport/isolated"), "1") {
+            // Not left behind on the bridge as an ordinary port.
+            let _ = netlink::delete_link(&mut host, host_ifname);
+            return Err(e);
+        }
     }
     // By name: a new namespace may have tunl0, gre0 … before it.
     let index = netlink::index_in(&netns, &ifname)?;
