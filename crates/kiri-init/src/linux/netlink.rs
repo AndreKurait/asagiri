@@ -23,12 +23,14 @@ const NLM_F_REPLACE: u16 = 0x100;
 const IFLA_ADDRESS: u16 = 1;
 const IFLA_IFNAME: u16 = 3;
 const IFLA_MTU: u16 = 4;
+const IFLA_LINK: u16 = 5;
 const IFLA_MASTER: u16 = 10;
 const IFLA_LINKINFO: u16 = 18;
 const IFLA_NET_NS_FD: u16 = 28;
 const IFLA_INFO_KIND: u16 = 1;
 const IFLA_INFO_DATA: u16 = 2;
 const VETH_INFO_PEER: u16 = 1;
+const IFLA_MACVLAN_MODE: u16 = 1;
 const IFA_ADDRESS: u16 = 1;
 const IFA_LOCAL: u16 = 2;
 const RTA_DST: u16 = 1;
@@ -239,6 +241,37 @@ pub fn create_veth(nl: &mut Netlink, host: &str, bridge_index: i32, netns: &std:
     }
     m.end().end().end();
     nl.request(&mut [m])
+}
+
+/// Creates dummy link `name`: what a macvlan network without a parent
+/// makes its containers' interfaces on, as Docker does. It carries nothing
+/// itself; the macvlan links on it reach each other. One that is there
+/// already is fine.
+pub fn create_dummy(nl: &mut Netlink, name: &str) -> io::Result<()> {
+    let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    m.raw(&ifinfo(0, 0, 0)).attr_str(IFLA_IFNAME, name);
+    m.nest(IFLA_LINKINFO).attr_str(IFLA_INFO_KIND, "dummy").end();
+    match nl.request(&mut [m]) {
+        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+        r => r,
+    }
+}
+
+/// Creates macvlan link `name` on `parent`, straight inside `netns`. `mode`
+/// is the kernel's `MACVLAN_MODE_*`.
+pub fn create_macvlan(nl: &mut Netlink, parent: i32, netns: &std::fs::File, mtu: u32, name: &str, mac: Option<[u8; 6]>, mode: u32) -> io::Result<()> {
+    nl.request(&mut [new_macvlan(parent, netns.as_raw_fd() as u32, mtu, name, mac, mode)])
+}
+
+fn new_macvlan(parent: i32, netns: u32, mtu: u32, name: &str, mac: Option<[u8; 6]>, mode: u32) -> Msg {
+    let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    m.raw(&ifinfo(0, 0, 0)).attr_str(IFLA_IFNAME, name).attr_u32(IFLA_LINK, parent as u32).attr_u32(IFLA_NET_NS_FD, netns).attr_u32(IFLA_MTU, mtu);
+    if let Some(mac) = mac {
+        m.attr(IFLA_ADDRESS, &mac);
+    }
+    m.nest(IFLA_LINKINFO).attr_str(IFLA_INFO_KIND, "macvlan");
+    m.nest(IFLA_INFO_DATA).attr_u32(IFLA_MACVLAN_MODE, mode).end().end();
+    m
 }
 
 pub fn delete_link(nl: &mut Netlink, name: &str) -> io::Result<()> {
@@ -926,6 +959,19 @@ mod tests {
         for b in [[0u8; 6], [0x01; 6], [0xff; 6]] {
             assert_eq!(bridge_mac(b)[0] & 0x03, 0x02);
         }
+    }
+
+    #[test]
+    fn a_macvlan_link_names_its_parent_its_namespace_and_its_mode() {
+        let m = new_macvlan(7, 9, 1500, "eth1", Some([2, 0x42, 10, 5, 0, 2]), 4);
+        let a = attrs(&m.buf[32..]); // nlmsghdr, ifinfomsg
+        assert_eq!(get(&a, IFLA_IFNAME), b"eth1\0");
+        assert_eq!(get(&a, IFLA_LINK), 7u32.to_ne_bytes());
+        assert_eq!(get(&a, IFLA_NET_NS_FD), 9u32.to_ne_bytes());
+        assert_eq!(get(&a, IFLA_ADDRESS), &[2, 0x42, 10, 5, 0, 2]);
+        let info = attrs(get(&a, IFLA_LINKINFO));
+        assert_eq!(get(&info, IFLA_INFO_KIND), b"macvlan\0");
+        assert_eq!(get(&attrs(get(&info, IFLA_INFO_DATA)), IFLA_MACVLAN_MODE), 4u32.to_ne_bytes());
     }
 
     /// A rule's expressions: (name, its NFTA_EXPR_DATA attributes).

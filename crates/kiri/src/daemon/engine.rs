@@ -1602,7 +1602,7 @@ impl Engine {
                 flags |= run_flags::NET_HOST;
                 (String::new(), [0; 4], 0, [0; 4])
             }
-            Some("bridge") => {
+            Some("bridge" | "macvlan") => {
                 let n = net.as_ref().expect("matched");
                 let ip = match super::network::parse_ip(&spec.ipv4_address) {
                     Some(want) => self.lock_networks().reserve(&n.name, want).map(|()| want).map_err(Error::Conflict),
@@ -1633,6 +1633,9 @@ impl Engine {
                         }
                         if n.no_ipv4 {
                             net6_opts.push(format!("{}=1", kiri_proto::net_opts::NO_IPV4));
+                        }
+                        if let Some(mode) = n.macvlan_mode() {
+                            net6_opts.push(format!("{}={mode}", kiri_proto::net_opts::MACVLAN));
                         }
                     }
                     Err(e) => {
@@ -1737,7 +1740,10 @@ impl Engine {
                 }
             }
         }
-        if !spec.ports.is_empty() {
+        // Nothing outside a macvlan network reaches its containers: Docker
+        // publishes no ports for them either.
+        let macvlan = net.as_ref().is_some_and(|n| n.driver == "macvlan");
+        if !spec.ports.is_empty() && !macvlan {
             let target = if flags & run_flags::NET_HOST != 0 { [127, 0, 0, 1] } else { ip };
             match super::ports::start(vm.clone(), &id, &spec.ports, target) {
                 Ok(fw) => {
@@ -2257,8 +2263,8 @@ impl Engine {
     /// Plugs a running container into one more network as `eth{n}`.
     fn attach_extra(&self, vm: &VmLink, id: &str, n: u32, extra: &ExtraNetwork) -> Result<(), Error> {
         let net = self.lock_networks().find(&extra.name).cloned().ok_or_else(|| Error::NotFound(format!("network {} not found", extra.name)))?;
-        if net.driver != "bridge" {
-            return Err(Error::BadRequest(format!("only bridge networks can be connected, not {}", net.driver)));
+        if !matches!(net.driver.as_str(), "bridge" | "macvlan") {
+            return Err(Error::BadRequest(format!("only bridge and macvlan networks can be connected, not {}", net.driver)));
         }
         let ip = match super::network::parse_ip(&extra.ipv4_address) {
             Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
@@ -2288,6 +2294,9 @@ impl Engine {
         }
         if net.no_ipv4 {
             opts.push(format!("{}=1", kiri_proto::net_opts::NO_IPV4));
+        }
+        if let Some(mode) = net.macvlan_mode() {
+            opts.push(format!("{}={mode}", kiri_proto::net_opts::MACVLAN));
         }
         if let Err(e) = vm.net_attach(id, n, &net.bridge, ip, net.prefix, net.gateway, &names, &opts) {
             let mut nets = self.lock_networks();
@@ -2470,6 +2479,10 @@ impl Engine {
     /// If the new ones cannot be bound, the old ones are put back.
     pub fn set_ports(&self, key: &str, ports: Vec<super::ports::Binding>) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        let mode = self.lock().containers.get(&id).map(|c| c.spec.network_mode.clone()).unwrap_or_default();
+        if !ports.is_empty() && self.lock_networks().find(&mode).is_some_and(|n| n.driver == "macvlan") {
+            return Err(Error::BadRequest("a container on a macvlan network cannot publish ports".into()));
+        }
         let (old_ports, old_fw, running, target) = {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).expect("resolved");

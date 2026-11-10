@@ -71,13 +71,40 @@ pub struct Plug {
     pub internal: bool,
     /// IPv6-only: no IPv4 address on the container or the bridge.
     pub no_ipv4: bool,
+    /// A macvlan network, with the kernel's number for its mode: the
+    /// interface is a macvlan link, not a veth on a bridge.
+    pub macvlan: Option<u32>,
 }
 
 impl Plug {
     pub fn from_opts(opts: kiri_proto::StrList<'_>) -> Plug {
         use kiri_proto::net_opts as k;
-        Plug { internal: k::values(opts, k::INTERNAL).next().is_some(), no_ipv4: k::values(opts, k::NO_IPV4).next().is_some() }
+        Plug {
+            internal: k::values(opts, k::INTERNAL).next().is_some(),
+            no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(),
+            macvlan: k::values(opts, k::MACVLAN).next().map(macvlan_mode),
+        }
     }
+}
+
+/// The kernel's `MACVLAN_MODE_*` for Docker's `macvlan_mode`; `bridge`, the
+/// default, for anything else.
+fn macvlan_mode(name: &str) -> u32 {
+    match name {
+        "private" => 1,
+        "vepa" => 2,
+        "passthru" => 8,
+        _ => 4,
+    }
+}
+
+/// A container's macvlan link. It has no side outside the container to
+/// delete it by, as a veth has: it is kept by the namespace it is in and
+/// its name there.
+#[derive(Debug, Clone)]
+pub struct Macvlan {
+    netns: std::sync::Arc<std::fs::File>,
+    pub ifname: String,
 }
 
 pub fn ip6_str(a: [u8; 16]) -> String {
@@ -532,6 +559,7 @@ impl Bridges {
             let _ = netlink::delete_link(&mut nl, name);
         }
         MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
+        MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
         if let Err(e) = refresh_nat() {
             eprintln!("kiri-init: NAT: {e}");
         }
@@ -612,11 +640,37 @@ fn ipv6_forwarding(on: bool) -> io::Result<()> {
 /// Every bridge this agent brought up, for `remove_bridges`.
 static MADE_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// Every link this agent made for a macvlan network, for
+/// `remove_host_network`. Not among the bridges: nothing is forwarded
+/// through one, so the forward filter has no rule for it.
+static MADE_PARENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The link a macvlan network's interfaces are made on, up: a dummy link
+/// of the network's own, as Docker makes for a macvlan network without a
+/// parent. Made when it is not there, and brought up each time: one that
+/// did not come up the first time is not left down.
+fn macvlan_parent(nl: &mut Netlink, name: &str) -> io::Result<i32> {
+    let index = match netlink::index_of(name) {
+        Ok(index) => index,
+        Err(_) => {
+            netlink::create_dummy(nl, name)?;
+            let mut made = MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner());
+            if !made.iter().any(|m| m == name) {
+                made.push(name.to_owned());
+            }
+            netlink::index_of(name)?
+        }
+    };
+    netlink::set_up(nl, index)?;
+    Ok(index)
+}
+
 /// Linux host, stopping: removes the bridges this agent brought up (only
 /// those: another engine's may share the network namespace) and Kiri's
 /// nftables table, so nothing of the engine is left in the host's network.
 pub fn remove_host_network() {
-    let names = std::mem::take(&mut *MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut names = std::mem::take(&mut *MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()));
+    names.append(&mut MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner()));
     if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
         for name in names {
             let _ = netlink::delete_link(&mut nl, &name);
@@ -644,7 +698,7 @@ pub fn attach_container(
     mac: Option<[u8; 6]>,
     v6: Option<Ip6>,
     plug: Plug,
-) -> io::Result<()> {
+) -> io::Result<Option<Macvlan>> {
     attach(bridges, bridge, host_ifname, pid, 0, ip, prefix, gateway, mac, v6, plug)
 }
 
@@ -656,40 +710,62 @@ pub fn attach_container(
 /// interface has IPv6 off (no link-local address), as Docker does. On an
 /// IPv6-only network `ip` is only the name the container is kept by (its
 /// MAC is made from it): neither the interface nor the bridge gets it.
+///
+/// On a macvlan network `bridge` names the link the interface is made on,
+/// as a macvlan link: there is no bridge, no gateway and so no default
+/// route, as with a Docker macvlan network that has no parent. The link is
+/// returned, for the caller to keep with the container.
 #[allow(clippy::too_many_arguments)]
-pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<()> {
-    let Plug { internal, no_ipv4 } = plug;
+pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<Option<Macvlan>> {
+    let Plug { internal, no_ipv4, macvlan } = plug;
+    let internal = internal || macvlan.is_some();
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
-    let bridge_index = bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?;
-    let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
     let mut host = Netlink::open(libc::NETLINK_ROUTE)?;
-    // A stopped container's veth may still hold this address and MAC.
+    let parent = match macvlan {
+        Some(_) => macvlan_parent(&mut host, bridge)?,
+        None => bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?,
+    };
+    let netns = std::sync::Arc::new(std::fs::File::open(format!("/proc/{pid}/ns/net"))?);
+    // A stopped container's link may still hold this address and MAC.
     delete_retired(&mut host);
     let ifname = format!("eth{n}");
-    netlink::create_veth(&mut host, host_ifname, bridge_index, &netns, CONTAINER_MTU, &ifname, mac)?;
-    // By name: a new namespace may have tunl0, gre0 … before it.
-    let index = netlink::index_in(&netns, &ifname)?;
-    if v6.is_none() {
-        // Before it is up, so it never gets a link-local address. A kernel
-        // without IPv6 has no such file, and nothing to turn off.
-        let _ = netlink::in_netns(&netns, || sys::write_file(&format!("/proc/sys/net/ipv6/conf/{ifname}/disable_ipv6"), "1"));
+    match macvlan {
+        Some(mode) => netlink::create_macvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mac, mode)?,
+        None => netlink::create_veth(&mut host, host_ifname, parent, &netns, CONTAINER_MTU, &ifname, mac)?,
     }
-    let mut inner = Netlink::open_in(&netns)?;
-    netlink::set_up(&mut inner, 1)?; // lo
-    if !no_ipv4 {
-        netlink::add_address(&mut inner, index, ip, prefix)?;
+    let link = macvlan.map(|_| Macvlan { netns: netns.clone(), ifname: ifname.clone() });
+    let set = (|| -> io::Result<()> {
+        // By name: a new namespace may have tunl0, gre0 … before it.
+        let index = netlink::index_in(&netns, &ifname)?;
+        if v6.is_none() {
+            // Before it is up, so it never gets a link-local address. A kernel
+            // without IPv6 has no such file, and nothing to turn off.
+            let _ = netlink::in_netns(&netns, || sys::write_file(&format!("/proc/sys/net/ipv6/conf/{ifname}/disable_ipv6"), "1"));
+        }
+        let mut inner = Netlink::open_in(&netns)?;
+        netlink::set_up(&mut inner, 1)?; // lo
+        if !no_ipv4 {
+            netlink::add_address(&mut inner, index, ip, prefix)?;
+        }
+        if let Some(v) = v6 {
+            netlink::add_address6(&mut inner, index, v.ip, v.prefix)?;
+        }
+        netlink::set_up(&mut inner, index)?;
+        if n == 0 && !internal && !no_ipv4 {
+            netlink::add_default_route(&mut inner, index, gateway)?;
+        }
+        if let Some(v) = v6.filter(|_| !internal) {
+            netlink::add_default_route6(&mut inner, index, v.gateway)?;
+        }
+        Ok(())
+    })();
+    // A veth that is left has a name in the host namespace, which the
+    // next try or the container's end clears away. A macvlan link has
+    // none, and would keep its name in the container.
+    if let (Err(_), Some(m)) = (&set, &link) {
+        let _ = unplug(m);
     }
-    if let Some(v) = v6 {
-        netlink::add_address6(&mut inner, index, v.ip, v.prefix)?;
-    }
-    netlink::set_up(&mut inner, index)?;
-    if n == 0 && !internal && !no_ipv4 {
-        netlink::add_default_route(&mut inner, index, gateway)?;
-    }
-    if let Some(v) = v6.filter(|_| !internal) {
-        netlink::add_default_route6(&mut inner, index, v.gateway)?;
-    }
-    Ok(())
+    set.map(|()| link)
 }
 
 /// Host-side veths of stopped containers, deleted by the next `attach`.
@@ -713,6 +789,12 @@ fn delete_retired(nl: &mut Netlink) {
     for v in std::mem::take(&mut *RETIRED.lock().unwrap_or_else(|e| e.into_inner())) {
         let _ = netlink::delete_link(nl, &v);
     }
+}
+
+/// Deletes a container's macvlan link, in the namespace it is in.
+pub fn unplug(link: &Macvlan) -> io::Result<()> {
+    let mut inner = Netlink::open_in(&link.netns)?;
+    netlink::delete_link(&mut inner, &link.ifname)
 }
 
 /// Unplugs a container's extra network by its host-side veth.
@@ -760,5 +842,20 @@ mod tests {
         kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
         assert_eq!(Ip6::from_opts(net.opts), None);
+    }
+
+    #[test]
+    fn a_macvlan_network_is_told_by_its_option() {
+        let plug = |opts: &[&str]| {
+            let mut buf = Vec::new();
+            kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kirim2", [10, 5, 0, 2], 24, [0; 4], &[], opts);
+            let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+            Plug::from_opts(net.opts)
+        };
+        assert_eq!(plug(&[]).macvlan, None, "a bridge network");
+        assert_eq!(plug(&["internal=1"]).macvlan, None);
+        for (mode, number) in [("bridge", 4), ("private", 1), ("vepa", 2), ("passthru", 8)] {
+            assert_eq!(plug(&[format!("macvlan={mode}").as_str()]).macvlan, Some(number), "{mode}");
+        }
     }
 }

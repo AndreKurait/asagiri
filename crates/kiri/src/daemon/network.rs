@@ -22,12 +22,16 @@ use serde::{Deserialize, Serialize};
 pub struct Network {
     pub id: String,
     pub name: String,
-    /// `bridge`, `host` or `null`.
+    /// `bridge`, `macvlan`, `host` or `null`.
     pub driver: String,
-    /// The bridge device in the guest (empty for host and none).
+    /// The device in the guest its containers are plugged into: a bridge,
+    /// or the link a macvlan network's interfaces are made on (empty for
+    /// host and none).
     pub bridge: String,
     pub subnet: [u8; 4],
     pub prefix: u8,
+    /// All zeros on a macvlan network that was given none: it has no
+    /// gateway of its own, and its first address goes to a container.
     pub gateway: [u8; 4],
     pub created_ns: u64,
     #[serde(default)]
@@ -164,6 +168,12 @@ impl V6 {
 impl Network {
     pub fn builtin(&self) -> bool {
         matches!(self.name.as_str(), "bridge" | "host" | "none")
+    }
+
+    /// A macvlan network's `-o macvlan_mode` (`bridge` when not given);
+    /// `None` on any other network.
+    pub fn macvlan_mode(&self) -> Option<&str> {
+        (self.driver == "macvlan").then(|| self.options.get("macvlan_mode").and_then(|m| m.as_str()).unwrap_or("bridge"))
     }
 
     /// Docker's `"172.17.0.0/16"`.
@@ -342,6 +352,9 @@ fn builtin(name: &str, driver: &str, bridge: &str, subnet: [u8; 4], gateway: [u8
 #[derive(Debug, Default)]
 pub struct Settings {
     pub labels: serde_json::Value,
+    /// `Driver: macvlan`: containers share a link of the network's own and
+    /// reach each other, and nothing else, over it.
+    pub macvlan: bool,
     pub internal: bool,
     pub attachable: bool,
     pub options: serde_json::Value,
@@ -354,6 +367,25 @@ pub struct Settings {
     /// An IPv6 `IPAM.Config` entry; without one an IPv6 network gets a /64
     /// from the pool.
     pub ipam6: Option<Ipam6>,
+}
+
+/// A macvlan network's `--opt`s, checked: the mode in Docker's words.
+/// `parent` is refused: it would put the containers on a network of the
+/// machine's, where Kiri's own interface there is all that can be reached.
+fn check_macvlan(options: &serde_json::Value) -> Result<(), String> {
+    // Docker takes no option that is not a string.
+    let option = |k: &str| match options.get(k) {
+        None => Ok(""),
+        Some(v) => v.as_str().ok_or_else(|| format!("invalid network option {k}: {v} is not a string")),
+    };
+    match option("macvlan_mode")? {
+        "" | "bridge" | "private" | "vepa" | "passthru" => {}
+        m => return Err(format!("requested macvlan mode '{m}' is not valid, 'bridge' mode is the macvlan driver default")),
+    }
+    match option("parent")? {
+        "" => Ok(()),
+        p => Err(format!("Kiri's macvlan networks have no parent interface (-o parent={p}): they connect containers to each other only")),
+    }
 }
 
 /// One IPv6 `IPAM.Config` entry, checked.
@@ -608,21 +640,25 @@ impl Networks {
         if s.no_ipv4 && s.ipam.is_some() {
             return Err("invalid network config: an IPv4 subnet was given, but IPv4 is disabled (--ipv4=false)".into());
         }
+        if s.macvlan {
+            check_macvlan(&s.options)?;
+        }
         let taken: Vec<([u8; 4], u8)> = self.list.iter().filter(|n| !n.bridge.is_empty()).map(|n| (n.subnet, n.prefix)).collect();
         let (subnet, gateway) = match &s.ipam {
             Some(ipam) => {
                 if taken.iter().any(|t| overlaps(*t, (ipam.subnet, ipam.prefix))) {
                     return Err("invalid pool request: Pool overlaps with other one on this address space".into());
                 }
-                // Docker's default gateway: the subnet's first address.
-                let first = (u32::from_be_bytes(ipam.subnet) + 1).to_be_bytes();
+                // Docker's default gateway: the subnet's first address. A
+                // macvlan network has one only when it is asked for.
+                let first = if s.macvlan { [0; 4] } else { (u32::from_be_bytes(ipam.subnet) + 1).to_be_bytes() };
                 ((ipam.subnet, ipam.prefix), ipam.gateway.unwrap_or(first))
             }
             None => {
                 let subnet = free_subnet(&taken, false).ok_or("no free subnet left")?;
                 let mut gateway = subnet.0;
                 gateway[3] = 1;
-                (subnet, gateway)
+                (subnet, if s.macvlan { [0; 4] } else { gateway })
             }
         };
         let v6 = if s.ipv6 {
@@ -639,7 +675,7 @@ impl Networks {
                     (s, p, false)
                 }
             };
-            let first = (u128::from_be_bytes(subnet) + 1).to_be_bytes();
+            let first = if s.macvlan { [0; 16] } else { (u128::from_be_bytes(subnet) + 1).to_be_bytes() };
             Some(V6 {
                 subnet,
                 prefix,
@@ -655,12 +691,15 @@ impl Networks {
             }
             None
         };
-        let index = (1..).find(|i| !self.list.iter().any(|n| n.bridge == format!("kiri{i}"))).expect("unbounded");
+        // A macvlan network's link is named apart from the bridges, so a
+        // name is never taken up again as the other kind.
+        let (driver, device) = if s.macvlan { ("macvlan", "kirim") } else { ("bridge", "kiri") };
+        let index = (1..).find(|i| !self.list.iter().any(|n| n.bridge == format!("{device}{i}"))).expect("unbounded");
         let n = Network {
             id: super::engine::random_hex(32),
             name: name.into(),
-            driver: "bridge".into(),
-            bridge: format!("kiri{index}"),
+            driver: driver.into(),
+            bridge: format!("{device}{index}"),
             subnet: subnet.0,
             prefix: subnet.1,
             gateway,
@@ -875,6 +914,40 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kiri-net-test-{}-{}", std::process::id(), now_ns()));
         std::fs::create_dir_all(&dir).unwrap();
         (Networks::load(&dir).unwrap(), dir)
+    }
+
+    #[test]
+    fn a_macvlan_network_has_its_own_link_and_a_gateway_only_when_given_one() {
+        let (mut n, dir) = nets();
+        let macvlan = |options: serde_json::Value, ipam: Option<Ipam>| Settings { macvlan: true, options, ipam, ..Default::default() };
+        let a = n.create("a", macvlan(serde_json::json!({}), None)).unwrap();
+        assert_eq!((a.driver.as_str(), a.bridge.as_str(), a.gateway, a.macvlan_mode()), ("macvlan", "kirim1", [0; 4], Some("bridge")));
+        // The subnet's first address is a container's, as with Docker.
+        assert_eq!(n.allocate_avoiding("a", &[]), Some((u32::from_be_bytes(a.subnet) + 1).to_be_bytes()));
+        // A bridge network takes its name from the bridges' own numbers.
+        let b = n.create("b", Settings::default()).unwrap();
+        assert_eq!((b.driver.as_str(), b.bridge.as_str(), b.macvlan_mode()), ("bridge", "kiri1", None));
+        // A gateway that was asked for is kept, and kept from containers.
+        let ipam = Ipam { subnet: [10, 5, 0, 0], prefix: 24, gateway: Some([10, 5, 0, 1]), ip_range: None, aux: BTreeMap::new() };
+        let c = n.create("c", macvlan(serde_json::json!({"macvlan_mode": "private"}), Some(ipam))).unwrap();
+        assert_eq!((c.bridge.as_str(), c.gateway, c.macvlan_mode()), ("kirim2", [10, 5, 0, 1], Some("private")));
+        assert_eq!(n.allocate_avoiding("c", &[]), Some([10, 5, 0, 2]));
+        // IPv6 the same way.
+        let six = n.create("six", Settings { macvlan: true, ..v6(None) }).unwrap();
+        let v = six.v6.unwrap();
+        assert_eq!(v.gateway, [0; 16]);
+        assert_eq!(n.allocate6("six", None, &[]), Ok(Some((u128::from_be_bytes(v.subnet) + 1).to_be_bytes())));
+        // The mode is checked in Docker's words; a parent is Kiri's to refuse.
+        assert_eq!(
+            n.create("d", macvlan(serde_json::json!({"macvlan_mode": "bogus"}), None)).unwrap_err(),
+            "requested macvlan mode 'bogus' is not valid, 'bridge' mode is the macvlan driver default"
+        );
+        assert!(n.create("e", macvlan(serde_json::json!({"parent": "eth0"}), None)).unwrap_err().contains("no parent interface"));
+        assert!(n.create("e", macvlan(serde_json::json!({"parent": 5}), None)).unwrap_err().contains("not a string"));
+        assert!(n.create("e", macvlan(serde_json::json!({"macvlan_mode": 7}), None)).unwrap_err().contains("not a string"));
+        // On a bridge network they are options like any other.
+        assert!(n.create("f", Settings { options: serde_json::json!({"macvlan_mode": "bogus", "parent": "eth0"}), ..Default::default() }).is_ok());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

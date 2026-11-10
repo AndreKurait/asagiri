@@ -80,6 +80,9 @@ pub struct Process {
     /// network namespace would otherwise keep them, and the address that
     /// goes back to the pool, alive.
     pub veths: Vec<String>,
+    /// Its macvlan links, which have no host side: deleted on exit for
+    /// the same reason.
+    pub macvlans: Vec<net::Macvlan>,
     /// Inode of its own network namespace, or of the one it joined; 0 for
     /// the host's and for execs. Says whether a namespace outlives this
     /// container (see `teardown`).
@@ -302,6 +305,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         e
     };
     let mut veths = Vec::new();
+    let mut macvlans = Unplug(Vec::new());
     // Not bridged, but with sysctls to write: no network to wait for.
     if let Some(go) = go.take_if(|_| !bridged) {
         drop(prepared.net_ready.take());
@@ -320,14 +324,20 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         let mac = net_opts::values(spec.net.opts, net_opts::MAC).next().and_then(net::parse_mac);
         let v6 = net::Ip6::from_opts(spec.net.opts);
         let plug = net::Plug::from_opts(spec.net.opts);
-        net::attach_container(net.bridges, spec.net.bridge, &host_if, pid, spec.net.ip, spec.net.prefix, spec.net.gateway, mac, v6, plug)
-            .map_err(|e| kill_child(io::Error::new(e.kind(), format!("network: {e}"))))?;
-        veths.push(host_if);
+        match net::attach_container(net.bridges, spec.net.bridge, &host_if, pid, spec.net.ip, spec.net.prefix, spec.net.gateway, mac, v6, plug)
+            .map_err(|e| kill_child(io::Error::new(e.kind(), format!("network: {e}"))))?
+        {
+            Some(link) => macvlans.0.push(link),
+            None => veths.push(host_if),
+        }
         if embedded_dns {
             // An IPv6-only network's bridge has no IPv4 address to serve on,
-            // and its containers no A records.
+            // and its containers no A records. A macvlan network has no
+            // gateway to serve on: its containers ask 127.0.0.11.
             if !plug.no_ipv4 {
-                net.dns.serve(spec.net.bridge, spec.net.gateway).map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
+                if plug.macvlan.is_none() {
+                    net.dns.serve(spec.net.bridge, spec.net.gateway).map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
+                }
                 net.dns.register(spec.net.bridge, spec.net.dns_names.iter(), spec.net.ip);
             }
             // 127.0.0.11 in the container, when its resolv.conf names it. Not
@@ -361,6 +371,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         tty: prepared.tty,
         dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
         veths,
+        macvlans: std::mem::take(&mut macvlans.0),
         netns,
         teardown: Some(Teardown { base, rootfs, cgroup, remove }),
     })
@@ -478,6 +489,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         tty: prepared.tty,
         dns_entries: Vec::new(),
         veths: Vec::new(),
+        macvlans: Vec::new(),
         netns: 0,
         teardown: None,
     })
@@ -497,6 +509,11 @@ pub fn oom_killed(p: &Process) -> bool {
 /// are its veths deleted here, or they would live on with that namespace
 /// and keep its address. Otherwise the next container to be plugged in
 /// deletes them (see `net::retire`).
+///
+/// Its macvlan links are deleted here either way. Nothing outside the
+/// namespace names one, so none can be noted for later without keeping the
+/// namespace, and with it a stopped container that still answers on the
+/// network.
 pub fn teardown(p: &Process, netns_shared: bool) {
     if netns_shared {
         for v in &p.veths {
@@ -505,8 +522,24 @@ pub fn teardown(p: &Process, netns_shared: bool) {
     } else {
         net::retire(&p.veths);
     }
+    for m in &p.macvlans {
+        let _ = net::unplug(m);
+    }
     if let Some(t) = &p.teardown {
         undo_now(t, t.remove);
+    }
+}
+
+/// The macvlan links of a container that is starting, deleted if the start
+/// fails after they are made: the killed child's namespace goes a moment
+/// later, and until then would hold the address and MAC the next try gets.
+struct Unplug(Vec<net::Macvlan>);
+
+impl Drop for Unplug {
+    fn drop(&mut self) {
+        for m in &self.0 {
+            let _ = net::unplug(m);
+        }
     }
 }
 
