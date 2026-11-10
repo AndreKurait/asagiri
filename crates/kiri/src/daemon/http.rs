@@ -76,7 +76,7 @@ pub struct Request {
     pub method: String,
     /// Path without the `/v1.xx` prefix or the query string.
     pub path: String,
-    api_version: Option<String>,
+    pub(super) api_version: Option<String>,
     query: Vec<(String, String)>,
     headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -511,6 +511,13 @@ pub fn end(w: &mut impl Write) -> io::Result<()> {
     w.flush()
 }
 
+/// Accepts a WebSocket upgrade. Nothing but the handshake, as Docker sends
+/// it: no body follows a 101, so it carries no Content-Type or Content-Length.
+pub fn upgrade_websocket(w: &mut impl Write, accept: &str) -> io::Result<()> {
+    write!(w, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n")?;
+    w.flush()
+}
+
 /// Switches the connection to Docker's raw stream for `attach`. After this
 /// the connection carries multiplexed output frames until it closes.
 pub fn upgrade(w: &mut impl Write) -> io::Result<()> {
@@ -916,6 +923,13 @@ mod tests {
         for headers in ["Content-Length: 100\r\n", "Content-Length: +0\r\n", "Content-Length: 0, 5\r\n", "Content-Length: 0\r\nContent-Length: 5\r\n", "Transfer-Encoding: chunked\r\n", "Content-Length: 0\r\nTransfer-Encoding: identity\r\n"] {
             assert!(request(headers).has_body(), "{headers}");
         }
+    }
+
+    #[test]
+    fn websocket_upgrade_is_the_handshake_alone() {
+        let mut out = Vec::new();
+        upgrade_websocket(&mut out, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=").unwrap();
+        assert_eq!(out, b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
     }
 
     #[test]

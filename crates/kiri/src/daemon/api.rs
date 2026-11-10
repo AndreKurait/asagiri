@@ -279,6 +279,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
             }
             ("POST", "wait") => return wait(req, engine, id, w),
             ("POST", "attach") => return attach(req, engine, id, w, r),
+            ("GET", "attach/ws") => return super::websocket::attach(req, engine, id, w, r),
             ("GET", "logs") => return logs(req, engine, id, w),
             ("POST", "resize") => return reply(w, resize(req, engine, id).map(|()| json!({})), 200),
             ("POST", "exec") => return reply(w, exec_create(req, engine, id), 201),
@@ -1665,6 +1666,7 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         labels: body["Labels"].clone(),
         tty: body["Tty"].as_bool().unwrap_or(false),
         open_stdin: body["OpenStdin"].as_bool().unwrap_or(false),
+        stdin_once: body["StdinOnce"].as_bool().unwrap_or(false),
         console_size: console_size(&host["ConsoleSize"]),
         aliases,
         extra_hosts,
@@ -2008,6 +2010,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "User": c.spec.user,
             "Tty": c.spec.tty,
             "OpenStdin": c.spec.open_stdin,
+            "StdinOnce": c.spec.stdin_once,
             "AttachStdout": true,
             "AttachStderr": true,
             "Labels": if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) },
@@ -2239,46 +2242,91 @@ fn wait(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
 }
 
 fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    use super::websocket::Output;
+    use std::sync::atomic::AtomicBool;
     let (want_out, want_err, want_in) = (req.flag("stdout"), req.flag("stderr"), req.flag("stdin"));
-    let (id, tty, rx) = match engine.attach(key) {
-        Ok(v) => v,
-        Err(e) => {
-            error(w, e)?;
-            return Ok(Next::KeepAlive);
-        }
+    let keys = match super::detach::Keys::parse(req.query("detachKeys")) {
+        Ok(keys) => keys,
+        Err(message) => { http::error(w, 400, message)?; return Ok(Next::KeepAlive); }
     };
+    let (id, tty, open_stdin, close) = match engine.with(key, |c| (c.id.clone(), c.spec.tty, c.spec.open_stdin, c.spec.stdin_once && !c.spec.tty)) {
+        Ok(v) => v,
+        Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
+    };
+    let output = if req.flag("logs") {
+        match engine.logs(&id, req.flag("stream")) {
+            Ok(Some(logs)) => Output::Logs(logs),
+            Ok(None) => { http::error(w, 501, "configured logging driver does not support reading")?; return Ok(Next::KeepAlive); }
+            Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
+        }
+    } else if req.flag("stream") {
+        match engine.attach(&id) {
+            Ok((_, _, rx)) => Output::Live(rx),
+            Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
+        }
+    } else { Output::Empty };
+    // As with Docker, only a container created with its stdin open takes
+    // input, and only its input can end the session before the output does.
+    let stopped = (want_in && req.flag("stream") && open_stdin).then(|| Arc::new(AtomicBool::new(false)));
     http::raw_stream(req, w)?;
-    if want_in {
-        forward_stdin(engine.clone(), id, r)?;
+    if let Some(stopped) = &stopped {
+        forward_stdin(engine.clone(), id, r, close, tty.then_some(keys), Some(stopped.clone()))?;
     }
-    pump(rx, tty, want_out, want_err, w)?;
-    let _ = w.shutdown(std::net::Shutdown::Write);
+    let mut result = Ok(());
+    output.pump(stopped.as_deref(), |stream, data| {
+        let wanted = match stream { Stream::Stdout => want_out, Stream::Stderr => want_err };
+        if !wanted { return Ok(()); }
+        let sent = if tty { io::Write::write_all(w, data) } else { http::mux_frame(w, stream as u8, data) };
+        if let Err(e) = sent { result = Err(e); return Err(io::Error::new(io::ErrorKind::BrokenPipe, "attach closed")); }
+        Ok(())
+    });
+    let _ = w.shutdown(std::net::Shutdown::Both);
+    result?;
     Ok(Next::Close)
 }
 
 /// Copies the client's side of a hijacked connection into the process's
-/// stdin, on its own thread, ending with CloseStdin at EOF.
-fn forward_stdin(engine: Arc<Engine>, id: String, r: &mut BufReader<UnixStream>) -> io::Result<()> {
+/// stdin, on its own thread. At EOF, `close` ends the process's stdin too;
+/// otherwise, as for a detach, `stopped` is set and the connection shut down,
+/// which ends the session and leaves stdin open for the next one.
+fn forward_stdin(engine: Arc<Engine>, id: String, r: &mut BufReader<UnixStream>, close: bool, mut keys: Option<super::detach::Keys>, stopped: Option<Arc<std::sync::atomic::AtomicBool>>) -> io::Result<()> {
     // Anything the client sent right behind the request is already buffered.
     let early = r.buffer().to_vec();
     let mut stream = r.get_ref().try_clone()?;
     std::thread::Builder::new().name("kiri-stdin".into()).spawn(move || {
-        if !early.is_empty() && engine.input(&id, &early).is_err() {
-            return;
-        }
+        let cancel = stream.try_clone().ok();
+        let end = || {
+            if let Some(stop) = &stopped { stop.store(true, std::sync::atomic::Ordering::Relaxed); }
+            if let Some(cancel) = &cancel { let _ = cancel.shutdown(std::net::Shutdown::Both); }
+        };
+        let mut send = |data: &[u8]| -> bool {
+            let Some(keys) = &mut keys else { return data.is_empty() || engine.input(&id, data).is_ok(); };
+            let (bytes, detached) = keys.feed(data);
+            if !bytes.is_empty() && engine.input(&id, &bytes).is_err() { return false; }
+            if detached { end(); }
+            !detached
+        };
+        if !send(&early) { return; }
         let mut buf = vec![0u8; 32 * 1024];
         loop {
             wait_readable(&stream);
             match io::Read::read(&mut stream, &mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    if engine.input(&id, &buf[..n]).is_err() {
-                        return;
-                    }
+                    if !send(&buf[..n]) { return; }
                 }
             }
         }
-        let _ = engine.close_stdin(&id);
+        drop(send);
+        if let Some(keys) = &mut keys {
+            let pending = keys.finish();
+            if !pending.is_empty() { let _ = engine.input(&id, &pending); }
+        }
+        if close {
+            let _ = engine.close_stdin(&id);
+        } else {
+            end();
+        }
     })?;
     Ok(())
 }
@@ -2370,7 +2418,7 @@ fn exec_start(req: &Request, engine: &Arc<Engine>, id: &str, w: &mut UnixStream,
     }
     http::raw_stream(req, w)?;
     if stdin {
-        forward_stdin(engine.clone(), id.to_owned(), r)?;
+        forward_stdin(engine.clone(), id.to_owned(), r, true, None, None)?;
     }
     pump(rx, tty, true, true, w)?;
     let _ = w.shutdown(std::net::Shutdown::Write);
