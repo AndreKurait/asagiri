@@ -1640,8 +1640,11 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
     }
     let running = c.status == Status::Running;
     let mut out = serde_json::Map::new();
-    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str| {
+    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str, mac: &str| {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
+        // Before the address is hidden: an IPv6-only network's interface
+        // has a MAC too, made from the address Kiri keeps for itself.
+        let mac = ip.filter(|_| running).map(|a| endpoint_mac(a, mac)).unwrap_or_default();
         let ip = ip.filter(|_| running && !net.is_some_and(|n| n.no_ipv4));
         let ip6 = ip6.filter(|_| running);
         let gateway = match (ip, net) {
@@ -1655,10 +1658,10 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "IPAMConfig": ipam_config(want4, want6),
                 "Links": null,
                 "Aliases": if aliases.is_empty() { Value::Null } else { json!(aliases) },
-                "MacAddress": "",
+                "MacAddress": mac,
                 "DriverOpts": null,
                 "NetworkID": net.map(|n| n.id.clone()).unwrap_or_default(),
-                "EndpointID": if running { c.id.as_str() } else { "" },
+                "EndpointID": if running { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
                 "Gateway": gateway,
                 "IPAddress": ip.map(super::network::ip_str).unwrap_or_default(),
                 "IPPrefixLen": if ip.is_some() { net.map_or(16, |n| n.prefix) } else { 0 },
@@ -1669,12 +1672,27 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
             }),
         );
     };
-    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address);
+    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address, &c.spec.mac_address);
     for x in &c.spec.extra_networks {
         let ip6 = c.extra_ip6s.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip);
-        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address);
+        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address, &x.mac_address);
     }
     Value::Object(out)
+}
+
+/// An endpoint's id. Docker gives each attachment its own, the same in the
+/// container's inspect and in the network's; here it is made from both ids,
+/// so the two agree without anything more to keep.
+fn endpoint_id(network: &str, container: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(format!("{network}/{container}").as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The MAC address of an endpoint with address `ip`: the one asked for, else
+/// the one the guest makes from the address (`02:42` then its four bytes).
+fn endpoint_mac(ip: [u8; 4], requested: &str) -> String {
+    let mac = super::network::parse_mac(requested).unwrap_or([0x02, 0x42, ip[0], ip[1], ip[2], ip[3]]);
+    mac.map(|b| format!("{b:02x}")).join(":")
 }
 
 /// An endpoint's `IPAMConfig`: the fixed addresses it asked for, as Docker
@@ -1902,13 +1920,13 @@ fn net_error(m: String) -> Error {
 fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool) -> Value {
     let mut containers = serde_json::Map::new();
     if with_members {
-        for (id, name, ip, ip6) in engine.network_members(&n.name) {
+        for (id, name, ip, ip6, mac) in engine.network_members(&n.name) {
             containers.insert(
                 id.clone(),
                 json!({
                     "Name": name,
-                    "EndpointID": id,
-                    "MacAddress": "",
+                    "EndpointID": endpoint_id(&n.id, &id),
+                    "MacAddress": ip.map(|a| endpoint_mac(a, &mac)).unwrap_or_default(),
                     "IPv4Address": ip.filter(|_| !n.no_ipv4).map(|a| format!("{}/{}", super::network::ip_str(a), n.prefix)).unwrap_or_default(),
                     "IPv6Address": match (ip6, &n.v6) {
                         (Some(a), Some(v)) => format!("{}/{}", super::network::ip6_str(a), v.prefix),
@@ -2807,6 +2825,18 @@ mod network_option_tests {
         assert_eq!(endpoint_address(&json!({})).unwrap(), (String::new(), String::new(), String::new()));
         assert!(endpoint_address(&json!({"IPAMConfig": {"IPv4Address": "10.5.0.300"}})).is_err());
         assert!(endpoint_address(&json!({"MacAddress": "02:42:0a"})).is_err());
+    }
+
+    #[test]
+    fn endpoints_have_a_mac_address_and_an_id_of_their_own() {
+        // The same address the guest makes from the IPv4 one.
+        assert_eq!(endpoint_mac([172, 17, 0, 2], ""), "02:42:ac:11:00:02");
+        assert_eq!(endpoint_mac([172, 17, 0, 2], "02:AB:00:00:00:07"), "02:ab:00:00:00:07");
+        let id = endpoint_id("net1", "c1");
+        assert!(id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, endpoint_id("net1", "c1"));
+        assert_ne!(id, endpoint_id("net2", "c1"));
+        assert_ne!(id, endpoint_id("net1", "c2"));
     }
 
     #[test]
