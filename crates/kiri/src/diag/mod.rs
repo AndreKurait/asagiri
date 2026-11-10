@@ -247,9 +247,23 @@ pub fn write(level: Level, msg: &str, fields: &[(&str, String)]) {
     let _ = append(part, &json_line(&time, level, part, msg, fields));
     let mut text = format!("{time} {:<5} {}", level.name().to_ascii_uppercase(), redact::patterns(msg));
     for (k, v) in fields {
-        let _ = write!(text, " {k}={}", redact::patterns(v));
+        let _ = write!(text, " {k}={}", spelled_out(&redact::patterns(v)));
     }
     echo(&text);
+}
+
+/// Control characters written as escapes (`\n`, `\u{1b}`): a value from
+/// outside (a request path) stays on its own line of the readable log.
+fn spelled_out(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_control() {
+            out.extend(c.escape_default());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// One log line, `time`, `level`, `part`, `msg` then `fields`, in that order.
@@ -588,6 +602,12 @@ mod tests {
         assert_eq!(v["fields"]["exit_code"], "137");
         let bare = json_line("t", Level::Info, Part::Ui, "hi", &[]);
         assert_eq!(bare, r#"{"time":"t","level":"info","part":"ui","msg":"hi"}"#);
+    }
+
+    #[test]
+    fn readable_values_stay_on_one_line() {
+        assert_eq!(spelled_out("/zzz\n2026-11-10T00:00:00.000Z ERROR forged\r\u{1b}[2J"), "/zzz\\n2026-11-10T00:00:00.000Z ERROR forged\\r\\u{1b}[2J");
+        assert_eq!(spelled_out("/images/registry:5000/a b/€"), "/images/registry:5000/a b/€");
     }
 
     #[test]
