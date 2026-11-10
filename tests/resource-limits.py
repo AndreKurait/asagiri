@@ -95,7 +95,9 @@ def check(path, image):
         for invalid in ({"MemorySwap": 1}, {"MemoryReservation": 1}, {"Memory": -1},
                         {"CpuPeriod": 1}, {"CpuShares": 262145}, {"CpusetCpus": "3-1"},
                         {"NanoCpus": 1000000000, "CpuQuota": 10000}):
-            error = update(cid, invalid, (400,))
+            # Docker 28 reports some merged-limit failures from runc as 500;
+            # Kiri can reject the same combination before contacting the guest.
+            error = update(cid, invalid, (400, 500))
             assert error["message"], error
             assert inspect(cid) == before, invalid
         assert capture(cid, command) == expected

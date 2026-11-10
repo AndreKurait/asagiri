@@ -1,5 +1,8 @@
 //! The `kiri` command.
 
+// The larger HostConfig JSON object needs additional macro expansion depth.
+#![recursion_limit = "256"]
+
 use std::process::ExitCode;
 
 #[cfg(target_os = "macos")]
