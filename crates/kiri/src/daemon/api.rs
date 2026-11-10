@@ -1299,6 +1299,34 @@ pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engi
     l
 }
 
+pub(super) fn restart_policy(value: &Value, auto_remove: bool) -> Result<RestartPolicy, Error> {
+    if !value.is_null() && !value.is_object() {
+        return Err(Error::BadRequest("restart policy must be an object".into()));
+    }
+    if !value["Name"].is_null() && !value["Name"].is_string() {
+        return Err(Error::BadRequest("restart policy name must be a string".into()));
+    }
+    let name = match value["Name"].as_str() {
+        None | Some("") => "no",
+        Some(name) => name,
+    };
+    if !matches!(name, "no" | "always" | "unless-stopped" | "on-failure") {
+        return Err(Error::BadRequest(format!("invalid restart policy {name}")));
+    }
+    let retries = if value["MaximumRetryCount"].is_null() { 0 } else {
+        value["MaximumRetryCount"].as_u64().and_then(|n| u32::try_from(n).ok())
+            .ok_or_else(|| Error::BadRequest("invalid restart policy maximum retry count".into()))?
+    };
+    if retries != 0 && name != "on-failure" {
+        return Err(Error::BadRequest("maximum retry count can only be used with 'on-failure'".into()));
+    }
+    if auto_remove && name != "no" {
+        return Err(Error::BadRequest("can't create 'AutoRemove' container with restart policy".into()));
+    }
+    Ok(RestartPolicy { name: name.to_owned(), max_retries: retries })
+}
+
+
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let image_name = body["Image"].as_str().unwrap_or_default();
@@ -1306,6 +1334,7 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         return Err(Error::BadRequest("no image specified".into()));
     }
     let host = &body["HostConfig"];
+    let restart = restart_policy(&host["RestartPolicy"], host["AutoRemove"].as_bool().unwrap_or(false))?;
     let network_mode = match host["NetworkMode"].as_str().unwrap_or("default") {
         "" | "default" => "bridge".to_owned(),
         m => m.to_owned(),
@@ -1475,20 +1504,8 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         mount_info: mounts.info,
         volumes: mounts.volumes,
         anon_volumes: mounts.anon,
-        restart: RestartPolicy {
-            name: match host["RestartPolicy"]["Name"].as_str() {
-                Some("") | None => "no".to_owned(),
-                Some(n) => n.to_owned(),
-            },
-            max_retries: host["RestartPolicy"]["MaximumRetryCount"].as_u64().unwrap_or(0) as u32,
-        },
+        restart,
     };
-    if !matches!(spec.restart.name.as_str(), "no" | "always" | "unless-stopped" | "on-failure") {
-        return Err(Error::BadRequest(format!("invalid restart policy {}", spec.restart.name)));
-    }
-    if spec.auto_remove && spec.restart.name != "no" {
-        return Err(Error::BadRequest("can't create 'AutoRemove' container with restart policy".into()));
-    }
     let id = engine.create(req.query("name").map(str::to_owned), spec, &image)?;
     Ok(json!({"Id": id, "Warnings": warnings}))
 }
@@ -2553,6 +2570,20 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restart_policy_validation_applies_before_create_and_update() {
+        for value in [
+            json!({"Name": "invalid"}), json!({"Name": "always", "MaximumRetryCount": 1}),
+            json!({"Name": "on-failure", "MaximumRetryCount": -1}),
+            json!({"Name": "on-failure", "MaximumRetryCount": 4294967296u64}),
+        ] {
+            assert!(restart_policy(&value, false).is_err(), "{value}");
+        }
+        assert!(restart_policy(&json!({"Name": "always"}), true).is_err());
+        assert_eq!(restart_policy(&json!({"Name": "on-failure", "MaximumRetryCount": 3}), false).unwrap().max_retries, 3);
+        assert_eq!(restart_policy(&Value::Null, false).unwrap().name, "no");
+    }
 
     #[test]
     fn kernel_release_is_trimmed_and_empty_is_none() {
