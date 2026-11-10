@@ -46,14 +46,14 @@ def check(path, image):
 
     ICC = "com.docker.network.bridge.enable_icc"
 
-    def network(name, icc=None, statuses=(201,)):
-        body = {"Name": name}
+    def network(name, icc=None, statuses=(201,), **settings):
+        body = {"Name": name, **settings}
         if icc is not None:
             body["Options"] = {ICC: icc}
         return request("POST", "/networks/create", body, statuses)
 
-    def run(name, mode="bridge"):
-        body = {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": mode}}
+    def run(name, mode="bridge", caps=()):
+        body = {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": mode, "CapAdd": list(caps)}}
         cid = request("POST", "/containers/create?name=" + name, body, (201,))["Id"]
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
         return cid
@@ -64,27 +64,35 @@ def check(path, image):
     def endpoint(cid, net):
         return request("GET", "/containers/" + cid + "/json")["NetworkSettings"]["Networks"][net]
 
-    def ping(cid, target):
-        """Whether `target` answers, and what ping printed."""
+    def shell(cid, command):
+        """Whether `command` succeeded in the container, and what it printed."""
         output = "/tmp/icc-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
-                      {"Cmd": ["sh", "-c", "ping -c 1 -W 2 " + target + " > " + output + " 2>&1"]}, (201,))["Id"]
-        # Upstream's separate empty-response fix changes this 204 to Docker's 200.
+                      {"Cmd": ["sh", "-c", "{ " + command + "; } > " + output + " 2>&1"]}, (201,))["Id"]
+        # Docker answers 200; Kiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:
             state = request("GET", "/exec/" + eid + "/json")
             if not state["Running"]:
                 break
-            assert time.monotonic() < deadline, "ping exec did not exit"
+            assert time.monotonic() < deadline, "exec did not exit: " + command
             time.sleep(.01)
         data = request("GET", "/containers/" + cid + "/archive?path=" + output)
         with tarfile.open(fileobj=io.BytesIO(data)) as archive:
             lines = archive.extractfile(archive.getmembers()[0]).read().decode().splitlines()
         return state["ExitCode"] == 0, lines
 
+    def ping(cid, target):
+        """Whether `target` answers one ping within a second, and what ping printed."""
+        return shell(cid, "ping -c 1 -W 1 " + target)
+
     def reaches(cid, target):
-        return ping(cid, target)[0]
+        # A second try, so one packet lost right after a start or a connect is not a failure.
+        return shell(cid, "ping -c 1 -W 2 " + target + " || ping -c 1 -W 2 " + target)[0]
+
+    def blocked(cid, target):
+        return not ping(cid, target)[0]
 
     try:
         apart, shared = "icc-apart-" + tag, "icc-shared-" + tag
@@ -92,7 +100,7 @@ def check(path, image):
         assert request("GET", "/networks/" + apart)["Options"][ICC] == "false"
         one, two = run("icc-one-" + tag, apart), run("icc-two-" + tag, apart)
         first, second = endpoint(one, apart), endpoint(two, apart)
-        assert not reaches(one, second["IPAddress"]) and not reaches(two, first["IPAddress"])
+        assert blocked(one, second["IPAddress"]) and blocked(two, first["IPAddress"])
         # The name still resolves: only the traffic is kept apart.
         answered, lines = ping(one, "icc-two-" + tag)
         assert not answered and second["IPAddress"] in lines[0], lines
@@ -106,22 +114,48 @@ def check(path, image):
         connect(shared, one)
         connect(shared, two)
         assert reaches(one, endpoint(two, shared)["IPAddress"]) and reaches(two, endpoint(one, shared)["IPAddress"])
-        assert not reaches(one, second["IPAddress"])
+        assert blocked(one, second["IPAddress"])
         print("PASS a second network they share connects them, and only over itself", flush=True)
 
         late = run("icc-late-" + tag, shared)
         connect(apart, late)
         joined = endpoint(late, apart)["IPAddress"]
-        assert not reaches(late, first["IPAddress"]) and not reaches(one, joined)
+        assert blocked(late, first["IPAddress"]) and blocked(one, joined)
         assert reaches(late, endpoint(one, shared)["IPAddress"])
         print("PASS a container connected later is kept apart too", flush=True)
+
+        request("POST", "/containers/" + two + "/restart?t=0", statuses=(204,))
+        again = endpoint(two, apart)["IPAddress"]
+        assert blocked(one, again) and blocked(two, first["IPAddress"])
+        assert reaches(two, endpoint(one, shared)["IPAddress"])
+        print("PASS a restarted container is kept apart too", flush=True)
+
+        # Sent to the gateway instead of the peer, a packet is routed back
+        # into the network rather than switched within it: that is no way
+        # round either, even with both ends set up for it.
+        east, west = run("icc-east-" + tag, apart, ["NET_ADMIN"]), run("icc-west-" + tag, apart, ["NET_ADMIN"])
+        for cid, peer in ((east, west), (west, east)):
+            address, gateway = endpoint(peer, apart)["IPAddress"], endpoint(cid, apart)["Gateway"]
+            routed, lines = shell(cid, "ip route add " + address + "/32 via " + gateway + " && ip route get " + address)
+            assert routed and "via " + gateway in lines[0], lines
+        assert blocked(east, endpoint(west, apart)["IPAddress"]) and blocked(west, endpoint(east, apart)["IPAddress"])
+        assert reaches(east, endpoint(east, apart)["Gateway"])
+        print("PASS a route through the gateway does not connect them", flush=True)
+
+        six = "icc-six-" + tag
+        network(six, "false", EnableIPv6=True)
+        north, south = run("icc-north-" + tag, six), run("icc-south-" + tag, six)
+        assert reaches(north, endpoint(north, six)["IPv6Gateway"]) and reaches(south, endpoint(south, six)["IPv6Gateway"])
+        assert blocked(north, endpoint(south, six)["GlobalIPv6Address"]) and blocked(south, endpoint(north, six)["GlobalIPv6Address"])
+        print("PASS IPv6 is kept apart as IPv4 is", flush=True)
 
         # Go's ParseBool spellings, as Docker reads the option.
         for value, expected in (("0", False), ("F", False), ("true", True), ("1", True)):
             name = "icc-" + value.lower() + "-" + tag
             network(name, value)
             left, right = run(name + "-left", name), run(name + "-right", name)
-            assert reaches(left, endpoint(right, name)["IPAddress"]) == expected, (value, expected)
+            address = endpoint(right, name)["IPAddress"]
+            assert reaches(left, address) if expected else blocked(left, address), (value, expected)
         print("PASS the option takes Go's boolean spellings, and on leaves containers connected", flush=True)
 
         bad = "icc-bad-" + tag
@@ -130,7 +164,7 @@ def check(path, image):
             assert ICC in error, error
         request("GET", "/networks/" + bad, statuses=(404,))
         print("PASS a value that is not a boolean is refused and leaves no network behind", flush=True)
-        print("6 bridge ICC scenarios passed")
+        print("9 bridge ICC scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
