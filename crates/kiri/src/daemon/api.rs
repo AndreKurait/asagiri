@@ -1955,6 +1955,11 @@ fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
                 v["NetworkSettings"][k] = ep[k].clone();
             }
         }
+        // The top-level IPv6 gateway is the primary network's: an internal
+        // one shows none there either.
+        if networks.iter().any(|n| n.internal && (n.name == c.spec.network_mode || n.id == c.spec.network_mode)) {
+            v["NetworkSettings"]["IPv6Gateway"] = json!("");
+        }
         if let Some(h) = &health {
             v["State"]["Health"] = json!(h);
         }
