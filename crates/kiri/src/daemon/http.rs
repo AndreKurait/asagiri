@@ -8,6 +8,7 @@ use std::os::unix::net::UnixStream;
 
 /// API version this daemon speaks. The Docker CLI negotiates down to it.
 pub const API_VERSION: &str = "1.47";
+pub const MIN_API_VERSION: &str = "1.24";
 
 /// Largest request body read into memory (container create, etc.). Archives
 /// and image loads are streamed with [`Body`] instead, at any size.
@@ -21,6 +22,7 @@ pub struct Request {
     pub method: String,
     /// Path without the `/v1.xx` prefix or the query string.
     pub path: String,
+    api_version: Option<String>,
     query: Vec<(String, String)>,
     headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -49,7 +51,19 @@ impl Request {
     /// container create), so it goes through the same code as a client's.
     pub fn internal(method: &str, path: &str, query: &[(&str, &str)], body: Vec<u8>) -> Request {
         let query = query.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Request { method: method.to_owned(), path: path.to_owned(), query, headers: Vec::new(), body }
+        Request { method: method.to_owned(), path: path.to_owned(), api_version: None, query, headers: Vec::new(), body }
+    }
+
+    pub fn version_error(&self) -> Option<String> {
+        let version = self.api_version.as_deref()?;
+        let requested = parse_version(version)?;
+        if requested > parse_version(API_VERSION)? {
+            Some(format!("client version {version} is too new. Maximum supported API version is {API_VERSION}"))
+        } else if requested < parse_version(MIN_API_VERSION)? {
+            Some(format!("client version {version} is too old. Minimum supported API version is {MIN_API_VERSION}, please upgrade your client to a newer version"))
+        } else {
+            None
+        }
     }
 }
 
@@ -59,7 +73,7 @@ impl Request {
 pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -> bool) -> io::Result<Option<Request>> {
     // The request line and headers are read through a cap, so a client
     // cannot exhaust memory with an endless line. The body is read after.
-    let (method, path, query, headers) = {
+    let (method, path, api_version, query, headers) = {
         let mut head = (&mut *r).take(MAX_HEAD);
         let mut line = String::new();
         if head.read_line(&mut line)? == 0 {
@@ -71,7 +85,9 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         };
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-        let path = strip_version(raw_path).to_owned();
+        let path = strip_version(raw_path);
+        let api_version = (path != raw_path).then(|| raw_path[2..raw_path.len() - path.len()].to_owned());
+        let path = path.to_owned();
         let query: Vec<(String, String)> = raw_query
             .split('&')
             .filter(|kv| !kv.is_empty())
@@ -94,11 +110,13 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
                 headers.push((k.trim().to_owned(), v.trim().to_owned()));
             }
         }
-        (method, path, query, headers)
+        (method, path, api_version, query, headers)
     };
     let streamed = stream(&method, &path);
-    let mut req = Request { method, path, query, headers, body: Vec::new() };
-    if streamed {
+    let mut req = Request { method, path, api_version, query, headers, body: Vec::new() };
+    // The router rejects incompatible clients and closes the connection.
+    // Do not wait for a body (possibly withheld for 100 Continue) first.
+    if streamed || req.version_error().is_some() {
         return Ok(Some(req));
     }
     if req.header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
@@ -194,10 +212,18 @@ impl Read for Body<'_> {
 fn strip_version(path: &str) -> &str {
     if let Some(rest) = path.strip_prefix("/v")
         && let Some(i) = rest.find('/')
-            && rest[..i].bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+            && parse_version(&rest[..i]).is_some() {
                 return &rest[i..];
             }
     path
+}
+
+fn parse_version(version: &str) -> Option<(u32, u32)> {
+    let (major, minor) = version.split_once('.')?;
+    if major.is_empty() || minor.is_empty() || !major.bytes().chain(minor.bytes()).all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -360,6 +386,24 @@ mod tests {
         assert_eq!(strip_version("/v1.47/containers/json"), "/containers/json");
         assert_eq!(strip_version("/_ping"), "/_ping");
         assert_eq!(strip_version("/volumes"), "/volumes");
+        for path in ["/v/info", "/v1/info", "/v1..47/info", "/v+1.47/info"] {
+            assert_eq!(strip_version(path), path);
+        }
+    }
+
+    #[test]
+    fn rejects_outside_the_advertised_version_range_without_reading_a_body() {
+        for (version, rejected) in [("1.23", true), ("1.24", false), (API_VERSION, false), ("1.48", true), ("2.0", true)] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            let body = if rejected { "Content-Length: 100\r\nExpect: 100-continue\r\n" } else { "" };
+            client.write_all(format!("GET /v{version}/info HTTP/1.1\r\n{body}\r\n").as_bytes()).unwrap();
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+            let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            assert_eq!(request.path, "/info");
+            assert_eq!(request.api_version.as_deref(), Some(version));
+            assert_eq!(request.version_error().is_some(), rejected, "{version}");
+        }
+        assert!(Request::internal("GET", "/info", &[], Vec::new()).version_error().is_none());
     }
 
     #[test]

@@ -76,6 +76,7 @@ cleanup() {
 cleanup
 
 section "engine"
+code api-version-range 0 python3 "$(dirname "$0")/api-version.py" "$SOCK"
 t version-server "Kiri" $D version
 t version-api "1.47" $D version --format '{{.Server.APIVersion}}'
 t info-os "Kiri" $D info --format '{{.OperatingSystem}}'
