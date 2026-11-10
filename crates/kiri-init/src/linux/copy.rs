@@ -256,12 +256,14 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
     if ft.is_file() {
         let mut h = tar::Header::new_gnu();
         h.set_metadata(meta);
+        h.set_mode(meta.mode() & 0o7777);
         let mut f = fs::File::open(src)?;
         return b.append_data(&mut h, name, &mut f);
     }
     if ft.is_dir() || ft.is_symlink() || ft.is_fifo() || ft.is_char_device() || ft.is_block_device() {
         let mut h = tar::Header::new_gnu();
         h.set_metadata(meta);
+        h.set_mode(meta.mode() & 0o7777);
         h.set_size(0);
         if ft.is_symlink() {
             return b.append_link(&mut h, name, fs::read_link(src)?);
@@ -435,6 +437,31 @@ fn read_frame(conn: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tar_modes_keep_permissions_without_posix_file_type_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("kiri-copy-modes-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("file"), b"contents").unwrap();
+        fs::set_permissions(dir.join("file"), fs::Permissions::from_mode(0o6751)).unwrap();
+        fs::create_dir(dir.join("dir")).unwrap();
+        fs::set_permissions(dir.join("dir"), fs::Permissions::from_mode(0o750)).unwrap();
+        std::os::unix::fs::symlink("file", dir.join("link")).unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        for name in ["file", "dir", "link"] {
+            let src = dir.join(name);
+            append_one(&mut builder, &src, std::path::Path::new(name), &fs::symlink_metadata(&src).unwrap()).unwrap();
+        }
+        let bytes = builder.into_inner().unwrap();
+        let got: Vec<_> = tar::Archive::new(bytes.as_slice()).entries().unwrap().map(|entry| {
+            let entry = entry.unwrap();
+            (entry.header().mode().unwrap(), entry.header().entry_type())
+        }).collect();
+        assert_eq!(got, [(0o6751, tar::EntryType::Regular), (0o750, tar::EntryType::Directory), (0o777, tar::EntryType::Symlink)]);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn chunks_end_at_the_empty_chunk_and_leave_the_rest() {
