@@ -156,7 +156,7 @@ fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
     };
     let _update = engine.lock_resource_updates();
     let (id, base) = engine.with(key, |c| (c.id.clone(), c.spec.limits.clone()))?;
-    let warnings = super::api::validate_limits(&b, engine.container_cpus(), true)?;
+    let warnings = super::api::validate_limits(&b, || engine.container_cpus(), true)?;
     if let Some(conflict) = super::api::update_conflict(&b, &base) {
         return Err(Error::Conflict(format!("Cannot update container {id}: Conflicting options: {conflict}")));
     }

@@ -1375,9 +1375,10 @@ fn cpuset_list(value: &str) -> Result<(), String> {
 
 /// Checks the resource settings of one create or update request the way
 /// dockerd does, with its messages, and returns the warnings for the reply.
-/// `cpus` is how many CPUs a container can use. An update may name
-/// MemorySwap alone: the container's Memory stands.
-pub(super) fn validate_limits(h: &Value, cpus: usize, update: bool) -> Result<Vec<&'static str>, Error> {
+/// `cpus` gives how many CPUs a container can use, and is asked only for a
+/// request that sets NanoCpus: the answer costs system calls. An update may
+/// name MemorySwap alone: the container's Memory stands.
+pub(super) fn validate_limits(h: &Value, cpus: impl FnOnce() -> usize, update: bool) -> Result<Vec<&'static str>, Error> {
     const MIN_MEMORY: i64 = 6 << 20;
     let int = |key: &str| match &h[key] {
         Value::Null => Ok(0),
@@ -1419,8 +1420,11 @@ pub(super) fn validate_limits(h: &Value, cpus: usize, update: bool) -> Result<Ve
     if nano > 0 && quota > 0 {
         return bad("Conflicting options: Nano CPUs and CPU Quota cannot both be set");
     }
-    if nano < 0 || nano as u128 > cpus as u128 * 1_000_000_000 {
-        return bad(&format!("range of CPUs is from 0.01 to {cpus}.00, as there are only {cpus} CPUs available"));
+    if nano != 0 {
+        let cpus = cpus();
+        if nano < 0 || nano as u128 > cpus as u128 * 1_000_000_000 {
+            return bad(&format!("range of CPUs is from 0.01 to {cpus}.00, as there are only {cpus} CPUs available"));
+        }
     }
     if shares < 0 {
         return bad(&format!("invalid CPU shares ({shares}): value must be a positive integer"));
@@ -1499,7 +1503,7 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         return Err(Error::BadRequest("no image specified".into()));
     }
     let host = &body["HostConfig"];
-    let warnings = validate_limits(host, engine.container_cpus(), false)?;
+    let warnings = validate_limits(host, || engine.container_cpus(), false)?;
     let mut limits = super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) };
     // Docker defaults the combined memory+swap limit to twice Memory; a
     // Memory too large to double is left without a swap limit.
@@ -2855,7 +2859,7 @@ mod tests {
             ..Default::default()
         };
         let value = json!({"PidsLimit": -1, "CpuQuota": -1});
-        validate_limits(&value, 2, true).unwrap();
+        validate_limits(&value, || 2, true).unwrap();
         let updated = limits_from(&value, base.clone());
         assert_eq!(updated.pids_max, 0);
         assert_eq!(updated.cpu_quota, 0);
@@ -2881,7 +2885,7 @@ mod tests {
             json!({"NanoCpus": 1_000_000_000, "CpuPeriod": 10000}), json!({"OomKillDisable": "yes"}),
             json!({"CpusetCpus": "3-1"}), json!({"CpusetCpus": "0,"}), json!({"CpusetMems": "x"}), json!({"CpusetCpus": "8193"}),
         ] {
-            assert!(validate_limits(&value, 2, false).is_err(), "{value}");
+            assert!(validate_limits(&value, || 2, false).is_err(), "{value}");
         }
         // What Docker creates, Kiri creates: the kernel has the last word.
         for value in [
@@ -2890,32 +2894,50 @@ mod tests {
             json!({"CpusetCpus": "0-3,8192", "CpusetMems": "0"}), json!({"OomKillDisable": false}),
             json!({"Memory": i64::MAX}),
         ] {
-            assert_eq!(validate_limits(&value, 2, false).unwrap(), Vec::<&str>::new(), "{value}");
+            assert_eq!(validate_limits(&value, || 2, false).unwrap(), Vec::<&str>::new(), "{value}");
         }
         // Only an update may raise the swap limit of the Memory already set.
-        validate_limits(&json!({"MemorySwap": 67108864}), 2, true).unwrap();
+        validate_limits(&json!({"MemorySwap": 67108864}), || 2, true).unwrap();
         let value = json!({"NanoCpus": i64::MAX});
         // The arithmetic cannot overflow even for an adversarial request.
         assert_eq!(limits_from(&value, Default::default()).wire().cpu_quota, i64::MAX as u64 / 10000);
         for (shares, weight) in [(1, 1), (262145, 10000)] {
             let value = json!({"CpuShares": shares});
-            validate_limits(&value, 2, false).unwrap();
+            validate_limits(&value, || 2, false).unwrap();
             assert_eq!(limits_from(&value, Default::default()).cpu_weight, weight);
         }
     }
 
     #[test]
     fn nano_cpus_are_bounded_by_the_cpus_given() {
-        validate_limits(&json!({"NanoCpus": 12_000_000_000u64}), 12, false).unwrap();
-        let Err(Error::BadRequest(message)) = validate_limits(&json!({"NanoCpus": 12_000_000_001u64}), 12, false) else { panic!() };
+        validate_limits(&json!({"NanoCpus": 12_000_000_000u64}), || 12, false).unwrap();
+        let Err(Error::BadRequest(message)) = validate_limits(&json!({"NanoCpus": 12_000_000_001u64}), || 12, false) else { panic!() };
         assert_eq!(message, "range of CPUs is from 0.01 to 12.00, as there are only 12 CPUs available");
-        assert!(validate_limits(&json!({"NanoCpus": 4_000_000_000u64}), 2, true).is_err());
+        assert!(validate_limits(&json!({"NanoCpus": 4_000_000_000u64}), || 2, true).is_err());
+    }
+
+    #[test]
+    fn the_cpus_are_counted_only_for_a_request_with_nano_cpus() {
+        // Counting them costs system calls, which every plain create would pay.
+        for value in [json!({}), json!({"Memory": 67108864, "CpuShares": 512, "CpuQuota": 50000, "CpuPeriod": 100000, "CpusetCpus": "0"}), json!({"NanoCpus": 0})] {
+            for update in [false, true] {
+                validate_limits(&value, || panic!("counted for {value}"), update).unwrap();
+            }
+        }
+        let asked = std::cell::Cell::new(0);
+        let count = || {
+            asked.set(asked.get() + 1);
+            2
+        };
+        validate_limits(&json!({"NanoCpus": 1_000_000_000u64}), count, false).unwrap();
+        assert_eq!(asked.get(), 1);
+        assert!(validate_limits(&json!({"NanoCpus": -1}), || 2, false).is_err());
     }
 
     #[test]
     fn oom_kill_disable_is_discarded_with_dockers_warning() {
         for update in [false, true] {
-            let warnings = validate_limits(&json!({"OomKillDisable": true}), 2, update).unwrap();
+            let warnings = validate_limits(&json!({"OomKillDisable": true}), || 2, update).unwrap();
             assert_eq!(warnings, ["Your kernel does not support OomKillDisable. OomKillDisable discarded."]);
         }
     }

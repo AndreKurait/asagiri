@@ -96,10 +96,13 @@ def check(path, image):
         print("PASS partial update and removal of CPU/PID limits", flush=True)
 
         before = inspect(cid)
+        # Negative CpuShares are left to the creates below: Docker refuses them
+        # there, but an update of Docker 29 takes them, and the container then
+        # cannot be started again.
         for invalid in ({"MemorySwap": 1}, {"MemoryReservation": 1}, {"Memory": -1},
-                        {"CpuPeriod": 1}, {"CpuShares": -1}, {"CpusetCpus": "3-1"},
+                        {"CpuPeriod": 1}, {"CpusetCpus": "3-1"},
                         {"NanoCpus": 1000000000, "CpuQuota": 10000}):
-            # Docker 28 reports some merged-limit failures from runc as 500;
+            # Docker reports some merged-limit failures from runc as 500;
             # Kiri can reject the same combination before contacting the guest.
             error = update(cid, invalid, (400, 500))
             assert error["message"], error
@@ -171,11 +174,12 @@ def check(path, image):
         print("PASS CPU limit is bounded by the CPUs available", flush=True)
 
         # Inspect reports the limits as they were given, so its HostConfig
-        # creates the same container again.
+        # creates the same container again. The weight of 512 shares depends
+        # on the runc an engine follows: 20 before runc 1.3, 59 since.
         for host, given, kernel in (
                 ({"NanoCpus": 1500000000, "CpuShares": 512, "Memory": 67108864, "PidsLimit": 32},
-                 (1500000000, 0, 0, 512), ["150000 100000", "20", "67108864", "32"]),
-                ({"CpuQuota": 20000}, (0, 20000, 0, 0), ["20000 100000", "100", "max", None])):
+                 (1500000000, 0, 0, 512), ["150000 100000", ("20", "59"), "67108864", "32"]),
+                ({"CpuQuota": 20000}, (0, 20000, 0, 0), ["20000 100000", ("100",), "max", None])):
             config = inspect(create(host))
             assert tuple(config[key] for key in ("NanoCpus", "CpuQuota", "CpuPeriod", "CpuShares")) == given, config
             copy = request("POST", "/containers/create",
@@ -183,7 +187,8 @@ def check(path, image):
             assert inspect(copy) == config
             start(copy)
             values = capture(copy, "cd /sys/fs/cgroup && cat cpu.max cpu.weight memory.max pids.max")
-            assert values[:3] == kernel[:3] and kernel[3] in (None, values[3]), values
+            assert values[0] == kernel[0] and values[1] in kernel[1] and values[2] == kernel[2], values
+            assert kernel[3] in (None, values[3]), values
         print("PASS inspected limits recreate the container", flush=True)
 
         # --cpus and a quota or period replace each other in the kernel, so
@@ -232,6 +237,7 @@ def check(path, image):
                  "Conflicting options: Nano CPUs and CPU Period cannot both be set"),
                 ({"CpuPeriod": 1}, "CPU cfs period can not be less than 1ms (i.e. 1000) or larger than 1s (i.e. 1000000)"),
                 ({"CpuQuota": 999}, "CPU cfs quota can not be less than 1ms (i.e. 1000)"),
+                ({"CpuShares": -1}, "invalid CPU shares (-1): value must be a positive integer"),
                 ({"CpusetCpus": "3-1"}, "Invalid value 3-1 for cpuset cpus: invalid format: 3-1"),
                 ({"CpusetCpus": "999999"}, "Invalid value 999999 for cpuset cpus: value of out range, maximum is 8192"),
                 ({"CpusetMems": "x"}, "Invalid value x for cpuset mems: invalid format: x")):
