@@ -61,7 +61,7 @@ pub(super) enum Next {
 
 pub(super) fn reply(w: &mut UnixStream, result: Result<Value, Error>, ok: u16) -> io::Result<Next> {
     match result {
-        Ok(Value::Null) => http::no_content(w)?,
+        Ok(Value::Null) => http::respond(w, ok, "application/json", b"")?,
         Ok(v) => http::json(w, ok, &v.to_string())?,
         Err(e) => error(w, e)?,
     }
@@ -2172,7 +2172,7 @@ fn exec_start(req: &Request, engine: &Arc<Engine>, id: &str, w: &mut UnixStream,
     if detach {
         // Nobody will read the output; let it drain on its own thread.
         std::thread::spawn(move || for _ in rx {});
-        http::no_content(w)?;
+        http::respond(w, 200, "application/vnd.docker.raw-stream", b"")?;
         return Ok(Next::KeepAlive);
     }
     http::upgrade(w)?;
@@ -2553,6 +2553,18 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_responses_keep_the_operations_status_code() {
+        use std::io::BufRead;
+        for status in [200, 201, 204, 304] {
+            let (client, mut server) = UnixStream::pair().unwrap();
+            reply(&mut server, Ok(Value::Null), status).unwrap();
+            let mut line = String::new();
+            BufReader::new(client).read_line(&mut line).unwrap();
+            assert!(line.starts_with(&format!("HTTP/1.1 {status} ")), "{line}");
+        }
+    }
 
     #[test]
     fn kernel_release_is_trimmed_and_empty_is_none() {
