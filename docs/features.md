@@ -15,9 +15,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Limits and security**: `--memory`, `--cpus`, `--cpu-shares`,
   `--pids-limit`, `--shm-size`; Docker's default capabilities and a default
   seccomp filter; `--cap-add`/`--cap-drop`, `--privileged`, `--read-only`,
-  `--security-opt seccomp=unconfined` and `no-new-privileges`. Even
-  privileged and unconfined containers keep the host boundary: no vsock
-  sockets (the way to the Mac) and no io_uring
+  `--security-opt seccomp=unconfined` or `seccomp=<profile.json>`, and
+  `no-new-privileges`. Even privileged and unconfined containers, and those
+  with their own profile, keep the host boundary: no vsock sockets (the way
+  to the Mac) and no io_uring
 - **Networking**: a default bridge, user networks with DNS by name and
   alias, `network connect`/`disconnect`, `--network host|none`, `-p`/`-P`
   (TCP and UDP) on all interfaces (as Docker does; `-p 127.0.0.1:8080:80`

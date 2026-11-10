@@ -55,6 +55,7 @@ pub struct Node {
 
 #[derive(Debug, Default)]
 pub struct HostOpts {
+    pub seccomp: Option<String>,
     /// (RLIMIT_* resource, soft, hard); u64::MAX is unlimited.
     pub rlimits: Vec<(u32, u64, u64)>,
     pub sysctls: Vec<Sysctl>,
@@ -73,6 +74,7 @@ pub fn parse(list: StrList<'_>) -> io::Result<HostOpts> {
     for line in list.iter() {
         let f: Vec<&str> = line.split('\t').collect();
         match f.as_slice() {
+            ["seccomp", profile] => o.seccomp = Some((*profile).into()),
             ["rlimit", res, soft, hard] => {
                 let n = |s: &str| s.parse::<u64>().map_err(|_| bad(line));
                 let res: u32 = res.parse().map_err(|_| bad(line))?;
