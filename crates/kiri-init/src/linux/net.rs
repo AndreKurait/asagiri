@@ -687,10 +687,11 @@ pub fn attach_container(
 
 /// Plugs the container into `bridge` as `eth{n}`. The first network with a
 /// way out gives the default route, for IPv4 and for IPv6 each; more
-/// networks add their subnets, as with Docker. An `internal` network gives
-/// no default route at all: a container on nothing else has traffic beyond
-/// it fail at once (unreachable), and one that joins a routed network
-/// later goes out through that, as with Docker. On a network without IPv6 the
+/// networks add their subnets. (Docker picks among several by name, and
+/// moves the route when a network that sorts earlier joins.) An `internal`
+/// network gives no default route at all: a container on nothing else has
+/// traffic beyond it fail at once (unreachable), and one that joins a
+/// routed network later goes out through that, as with Docker. On a network without IPv6 the
 /// interface has IPv6 off (no link-local address), as Docker does. On an
 /// IPv6-only network `ip` is only the name the container is kept by (its
 /// MAC is made from it): neither the interface nor the bridge gets it.
@@ -807,16 +808,24 @@ impl WayOut {
 }
 
 /// After a network was unplugged: a default route that went with it comes
-/// back through the first of the container's remaining networks that has
-/// one to give. A default route that is still there stays.
+/// back through the first of the container's remaining networks that can
+/// give one. A default route that is still there stays. IPv4 and IPv6 each
+/// on their own: a network that cannot give one family's route is passed
+/// over for that family only.
 pub fn restore_default_routes(pid: libc::pid_t, ways: &[WayOut]) -> io::Result<()> {
     let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
     let mut inner = Netlink::open_in(&netns)?;
-    if let Some((way, gateway)) = ways.iter().find_map(|w| w.gateway.map(|g| (w, g))) {
-        netlink::add_default_route_if_none(&mut inner, netlink::index_in(&netns, &way.ifname)?, gateway)?;
+    for way in ways {
+        let Some(gateway) = way.gateway else { continue };
+        if netlink::index_in(&netns, &way.ifname).and_then(|index| netlink::add_default_route_if_none(&mut inner, index, gateway)).is_ok() {
+            break;
+        }
     }
-    if let Some((way, gateway)) = ways.iter().find_map(|w| w.gateway6.map(|g| (w, g))) {
-        netlink::add_default_route6(&mut inner, netlink::index_in(&netns, &way.ifname)?, gateway)?;
+    for way in ways {
+        let Some(gateway) = way.gateway6 else { continue };
+        if netlink::index_in(&netns, &way.ifname).and_then(|index| netlink::add_default_route6(&mut inner, index, gateway)).is_ok() {
+            break;
+        }
     }
     Ok(())
 }

@@ -313,7 +313,9 @@ pub fn add_default_route(nl: &mut Netlink, index: i32, gateway: [u8; 4]) -> io::
 }
 
 /// The IPv4 default route, unless the namespace already has one: without
-/// `NLM_F_EXCL` the kernel would put a second one in front of it.
+/// `NLM_F_EXCL` the kernel would put a second one in front of it. (The
+/// kernel compares routes of the same metric; the default routes made
+/// here all have none.)
 pub fn add_default_route_if_none(nl: &mut Netlink, index: i32, gateway: [u8; 4]) -> io::Result<()> {
     default_route(nl, index, gateway, NLM_F_EXCL)
 }
