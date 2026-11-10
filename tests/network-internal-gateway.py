@@ -114,6 +114,9 @@ def check(path, image):
                 assert gateways(endpoint) == ("", ""), (net, endpoint)
                 assert endpoint["IPAddress"], (net, endpoint)
                 assert bool(endpoint["GlobalIPv6Address"]) == six, (net, endpoint)
+            # Docker fills the old top-level fields for the default bridge only.
+            top = request("GET", "/containers/" + cid + "/json")["NetworkSettings"]
+            assert not top.get("Gateway") and not top.get("IPv6Gateway"), (net, top)
             inspected = endpoints(cid)[net]
             assert inspected["IPPrefixLen"] > 0 and (inspected["GlobalIPv6PrefixLen"] == 64) == six, (net, inspected)
             assert default_route(cid, "-4") == "" and default_route(cid, "-6") == "", net
@@ -150,10 +153,18 @@ def check(path, image):
         passed += 1
         print("PASS stopped")
     finally:
-        for cid in containers:
-            request("DELETE", "/containers/" + cid + "?force=true", statuses=(204, 404))
-        for net in networks:
-            request("DELETE", "/networks/" + net, statuses=(204, 404))
+        # Every removal is tried: the subnets are fixed, and a network left
+        # behind would be in the way of the next run.
+        primary_failure = sys.exc_info()[0] is not None
+        errors = []
+        for target in ["/containers/" + cid + "?force=true" for cid in containers] + ["/networks/" + net for net in networks]:
+            try:
+                request("DELETE", target, statuses=(204, 404))
+            except Exception as error:
+                errors.append(error)
+                print("Cleanup failed:", repr(error), file=sys.stderr)
+        if errors and not primary_failure:
+            raise RuntimeError("Could not remove everything the internal network gateway test made") from errors[0]
     print(passed, "internal network gateway scenarios passed")
 
 
