@@ -49,11 +49,14 @@ def check(path, image):
     def network(name):
         return request("POST", "/networks/create", {"Name": name}, (201,))["Id"]
 
-    def run(name, mode="bridge", endpoint=None, **config):
+    def create(name, mode="bridge", endpoint=None, **config):
         body = {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": mode}, **config}
         if endpoint is not None:
             body["NetworkingConfig"] = {"EndpointsConfig": {mode: endpoint}}
-        cid = request("POST", "/containers/create?name=" + name, body, (201,))["Id"]
+        return request("POST", "/containers/create?name=" + name, body, (201,))["Id"]
+
+    def run(name, mode="bridge", endpoint=None, **config):
+        cid = create(name, mode, endpoint, **config)
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
         return cid
 
@@ -72,7 +75,7 @@ def check(path, image):
         target = "/tmp/endpoint-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
                       {"Cmd": ["sh", "-c", "(" + command + ") > " + target + " 2>&1"]}, (201,))["Id"]
-        # Upstream's separate empty-response fix changes this 204 to Docker's 200.
+        # Docker answers 200; Kiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:
@@ -144,7 +147,7 @@ def check(path, image):
             # Its hostname is its short id, listed once.
             assert sorted(endpoints(peer)[net]["DNSNames"]) == sorted(["meta-peer-" + net, peer[:12]])
             for name in found[net]["DNSNames"]:
-                capture(peer, "ping -c 1 -W 3 " + name)
+                capture(peer, "ping -c 2 -W 3 " + name)
         print("PASS DNS names list the name, aliases, short id and hostname, and all resolve", flush=True)
 
         wanted = "02:42:0A:E7:29:63"
@@ -157,11 +160,28 @@ def check(path, image):
         stop(fixed)
         endpoint = endpoints(fixed)[front]
         assert endpoint["EndpointID"] == "" and endpoint["IPAddress"] == "", endpoint
+        # Docker leaves it out of the network's containers; listed, it has none there either.
+        assert members(front).get(fixed, {"EndpointID": ""})["EndpointID"] == "", members(front)[fixed]
         stop(cid)
         endpoint = endpoints(cid)["bridge"]
         assert endpoint["EndpointID"] == "" and endpoint["MacAddress"] == "", endpoint
         print("PASS a stopped container has no endpoint id", flush=True)
-        print("6 endpoint metadata scenarios passed")
+
+        fresh = create("meta-new-" + tag, front)
+        endpoint = endpoints(fresh)[front]
+        assert endpoint["DNSNames"] is None and endpoint["EndpointID"] == "", endpoint
+        assert members(front).get(fresh, {"EndpointID": ""})["EndpointID"] == "", members(front)[fresh]
+        names = sorted(["meta-new-" + tag, fresh[:12]])
+        # A network connected before the start lists them at once.
+        request("POST", "/networks/" + back_id + "/connect", {"Container": fresh}, (200, 204))
+        found = endpoints(fresh)
+        assert found[front]["DNSNames"] is None and sorted(found[back]["DNSNames"]) == names, found
+        request("POST", "/containers/" + fresh + "/start", statuses=(204,))
+        assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
+        stop(fresh)
+        assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
+        print("PASS DNS names of the network a container was created on are listed from its first start on", flush=True)
+        print("7 endpoint metadata scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
