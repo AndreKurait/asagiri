@@ -22,11 +22,23 @@ use super::time;
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
-    while let Some(req) = http::read_request(&mut r, streams_body)? {
+    loop {
+        let req = match http::read_request(&mut r, streams_body) {
+            Ok(Some(req)) => req,
+            Ok(None) => return Ok(()),
+            Err(e) => {
+                // A refused request ends the connection: nothing after it
+                // can be told apart from its body. The answer is a courtesy
+                // to a client that may already be gone.
+                let Some(status) = http::refusal(&e) else { return Err(e) };
+                let body = json!({"message": e.to_string()}).to_string();
+                let _ = http::respond_with(&mut w, status, "application/json", "Connection: close\r\n", body.as_bytes());
+                return Ok(());
+            }
+        };
         // The window's action this request is part of: the engine's lines
         // for it carry the same op.
         let _op = req.header("X-Kiri-Op").filter(|o| crate::diag::valid_op(o)).map(|o| crate::diag::enter_op(o.to_owned()));
-        http::serving(&req.method, &req.path);
         // Kiri's own window checks in every few seconds; that isn't use, and
         // counting it would keep the VM from ever sleeping while it's open.
         if req.header("X-Kiri-Background").is_none() {
@@ -46,7 +58,6 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
             }
         }
     }
-    Ok(())
 }
 
 /// Requests whose bodies can be any size: archives and image tarballs.
@@ -2457,6 +2468,16 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     if req.flag("noOverwriteDirNonDir") {
         flags |= copy_flags::NO_OVERWRITE_DIR_NON_DIR;
     }
+    // Before the body is read, as Docker does: a client waiting on
+    // `Expect: 100-continue` hears of a missing container without sending
+    // the archive.
+    let stream = match engine.copy(id, kiri_proto::copy_op::IN, path, flags) {
+        Ok(s) => s,
+        Err(e) => {
+            reply(w, Err(e), 200)?;
+            return Ok(Next::Close);
+        }
+    };
     // Docker takes the archive plain or compressed; the guest unpacks tar.
     use std::io::Read;
     let mut body = http::Body::new(req, r);
@@ -2467,13 +2488,6 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
         Ok(a) => a,
         Err(e) => {
             error(w, e)?;
-            return Ok(Next::Close);
-        }
-    };
-    let stream = match engine.copy(id, kiri_proto::copy_op::IN, path, flags) {
-        Ok(s) => s,
-        Err(e) => {
-            reply(w, Err(e), 200)?;
             return Ok(Next::Close);
         }
     };

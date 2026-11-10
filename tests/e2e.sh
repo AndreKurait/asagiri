@@ -107,6 +107,7 @@ t killed-by-signal "137" $D run --rm alpine sh -c 'sh -c "kill -9 \$\$"; echo $?
 
 section "run: config"
 code archive-permission-bits 0 python3 "$(dirname "$0")/archive-permissions.py" "$SOCK"
+code http-body-framing 0 python3 "$(dirname "$0")/http-body-framing.py" "$SOCK"
 t env "bar" $D run --rm -e FOO=bar alpine sh -c 'echo $FOO'
 t env-image "PATH=/usr/local/sbin" $D run --rm alpine env
 t workdir "/tmp" $D run --rm -w /tmp alpine pwd

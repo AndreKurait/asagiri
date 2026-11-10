@@ -733,6 +733,11 @@ pub fn build(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut Bu
         }
     }
     let _busy = Busy::new();
+    // The answer starts before the context is read: a client waiting on
+    // `Expect: 100-continue` is told to send it first.
+    if o.remote.is_none() {
+        req.accept_body(w)?;
+    }
     http::begin_stream(w, 200, "application/json")?;
     let probe = w.try_clone()?;
     let began = Instant::now();
