@@ -367,6 +367,10 @@ pub struct Container {
     pub paused: bool,
     /// Addresses on `spec.extra_networks` while running, as (network, ip).
     pub extra_ips: Vec<(String, [u8; 4])>,
+    /// The interface each of those networks is plugged in as while running,
+    /// as (network, n) for `eth{n}`. A network that leaves frees its number;
+    /// the ones that stay keep theirs.
+    extra_ifs: Vec<(String, u32)>,
     /// IPv6 addresses while running: on `network_mode`, and on extra
     /// networks as (network, ip). Only networks with IPv6 give one.
     pub ip6: Option<[u8; 16]>,
@@ -1015,6 +1019,7 @@ impl Engine {
                 early_close: false,
                 paused: false,
                 extra_ips: Vec::new(),
+                extra_ifs: Vec::new(),
                 ip6: None,
                 extra_ip6s: Vec::new(),
                     log: Arc::new(Mutex::new(super::logfile::Log::new(super::logfile::dir(self.store.root(), &s.id), &s.spec.log_config))),
@@ -1155,6 +1160,7 @@ impl Engine {
                         for (net, ip) in std::mem::take(&mut c.extra_ips) {
                             self.release_ip(&net, ip);
                         }
+                        c.extra_ifs.clear();
                         self.release_ip6s(c);
                         c.paused = false;
                         closed_ports = c.forwards.take();
@@ -1234,6 +1240,7 @@ impl Engine {
                     for (net, ip) in std::mem::take(&mut c.extra_ips) {
                         self.release_ip(&net, ip);
                     }
+                    c.extra_ifs.clear();
                     self.release_ip6s(c);
                     c.paused = false;
                     c.pid = 0;
@@ -1512,6 +1519,7 @@ impl Engine {
                 early_close: false,
                 paused: false,
                 extra_ips: Vec::new(),
+                extra_ifs: Vec::new(),
                 ip6: None,
                 extra_ip6s: Vec::new(),
                 log: Arc::new(Mutex::new(super::logfile::Log::new(log_dir, &log_config))),
@@ -2299,6 +2307,7 @@ impl Engine {
         }
         if let Some(c) = self.lock().containers.get_mut(id) {
             c.extra_ips.push((net.name.clone(), ip));
+            c.extra_ifs.push((net.name.clone(), n));
             if let Some(a) = ip6 {
                 c.extra_ip6s.push((net.name.clone(), a));
             }
@@ -2329,7 +2338,7 @@ impl Engine {
                 return Err(Error::BadRequest("container sharing network namespace with another container or host cannot be connected to any other network".into()));
             }
             c.spec.extra_networks.push(ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address });
-            (c.spec.extra_networks.len() as u32, c.status == Status::Running)
+            (free_ifnum(&c.extra_ifs), c.status == Status::Running)
         };
         self.save();
         if running {
@@ -2360,16 +2369,19 @@ impl Engine {
                 return Err(Error::NotFound(format!("container {} is not connected to network {}", &id[..12], net.name)));
             };
             c.spec.extra_networks.remove(pos);
+            // The interface it was plugged in as, which is not its place in
+            // the list once an earlier network has left.
+            let n = c.extra_ifs.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ifs.remove(i).1);
             let ip = c.extra_ips.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ips.remove(i).1);
             if let Some(i) = c.extra_ip6s.iter().position(|(x, _)| *x == net.name) {
                 let (_, a) = c.extra_ip6s.remove(i);
                 self.lock_networks().release6(&net.name, a);
             }
-            (pos as u32 + 1, ip)
+            (n, ip)
         };
         self.save();
         if let Some(ip) = ip {
-            if let Some(vm) = self.awake() {
+            if let (Some(n), Some(vm)) = (n, self.awake()) {
                 vm.net_detach(&id, n, &net.bridge, ip)?;
             }
             self.release_ip(&net.name, ip);
@@ -2931,6 +2943,12 @@ impl Engine {
     }
 }
 
+/// The lowest `n` for which a running container has no `eth{n}` yet, given
+/// its extra networks as (network, n). `eth0` is its first network.
+fn free_ifnum(taken: &[(String, u32)]) -> u32 {
+    (1..).find(|n| taken.iter().all(|(_, t)| t != n)).expect("fewer networks than numbers")
+}
+
 /// A Docker event in Kiri's log: containers and images coming and going,
 /// with name, image and exit code; never labels (they can hold anything).
 /// A BuildKit container's exec is a build session (`docker build`).
@@ -3353,6 +3371,20 @@ impl Engine {
             return (-1, format!("Health check exceeded timeout ({})", go_duration(timeout)));
         }
         (code.map_or(-1, i64::from), cap_output(&out))
+    }
+}
+
+#[cfg(test)]
+mod ifnum_tests {
+    #[test]
+    fn a_new_network_takes_the_lowest_interface_number_not_in_use() {
+        let on = |ns: &[u32]| ns.iter().map(|n| (format!("net{n}"), *n)).collect::<Vec<_>>();
+        assert_eq!(super::free_ifnum(&on(&[])), 1);
+        assert_eq!(super::free_ifnum(&on(&[1, 2])), 3);
+        // The first of two has left: its number is free, the second's is not.
+        assert_eq!(super::free_ifnum(&on(&[2])), 1);
+        assert_eq!(super::free_ifnum(&on(&[2, 1])), 3);
+        assert_eq!(super::free_ifnum(&on(&[1, 3])), 2);
     }
 }
 
