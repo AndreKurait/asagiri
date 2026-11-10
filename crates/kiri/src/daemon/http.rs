@@ -142,14 +142,18 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         };
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-        let path = strip_version(raw_path).to_owned();
-        serving(&method, &path);
+        // Decoded before the version is stripped, as Docker routes: an
+        // escaped dot or slash in the prefix still makes it the prefix.
+        let path = if escapes_are_valid(raw_path) { Ok(strip_version(&percent_decode(raw_path, false)).to_owned()) } else { Err(raw_path.to_owned()) };
+        serving(&method, match &path {
+            Ok(path) | Err(path) => path,
+        });
         let query: Vec<(String, String)> = raw_query
             .split('&')
             .filter(|kv| !kv.is_empty())
             .map(|kv| {
                 let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-                (percent_decode(k), percent_decode(v))
+                (percent_decode(k, true), percent_decode(v, true))
             })
             .collect();
         let mut headers = Vec::new();
@@ -171,6 +175,16 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
             headers.push((k.to_owned(), v.trim_matches([' ', '\t']).to_owned()));
         }
         (method, path, query, headers)
+    };
+    let path = match path {
+        Ok(path) => path,
+        Err(raw) => {
+            // Go's HTTP server, and so Docker, answers a malformed escape
+            // itself with a plain 400 and closes the connection.
+            serving(&method, &raw);
+            respond_with(r.get_mut(), 400, "text/plain; charset=utf-8", "Connection: close\r\n", b"400 Bad Request")?;
+            return Ok(None);
+        }
     };
     let streamed = stream(&method, &path);
     let mut req = Request { method, path, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
@@ -304,14 +318,20 @@ fn strip_version(path: &str) -> &str {
     path
 }
 
-fn percent_decode(s: &str) -> String {
+/// Whether every `%` in a path starts a two-digit hex escape.
+fn escapes_are_valid(path: &str) -> bool {
+    let b = path.as_bytes();
+    (0..b.len()).all(|i| b[i] != b'%' || (i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit()))
+}
+
+fn percent_decode(s: &str, form: bool) -> String {
     let b = s.as_bytes();
     let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         match b[i] {
-            b'+' => out.push(b' '),
+            b'+' if form => out.push(b' '),
             b'%' if i + 2 < b.len() && hex(b[i + 1]).is_some() && hex(b[i + 2]).is_some() => {
                 out.push(hex(b[i + 1]).unwrap_or(0) << 4 | hex(b[i + 2]).unwrap_or(0));
                 i += 2;
@@ -320,7 +340,7 @@ fn percent_decode(s: &str) -> String {
         }
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 fn reason(status: u16) -> &'static str {
@@ -741,9 +761,56 @@ mod tests {
 
     #[test]
     fn decodes_query_values() {
-        assert_eq!(percent_decode("docker.io%2Flibrary%2Falpine"), "docker.io/library/alpine");
-        assert_eq!(percent_decode("a+b"), "a b");
-        assert_eq!(percent_decode("100%"), "100%");
-        assert_eq!(percent_decode("%7B%22a%22%3A1%7D"), "{\"a\":1}");
+        assert_eq!(percent_decode("docker.io%2Flibrary%2Falpine", true), "docker.io/library/alpine");
+        assert_eq!(percent_decode("a+b", true), "a b");
+        assert_eq!(percent_decode("100%", true), "100%");
+        assert_eq!(percent_decode("%7B%22a%22%3A1%7D", true), "{\"a\":1}");
+    }
+
+    #[test]
+    fn paths_decode_escapes_without_form_plus_conversion() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(b"GET /v1.47/images/registry%3A5000%2Frepository:tag+suffix/json?name=a+b HTTP/1.1\r\n\r\n").unwrap();
+        let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+        assert_eq!(request.path, "/images/registry:5000/repository:tag+suffix/json");
+        assert_eq!(request.query("name"), Some("a b"));
+        assert_eq!(percent_decode("/%E2%82%AC+%2B", false), "/€++");
+        assert_eq!(percent_decode("/%FF", false), "/\u{fffd}");
+    }
+
+    #[test]
+    fn version_prefix_is_stripped_after_decoding() {
+        for (target, path) in [
+            ("/v1%2E47/_ping", "/_ping"),
+            ("/%761.47/_ping", "/_ping"),
+            ("/v1.47%2Fcontainers/web/json", "/containers/web/json"),
+            ("/v1.47/%5fping", "/_ping"),
+            ("/v1.47/containers/a%252Fb/json", "/containers/a%2Fb/json"),
+            ("/images/v1.2%2Fapp/json", "/images/v1.2/app/json"),
+        ] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
+            let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            assert_eq!(request.path, path, "{target}");
+        }
+    }
+
+    #[test]
+    fn malformed_path_escapes_are_a_bad_request() {
+        for target in ["/containers/%zz/json", "/containers/web%/json", "/networks/net%a", "/v1.47/%4", "/v1%2/_ping"] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target}?name=100% HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes()).unwrap();
+            let mut reader = BufReader::new(server);
+            assert!(read_request(&mut reader, |_, _| false).unwrap().is_none(), "{target}");
+            drop(reader);
+            let mut reply = String::new();
+            client.read_to_string(&mut reply).unwrap();
+            assert!(reply.starts_with("HTTP/1.1 400 Bad Request\r\n") && reply.contains("\r\nConnection: close\r\n") && reply.ends_with("\r\n\r\n400 Bad Request"), "{target}: {reply}");
+        }
+        // A query keeps its lenient decoding.
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(b"GET /info?name=100% HTTP/1.1\r\n\r\n").unwrap();
+        let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+        assert_eq!(request.query("name"), Some("100%"));
     }
 }

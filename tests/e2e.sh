@@ -640,6 +640,7 @@ done
 printf '%s\n' "$KFEAT" | grep -qE '^[a-z0-9-]+ (ok|FAIL)' || t kernel-features "ok" printf '%s\n' "$KFEAT"
 
 section "images: tag, save, load"
+code encoded-api-paths 0 python3 "$(dirname "$0")/encoded-api-paths.py" "$SOCK"
 IMD=$(mktemp -d)
 t tag "kiri-test/alp:v1" bash -c "$D tag alpine kiri-test/alp:v1 && $D images --format '{{.Repository}}:{{.Tag}}'"
 t tag-same-id "same" bash -c "[ \"\$($D images -q alpine:latest)\" = \"\$($D images -q kiri-test/alp:v1)\" ] && echo same"
