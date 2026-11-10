@@ -689,6 +689,7 @@ t limit-memory "134217728" $D exec lim cat /sys/fs/cgroup/memory.max
 t limit-cpus "50000 100000" $D exec lim cat /sys/fs/cgroup/cpu.max
 t limit-pids "50" $D exec lim cat /sys/fs/cgroup/pids.max
 t limit-shares "59" $D exec lim cat /sys/fs/cgroup/cpu.weight
+code cpu-shares-weight 0 python3 "$(dirname "$0")/cpu-shares-weight.py" "$SOCK" alpine
 t limit-inspect "134217728 500000000 50" $D inspect -f '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' lim
 t oom-kill "137" bash -c "$D run --rm --memory 32m alpine sh -c 'tail /dev/zero' >/dev/null 2>&1; echo \$?"
 t stats "128MiB" $D stats --no-stream --format '{{.MemUsage}}' lim
