@@ -1830,8 +1830,12 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
     }
     let running = c.status == Status::Running;
     let mut out = serde_json::Map::new();
-    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str| {
+    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str, mac: &str| {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
+        let attached = has_endpoint(running, ip, net);
+        // Before the address is hidden: an IPv6-only network's interface
+        // has a MAC too, made from the address Kiri keeps for itself.
+        let mac = ip.filter(|_| running).map(|a| endpoint_mac(a, mac)).unwrap_or_default();
         let ip = ip.filter(|_| running && !net.is_some_and(|n| n.no_ipv4));
         let ip6 = ip6.filter(|_| running);
         let gateway = match (ip, net) {
@@ -1845,26 +1849,50 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "IPAMConfig": ipam_config(want4, want6),
                 "Links": null,
                 "Aliases": if aliases.is_empty() { Value::Null } else { json!(aliases) },
-                "MacAddress": "",
+                "MacAddress": mac,
                 "DriverOpts": null,
                 "NetworkID": net.map(|n| n.id.clone()).unwrap_or_default(),
-                "EndpointID": if running { c.id.as_str() } else { "" },
+                "EndpointID": if attached { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
                 "Gateway": gateway,
                 "IPAddress": ip.map(super::network::ip_str).unwrap_or_default(),
                 "IPPrefixLen": if ip.is_some() { net.map_or(16, |n| n.prefix) } else { 0 },
                 "IPv6Gateway": v6.map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default(),
                 "GlobalIPv6Address": ip6.map(super::network::ip6_str).unwrap_or_default(),
                 "GlobalIPv6PrefixLen": v6.map_or(0, |v| v.prefix),
-                "DNSNames": null,
+                // The names the network's DNS answers; the default bridge has
+                // none, and Docker lists none on the network a container was
+                // created on until its first start.
+                "DNSNames": if net.is_some_and(|n| !n.builtin()) && (c.started.is_some() || name != c.spec.network_mode) { json!(super::engine::endpoint_names(&c.name, aliases, &c.id, &c.spec.hostname)) } else { Value::Null },
             }),
         );
     };
-    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address);
+    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address, &c.spec.mac_address);
     for x in &c.spec.extra_networks {
         let ip6 = c.extra_ip6s.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip);
-        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address);
+        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address, &x.mac_address);
     }
     Value::Object(out)
+}
+
+/// Whether a container has an endpoint on `net` now: it runs, and has an
+/// address there unless the network (`host`, `none`) gives none.
+fn has_endpoint(running: bool, ip: Option<[u8; 4]>, net: Option<&super::network::Network>) -> bool {
+    running && (ip.is_some() || net.is_some_and(|n| n.bridge.is_empty()))
+}
+
+/// An endpoint's id. Docker gives each attachment its own, the same in the
+/// container's inspect and in the network's; here it is made from both ids,
+/// so the two agree without anything more to keep.
+fn endpoint_id(network: &str, container: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(format!("{network}/{container}").as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The MAC address of an endpoint with address `ip`: the one asked for, else
+/// the one the guest makes from the address (`02:42` then its four bytes).
+fn endpoint_mac(ip: [u8; 4], requested: &str) -> String {
+    let mac = super::network::parse_mac(requested).unwrap_or([0x02, 0x42, ip[0], ip[1], ip[2], ip[3]]);
+    mac.map(|b| format!("{b:02x}")).join(":")
 }
 
 /// An endpoint's `IPAMConfig`: the fixed addresses it asked for, as Docker
@@ -2098,13 +2126,13 @@ fn net_error(m: String) -> Error {
 fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool) -> Value {
     let mut containers = serde_json::Map::new();
     if with_members {
-        for (id, name, ip, ip6) in engine.network_members(&n.name) {
+        for (id, name, ip, ip6, mac, running) in engine.network_members(&n.name) {
             containers.insert(
                 id.clone(),
                 json!({
                     "Name": name,
-                    "EndpointID": id,
-                    "MacAddress": "",
+                    "EndpointID": if has_endpoint(running, ip, Some(n)) { endpoint_id(&n.id, &id) } else { String::new() },
+                    "MacAddress": ip.map(|a| endpoint_mac(a, &mac)).unwrap_or_default(),
                     "IPv4Address": ip.filter(|_| !n.no_ipv4).map(|a| format!("{}/{}", super::network::ip_str(a), n.prefix)).unwrap_or_default(),
                     "IPv6Address": match (ip6, &n.v6) {
                         (Some(a), Some(v)) => format!("{}/{}", super::network::ip6_str(a), v.prefix),
@@ -3186,6 +3214,28 @@ mod network_option_tests {
         assert_eq!(endpoint_address(&json!({})).unwrap(), (String::new(), String::new(), String::new()));
         assert!(endpoint_address(&json!({"IPAMConfig": {"IPv4Address": "10.5.0.300"}})).is_err());
         assert!(endpoint_address(&json!({"MacAddress": "02:42:0a"})).is_err());
+    }
+
+    #[test]
+    fn endpoints_have_a_mac_address_and_an_id_of_their_own() {
+        // The same address the guest makes from the IPv4 one.
+        assert_eq!(endpoint_mac([172, 17, 0, 2], ""), "02:42:ac:11:00:02");
+        assert_eq!(endpoint_mac([172, 17, 0, 2], "02:AB:00:00:00:07"), "02:ab:00:00:00:07");
+        let id = endpoint_id("net1", "c1");
+        assert!(id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, endpoint_id("net1", "c1"));
+        assert_ne!(id, endpoint_id("net2", "c1"));
+        assert_ne!(id, endpoint_id("net1", "c2"));
+        // None for a container that is not running, or without an address
+        // where the network gives them.
+        let networks = super::super::network::Networks::load(&std::env::temp_dir().join(format!("kiri-endpoint-test-{}", std::process::id()))).unwrap();
+        let (bridge, host) = (networks.find("bridge").unwrap(), networks.find("host").unwrap());
+        assert!(has_endpoint(true, Some([172, 17, 0, 2]), Some(bridge)));
+        assert!(!has_endpoint(false, Some([172, 17, 0, 2]), Some(bridge)));
+        assert!(!has_endpoint(true, None, Some(bridge)));
+        assert!(has_endpoint(true, None, Some(host)));
+        assert!(!has_endpoint(false, None, Some(host)));
+        assert!(!has_endpoint(true, None, None));
     }
 
     #[test]

@@ -761,6 +761,7 @@ t commit-stopped "sha256:" bash -c "$D stop -t 1 ren2 >/dev/null && $D commit re
 $D rm -f ren2 >/dev/null; $D rmi kiri-test/committed:1 kiri-test/committed:2 >/dev/null 2>&1
 
 section "network connect and disconnect"
+code network-endpoint-metadata 0 python3 "$(dirname "$0")/network-endpoint-metadata.py" "$SOCK" alpine
 $D network create na >/dev/null; $D network create nb >/dev/null
 $D run -d --name multi --network na nginx:alpine >/dev/null; sleep 0.3
 t connect "eth1" bash -c "$D network connect --alias web2 nb multi && $D exec multi ip -o link"
