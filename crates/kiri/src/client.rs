@@ -18,8 +18,8 @@ pub fn socket() -> io::Result<PathBuf> {
     }
     // Linux: the engine is the `kiri` system service (contrib/linux/kiri.service).
     #[cfg(target_os = "linux")]
-    if std::path::Path::new(SERVICE_SOCKET).exists() {
-        return Ok(PathBuf::from(SERVICE_SOCKET));
+    if service_socket().exists() {
+        return Ok(service_socket());
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| io::Error::other("HOME is not set"))?;
     Ok(home.join(crate::flavor::STATE.get()).join("run/docker.sock"))
@@ -28,6 +28,13 @@ pub fn socket() -> io::Result<PathBuf> {
 /// Where the Linux service's engine listens, for members of the `kiri` group.
 #[cfg(target_os = "linux")]
 pub const SERVICE_SOCKET: &str = "/run/kiri/docker.sock";
+
+/// The same for this Kiri (`/run/kiri-dev/docker.sock` for Kiri Dev): where
+/// an engine run as root listens.
+#[cfg(target_os = "linux")]
+pub fn service_socket() -> PathBuf {
+    PathBuf::from("/run").join(crate::flavor::CONTEXT.get()).join("docker.sock")
+}
 
 /// An answer: status and body.
 pub struct Response {
