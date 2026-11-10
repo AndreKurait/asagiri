@@ -341,6 +341,16 @@ pub fn upgrade(w: &mut impl Write) -> io::Result<()> {
     w.flush()
 }
 
+/// docker-java attaches without upgrading. Like Docker, upgrade on the
+/// presence of the header; otherwise the stream ends with the connection.
+pub fn raw_stream(req: &Request, w: &mut impl Write) -> io::Result<()> {
+    if req.header("Upgrade").is_some() {
+        return upgrade(w);
+    }
+    head(w, 200, "Content-Type: application/vnd.docker.raw-stream\r\nConnection: close\r\n")?;
+    w.flush()
+}
+
 /// Docker's multiplexed stream framing: `[stream, 0, 0, 0, len u32 BE] data`.
 pub fn mux_frame(w: &mut impl Write, stream: u8, data: &[u8]) -> io::Result<()> {
     let mut header = [0u8; 8];
@@ -354,6 +364,31 @@ pub fn mux_frame(w: &mut impl Write, stream: u8, data: &[u8]) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_stream_respects_requested_upgrade() {
+        for (headers, upgraded) in [
+            (vec![], false),
+            (vec![("Connection", "Upgrade")], false),
+            (vec![("Upgrade", "tcp")], true),
+            (vec![("upgrade", "other")], true),
+            (vec![("Upgrade", "")], true),
+            (vec![("Upgrade", "TCP"), ("Connection", "keep-alive, Upgrade")], true),
+            (vec![("Upgrade", "tcp"), ("Connection", "keep-alive"), ("Connection", "Upgrade")], true),
+        ] {
+            let mut req = Request::internal("POST", "/containers/id/attach", &[], Vec::new());
+            req.headers = headers.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+            let mut out = Vec::new();
+            raw_stream(&req, &mut out).unwrap();
+            let response = String::from_utf8(out).unwrap();
+            assert!(response.starts_with(if upgraded { "HTTP/1.1 101 " } else { "HTTP/1.1 200 " }), "{response}");
+            assert!(response.contains("Content-Type: application/vnd.docker.raw-stream\r\n"));
+            assert!(response.contains(if upgraded { "Connection: Upgrade\r\nUpgrade: tcp\r\n" } else { "Connection: close\r\n" }));
+            assert!(!response.contains("Content-Length:"));
+            assert!(!response.contains("Transfer-Encoding:"));
+            assert!(response.ends_with("\r\n\r\n"));
+        }
+    }
 
     #[test]
     fn strips_api_version() {
