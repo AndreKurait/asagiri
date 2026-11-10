@@ -48,10 +48,15 @@ pub fn state_dir() -> io::Result<PathBuf> {
     Ok(home.join(crate::flavor::STATE.get()))
 }
 
-/// `~/.kiri/run/docker.sock`, beside OrbStack's `~/.orbstack/run/docker.sock`.
+/// Root on Linux uses `/run/kiri/docker.sock`; other users use their home.
 pub fn socket_path() -> io::Result<PathBuf> {
     if let Some(s) = std::env::var_os("KIRI_SOCKET") {
         return Ok(PathBuf::from(s));
+    }
+    #[cfg(target_os = "linux")]
+    // SAFETY: geteuid cannot fail.
+    if unsafe { libc::geteuid() } == 0 {
+        return Ok(PathBuf::from("/run/kiri/docker.sock"));
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| io::Error::other("HOME is not set"))?;
     Ok(home.join(crate::flavor::STATE.get()).join("run/docker.sock"))
@@ -81,22 +86,38 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     let t0 = Instant::now();
     raise_open_files();
     let socket = socket_path()?;
+    if let Some(dir) = socket.parent() {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o755).create(dir)?;
+        #[cfg(target_os = "linux")]
+        // SAFETY: geteuid cannot fail.
+        if socket == std::path::Path::new("/run/kiri/docker.sock") && unsafe { libc::geteuid() } == 0 {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::symlink_metadata(dir)?;
+            if !meta.is_dir() || meta.uid() != 0 {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "/run/kiri must be a root-owned directory, not a symlink"));
+            }
+            // The socket enforces group access; a restrictive service umask
+            // must not prevent that group from reaching it.
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
     if UnixStream::connect(&socket).is_ok() {
         // Not an error: launchd (KeepAlive on failure) must not retry it.
         diag::info!("engine already running", socket = socket.display());
         return Ok(());
     }
-    if let Some(dir) = socket.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let _ = std::fs::remove_file(&socket); // stale, from a daemon that died
     let listener = UnixListener::bind(&socket)?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
-    // On a Linux host the daemon runs as root; `KIRI_SOCKET_GROUP=kiri`
-    // lets that group's users in, as the docker group does for dockerd.
+    // An explicit group keeps Kiri's managed membership policy. Without an
+    // override, root on Linux uses ordinary Unix group access, like dockerd:
+    // container users need not exist in the host's account database.
     let access_group = std::env::var_os("KIRI_SOCKET_GROUP");
     if let Some(group) = &access_group {
         socket_group(&socket, group)?;
+    } else {
+        default_socket_access(&socket)?;
     }
     // Each member by name too, so one just added needn't sign in again; and
     // connections are checked against the group when made and while open, so
@@ -242,6 +263,25 @@ fn finder(engine: &std::sync::Arc<engine::Engine>) {
         Ok(socket) => diag::info!("container files over NFS", at = socket.display()),
         Err(e) => diag::warn!("container files off", error = e),
     }
+}
+
+/// Docker-compatible permissions for a root-run Linux daemon.
+fn default_socket_access(socket: &std::path::Path) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    // SAFETY: geteuid cannot fail.
+    if unsafe { libc::geteuid() } == 0 {
+        match socket_group(socket, std::ffi::OsStr::new("docker")) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                // Minimal Linux installations may have no docker group.
+                // Keep the socket's existing group, but permit group access.
+                return std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o660));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let _ = socket;
+    Ok(())
 }
 
 /// Gives `group` read-write access to the socket.
