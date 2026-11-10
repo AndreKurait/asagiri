@@ -328,8 +328,9 @@ pub fn endpoint_names(name: &str, aliases: &[String], id: &str, hostname: &str) 
     out
 }
 
-/// A container on a network: (id, name, ip, IPv6 ip, the MAC address it asked for).
-pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>, String);
+/// A container on a network: (id, name, ip, IPv6 ip, the MAC address it
+/// asked for, whether it is running).
+pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>, String, bool);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraNetwork {
@@ -2126,12 +2127,12 @@ impl Engine {
         self.each(|c| {
             let theirs = self.lock_networks().find(&c.spec.network_mode).map(|n| n.name.clone()).unwrap_or_default();
             if theirs == canonical {
-                return Some((c.id.clone(), c.name.clone(), c.ip, c.ip6, c.spec.mac_address.clone()));
+                return Some((c.id.clone(), c.name.clone(), c.ip, c.ip6, c.spec.mac_address.clone(), c.status == Status::Running));
             }
             c.spec.extra_networks.iter().find(|x| x.name == canonical).map(|x| {
                 let ip = c.extra_ips.iter().find(|(n, _)| *n == canonical).map(|(_, ip)| *ip);
                 let ip6 = c.extra_ip6s.iter().find(|(n, _)| *n == canonical).map(|(_, ip)| *ip);
-                (c.id.clone(), c.name.clone(), ip, ip6, x.mac_address.clone())
+                (c.id.clone(), c.name.clone(), ip, ip6, x.mac_address.clone(), c.status == Status::Running)
             })
         })
     }

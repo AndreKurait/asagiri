@@ -1642,6 +1642,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
     let mut out = serde_json::Map::new();
     let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str, mac: &str| {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
+        let attached = has_endpoint(running, ip, net);
         // Before the address is hidden: an IPv6-only network's interface
         // has a MAC too, made from the address Kiri keeps for itself.
         let mac = ip.filter(|_| running).map(|a| endpoint_mac(a, mac)).unwrap_or_default();
@@ -1661,7 +1662,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "MacAddress": mac,
                 "DriverOpts": null,
                 "NetworkID": net.map(|n| n.id.clone()).unwrap_or_default(),
-                "EndpointID": if running { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
+                "EndpointID": if attached { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
                 "Gateway": gateway,
                 "IPAddress": ip.map(super::network::ip_str).unwrap_or_default(),
                 "IPPrefixLen": if ip.is_some() { net.map_or(16, |n| n.prefix) } else { 0 },
@@ -1679,6 +1680,12 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
         add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address, &x.mac_address);
     }
     Value::Object(out)
+}
+
+/// Whether a container has an endpoint on `net` now: it runs, and has an
+/// address there unless the network (`host`, `none`) gives none.
+fn has_endpoint(running: bool, ip: Option<[u8; 4]>, net: Option<&super::network::Network>) -> bool {
+    running && (ip.is_some() || net.is_some_and(|n| n.bridge.is_empty()))
 }
 
 /// An endpoint's id. Docker gives each attachment its own, the same in the
@@ -1921,12 +1928,12 @@ fn net_error(m: String) -> Error {
 fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool) -> Value {
     let mut containers = serde_json::Map::new();
     if with_members {
-        for (id, name, ip, ip6, mac) in engine.network_members(&n.name) {
+        for (id, name, ip, ip6, mac, running) in engine.network_members(&n.name) {
             containers.insert(
                 id.clone(),
                 json!({
                     "Name": name,
-                    "EndpointID": endpoint_id(&n.id, &id),
+                    "EndpointID": if has_endpoint(running, ip, Some(n)) { endpoint_id(&n.id, &id) } else { String::new() },
                     "MacAddress": ip.map(|a| endpoint_mac(a, &mac)).unwrap_or_default(),
                     "IPv4Address": ip.filter(|_| !n.no_ipv4).map(|a| format!("{}/{}", super::network::ip_str(a), n.prefix)).unwrap_or_default(),
                     "IPv6Address": match (ip6, &n.v6) {
@@ -2838,6 +2845,16 @@ mod network_option_tests {
         assert_eq!(id, endpoint_id("net1", "c1"));
         assert_ne!(id, endpoint_id("net2", "c1"));
         assert_ne!(id, endpoint_id("net1", "c2"));
+        // None for a container that is not running, or without an address
+        // where the network gives them.
+        let networks = super::super::network::Networks::load(&std::env::temp_dir().join(format!("kiri-endpoint-test-{}", std::process::id()))).unwrap();
+        let (bridge, host) = (networks.find("bridge").unwrap(), networks.find("host").unwrap());
+        assert!(has_endpoint(true, Some([172, 17, 0, 2]), Some(bridge)));
+        assert!(!has_endpoint(false, Some([172, 17, 0, 2]), Some(bridge)));
+        assert!(!has_endpoint(true, None, Some(bridge)));
+        assert!(has_endpoint(true, None, Some(host)));
+        assert!(!has_endpoint(false, None, Some(host)));
+        assert!(!has_endpoint(true, None, None));
     }
 
     #[test]
