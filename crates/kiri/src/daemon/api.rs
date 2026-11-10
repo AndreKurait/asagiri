@@ -1631,6 +1631,16 @@ fn ps_status(c: &Container, health: Option<&super::health::Health>) -> String {
     }
 }
 
+/// The IPv4 and IPv6 gateways an endpoint on `net` shows, each only with an
+/// address of its family. An internal network has no way out, so Docker
+/// shows none for its endpoints; the network itself keeps its own.
+fn endpoint_gateways(net: Option<&super::network::Network>, v4: bool, v6: bool) -> (String, String) {
+    let Some(net) = net.filter(|n| !n.internal) else { return Default::default() };
+    let gateway = if v4 && net.gateway != [0; 4] { super::network::ip_str(net.gateway) } else { String::new() };
+    let gateway6 = net.v6.as_ref().filter(|_| v6).map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default();
+    (gateway, gateway6)
+}
+
 /// Docker's `NetworkSettings.Networks`, the same in inspect and in list
 /// rows: Compose compares each `NetworkID` with the network's id (and list
 /// `Mounts` by volume name) to decide whether a container is up to date.
@@ -1647,10 +1657,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
         let ip = ip.filter(|_| running && !net.is_some_and(|n| n.no_ipv4));
         let ip6 = ip6.filter(|_| running);
-        let gateway = match (ip, net) {
-            (Some(_), Some(n)) if n.gateway != [0; 4] => super::network::ip_str(n.gateway),
-            _ => String::new(),
-        };
+        let (gateway, gateway6) = endpoint_gateways(net, ip.is_some(), ip6.is_some());
         let v6 = net.and_then(|n| n.v6.as_ref()).filter(|_| ip6.is_some());
         out.insert(
             name.to_owned(),
@@ -1665,7 +1672,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "Gateway": gateway,
                 "IPAddress": ip.map(super::network::ip_str).unwrap_or_default(),
                 "IPPrefixLen": if ip.is_some() { net.map_or(16, |n| n.prefix) } else { 0 },
-                "IPv6Gateway": v6.map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default(),
+                "IPv6Gateway": gateway6,
                 "GlobalIPv6Address": ip6.map(super::network::ip6_str).unwrap_or_default(),
                 "GlobalIPv6PrefixLen": v6.map_or(0, |v| v.prefix),
                 "DNSNames": null,
@@ -2818,6 +2825,29 @@ mod network_option_tests {
         assert_eq!(parse_link("db"), Some(("db", "db")));
         assert_eq!(parse_link("/db:/web/database"), Some(("db", "database")));
         assert_eq!(parse_link(":x"), None);
+    }
+
+    #[test]
+    fn endpoints_of_internal_networks_show_no_gateway() {
+        use super::super::network::{Networks, Settings, ip6_str, ip_str};
+        let root = std::env::temp_dir().join(format!("kiri-endpoint-gateway-test-{}", std::process::id()));
+        let mut networks = Networks::load(&root).unwrap();
+        let settings = |internal| Settings { labels: json!({}), internal, ipv6: true, ..Default::default() };
+        let open = networks.create("open", settings(false)).unwrap();
+        let closed = networks.create("closed", settings(true)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let (gateway, gateway6) = (ip_str(open.gateway), ip6_str(open.v6.as_ref().unwrap().gateway));
+        assert_eq!(endpoint_gateways(Some(&open), true, true), (gateway.clone(), gateway6.clone()));
+        // Each only with an address of its family, so none when stopped.
+        assert_eq!(endpoint_gateways(Some(&open), true, false), (gateway, String::new()));
+        assert_eq!(endpoint_gateways(Some(&open), false, true), (String::new(), gateway6));
+        assert_eq!(endpoint_gateways(Some(&open), false, false), Default::default());
+        // The internal network has gateways of its own, its endpoints none.
+        assert!(closed.internal && closed.gateway != [0; 4] && closed.v6.is_some());
+        assert_eq!(endpoint_gateways(Some(&closed), true, true), Default::default());
+        // `host` and `none` have no gateway, a network that is gone neither.
+        assert_eq!(endpoint_gateways(networks.find("host"), true, true), Default::default());
+        assert_eq!(endpoint_gateways(None, true, true), Default::default());
     }
 
     #[test]
