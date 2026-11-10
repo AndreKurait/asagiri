@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import json
 import os
+import select
 import socket
 import struct
 import sys
@@ -31,15 +32,15 @@ def check(path, image):
                          {"Content-Type": "application/json"})
             response = conn.getresponse()
             data = response.read()
-            if target == "/containers/create" and response.status == 201:
+            if target.startswith("/containers/create") and response.status == 201:
                 owned.append(json.loads(data)["Id"])
             assert response.status == expected, (target, response.status, data)
             return json.loads(data) if data else None
         finally:
             conn.close()
 
-    def create(command, **config):
-        return request("POST", "/containers/create", {
+    def create(command, name=None, **config):
+        return request("POST", "/containers/create" + ("?name=" + name if name else ""), {
             "Image": image, "Cmd": command, "HostConfig": {"NetworkMode": "none"}, **config}, 201)["Id"]
 
     def start(cid):
@@ -75,6 +76,8 @@ def check(path, image):
                 expected = base64.b64encode(hashlib.sha1(
                     (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
                 assert received["sec-websocket-accept"] == expected, received
+                # Nothing describes a body: a 101 has none.
+                assert "content-type" not in received and "content-length" not in received, received
             return client, reader
         except BaseException:
             if reader:
@@ -152,9 +155,13 @@ def check(path, image):
                 assert len(header) == 8 and header[0] == 1, header
                 assert reader.read(struct.unpack("!I", header[4:])[0]) == b"first\n"
                 client.shutdown(socket.SHUT_WR)
+                # The end of the input ends the session either way; only with
+                # StdinOnce does it end the container's stdin, and so `cat`.
+                assert reader.read() == b""
                 if once:
-                    assert reader.read() == b""
                     assert request("POST", "/containers/" + cid + "/wait")["StatusCode"] == 0
+                else:
+                    assert running(cid), "the end of an attach's input stopped the container"
             finally:
                 reader.close()
                 client.close()
@@ -170,6 +177,36 @@ def check(path, image):
                     reader.close()
                     client.close()
         print("PASS raw attach StdinOnce and reconnect", flush=True)
+
+        # Without OpenStdin there is no input to end: the session outlives
+        # the client's half-close and still delivers the output that follows.
+        cid = create(["sh", "-c", "trap 'echo late; exit 0' TERM; echo ready; while :; do sleep 0.1; done"])
+        client, reader = attach(cid, "stream=1&stdin=1&stdout=1")
+        try:
+            start(cid)
+            assert streams(reader.read(8 + len(b"ready\n"))) == {1: b"ready\n", 2: b""}
+            client.shutdown(socket.SHUT_WR)
+            assert not select.select([client], [], [], 0.5)[0], "stdin EOF ended an attach to a container without stdin"
+            request("POST", "/containers/" + cid + "/kill?signal=TERM", expected=204)
+            assert streams(reader.read()) == {1: b"late\n", 2: b""}
+        finally:
+            reader.close()
+            client.close()
+        print("PASS raw attach without OpenStdin outlives stdin EOF", flush=True)
+
+        name = "interactive-attach-%d" % os.getpid()
+        cid = create(["cat"], name, OpenStdin=True)
+        start(cid)
+        for key, websocket in ((name, False), (cid[:12], False), (name, True), (cid[:12], True)):
+            client, reader = attach(key, "stream=1&stdin=1&stdout=1", websocket)
+            try:
+                client.sendall(frame(b"named\n") if websocket else b"named\n")
+                echoed = receive(reader)[1] if websocket else streams(reader.read(8 + len(b"named\n")))[1]
+                assert echoed == b"named\n", (key, websocket, echoed)
+            finally:
+                reader.close()
+                client.close()
+        print("PASS attach by name and by short ID", flush=True)
 
         for version, once in ((47, False), (47, True), (41, False), (27, False)):
             cid = create(["cat"], OpenStdin=True, StdinOnce=once)
@@ -198,6 +235,67 @@ def check(path, image):
                 assert running(cid)
             print(f"PASS WebSocket version=1.{version} StdinOnce={once}, fragments, ping and close", flush=True)
 
+        for tty in (True, False):
+            cid = create(["cat"], OpenStdin=True, Tty=tty)
+            start(cid)
+            client, reader = attach(cid, "stream=1&stdin=1&stdout=1&detachKeys=ctrl-a,ctrl-b", True)
+            try:
+                # The sequence is split between two messages.
+                client.sendall(frame(b"\x01"))
+                client.sendall(frame(b"\x02"))
+                if tty:
+                    assert receive(reader)[0] == 8, "detach did not close the WebSocket"
+                    assert reader.read() == b"", "detach did not close the stream"
+                else:
+                    # Detach keys belong to terminals: elsewhere they are input.
+                    output = b""
+                    while len(output) < 2:
+                        opcode, data = receive(reader)
+                        assert opcode == 2, opcode
+                        output += data
+                    assert output == b"\x01\x02", output
+                assert running(cid), "detach stopped the container"
+            finally:
+                reader.close()
+                client.close()
+        print("PASS WebSocket detach keys, for a terminal only", flush=True)
+
+        for version, query in ((47, "logs=1&stream=0&stdin=1&stdout=1&stderr=1"), (41, "logs=1")):
+            cid = create(["cat"], OpenStdin=True)
+            start(cid)
+            client, reader = attach(cid, query, True, version, frame(b"stray\n"))
+            try:
+                assert receive(reader)[0] == 8, "an attach without stream did not close"
+            finally:
+                reader.close()
+                client.close()
+            # Had `cat` been given the stray line, its echo would come first.
+            client, reader = attach(cid, "logs=1&stream=1&stdin=1&stdout=1")
+            try:
+                client.sendall(b"wanted\n")
+                assert streams(reader.read(8 + len(b"wanted\n"))) == {1: b"wanted\n", 2: b""}
+            finally:
+                reader.close()
+                client.close()
+            print(f"PASS WebSocket version=1.{version} without stream takes no input", flush=True)
+
+        # Input that an exited container cannot take must not cost its output.
+        cid = create(["sh", "-c", "printf kept"], OpenStdin=True)
+        start(cid)
+        assert request("POST", "/containers/" + cid + "/wait")["StatusCode"] == 0
+        client, reader = attach(cid, "logs=1&stream=1&stdin=1&stdout=1", True, early=frame(b"late\n"))
+        try:
+            output = b""
+            while len(output) < len(b"kept"):
+                opcode, data = receive(reader)
+                assert opcode == 2, opcode
+                output += data
+            assert output == b"kept", output
+        finally:
+            reader.close()
+            client.close()
+        print("PASS WebSocket log replay survives refused input", flush=True)
+
         client, reader = attach(history, "logs=1&stream=0&stdout=0&stderr=1", True)
         try:
             output = b""
@@ -212,7 +310,7 @@ def check(path, image):
             reader.close()
             client.close()
         print("PASS WebSocket log replay and stderr filtering", flush=True)
-        print("8 interactive attach scenarios passed")
+        print("14 interactive attach scenarios passed")
     finally:
         failed = sys.exc_info()[0] is not None
         errors = []
