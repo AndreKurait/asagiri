@@ -65,6 +65,11 @@ impl Request {
             None
         }
     }
+
+    /// Whether the client sent, or may have sent, a body with this request.
+    pub fn has_body(&self) -> bool {
+        self.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("transfer-encoding") || (k.eq_ignore_ascii_case("content-length") && v != "0"))
+    }
 }
 
 /// Reads the next request on a connection. `Ok(None)` is a clean close.
@@ -114,8 +119,9 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     };
     let streamed = stream(&method, &path);
     let mut req = Request { method, path, api_version, query, headers, body: Vec::new() };
-    // The router rejects incompatible clients and closes the connection.
-    // Do not wait for a body (possibly withheld for 100 Continue) first.
+    // The router rejects incompatible clients and closes the connection if
+    // a body is pending. Do not wait for one (possibly withheld for 100
+    // Continue) first.
     if streamed || req.version_error().is_some() {
         return Ok(Some(req));
     }
@@ -476,6 +482,20 @@ mod tests {
         // Not a version prefix at all: the router answers these with 404.
         for target in ["/v/info", "/v1.x/info", "/V1.47/info", "/info"] {
             assert_eq!(error(target), None, "{target}");
+        }
+    }
+
+    #[test]
+    fn a_body_is_expected_from_its_framing_headers() {
+        let request = |headers: &str| {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET /v9.99/info HTTP/1.1\r\n{headers}\r\n").as_bytes()).unwrap();
+            read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap()
+        };
+        assert!(!request("").has_body());
+        assert!(!request("Content-Length: 0\r\n").has_body());
+        for headers in ["Content-Length: 100\r\n", "Content-Length: +0\r\n", "Content-Length: 0, 5\r\n", "Content-Length: 0\r\nContent-Length: 5\r\n", "Transfer-Encoding: chunked\r\n", "Content-Length: 0\r\nTransfer-Encoding: identity\r\n"] {
+            assert!(request(headers).has_body(), "{headers}");
         }
     }
 

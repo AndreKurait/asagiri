@@ -80,8 +80,12 @@ pub(super) fn error(w: &mut UnixStream, e: Error) -> io::Result<()> {
 
 fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     if let Some(message) = req.version_error() {
-        http::respond_with(w, 400, "application/json", "Connection: close\r\n", json!({"message": message}).to_string().as_bytes())?;
-        return Ok(Next::Close);
+        // The body of a refused request was never read: the connection can
+        // only carry on when there is none. HEAD gets the headers alone.
+        let close = req.has_body();
+        let body = if req.method == "HEAD" { String::new() } else { json!({"message": message}).to_string() };
+        http::respond_with(w, 400, "application/json", if close { "Connection: close\r\n" } else { "" }, body.as_bytes())?;
+        return Ok(if close { Next::Close } else { Next::KeepAlive });
     }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
