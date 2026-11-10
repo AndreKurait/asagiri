@@ -119,7 +119,11 @@ def check(path, image):
         assert request("POST", "/containers/" + history + "/wait")["StatusCode"] == 0
         client, reader = attach(history, "logs=1&stream=0&stdout=1&stderr=0")
         try:
-            assert streams(reader.read()) == {1: b"history", 2: b""}
+            try:
+                replay = reader.read()
+            except TimeoutError as error:
+                raise AssertionError("attach log replay did not finish") from error
+            assert streams(replay) == {1: b"history", 2: b""}
         finally:
             reader.close()
             client.close()
