@@ -7,6 +7,7 @@
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
 use kiri_proto::{COPY_PORT, CopySpec, FsEntry, Msg, copy_flags, copy_op};
@@ -263,6 +264,9 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
         let mut h = tar::Header::new_gnu();
         h.set_metadata(meta);
         let mut f = fs::File::open(src)?;
+        if name.as_os_str().as_bytes().starts_with(b"./") {
+            return append_contents(b, &mut h, name, None, &mut f);
+        }
         return b.append_data(&mut h, name, &mut f);
     }
     if ft.is_dir() || ft.is_symlink() || ft.is_fifo() || ft.is_char_device() || ft.is_block_device() {
@@ -270,16 +274,50 @@ fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &st
         h.set_metadata(meta);
         h.set_size(0);
         if ft.is_symlink() {
-            return b.append_link(&mut h, name, fs::read_link(src)?);
+            let link = fs::read_link(src)?;
+            if name.as_os_str().as_bytes().starts_with(b"./") {
+                return append_contents(b, &mut h, name, Some(&link), io::empty());
+            }
+            return b.append_link(&mut h, name, link);
         }
         if ft.is_char_device() || ft.is_block_device() {
             let rdev = meta.rdev();
             h.set_device_major(libc::major(rdev))?;
             h.set_device_minor(libc::minor(rdev))?;
         }
+        if name.as_os_str().as_bytes().starts_with(b"./") {
+            return append_contents(b, &mut h, name, None, io::empty());
+        }
         return b.append_data(&mut h, name, io::empty());
     }
     Ok(())
+}
+
+/// tar's path setter drops "./". Docker's client needs that prefix when it
+/// rebases a directory-contents archive into a destination that does not exist.
+/// These paths come from append_tree's "." plus directory entry names.
+fn append_contents(b: &mut tar::Builder<impl Write>, h: &mut tar::Header, name: &std::path::Path, link: Option<&std::path::Path>, data: impl Read) -> io::Result<()> {
+    fn field(b: &mut tar::Builder<impl Write>, slot: &mut [u8], bytes: &[u8], kind: u8) -> io::Result<()> {
+        if bytes.len() > slot.len() {
+            let mut long = tar::Header::new_gnu();
+            long.set_path("././@LongLink")?;
+            long.set_entry_type(tar::EntryType::new(kind));
+            long.set_mode(0o644);
+            long.set_size(bytes.len() as u64 + 1);
+            long.set_cksum();
+            b.append(&long, bytes.chain(io::repeat(0).take(1)))?;
+        }
+        slot.fill(0);
+        let count = bytes.len().min(slot.len());
+        slot[..count].copy_from_slice(&bytes[..count]);
+        Ok(())
+    }
+    field(b, &mut h.as_old_mut().name, name.as_os_str().as_bytes(), b'L')?;
+    if let Some(link) = link {
+        field(b, &mut h.as_old_mut().linkname, link.as_os_str().as_bytes(), b'K')?;
+    }
+    h.set_cksum();
+    b.append(h, data)
 }
 
 fn done(conn: &mut fs::File) -> io::Result<()> {
@@ -441,6 +479,29 @@ fn read_frame(conn: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contents_keep_dot_prefix_and_long_names() {
+        for length in [4, 98, 99, 100, 101, 255] {
+            let name = format!("./{}", "a".repeat(length));
+            let link = "../".to_owned() + &"b".repeat(length);
+            let mut bytes = Vec::new();
+            {
+                let mut archive = tar::Builder::new(&mut bytes);
+                let mut header = tar::Header::new_gnu();
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_size(0);
+                append_contents(&mut archive, &mut header, std::path::Path::new(&name), Some(std::path::Path::new(&link)), io::empty()).unwrap();
+                archive.finish().unwrap();
+            }
+            let mut archive = tar::Archive::new(bytes.as_slice());
+            let mut entries = archive.entries().unwrap();
+            let entry = entries.next().unwrap().unwrap();
+            assert_eq!(entry.path_bytes().as_ref(), name.as_bytes());
+            assert_eq!(entry.link_name_bytes().unwrap().as_ref(), link.as_bytes());
+            assert!(entries.next().is_none());
+        }
+    }
 
     #[test]
     fn chunks_end_at_the_empty_chunk_and_leave_the_rest() {

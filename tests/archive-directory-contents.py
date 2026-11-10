@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.parse
 
 
@@ -46,6 +47,15 @@ def check(path, image):
                     print("PASS", state, source, flush=True)
                 finally:
                     connection.close()
+            # Docker rebases "." to this new destination name. Every child
+            # must keep "./" for that rebase to include it in the directory.
+            with tempfile.TemporaryDirectory(prefix="kiri-archive-contents-") as destination:
+                from pathlib import Path
+                copied = Path(destination) / "new-directory"
+                run("cp", cid + ":/tmp/archive-directory-contents/.", str(copied))
+                assert (copied / "file").read_bytes() == b"content"
+                assert not (Path(destination) / "file").exists()
+                print("PASS", state, "docker cp into new directory", flush=True)
     finally:
         result = subprocess.run(cli + ["rm", "-f", cid], capture_output=True, timeout=30)
         if result.returncode:
