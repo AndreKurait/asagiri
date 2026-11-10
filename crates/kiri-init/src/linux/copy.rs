@@ -444,10 +444,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kiri-copy-modes-{}-{}", std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         fs::create_dir(&dir).unwrap();
+        // Removed even when an assertion below fails.
+        struct Tmp(std::path::PathBuf);
+        impl Drop for Tmp {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _tmp = Tmp(dir.clone());
         fs::write(dir.join("file"), b"contents").unwrap();
         fs::set_permissions(dir.join("file"), fs::Permissions::from_mode(0o6751)).unwrap();
         fs::create_dir(dir.join("dir")).unwrap();
-        fs::set_permissions(dir.join("dir"), fs::Permissions::from_mode(0o750)).unwrap();
+        fs::set_permissions(dir.join("dir"), fs::Permissions::from_mode(0o1750)).unwrap();
         std::os::unix::fs::symlink("file", dir.join("link")).unwrap();
         let mut builder = tar::Builder::new(Vec::new());
         for name in ["file", "dir", "link"] {
@@ -459,8 +467,7 @@ mod tests {
             let entry = entry.unwrap();
             (entry.header().mode().unwrap(), entry.header().entry_type())
         }).collect();
-        assert_eq!(got, [(0o6751, tar::EntryType::Regular), (0o750, tar::EntryType::Directory), (0o777, tar::EntryType::Symlink)]);
-        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(got, [(0o6751, tar::EntryType::Regular), (0o1750, tar::EntryType::Directory), (0o777, tar::EntryType::Symlink)]);
     }
 
     #[test]
