@@ -276,6 +276,7 @@ t internal-no-default "none" $D run --rm --network intnet alpine sh -c 'ip route
 # An IPv4-only network: IPv6 is off on eth0 (no link-local), lo keeps ::1.
 t v4-net-no-inet6 "none" $D run --rm --network intnet alpine sh -c 'ip -6 addr show eth0 | grep -q inet6 && echo some || echo none'
 $D rm -f intweb >/dev/null; $D network rm intnet >/dev/null
+code network-internal-gateway 0 python3 "$(dirname "$0")/network-internal-gateway.py" "$SOCK" alpine
 
 section "networking options"
 # IPAM: a chosen subnet, gateway, range and reserved address.
