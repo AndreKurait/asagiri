@@ -277,7 +277,7 @@ fn append_tree(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &s
     while let Some((src, name)) = stack.pop() {
         let meta = fs::symlink_metadata(&src)?;
         append_one(b, &src, &name, &meta)?;
-        if meta.is_dir() && src != std::path::Path::new("/proc") && src != std::path::Path::new("/sys") {
+        if meta.is_dir() && !kernel_dir(&src) {
             let mut children: Vec<_> = fs::read_dir(&src)?.flatten().collect();
             children.sort_by_key(|e| e.file_name());
             for e in children.into_iter().rev() {
@@ -286,6 +286,15 @@ fn append_tree(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &s
         }
     }
     Ok(())
+}
+
+/// Whether `dir` is on the kernel's procfs or sysfs. The filesystem tells,
+/// not the path: through a link to the root they have other names.
+fn kernel_dir(dir: &std::path::Path) -> bool {
+    let Ok(c) = sys::cstr(dir) else { return false };
+    // SAFETY: statfs is plain data, all zeroes is a valid value; the path is NUL-terminated.
+    let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+    (unsafe { libc::statfs(c.as_ptr(), &mut st) }) == 0 && matches!(st.f_type as libc::c_long, libc::PROC_SUPER_MAGIC | libc::SYSFS_MAGIC)
 }
 
 fn append_one(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &std::path::Path, meta: &fs::Metadata) -> io::Result<()> {
@@ -527,6 +536,30 @@ fn read_frame(conn: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// /proc reached through a link to the root, as a container can make
+    /// one, archives as the one empty directory. /sys goes the same way.
+    #[test]
+    fn proc_stays_empty_through_a_link_to_the_root() {
+        let base = std::env::temp_dir().join(format!("kiri-copy-proc-link-{}", std::process::id()));
+        let link = base.join("root");
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_dir(&base);
+        fs::create_dir(&base).unwrap();
+        std::os::unix::fs::symlink("/", &link).unwrap();
+        assert!(kernel_dir(&link.join("proc")) && !kernel_dir(&base));
+        let mut bytes = Vec::new();
+        {
+            let mut archive = tar::Builder::new(&mut bytes);
+            append_tree(&mut archive, &link.join("proc"), std::path::Path::new("proc")).unwrap();
+            archive.finish().unwrap();
+        }
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let got: Vec<_> = archive.entries().unwrap().map(|entry| entry.unwrap().path().unwrap().into_owned()).collect();
+        assert_eq!(got, [std::path::Path::new("proc")]);
+        fs::remove_file(&link).unwrap();
+        fs::remove_dir(&base).unwrap();
+    }
 
     #[test]
     fn tar_modes_keep_permissions_without_posix_file_type_bits() {
