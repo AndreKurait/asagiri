@@ -673,7 +673,11 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
         // The bridge sends too (the gateway, forwarded replies), and left
         // alone it only ever shrinks to its smallest port. After the veth:
         // an older kernel refuses a bridge an MTU above its ports'.
-        netlink::set_mtu(&mut host, bridge_index, mtu)?;
+        if let Err(e) = netlink::set_mtu(&mut host, bridge_index, mtu) {
+            // The link is not left plugged into a bridge with another MTU.
+            let _ = netlink::delete_link(&mut host, host_ifname);
+            return Err(e);
+        }
     }
     // By name: a new namespace may have tunl0, gre0 … before it.
     let index = netlink::index_in(&netns, &ifname)?;
