@@ -146,7 +146,12 @@ fn top(engine: &Engine, key: &str) -> Result<Value, Error> {
 
 fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
     let b = body(req)?;
-    let base = engine.with(key, |c| c.spec.limits)?;
+    let _update = engine.lock_resource_updates();
+    let base = engine.with(key, |c| c.spec.limits.clone())?;
+    super::api::validate_limits(&b)?;
+    if b["NanoCpus"].as_u64().is_some_and(|n| n > engine.cpus() as u64 * 1_000_000_000) {
+        return Err(Error::BadRequest("NanoCpus exceeds the available CPUs".into()));
+    }
     let limits = super::api::limits_from(&b, base);
     let restart = b["RestartPolicy"]["Name"].as_str().filter(|n| !n.is_empty()).map(|n| super::engine::RestartPolicy {
         name: n.to_owned(),

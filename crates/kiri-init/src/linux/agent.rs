@@ -525,7 +525,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Update { id, limits }) => match running_pid(&procs, id) {
-                    Some(_) => match super::cgroup::apply_limits(&paths.cgroup.join(id), &limits) {
+                    Some(_) => match super::cgroup::update_limits(&paths.cgroup.join(id), &limits) {
                         Ok(()) => Msg::Ack.encode(&mut out),
                         Err(e) => Msg::Error(&format!("update: {e}")).encode(&mut out),
                     },

@@ -1276,27 +1276,87 @@ fn caps_from(host: &Value) -> Result<u64, Error> {
 
 pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engine::Limits {
     let mut l = base;
+    if let Some(v) = h["MemorySwap"].as_i64().filter(|v| *v != 0) { l.memory_swap = v; }
+    if let Some(v) = h["MemoryReservation"].as_u64().filter(|v| *v != 0) { l.memory_reservation = v; }
+    if let Some(v) = h["CpusetCpus"].as_str().filter(|v| !v.is_empty()) { l.cpuset_cpus = v.to_owned(); }
+    if let Some(v) = h["CpusetMems"].as_str().filter(|v| !v.is_empty()) { l.cpuset_mems = v.to_owned(); }
     if let Some(m) = h["Memory"].as_u64().filter(|m| *m > 0) {
         l.memory_max = m;
     }
     if let Some(n) = h["NanoCpus"].as_u64().filter(|n| *n > 0) {
         // --cpus 1.5 → 150 ms of CPU time every 100 ms.
         l.cpu_period = 100_000;
-        l.cpu_quota = n * 100_000 / 1_000_000_000;
+        l.cpu_quota = ((n as u128 * 100_000) / 1_000_000_000) as u64;
     }
     if let Some(q) = h["CpuQuota"].as_i64().filter(|q| *q > 0) {
         l.cpu_quota = q as u64;
         l.cpu_period = h["CpuPeriod"].as_u64().filter(|p| *p > 0).unwrap_or(100_000) as u32;
+    }
+    if h["CpuQuota"].as_i64() == Some(-1) {
+        l.cpu_quota = 0;
+    }
+    if let Some(period) = h["CpuPeriod"].as_u64().filter(|p| *p > 0) {
+        l.cpu_period = period as u32;
     }
     if let Some(shares) = h["CpuShares"].as_u64().filter(|s| *s > 0) {
         // runc's conversion from v1 shares (2–262144) to v2 weight (1–10000).
         let shares = shares.clamp(2, 262_144);
         l.cpu_weight = (1 + (shares - 2) * 9999 / 262_142) as u32;
     }
-    if let Some(p) = h["PidsLimit"].as_i64().filter(|p| *p > 0) {
-        l.pids_max = p as u32;
+    if let Some(p) = h["PidsLimit"].as_i64() {
+        l.pids_max = if p <= 0 { 0 } else { p as u32 };
     }
     l
+}
+
+pub(super) fn validate_limits(h: &Value) -> Result<(), Error> {
+    for key in ["Memory", "MemorySwap", "MemoryReservation", "NanoCpus", "CpuQuota", "CpuPeriod", "CpuShares", "PidsLimit"] {
+        if h[key].is_null() {
+            continue;
+        }
+        let n = h[key].as_i64().ok_or_else(|| Error::BadRequest(format!("{key} must be a signed integer")))?;
+        let valid = match key {
+            "Memory" => n == 0 || n >= 6 * 1024 * 1024,
+            "MemorySwap" => n >= -1,
+            "MemoryReservation" => n == 0 || n >= 6 * 1024 * 1024,
+            "NanoCpus" => n == 0 || n >= 10_000_000,
+            "CpuQuota" => n == -1 || n == 0 || n >= 1000,
+            "CpuPeriod" => n == 0 || (1000..=1_000_000).contains(&n),
+            "CpuShares" => n == 0 || (2..=262_144).contains(&n),
+            // Docker treats non-positive values as unlimited.
+            "PidsLimit" => n <= u32::MAX as i64,
+            _ => unreachable!(),
+        };
+        if !valid {
+            return Err(Error::BadRequest(format!("invalid {key}: {n}")));
+        }
+    }
+    for key in ["CpusetCpus", "CpusetMems"] {
+        if h[key].is_null() { continue; }
+        let value = h[key].as_str().ok_or_else(|| Error::BadRequest(format!("{key} must be a string")))?;
+        if !value.is_empty() && !value.split(',').all(|part| {
+            if !part.bytes().all(|b| b.is_ascii_digit() || b == b'-') { return false; }
+            let mut range = part.split('-');
+            let start = range.next().and_then(|v| v.parse::<u32>().ok());
+            let end = range.next().map(|v| v.parse::<u32>());
+            range.next().is_none() && match (start, end) { (Some(_), None) => true, (Some(a), Some(Ok(b))) => a <= b, _ => false }
+        }) { return Err(Error::BadRequest(format!("invalid {key}: {value}"))); }
+    }
+    if !h["OomKillDisable"].is_null() && !h["OomKillDisable"].is_boolean() {
+        return Err(Error::BadRequest("OomKillDisable must be a boolean".into()));
+    }
+    // Linux cgroup v2 has no per-cgroup OOM-killer disable switch.
+    if h["OomKillDisable"] == true {
+        return Err(Error::BadRequest("OomKillDisable is not supported by Linux cgroup v2".into()));
+    }
+    if h["MemorySwap"].as_i64().unwrap_or(0) > 0 && h["Memory"].as_u64().unwrap_or(0) > h["MemorySwap"].as_u64().unwrap_or(0) {
+        return Err(Error::BadRequest("MemorySwap must be at least Memory".into()));
+    }
+    if h["NanoCpus"].as_i64().unwrap_or(0) > 0
+        && (h["CpuQuota"].as_i64().unwrap_or(0) != 0 || h["CpuPeriod"].as_i64().unwrap_or(0) != 0) {
+        return Err(Error::BadRequest("conflicting options: NanoCpus and CpuPeriod or CpuQuota".into()));
+    }
+    Ok(())
 }
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
@@ -1306,6 +1366,17 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         return Err(Error::BadRequest("no image specified".into()));
     }
     let host = &body["HostConfig"];
+    validate_limits(host)?;
+    if host["NanoCpus"].as_u64().is_some_and(|n| n > engine.cpus() as u64 * 1_000_000_000) {
+        return Err(Error::BadRequest("NanoCpus exceeds the available CPUs".into()));
+    }
+    let mut limits = super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) };
+    // Docker defaults the combined memory+swap limit to twice Memory.
+    if limits.memory_max > 0 && limits.memory_swap == 0 {
+        limits.memory_swap = i64::try_from(limits.memory_max.checked_mul(2).unwrap_or(u64::MAX))
+            .map_err(|_| Error::BadRequest("Memory is too large for the default MemorySwap".into()))?;
+    }
+    limits.validate()?;
     let network_mode = match host["NetworkMode"].as_str().unwrap_or("default") {
         "" | "default" => "bridge".to_owned(),
         m => m.to_owned(),
@@ -1435,7 +1506,7 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         user: pick("User", &image.config.user),
         auto_remove: host["AutoRemove"].as_bool().unwrap_or(false),
         privileged: host["Privileged"].as_bool().unwrap_or(false),
-        limits: super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) },
+        limits,
         caps: caps_from(host)?,
         cap_add: strings(&host["CapAdd"]).unwrap_or_default(),
         cap_drop: strings(&host["CapDrop"]).unwrap_or_default(),
@@ -1833,7 +1904,11 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "ReadonlyRootfs": c.spec.readonly_rootfs,
             "ShmSize": if c.spec.limits.shm_size > 0 { c.spec.limits.shm_size } else { 64 << 20 },
             "Memory": c.spec.limits.memory_max,
-            "NanoCpus": if c.spec.limits.cpu_period > 0 { c.spec.limits.cpu_quota * 1_000_000_000 / u64::from(c.spec.limits.cpu_period) } else { 0 },
+            "MemorySwap": c.spec.limits.memory_swap,
+            "MemoryReservation": c.spec.limits.memory_reservation,
+            "CpusetCpus": c.spec.limits.cpuset_cpus,
+            "CpusetMems": c.spec.limits.cpuset_mems,
+            "NanoCpus": if c.spec.limits.cpu_period > 0 { ((u128::from(c.spec.limits.cpu_quota) * 1_000_000_000) / u128::from(c.spec.limits.cpu_period)).min(u128::from(u64::MAX)) as u64 } else { 0 },
             "CpuQuota": c.spec.limits.cpu_quota,
             "CpuPeriod": c.spec.limits.cpu_period,
             "CpuShares": if c.spec.limits.cpu_weight > 0 { 2 + (u64::from(c.spec.limits.cpu_weight) - 1) * 262_142 / 9999 } else { 0 },
@@ -2553,6 +2628,37 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resource_updates_remove_limits_and_preserve_omitted_values() {
+        let base = super::super::engine::Limits {
+            pids_max: 32, cpu_quota: 20000, cpu_period: 100000, memory_max: 67108864,
+            ..Default::default()
+        };
+        let value = json!({"PidsLimit": -1, "CpuQuota": -1});
+        validate_limits(&value).unwrap();
+        let updated = limits_from(&value, base.clone());
+        assert_eq!(updated.pids_max, 0);
+        assert_eq!(updated.cpu_quota, 0);
+        assert_eq!(updated.memory_max, base.memory_max);
+        assert_eq!(updated.cpu_period, base.cpu_period);
+        assert_eq!(limits_from(&json!({"PidsLimit": 0}), base.clone()).pids_max, 0);
+        assert_eq!(limits_from(&json!({}), base).pids_max, 32);
+    }
+
+    #[test]
+    fn resource_validation_prevents_truncation_and_conflicting_options() {
+        for value in [
+            json!({"PidsLimit": 4294967296u64}),
+            json!({"CpuPeriod": 1}), json!({"Memory": -1}),
+            json!({"CpuShares": 262145}), json!({"NanoCpus": 1_000_000_000, "CpuQuota": 10000}),
+        ] {
+            assert!(validate_limits(&value).is_err(), "{value}");
+        }
+        let value = json!({"NanoCpus": i64::MAX});
+        // The arithmetic cannot overflow even for an adversarial request.
+        assert_eq!(limits_from(&value, Default::default()).cpu_quota, i64::MAX as u64 / 10000);
+    }
 
     #[test]
     fn kernel_release_is_trimmed_and_empty_is_none() {

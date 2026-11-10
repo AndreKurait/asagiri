@@ -12,10 +12,58 @@ use super::sys;
 
 /// Writes the limits into the cgroup. Zero fields mean "no limit".
 pub fn apply_limits(dir: &Path, l: &Limits) -> io::Result<()> {
+    validate_limits(l)?;
+    write_limits(dir, l)
+}
+
+pub fn update_limits(dir: &Path, l: &Limits) -> io::Result<()> {
+    validate_limits(l)?;
+    transactional_limits(dir, l)
+}
+
+fn validate_limits(l: &Limits) -> io::Result<()> {
+    if l.memory_max > 0 && l.memory_reservation > l.memory_max {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "memory reservation exceeds memory limit"));
+    }
+    if l.memory_swap > 0 && (l.memory_max == 0 || (l.memory_swap as u64) < l.memory_max) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "MemorySwap must be at least Memory"));
+    }
+    Ok(())
+}
+
+fn transactional_limits(dir: &Path, l: &Limits) -> io::Result<()> {
+    // Roll back the kernel state if a controller rejects any part of an update.
+    let mut files = vec!["memory.max", "memory.low", "cpu.max", "cpu.weight", "pids.max"];
+    if dir.join("memory.swap.max").exists() { files.push("memory.swap.max"); }
+    if !l.cpuset_mems.is_empty() { files.push("cpuset.mems"); }
+    if !l.cpuset_cpus.is_empty() { files.push("cpuset.cpus"); }
+    // A failed snapshot must not turn an error into an untracked partial update.
+    let old: Vec<_> = files.into_iter().map(|file| fs::read_to_string(dir.join(file)).map(|value| (file, value))).collect::<io::Result<_>>()?;
+    if let Err(error) = write_limits(dir, l) {
+        let mut failed = Vec::new();
+        for (file, value) in old.into_iter().rev() {
+            if let Err(rollback) = fs::write(dir.join(file), value) { failed.push(format!("{file}: {rollback}")); }
+        }
+        if !failed.is_empty() {
+            return Err(io::Error::new(error.kind(), format!("{error}; could not restore {}", failed.join(", "))));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn write_limits(dir: &Path, l: &Limits) -> io::Result<()> {
     let write = |file: &str, value: String| fs::write(dir.join(file), value).map_err(|e| io::Error::new(e.kind(), format!("{file}: {e}")));
     write("memory.max", if l.memory_max == 0 { "max".into() } else { l.memory_max.to_string() })?;
-    // No swap in the VM: a limit is a limit.
-    let _ = fs::write(dir.join("memory.swap.max"), "0");
+    let swap = if l.memory_swap < 0 || (l.memory_swap == 0 && l.memory_max == 0) { "max".into() }
+        else if l.memory_swap == 0 { l.memory_max.to_string() }
+        else { (l.memory_swap as u64 - l.memory_max).to_string() };
+    if dir.join("memory.swap.max").exists() { write("memory.swap.max", swap)?; }
+    else if l.memory_swap != 0 { return Err(io::Error::new(io::ErrorKind::Unsupported, "swap controller unavailable")); }
+    write("memory.low", l.memory_reservation.to_string())?;
+    for (file, value) in [("cpuset.mems", l.cpuset_mems), ("cpuset.cpus", l.cpuset_cpus)] {
+        if !value.is_empty() { write(file, value.to_owned())?; }
+    }
     let period = if l.cpu_period == 0 { 100_000 } else { l.cpu_period };
     write("cpu.max", if l.cpu_quota == 0 { format!("max {period}") } else { format!("{} {period}", l.cpu_quota) })?;
     write("cpu.weight", if l.cpu_weight == 0 { "100".into() } else { l.cpu_weight.clamp(1, 10_000).to_string() })?;
