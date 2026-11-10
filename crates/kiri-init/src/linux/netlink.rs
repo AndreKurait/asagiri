@@ -247,6 +247,12 @@ pub fn delete_link(nl: &mut Netlink, name: &str) -> io::Result<()> {
     nl.request(&mut [m])
 }
 
+pub fn set_mtu(nl: &mut Netlink, index: i32, mtu: u32) -> io::Result<()> {
+    let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK);
+    m.raw(&ifinfo(index, 0, 0)).attr_u32(IFLA_MTU, mtu);
+    nl.request(&mut [m])
+}
+
 pub fn set_up(nl: &mut Netlink, index: i32) -> io::Result<()> {
     let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK);
     m.raw(&ifinfo(index, libc::IFF_UP as u32, libc::IFF_UP as u32));

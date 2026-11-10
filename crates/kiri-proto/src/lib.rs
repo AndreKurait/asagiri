@@ -416,6 +416,9 @@ pub mod net_opts {
     /// only the name the guest keeps it by: neither it nor the bridge gets
     /// one, and DNS has no A record for it.
     pub const NO_IPV4: &str = "noipv4";
+    /// `mtu=1400`: the network's `com.docker.network.driver.mtu`, for the
+    /// bridge and both ends of the container's link. Absent: 1500.
+    pub const MTU: &str = "mtu";
 
     /// The values given for `key`, in order.
     pub fn values<'a>(opts: super::StrList<'a>, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {

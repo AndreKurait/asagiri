@@ -166,6 +166,11 @@ impl Network {
         matches!(self.name.as_str(), "bridge" | "host" | "none")
     }
 
+    /// The MTU its options ask for, if they do; see [`mtu_option`].
+    pub fn mtu(&self) -> Option<u32> {
+        mtu_option(&self.options, self.v6.is_some()).ok().flatten()
+    }
+
     /// Docker's `"172.17.0.0/16"`.
     pub fn subnet_str(&self) -> String {
         format!("{}/{}", ip_str(self.subnet), self.prefix)
@@ -354,6 +359,26 @@ pub struct Settings {
     /// An IPv6 `IPAM.Config` entry; without one an IPv6 network gets a /64
     /// from the pool.
     pub ipam6: Option<Ipam6>,
+}
+
+/// The option Docker's bridge driver reads the MTU from.
+pub const MTU_OPTION: &str = "com.docker.network.driver.mtu";
+
+/// `--opt com.docker.network.driver.mtu=1400`, checked as Docker does when
+/// it creates the bridge: a number (Go's `Atoi`), 0 for the default, else 68
+/// to 65535, the range a bridge takes. IPv6 needs 1280, so Docker fails to
+/// set up a smaller IPv6 bridge.
+pub fn mtu_option(options: &serde_json::Value, ipv6: bool) -> Result<Option<u32>, String> {
+    let Some(raw) = options.get(MTU_OPTION) else { return Ok(None) };
+    let raw = raw.as_str().unwrap_or_default();
+    let mtu: i64 = raw.parse().map_err(|_| format!("failed to parse {MTU_OPTION} value: {raw} (strconv.Atoi: parsing {raw:?}: invalid syntax)"))?;
+    match mtu {
+        0 => Ok(None),
+        m if m < 0 => Err(format!("invalid MTU number: {m}")),
+        68..=65535 if !ipv6 || mtu >= 1280 => Ok(Some(mtu as u32)),
+        68..=65535 => Err(format!("invalid MTU number: {mtu} (an IPv6 network needs at least 1280)")),
+        _ => Err(format!("invalid MTU number: {mtu} (a bridge takes 68 to 65535)")),
+    }
 }
 
 /// One IPv6 `IPAM.Config` entry, checked.
@@ -608,6 +633,7 @@ impl Networks {
         if s.no_ipv4 && s.ipam.is_some() {
             return Err("invalid network config: an IPv4 subnet was given, but IPv4 is disabled (--ipv4=false)".into());
         }
+        mtu_option(&s.options, s.ipv6)?;
         let taken: Vec<([u8; 4], u8)> = self.list.iter().filter(|n| !n.bridge.is_empty()).map(|n| (n.subnet, n.prefix)).collect();
         let (subnet, gateway) = match &s.ipam {
             Some(ipam) => {
@@ -1007,5 +1033,36 @@ mod tests {
         let mut b = net(None);
         b.name = "bridge".into();
         assert!(b.check_static([10, 5, 0, 10]).unwrap_err().contains("user defined networks only"));
+    }
+
+    #[test]
+    fn the_mtu_option_is_checked_as_docker_does() {
+        let mtu = |v: &str, ipv6| mtu_option(&serde_json::json!({ MTU_OPTION: v }), ipv6);
+        assert_eq!(mtu_option(&serde_json::json!({}), false), Ok(None));
+        assert_eq!(mtu_option(&serde_json::Value::Null, false), Ok(None));
+        assert_eq!(mtu("1400", false), Ok(Some(1400)));
+        assert_eq!(mtu("+1400", false), Ok(Some(1400)));
+        // 0 leaves the default, and the limits are the bridge's own.
+        assert_eq!(mtu("0", true), Ok(None));
+        assert_eq!(mtu("68", false), Ok(Some(68)));
+        assert_eq!(mtu("65535", false), Ok(Some(65535)));
+        assert!(mtu("67", false).is_err());
+        assert!(mtu("65536", false).is_err());
+        assert_eq!(mtu("-5", false).unwrap_err(), "invalid MTU number: -5");
+        assert_eq!(mtu("abc", false).unwrap_err(), "failed to parse com.docker.network.driver.mtu value: abc (strconv.Atoi: parsing \"abc\": invalid syntax)");
+        assert!(mtu(" 1400", false).is_err());
+        assert!(mtu("", false).is_err());
+        // IPv6 needs 1280.
+        assert_eq!(mtu("1280", true), Ok(Some(1280)));
+        assert!(mtu("1279", true).is_err());
+        assert_eq!(mtu("1279", false), Ok(Some(1279)));
+        // A network refuses a bad one and keeps a good one for the agent.
+        let (mut nets, dir) = nets();
+        let options = |v: &str| Settings { options: serde_json::json!({ MTU_OPTION: v }), ..Settings::default() };
+        assert!(nets.create("bad", options("abc")).unwrap_err().contains(MTU_OPTION));
+        assert!(nets.find("bad").is_none());
+        assert_eq!(nets.create("small", options("1400")).unwrap().mtu(), Some(1400));
+        assert_eq!(nets.create("plain", Settings::default()).unwrap().mtu(), None);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
