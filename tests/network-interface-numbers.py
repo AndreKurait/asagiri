@@ -6,6 +6,7 @@ import json
 import socket
 import sys
 import tarfile
+import threading
 import time
 import uuid
 
@@ -106,6 +107,24 @@ def check(path, image):
         assert all(shown.values()), shown
         assert addresses(cid) == set(shown.values()), (addresses(cid), shown)
 
+    # Sends the requests at the same moment and waits for all of them.
+    def at_once(*calls):
+        failures = []
+
+        def guarded(call):
+            try:
+                call()
+            except BaseException as error:
+                failures.append(error)
+
+        threads = [threading.Thread(target=guarded, args=(call,)) for call in calls]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if failures:
+            raise failures[0]
+
     def reaches(cid, address):
         return output(cid, "ping -c 1 -W 2 " + address + " >/dev/null 2>&1 && echo up || echo down").strip() == "up"
 
@@ -182,6 +201,23 @@ def check(path, image):
         on(cid, base)
         passed += 1
         print("PASS after a restart", flush=True)
+
+        # Networks that join or leave while another change to the same
+        # container is under way: each still has an interface of its own.
+        for _ in range(3):
+            at_once(lambda: join(one, cid), lambda: join(two, cid), lambda: join(three, cid))
+            on(cid, base, one, two, three)
+            assert reaches(cid, peer_address)
+            at_once(lambda: leave(one, cid), lambda: leave(three, cid))
+            on(cid, base, two)
+            assert reaches(cid, peer_address)
+            at_once(lambda: leave(two, cid), lambda: join(one, cid), lambda: join(three, cid))
+            on(cid, base, one, three)
+            assert not reaches(cid, peer_address)
+            at_once(lambda: leave(one, cid), lambda: leave(three, cid))
+            on(cid, base)
+        passed += 1
+        print("PASS networks that join and leave at once", flush=True)
         print(passed, "network interface scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None

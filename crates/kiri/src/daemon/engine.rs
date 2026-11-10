@@ -1898,8 +1898,8 @@ impl Engine {
             let _ = vm.resize(&id, rows, cols);
         }
         if flags & (run_flags::NET_HOST | run_flags::NET_NONE) == 0 && joined.is_none() {
-            for (i, extra) in spec.extra_networks.iter().enumerate() {
-                if let Err(e) = self.attach_extra(&vm, &id, i as u32 + 1, extra) {
+            for extra in &spec.extra_networks {
+                if let Err(e) = self.attach_extra(&vm, &id, extra) {
                     crate::diag::warn!("container not attached to a network", id = &id[..12], network = extra.name, error = format!("{e:?}"));
                 }
             }
@@ -2423,12 +2423,30 @@ impl Engine {
     }
 
     /// SIGTERM, then SIGKILL after `timeout` if it is still running.
-    /// Plugs a running container into one more network as `eth{n}`.
-    fn attach_extra(&self, vm: &VmLink, id: &str, n: u32, extra: &ExtraNetwork) -> Result<(), Error> {
+    /// Plugs a running container into one more network, as the lowest
+    /// `eth{n}` it has free.
+    fn attach_extra(&self, vm: &VmLink, id: &str, extra: &ExtraNetwork) -> Result<(), Error> {
         let net = self.lock_networks().find(&extra.name).cloned().ok_or_else(|| Error::NotFound(format!("network {} not found", extra.name)))?;
         if net.driver != "bridge" {
             return Err(Error::BadRequest(format!("only bridge networks can be connected, not {}", net.driver)));
         }
+        // The number is taken before the guest is asked. Two networks that
+        // join at once would otherwise both see it free, and the guest
+        // replaces an interface that already has the name.
+        let n = match self.lock().containers.get_mut(id) {
+            Some(c) => take_ifnum(&mut c.extra_ifs, &net.name),
+            None => return Err(Error::NotFound(format!("No such container: {id}"))),
+        };
+        self.attach_as(vm, id, n, &net, extra).inspect_err(|_| {
+            if let Some(c) = self.lock().containers.get_mut(id) {
+                drop_ifnum(&mut c.extra_ifs, &net.name, n);
+            }
+        })
+    }
+
+    /// Gives the container its addresses on `net` and has the guest make
+    /// `eth{n}` there.
+    fn attach_as(&self, vm: &VmLink, id: &str, n: u32, net: &super::network::Network, extra: &ExtraNetwork) -> Result<(), Error> {
         let ip = match super::network::parse_ip(&extra.ipv4_address) {
             Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
             None => {
@@ -2437,7 +2455,7 @@ impl Engine {
             }
         };
         let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
-        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(&net, &extra.ipv6_address) } {
+        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(net, &extra.ipv6_address) } {
             Ok(a) => a,
             Err(e) => {
                 self.lock_networks().release(&net.name, ip);
@@ -2473,7 +2491,6 @@ impl Engine {
         }
         if let Some(c) = self.lock().containers.get_mut(id) {
             c.extra_ips.push((net.name.clone(), ip));
-            c.extra_ifs.push((net.name.clone(), n));
             if let Some(a) = ip6 {
                 c.extra_ip6s.push((net.name.clone(), a));
             }
@@ -2491,7 +2508,10 @@ impl Engine {
         if let Some(ip) = super::network::parse_ip6(&ipv6_address) {
             net.check_static6(ip).map_err(Error::BadRequest)?;
         }
-        let (n, running) = {
+        // Kept to plug in below: by then another network may have joined, and
+        // the last one in the container's list is no longer this one.
+        let extra = ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address };
+        let running = {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).expect("resolved");
             if c.spec.network_mode == net.name || c.spec.extra_networks.iter().any(|x| x.name == net.name) {
@@ -2503,14 +2523,13 @@ impl Engine {
             if c.spec.network_mode.starts_with("container:") {
                 return Err(Error::BadRequest("container sharing network namespace with another container or host cannot be connected to any other network".into()));
             }
-            c.spec.extra_networks.push(ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address });
-            (free_ifnum(&c.extra_ifs), c.status == Status::Running)
+            c.spec.extra_networks.push(extra.clone());
+            c.status == Status::Running
         };
         self.save();
         if running {
-            let extra = self.lock().containers.get(&id).and_then(|c| c.spec.extra_networks.last().cloned()).expect("just added");
             let vm = self.vm()?;
-            if let Err(e) = self.attach_extra(&vm, &id, n, &extra) {
+            if let Err(e) = self.attach_extra(&vm, &id, &extra) {
                 if let Some(c) = self.lock().containers.get_mut(&id) {
                     c.spec.extra_networks.retain(|x| x.name != net.name);
                 }
@@ -2525,7 +2544,7 @@ impl Engine {
     pub fn disconnect(&self, network: &str, key: &str) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let net = self.lock_networks().find(network).cloned().ok_or_else(|| Error::NotFound(format!("network {network} not found")))?;
-        let (n, ip) = {
+        let (n, ip, ip6) = {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).expect("resolved");
             if c.spec.network_mode == net.name {
@@ -2536,22 +2555,31 @@ impl Engine {
             };
             c.spec.extra_networks.remove(pos);
             // The interface it was plugged in as, which is not its place in
-            // the list once an earlier network has left.
-            let n = c.extra_ifs.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ifs.remove(i).1);
+            // the list once an earlier network has left. The number stays
+            // taken until the guest has let the interface go: a network that
+            // joins meanwhile must not be given the same name.
+            let n = c.extra_ifs.iter().find(|(x, _)| *x == net.name).map(|(_, n)| *n);
             let ip = c.extra_ips.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ips.remove(i).1);
-            if let Some(i) = c.extra_ip6s.iter().position(|(x, _)| *x == net.name) {
-                let (_, a) = c.extra_ip6s.remove(i);
-                self.lock_networks().release6(&net.name, a);
-            }
-            (n, ip)
+            let ip6 = c.extra_ip6s.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ip6s.remove(i).1);
+            (n, ip, ip6)
         };
         self.save();
+        let detached = match (n, ip, self.awake()) {
+            (Some(n), Some(ip), Some(vm)) => vm.net_detach(&id, n, &net.bridge, ip),
+            _ => Ok(()),
+        };
+        // The network has left the container whether or not the guest could
+        // be told: its number and addresses are free again either way.
+        if let (Some(n), Some(c)) = (n, self.lock().containers.get_mut(&id)) {
+            drop_ifnum(&mut c.extra_ifs, &net.name, n);
+        }
         if let Some(ip) = ip {
-            if let (Some(n), Some(vm)) = (n, self.awake()) {
-                vm.net_detach(&id, n, &net.bridge, ip)?;
-            }
             self.release_ip(&net.name, ip);
         }
+        if let Some(a) = ip6 {
+            self.lock_networks().release6(&net.name, a);
+        }
+        detached?;
         self.emit_network("disconnect", &net, &id);
         Ok(())
     }
@@ -3152,6 +3180,19 @@ fn free_ifnum(taken: &[(String, u32)]) -> u32 {
     (1..).find(|n| taken.iter().all(|(_, t)| t != n)).expect("fewer networks than numbers")
 }
 
+/// Takes the lowest free interface number for `network`.
+fn take_ifnum(taken: &mut Vec<(String, u32)>, network: &str) -> u32 {
+    let n = free_ifnum(taken);
+    taken.push((network.to_owned(), n));
+    n
+}
+
+/// Gives back the number `network` took. By number as well as by name: the
+/// network may have joined again, under another number, since.
+fn drop_ifnum(taken: &mut Vec<(String, u32)>, network: &str, n: u32) {
+    taken.retain(|(x, t)| !(x == network && *t == n));
+}
+
 /// A Docker event in Kiri's log: containers and images coming and going,
 /// with name, image and exit code; never labels (they can hold anything).
 /// A BuildKit container's exec is a build session (`docker build`).
@@ -3588,6 +3629,25 @@ mod ifnum_tests {
         assert_eq!(super::free_ifnum(&on(&[2])), 1);
         assert_eq!(super::free_ifnum(&on(&[2, 1])), 3);
         assert_eq!(super::free_ifnum(&on(&[1, 3])), 2);
+    }
+
+    #[test]
+    fn an_interface_number_is_taken_from_the_moment_it_is_picked() {
+        // Two networks joining at once: the second picks while the first is
+        // still being plugged in.
+        let mut taken = Vec::new();
+        assert_eq!(super::take_ifnum(&mut taken, "a"), 1);
+        assert_eq!(super::take_ifnum(&mut taken, "b"), 2);
+        // "a" is leaving and its interface is not gone yet: "c" keeps clear
+        // of its number. Once it is gone the number is free.
+        assert_eq!(super::take_ifnum(&mut taken, "c"), 3);
+        super::drop_ifnum(&mut taken, "a", 1);
+        assert_eq!(super::take_ifnum(&mut taken, "d"), 1);
+        // "b" joined again while its old interface was on the way out: only
+        // the old number is given back.
+        assert_eq!(super::take_ifnum(&mut taken, "b"), 4);
+        super::drop_ifnum(&mut taken, "b", 2);
+        assert_eq!(taken, [("c".to_owned(), 3), ("d".to_owned(), 1), ("b".to_owned(), 4)]);
     }
 }
 
