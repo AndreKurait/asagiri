@@ -6,7 +6,7 @@ export HOME=/var/lib/kiri-daemon
 mkdir -p "$HOME" /var/log
 pgrep -f '/usr/local/bin/kiri daemon' >/dev/null 2>&1 && exit 0
 rm -f "$HOME/.kiri/run/docker.sock"
-nohup /usr/local/bin/kiri daemon >>/var/log/kiri.log 2>&1 &
+KIRI_SOCKET="$HOME/.kiri/run/docker.sock" nohup /usr/local/bin/kiri daemon >>/var/log/kiri.log 2>&1 &
 i=0
 while [ "$i" -lt 50 ]; do
   [ -S "$HOME/.kiri/run/docker.sock" ] && exit 0

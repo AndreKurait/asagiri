@@ -49,13 +49,15 @@ pub fn state_dir() -> io::Result<PathBuf> {
 }
 
 /// Root on Linux uses `/run/kiri/docker.sock`; other users use their home.
+/// So does root in WSL: kiri-win's bridge, and the boot command of a Kiri
+/// already installed there, know the engine by its home socket.
 pub fn socket_path() -> io::Result<PathBuf> {
     if let Some(s) = std::env::var_os("KIRI_SOCKET") {
         return Ok(PathBuf::from(s));
     }
     #[cfg(target_os = "linux")]
     // SAFETY: geteuid cannot fail.
-    if unsafe { libc::geteuid() } == 0 {
+    if unsafe { libc::geteuid() } == 0 && binds::wsl().is_none() {
         return Ok(crate::client::service_socket());
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| io::Error::other("HOME is not set"))?;
