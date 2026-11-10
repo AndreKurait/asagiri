@@ -167,6 +167,7 @@ impl Network {
     }
 
     /// Whether its containers may reach each other over it; see [`icc_option`].
+    /// A stored value that is not a boolean means on (see `Networks::load`).
     pub fn icc(&self) -> bool {
         icc_option(&self.options).unwrap_or(true)
     }
@@ -565,6 +566,13 @@ impl Networks {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e),
         };
+        // An older Kiri stored any value for this option and ignored it: one
+        // that is not a boolean still leaves the containers connected.
+        for n in &saved {
+            if let Err(e) = icc_option(&n.options) {
+                crate::diag::warn!("enable_icc is not a boolean: the network's containers stay connected", network = n.name.clone(), error = e);
+            }
+        }
         // 172.17.0.0/16 as Docker uses, unless the host already routes it
         // (Kiri on a Linux host inside another engine's container) or a
         // saved network has it.
@@ -1052,6 +1060,15 @@ mod tests {
         assert!(!nets.create("apart", options("false")).unwrap().icc());
         assert!(nets.create("together", options("true")).unwrap().icc());
         assert!(nets.create("plain", Settings::default()).unwrap().icc());
+        // What an older Kiri stored is read the same way; a value it took
+        // that is not a boolean leaves the network as it was then: on.
+        assert!(!Networks::load(&dir).unwrap().find("apart").unwrap().icc());
+        let file = dir.join("networks.json");
+        let stored = std::fs::read_to_string(&file).unwrap();
+        let old = stored.replace(&format!("{ICC_OPTION:?}:\"false\""), &format!("{ICC_OPTION:?}:\"off\""));
+        assert_ne!(old, stored);
+        std::fs::write(&file, old).unwrap();
+        assert!(Networks::load(&dir).unwrap().find("apart").unwrap().icc());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
