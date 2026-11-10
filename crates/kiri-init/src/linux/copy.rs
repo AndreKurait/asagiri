@@ -199,7 +199,13 @@ fn copy_out(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     let meta = fs::symlink_metadata(path)
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, format!("notfound: Could not find the file {} in container {}", spec.path, spec.id)))?;
     let link = if meta.file_type().is_symlink() { fs::read_link(path)?.to_string_lossy().into_owned() } else { String::new() };
-    let name = path.file_name().map_or_else(|| "/".to_owned(), |n| n.to_string_lossy().into_owned());
+    // Path::file_name normalizes away a final ".", but Docker uses it to
+    // request a directory's contents rather than the directory itself.
+    let name = if spec.path.trim_end_matches('/').rsplit('/').next() == Some(".") {
+        ".".to_owned()
+    } else {
+        path.file_name().map_or_else(|| "/".to_owned(), |n| n.to_string_lossy().into_owned())
+    };
     let entry = FsEntry {
         name: &name,
         mode: meta.mode(),
