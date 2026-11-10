@@ -315,6 +315,19 @@ impl Spec {
     }
 }
 
+/// The names a container answers to on a user-defined network, as Docker
+/// lists them in an endpoint's `DNSNames`: its name, the endpoint's aliases,
+/// its short id and its hostname, each once.
+pub fn endpoint_names(name: &str, aliases: &[String], id: &str, hostname: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for n in [name].into_iter().chain(aliases.iter().map(String::as_str)).chain([id.get(..12).unwrap_or(id), hostname]) {
+        if !n.is_empty() && !out.iter().any(|o| o == n) {
+            out.push(n.to_owned());
+        }
+    }
+    out
+}
+
 /// A container on a network: (id, name, ip, IPv6 ip, the MAC address it asked for).
 pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>, String);
 
@@ -1646,9 +1659,7 @@ impl Engine {
                 if !n.builtin() {
                     flags |= run_flags::DNS_GATEWAY;
                     let name = self.lock().containers.get(&id).map(|c| c.name.clone()).unwrap_or_default();
-                    dns_names.push(name);
-                    dns_names.extend(spec.aliases.iter().cloned());
-                    dns_names.push(hostname.clone());
+                    dns_names = endpoint_names(&name, &spec.aliases, &id, &hostname);
                 }
                 (n.bridge.clone(), ip, n.prefix, n.gateway)
             }
@@ -2275,9 +2286,8 @@ impl Engine {
                 return Err(e);
             }
         };
-        let (name, hostname) = self.lock().containers.get(id).map(|c| (c.name.clone(), c.short_id().to_owned())).unwrap_or_default();
-        let mut names = vec![name, hostname];
-        names.extend(extra.aliases.iter().cloned());
+        let (name, hostname) = self.lock().containers.get(id).map(|c| (c.name.clone(), c.spec.hostname.clone())).unwrap_or_default();
+        let names = endpoint_names(&name, &extra.aliases, id, &hostname);
         let mut opts: Vec<String> = if extra.mac_address.is_empty() { Vec::new() } else { vec![format!("{}={}", kiri_proto::net_opts::MAC, extra.mac_address)] };
         if let (Some(a), Some(v)) = (ip6, &net.v6) {
             opts.push(format!("{}={}/{}", kiri_proto::net_opts::IP6, super::network::ip6_str(a), v.prefix));
@@ -3358,6 +3368,15 @@ impl Engine {
 
 #[cfg(test)]
 mod net_opts_tests {
+    #[test]
+    fn endpoint_names_are_dockers_dns_names() {
+        let id = "0123456789abcdef0123";
+        assert_eq!(super::endpoint_names("web", &["api".to_owned(), "web".to_owned()], id, ""), ["web", "api", "0123456789ab"]);
+        assert_eq!(super::endpoint_names("web", &[], id, "front"), ["web", "0123456789ab", "front"]);
+        // Docker's default hostname is the short id, named once.
+        assert_eq!(super::endpoint_names("web", &[], id, "0123456789ab"), ["web", "0123456789ab"]);
+    }
+
     #[test]
     fn dns_mac_and_joined_namespace_reach_the_guest() {
         let spec: super::Spec = serde_json::from_value(serde_json::json!({
