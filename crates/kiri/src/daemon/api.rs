@@ -1278,7 +1278,7 @@ fn caps_from(host: &Value) -> Result<u64, Error> {
 }
 
 /// cgroup v2's `cpu.weight` (1–10000) for Docker's CPU shares (2–262144), as
-/// runc has converted them since 1.3 and Docker 29 with it: a curve through
+/// runc has converted them since 1.3.2 and Docker 29 with it: a curve through
 /// both ends on which the default of 1024 shares is the default weight of
 /// 100. The straight line before it made 1024 shares a weight of 39, less
 /// than a container that asked for nothing gets.
@@ -1289,13 +1289,19 @@ fn cpu_weight(shares: u64) -> u32 {
     if shares >= 262_144 {
         return 10_000;
     }
-    let l = (shares as f64).log2();
+    // A power of two has a whole logarithm, whatever the host's libm makes of
+    // it: 1024 shares must come out at exactly 100.
+    let l = if shares.is_power_of_two() { f64::from(shares.trailing_zeros()) } else { (shares as f64).log2() };
     10f64.powf((l * l + 125.0 * l) / 612.0 - 7.0 / 34.0).ceil() as u32
 }
 
 /// The shares that `cpu_weight` turns into `weight`: the curve solved for
 /// the shares, then a step back when rounding passed the last such value.
+/// No weight is no shares.
 fn cpu_shares(weight: u32) -> u64 {
+    if weight == 0 {
+        return 0;
+    }
     let l = (-125.0 + (15_625.0 + 2448.0 * (f64::from(weight).log10() + 7.0 / 34.0)).sqrt()) / 2.0;
     let shares = 2f64.powf(l).round() as u64;
     if cpu_weight(shares) > weight { shares - 1 } else { shares }
@@ -1861,7 +1867,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "NanoCpus": if c.spec.limits.cpu_period > 0 { c.spec.limits.cpu_quota * 1_000_000_000 / u64::from(c.spec.limits.cpu_period) } else { 0 },
             "CpuQuota": c.spec.limits.cpu_quota,
             "CpuPeriod": c.spec.limits.cpu_period,
-            "CpuShares": if c.spec.limits.cpu_weight > 0 { cpu_shares(c.spec.limits.cpu_weight) } else { 0 },
+            "CpuShares": cpu_shares(c.spec.limits.cpu_weight),
             "PidsLimit": if c.spec.limits.pids_max > 0 { Value::from(c.spec.limits.pids_max) } else { Value::Null },
             "NetworkMode": c.spec.network_mode,
             "Dns": c.spec.dns,
@@ -2603,7 +2609,7 @@ mod tests {
 
     #[test]
     fn a_weight_reads_back_as_shares_that_give_it() {
-        assert_eq!((cpu_shares(1), cpu_shares(100), cpu_shares(10_000)), (2, 1024, 262_144));
+        assert_eq!((cpu_shares(0), cpu_shares(1), cpu_shares(100), cpu_shares(10_000)), (0, 2, 1024, 262_144));
         for weight in 1..=10_000 {
             let shares = cpu_shares(weight);
             assert_eq!(cpu_weight(shares), weight, "{shares}");

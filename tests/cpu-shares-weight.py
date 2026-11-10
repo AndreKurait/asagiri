@@ -3,6 +3,7 @@
 import http.client
 import io
 import json
+import math
 import socket
 import sys
 import tarfile
@@ -69,6 +70,15 @@ def check(path, image):
         with tarfile.open(fileobj=io.BytesIO(data)) as archive:
             return int(archive.extractfile(archive.getmembers()[0]).read())
 
+    # The conversion of runc 1.3.2 and later, for the shares inspect reports.
+    def weight_of(given):
+        if given <= 2:
+            return 1
+        if given >= 262144:
+            return 10000
+        log = math.log2(given)
+        return math.ceil(10 ** ((log * log + 125 * log) / 612 - 7 / 34))
+
     cases = 0
     try:
         # A container that asks for nothing has the kernel's default weight,
@@ -76,19 +86,22 @@ def check(path, image):
         assert weight(run({})) == 100
         print("PASS no shares: weight 100", flush=True)
         cases += 1
-        # Docker 29 (runc 1.3 and later). Docker 28 drew a straight line
-        # between the ends, on which 1024 shares were a weight of 39.
+        # runc 1.3.2 and later, which Docker 29 runs containers with. Before
+        # it runc drew a straight line between the ends, on which 1024 shares
+        # were a weight of 39.
         for given, expected in ((2, 1), (512, 59), (1024, 100), (2048, 174), (262144, 10000)):
             cid = run({"CpuShares": given})
             assert weight(cid) == expected, (given, weight(cid))
             # An engine that keeps the weight alone reads it back as shares
             # that give it: the ends and the default are the shares given.
+            assert weight_of(shares(cid)) == expected, (given, shares(cid))
             assert given == 512 or given == 2048 or shares(cid) == given, (given, shares(cid))
             print("PASS %d shares: weight %d" % (given, expected), flush=True)
             cases += 1
         for given, expected in ((4096, 303), (1024, 100), (2, 1)):
             request("POST", "/containers/" + cid + "/update", {"CpuShares": given})
             assert weight(cid) == expected, (given, weight(cid))
+            assert weight_of(shares(cid)) == expected, (given, shares(cid))
             assert given == 4096 or shares(cid) == given, (given, shares(cid))
             print("PASS update to %d shares: weight %d" % (given, expected), flush=True)
             cases += 1
