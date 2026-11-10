@@ -98,38 +98,43 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     };
     let streamed = stream(&method, &path);
     let mut req = Request { method, path, query, headers, body: Vec::new() };
+    validate_framing(&req)?;
+    if !streamed && req.header("content-length").and_then(|v| v.parse::<u64>().ok()).is_some_and(|n| n > MAX_BODY as u64) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "request body too large"));
+    }
+    let has_body = req.header("transfer-encoding").is_some()
+        || req.header("content-length").and_then(|v| v.parse::<u64>().ok()).is_some_and(|n| n != 0);
+    if has_body && req.header("expect").is_some_and(|v| v.eq_ignore_ascii_case("100-continue")) {
+        r.get_mut().write_all(b"HTTP/1.1 100 Continue\r\n\r\n")?;
+        r.get_mut().flush()?;
+    }
     if streamed {
         return Ok(Some(req));
     }
-    if req.header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
-        let mut line = String::new();
-        loop {
-            line.clear();
-            // A chunk-size line is short hex (plus an optional ;extension).
-            (&mut *r).take(64).read_line(&mut line)?;
-            let size = line.trim().split(';').next().unwrap_or("");
-            let n = usize::from_str_radix(size, 16)
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad chunk size"))?;
-            if n > MAX_BODY || req.body.len().checked_add(n).is_none_or(|t| t > MAX_BODY) {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "request body too large"));
-            }
-            let start = req.body.len();
-            req.body.resize(start + n, 0);
-            r.read_exact(&mut req.body[start..])?;
-            let mut crlf = [0u8; 2];
-            r.read_exact(&mut crlf)?;
-            if n == 0 {
-                break;
-            }
-        }
-    } else if let Some(len) = req.header("content-length").and_then(|v| v.parse::<usize>().ok()) {
-        if len > MAX_BODY {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "request body too large"));
-        }
-        req.body.resize(len, 0);
-        r.read_exact(&mut req.body)?;
+    let mut body = Vec::new();
+    Body::new(&req, r).take(MAX_BODY as u64 + 1).read_to_end(&mut body)?;
+    if body.len() > MAX_BODY {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "request body too large"));
     }
+    req.body = body;
     Ok(Some(req))
+}
+
+fn validate_framing(req: &Request) -> io::Result<()> {
+    let lengths: Vec<_> = req.headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case("content-length")).map(|(_, v)| v).collect();
+    let encodings = req.headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case("transfer-encoding")).count();
+    if lengths.windows(2).any(|pair| pair[0] != pair[1]) || encodings > 1 || (!lengths.is_empty() && encodings != 0) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous request framing"));
+    }
+    if let Some(value) = req.header("content-length") {
+        if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) || value.parse::<u64>().is_err() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid content-length"));
+        }
+    }
+    if req.header("transfer-encoding").is_some_and(|v| !v.eq_ignore_ascii_case("chunked")) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "unsupported transfer-encoding"));
+    }
+    Ok(())
 }
 
 /// A streamed request body: Content-Length or chunked, read as it arrives.
@@ -156,15 +161,26 @@ impl Read for Body<'_> {
         }
         if self.chunked && self.left == 0 {
             let mut line = String::new();
-            self.r.read_line(&mut line)?;
+            (&mut *self.r).take(MAX_HEAD).read_line(&mut line)?;
+            if !line.ends_with("\r\n") {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid chunk-size line"));
+            }
             // A chunk size may carry extensions after a semicolon.
-            let size = line.trim().split(';').next().unwrap_or("");
+            let size = line.trim_end().split(';').next().unwrap_or("");
+            if size.is_empty() || !size.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "bad chunk size"));
+            }
             self.left = u64::from_str_radix(size, 16).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad chunk size"))?;
             if self.left == 0 {
                 // Trailers, then the blank line.
+                let mut trailers = (&mut *self.r).take(MAX_HEAD);
                 loop {
                     line.clear();
-                    if self.r.read_line(&mut line)? == 0 || line.trim().is_empty() {
+                    trailers.read_line(&mut line)?;
+                    if !line.ends_with("\r\n") {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "trailers too large or cut short"));
+                    }
+                    if line == "\r\n" {
                         break;
                     }
                 }
@@ -182,6 +198,9 @@ impl Read for Body<'_> {
             if self.chunked {
                 let mut crlf = [0u8; 2];
                 self.r.read_exact(&mut crlf)?;
+                if crlf != *b"\r\n" {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid chunk terminator"));
+                }
             } else {
                 self.done = true;
             }
@@ -354,6 +373,132 @@ pub fn mux_frame(w: &mut impl Write, stream: u8, data: &[u8]) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(bytes: &[u8]) -> BufReader<UnixStream> {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let bytes = bytes.to_vec();
+        std::thread::spawn(move || {
+            let _ = client.write_all(&bytes);
+            let _ = client.shutdown(std::net::Shutdown::Write);
+        });
+        BufReader::new(server)
+    }
+
+    fn body(r: &mut BufReader<UnixStream>, streamed: bool) -> io::Result<Vec<u8>> {
+        let req = read_request(r, |_, _| streamed)?.unwrap();
+        if !streamed {
+            return Ok(req.body);
+        }
+        let mut out = Vec::new();
+        Body::new(&req, r).read_to_end(&mut out)?;
+        Ok(out)
+    }
+
+    #[test]
+    fn chunked_trailers_preserve_the_next_request() {
+        for streamed in [false, true] {
+            let mut r = input(b"POST /auth HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2;ext=yes\r\n{}\r\n0\r\nX-Checksum: abc\r\n\r\nGET /_ping HTTP/1.1\r\n\r\n");
+            assert_eq!(body(&mut r, streamed).unwrap(), b"{}");
+            assert_eq!(read_request(&mut r, |_, _| false).unwrap().unwrap().path, "/_ping");
+        }
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_invalid_framing_before_reading_a_body() {
+        for streamed in [false, true] {
+            for headers in [
+                "Content-Length: 0\r\nTransfer-Encoding: chunked",
+                "Content-Length: 0\r\nContent-Length: 2",
+                "Content-Length: -1",
+                "Content-Length: xyz",
+                "Content-Length: +2",
+                "Content-Length: 18446744073709551616",
+                "Content-Length:",
+                "Transfer-Encoding: gzip",
+                "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked",
+            ] {
+                let mut r = input(format!("POST /auth HTTP/1.1\r\n{headers}\r\n\r\n").as_bytes());
+                assert_eq!(read_request(&mut r, |_, _| streamed).unwrap_err().kind(), io::ErrorKind::InvalidData, "{headers}");
+            }
+        }
+    }
+
+    #[test]
+    fn identical_content_lengths_use_one_body() {
+        for streamed in [false, true] {
+            let mut r = input(b"POST /auth HTTP/1.1\r\nContent-Length: 2\r\ncontent-length: 2\r\n\r\n{}GET /_ping HTTP/1.1\r\n\r\n");
+            assert_eq!(body(&mut r, streamed).unwrap(), b"{}");
+            assert_eq!(read_request(&mut r, |_, _| false).unwrap().unwrap().path, "/_ping");
+        }
+    }
+
+    #[test]
+    fn rejects_broken_chunk_delimiters_and_sizes() {
+        for streamed in [false, true] {
+            for wire in ["1\r\nxXX0\r\n\r\n", "0\r\nX: y\r\n", "1\nx\r\n0\r\n\r\n",
+                         "+1\r\nx\r\n0\r\n\r\n", " 1\r\nx\r\n0\r\n\r\n", "1\r\n", "0\r\n"] {
+                let mut r = input(format!("POST /auth HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{wire}").as_bytes());
+                assert!(body(&mut r, streamed).is_err(), "{wire:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn bounds_chunk_size_lines_and_trailers() {
+        for streamed in [false, true] {
+            for wire in [
+                format!("1;{}\r\nx\r\n0\r\n\r\n", "x".repeat(MAX_HEAD as usize)),
+                format!("0\r\nX: {}\r\n\r\n", "x".repeat(MAX_HEAD as usize)),
+            ] {
+                let mut r = input(format!("POST /auth HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{wire}").as_bytes());
+                assert_eq!(body(&mut r, streamed).unwrap_err().kind(), io::ErrorKind::InvalidData);
+            }
+        }
+    }
+
+    #[test]
+    fn buffered_body_limit_covers_chunked_requests() {
+        let payload = "x".repeat(MAX_BODY + 1);
+        let mut r = input(format!("POST /auth HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{payload}\r\n0\r\n\r\n", payload.len()).as_bytes());
+        assert_eq!(body(&mut r, false).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn content_length_limit_does_not_limit_streamed_archives() {
+        for streamed in [false, true] {
+            let mut r = input(format!("POST /images/load HTTP/1.1\r\nContent-Length: {}\r\n\r\n", MAX_BODY + 1).as_bytes());
+            assert_eq!(read_request(&mut r, |_, _| streamed).is_ok(), streamed);
+        }
+    }
+
+    #[test]
+    fn expect_continue_unblocks_fixed_and_chunked_uploads() {
+        for streamed in [false, true] {
+            for (header, wire) in [("Content-Length: 2", &b"{}"[..]), ("Transfer-Encoding: chunked", &b"2\r\n{}\r\n0\r\n\r\n"[..])] {
+                let (mut client, server) = UnixStream::pair().unwrap();
+                client.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+                let worker = std::thread::spawn(move || body(&mut BufReader::new(server), streamed));
+                client.write_all(format!("POST /auth HTTP/1.1\r\n{header}\r\nExpect: 100-continue\r\n\r\n").as_bytes()).unwrap();
+                let mut interim = [0; 25];
+                client.read_exact(&mut interim).unwrap();
+                assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
+                client.write_all(wire).unwrap();
+                assert_eq!(worker.join().unwrap().unwrap(), b"{}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_requests_do_not_receive_an_interim_response() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(b"POST /auth HTTP/1.1\r\nContent-Length: 0\r\nExpect: 100-continue\r\n\r\n").unwrap();
+        let mut r = BufReader::new(server);
+        assert!(read_request(&mut r, |_, _| false).unwrap().unwrap().body.is_empty());
+        r.get_mut().shutdown(std::net::Shutdown::Write).unwrap();
+        let mut answer = Vec::new();
+        client.read_to_end(&mut answer).unwrap();
+        assert!(answer.is_empty());
+    }
 
     #[test]
     fn strips_api_version() {

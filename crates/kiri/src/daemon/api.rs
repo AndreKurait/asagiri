@@ -22,7 +22,17 @@ use super::time;
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
-    while let Some(req) = http::read_request(&mut r, streams_body)? {
+    loop {
+        let req = match http::read_request(&mut r, streams_body) {
+            Ok(Some(req)) => req,
+            Ok(None) => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                let body = json!({"message": e.to_string()}).to_string();
+                http::respond_with(&mut w, 400, "application/json", "Connection: close\r\n", body.as_bytes())?;
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         // The window's action this request is part of: the engine's lines
         // for it carry the same op.
         let _op = req.header("X-Kiri-Op").filter(|o| crate::diag::valid_op(o)).map(|o| crate::diag::enter_op(o.to_owned()));
@@ -46,7 +56,6 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
             }
         }
     }
-    Ok(())
 }
 
 /// Requests whose bodies can be any size: archives and image tarballs.
