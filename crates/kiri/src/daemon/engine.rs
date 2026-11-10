@@ -1556,6 +1556,8 @@ impl Engine {
             c.finished = None;
             c.oom_killed = false;
             c.vm_stopped = false;
+            // Not live until the guest has the process, however the last run ended.
+            c.live = false;
             // `docker run --rm` without -d: its client is reading the output
             // and the log goes with the container, so it stays in memory.
             if c.spec.auto_remove && !c.attached.is_empty() {
@@ -1770,6 +1772,8 @@ impl Engine {
                 }
             };
             if early.is_empty() {
+                // A stop or kill that came in meanwhile waits for this.
+                self.changed.notify_all();
                 if close {
                     let _ = self.vm()?.close_stdin(&id);
                 }
@@ -2567,6 +2571,7 @@ impl Engine {
 
     pub fn stop(&self, key: &str, timeout: Duration) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        self.wait_started(&id);
         self.thaw_for_signal(&id);
         self.mark_stopped(&id);
         if !self.is_running(&id) {
@@ -2606,8 +2611,25 @@ impl Engine {
         }
     }
 
+    /// Waits for a start that is under way to finish. Until the guest has
+    /// the process there is nothing to signal: a stop or kill sent now
+    /// would be dropped, and would report success while the container
+    /// kept running. A start that never finishes is not waited for forever.
+    fn wait_started(&self, id: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut st = self.lock();
+        while st.containers.get(id).is_some_and(|c| c.status == Status::Running && !c.live) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
     pub fn kill(&self, key: &str, signal: u32) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        self.wait_started(&id);
         self.thaw_for_signal(&id);
         if !self.is_running(&id) {
             return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
@@ -2642,6 +2664,7 @@ impl Engine {
                     &id[..12]
                 )));
             }
+            self.wait_started(&id);
             self.mark_stopped(&id);
             self.vm()?.kill(&id, libc::SIGKILL as u32)?;
             let mut st = self.lock();
