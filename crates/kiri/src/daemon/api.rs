@@ -215,10 +215,26 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
             ("POST", "start") => {
+                match engine.with(id, |c| c.status == Status::Running) {
+                    Ok(true) => {
+                        http::respond(w, 304, "", b"")?;
+                        return Ok(Next::KeepAlive);
+                    }
+                    Err(e) => return reply(w, Err(e), 204),
+                    _ => {}
+                }
                 super::builder::before_start(engine, id);
                 return reply(w, engine.start(id).map(|()| Value::Null), 204);
             }
             ("POST", "stop") => {
+                match engine.with(id, |c| c.status == Status::Running) {
+                    Ok(false) => {
+                        http::respond(w, 304, "", b"")?;
+                        return Ok(Next::KeepAlive);
+                    }
+                    Err(e) => return reply(w, Err(e), 204),
+                    _ => {}
+                }
                 let t = stop_timeout(req, engine, id);
                 return reply(w, engine.stop(id, t).map(|()| Value::Null), 204);
             }
