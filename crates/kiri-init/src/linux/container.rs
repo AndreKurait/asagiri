@@ -122,7 +122,10 @@ struct Prepared {
     privileged: bool,
     /// Capabilities kept, one bit each.
     caps: u64,
+    /// The default seccomp profile, rather than only the host boundary.
     seccomp: bool,
+    /// The container's own profile, installed on top of the host boundary.
+    custom_seccomp: Option<super::custom_seccomp::Filter>,
     no_new_privs: bool,
     readonly_rootfs: bool,
     shm_size: u64,
@@ -130,6 +133,18 @@ struct Prepared {
     init: bool,
     /// Ulimits, groups and device nodes from the `opts` lines.
     host: HostApplied,
+}
+
+impl Prepared {
+    /// Replaces the default seccomp profile with the container's own, as
+    /// Docker does even for a privileged container. Its conditional rules
+    /// see the capabilities the container keeps.
+    fn use_profile(&mut self, json: &str) -> io::Result<()> {
+        let caps = if self.privileged { u64::MAX } else { self.caps };
+        self.custom_seccomp = super::custom_seccomp::compile(json, caps)?;
+        self.seccomp = false;
+        Ok(())
+    }
 }
 
 /// The parts of [`super::hostopts::HostOpts`] the child applies itself.
@@ -253,6 +268,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         let joined = fs::File::open(format!("/proc/{pid}/ns/net")).map_err(cleanup)?;
         netns = netns_inode(&joined);
         prepared.net_join = Some(joined);
+    }
+    if let Some(profile) = &host.seccomp {
+        prepared.use_profile(profile).map_err(cleanup)?;
     }
     prepared.host = HostApplied { rlimits: host.rlimits.clone(), groups: host.groups.clone(), nodes };
     // Small, short-lived files: kept in memory (/run is tmpfs), not on the data disk.
@@ -423,6 +441,9 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
     let mut prepared = prepare(spec.argv, spec.env, spec.cwd, spec.user, None, spec.flags, spec.caps)?;
     // The container's ulimits and groups apply to its execs too, as with runc.
     let host = super::hostopts::parse(spec.opts)?;
+    if let Some(profile) = &host.seccomp {
+        prepared.use_profile(profile)?;
+    }
     prepared.host = HostApplied { rlimits: host.rlimits, groups: host.groups, nodes: Vec::new() };
     let (parent_io, child_io) = stdio(&prepared)?;
     let args = CloneArgs {
@@ -677,6 +698,7 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
         stdin: flags & run_flags::STDIN != 0,
         privileged: flags & run_flags::PRIVILEGED != 0,
         caps: if caps == 0 { default_caps() } else { caps },
+        custom_seccomp: None,
         seccomp: flags & (run_flags::PRIVILEGED | run_flags::NO_SECCOMP) == 0,
         no_new_privs: flags & run_flags::NO_NEW_PRIVS != 0,
         readonly_rootfs: flags & run_flags::READONLY_ROOTFS != 0,
@@ -1182,6 +1204,17 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     // Without the default profile the host boundary stays: vsock is not
     // namespaced, and privileges inside the VM are no reason to reach the host.
     super::seccomp::install(p.seccomp.then_some(p.caps)).unwrap_or_else(|e| fail("seccomp", e));
+    // A custom profile goes on top of the boundary. As with runc, it covers
+    // the user switch below, which it therefore has to allow, unless
+    // no_new_privs lets it wait until just before the program starts.
+    let profile = || {
+        if let Some(filter) = &p.custom_seccomp {
+            filter.install().unwrap_or_else(|e| fail("seccomp profile", e));
+        }
+    };
+    if !p.no_new_privs {
+        profile();
+    }
     let (uid, gid) = resolve_user(&p.user).unwrap_or_else(|e| fail("user", e));
     // The user's /etc/group memberships and --group-add, as Docker gives them.
     let groups = super::hostopts::supplementary_groups(&p.user, uid, &p.host.groups).unwrap_or_else(|e| fail("groups", e));
@@ -1217,6 +1250,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     }
     envp.push(std::ptr::null());
     if console && p.init {
+        if p.no_new_privs {
+            profile();
+        }
         super::pid1::run(&exe, argv.as_ptr(), envp.as_ptr(), p.tty);
     }
     // The program starts as Docker would start it: nothing blocked and
@@ -1230,6 +1266,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
         let mut none: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut none);
         libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+    }
+    if p.no_new_privs {
+        profile();
     }
     // SAFETY: NULL-terminated arrays of valid C strings that outlive the call.
     unsafe { libc::execve(exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };

@@ -289,7 +289,9 @@ impl Spec {
     /// The guest's `opts` lines for a start or an exec. `net_host`: it runs
     /// in the VM's (or host's) network namespace.
     pub fn guest_opts(&self, net_host: bool) -> Result<Vec<String>, Error> {
-        super::hostopts::guest_lines(&self.host_opts, net_host).map_err(Error::BadRequest)
+        let mut lines = super::hostopts::guest_lines(&self.host_opts, net_host).map_err(Error::BadRequest)?;
+        lines.extend(seccomp_lines(&self.security_opt)?);
+        Ok(lines)
     }
 
     /// Whether `--sysctl net.ipv6.conf.{all,default,<ifname>}.disable_ipv6=1`
@@ -302,7 +304,7 @@ impl Spec {
     /// The security flags for the guest: seccomp, no-new-privileges, read-only root.
     pub fn security_flags(&self) -> u32 {
         let mut f = 0;
-        if self.security_opt.iter().any(|o| o == "seccomp=unconfined" || o == "seccomp:unconfined") {
+        if seccomp_option(&self.security_opt) == Some("unconfined") {
             f |= run_flags::NO_SECCOMP;
         }
         if self.security_opt.iter().any(|o| o == "no-new-privileges" || o == "no-new-privileges:true" || o == "no-new-privileges=true") {
@@ -312,6 +314,85 @@ impl Spec {
             f |= run_flags::READONLY_ROOTFS;
         }
         f
+    }
+}
+
+/// The seccomp security option in effect: the last one given, as with
+/// Docker. `None` is the default profile (no option, or `builtin`).
+fn seccomp_option(options: &[String]) -> Option<&str> {
+    let value = options.iter().filter_map(|o| o.strip_prefix("seccomp=").or_else(|| o.strip_prefix("seccomp:"))).next_back();
+    value.filter(|v| !v.is_empty() && *v != "builtin")
+}
+
+/// The largest profile sent to the agent; it travels in the run request,
+/// which has to stay well within one frame. Docker's own profile is 20 KiB.
+const MAX_SECCOMP_PROFILE: usize = kiri_proto::MAX_FRAME / 4;
+
+/// A custom profile as one guest-option line, its JSON re-encoded so that it
+/// holds no newline. Checked when the container starts, like Docker: a
+/// profile that does not parse fails the start rather than run unconfined.
+pub(super) fn seccomp_lines(options: &[String]) -> Result<Vec<String>, Error> {
+    let Some(profile) = seccomp_option(options).filter(|v| *v != "unconfined") else { return Ok(Vec::new()) };
+    let invalid = |why: String| Error::Io(io::Error::other(format!("Decoding seccomp profile failed: {why}")));
+    let mut value: serde_json::Value = serde_json::from_str(profile).map_err(|e| invalid(e.to_string()))?;
+    if value.is_null() {
+        // To Docker `null` is the empty profile.
+        value = serde_json::json!({});
+    }
+    if !value.is_object() {
+        return Err(invalid("the profile must be a JSON object".into()));
+    }
+    let line = format!("seccomp\t{value}");
+    if line.len() > MAX_SECCOMP_PROFILE {
+        return Err(invalid(format!("the profile is larger than {} KiB", MAX_SECCOMP_PROFILE >> 10)));
+    }
+    Ok(vec![line])
+}
+
+#[cfg(test)]
+mod seccomp_options_tests {
+    use super::*;
+
+    fn lines(options: &[&str]) -> Result<Vec<String>, Error> {
+        seccomp_lines(&options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn the_last_seccomp_option_wins() {
+        assert!(lines(&["seccomp=[]"]).is_err());
+        assert!(lines(&["seccomp=invalid"]).is_err());
+        assert!(lines(&["seccomp=invalid", "seccomp=unconfined"]).unwrap().is_empty());
+        assert!(lines(&["seccomp=unconfined", "seccomp=invalid"]).is_err());
+        assert!(lines(&["seccomp={}", "seccomp=builtin"]).unwrap().is_empty());
+        assert!(lines(&["no-new-privileges", "label=disable"]).unwrap().is_empty());
+        assert_eq!(lines(&["seccomp: {\n\"defaultAction\": \"SCMP_ACT_ALLOW\"\n}"]).unwrap(), [r#"seccomp	{"defaultAction":"SCMP_ACT_ALLOW"}"#]);
+    }
+
+    #[test]
+    fn an_invalid_profile_fails_the_start_and_names_seccomp() {
+        let Err(Error::Io(e)) = lines(&["seccomp={\"defaultAction\":"]) else { panic!("accepted") };
+        assert!(e.to_string().starts_with("Decoding seccomp profile failed: "), "{e}");
+        let big = format!("seccomp={{\"x\":\"{}\"}}", "a".repeat(MAX_SECCOMP_PROFILE));
+        assert!(lines(&[&big]).is_err());
+    }
+
+    #[test]
+    fn a_profile_replaces_the_default_even_when_privileged() {
+        let profile = r#"seccomp={"defaultAction":"SCMP_ACT_ERRNO"}"#.to_string();
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "", "image_id": "", "entrypoint": [], "cmd": [], "env": [], "cwd": "", "user": "",
+            "auto_remove": false, "network_mode": "", "labels": {}, "security_opt": [&profile], "privileged": true,
+        })).unwrap();
+        let sent = |spec: &Spec| spec.guest_opts(false).unwrap().into_iter().filter(|l| l.starts_with("seccomp\t")).collect::<Vec<_>>();
+        assert_eq!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        assert_eq!(sent(&spec), [r#"seccomp	{"defaultAction":"SCMP_ACT_ERRNO"}"#]);
+        spec.security_opt = vec!["seccomp=unconfined".into(), profile.clone()];
+        assert_eq!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        spec.security_opt = vec![profile, "seccomp=unconfined".into()];
+        assert_ne!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        assert!(sent(&spec).is_empty());
+        spec.security_opt = vec!["seccomp=null".into()];
+        assert_eq!(sent(&spec), ["seccomp\t{}"]);
     }
 }
 
@@ -2777,6 +2858,11 @@ impl Engine {
         let exec_security;
         let (container_id, config, env) = {
             let mut st = self.lock();
+            // Execs get the container's ulimits, groups and seccomp profile,
+            // as with runc. Without them the exec is not run: it would be
+            // under the default profile and not the container's.
+            let of = st.execs.get(exec_id).and_then(|e| st.containers.get(&e.container_id));
+            let opts = of.map(|c| c.spec.guest_opts(false)).transpose()?.unwrap_or_default();
             let e = st.execs.get_mut(exec_id).ok_or_else(|| Error::NotFound(format!("No such exec instance: {exec_id}")))?;
             if e.running || e.exit_code.is_some() {
                 return Err(Error::Conflict("exec has already run".into()));
@@ -2786,8 +2872,6 @@ impl Engine {
             e.attached.push(tx);
             let (container_id, config) = (e.container_id.clone(), e.config.clone());
             let (security, caps) = st.containers.get(&container_id).map(|c| (c.spec.security_flags() & !run_flags::READONLY_ROOTFS, c.spec.caps)).unwrap_or_default();
-            // Execs get the container's ulimits and groups, as with runc.
-            let opts = st.containers.get(&container_id).map(|c| c.spec.guest_opts(false).unwrap_or_default()).unwrap_or_default();
             exec_security = (security, caps, opts);
             let mut env = st.containers.get(&container_id).map(|c| c.spec.env.clone()).unwrap_or_default();
             for e in &config.env {

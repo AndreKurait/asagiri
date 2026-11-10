@@ -768,6 +768,7 @@ dependencies = [
  "kiri-proto",
  "libc",
  "ruzstd",
+ "serde_json",
  "tar",
 ]
 
