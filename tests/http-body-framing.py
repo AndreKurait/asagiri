@@ -19,6 +19,42 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
+def response(reader):
+    """Use one reader across replies so an unexpected extra reply cannot vanish."""
+    line = reader.readline()
+    assert line.startswith(b"HTTP/1.1 "), line
+    status = int(line.split()[1])
+    headers = {}
+    while True:
+        line = reader.readline()
+        if line == b"\r\n":
+            break
+        assert line.endswith(b"\r\n"), line
+        key, value = line.split(b":", 1)
+        headers[key.lower()] = value.strip().lower()
+    if status in (100, 204, 304):
+        return status, b""
+    if headers.get(b"transfer-encoding") == b"chunked":
+        data = bytearray()
+        while True:
+            size = int(reader.readline().split(b";", 1)[0], 16)
+            if size == 0:
+                while True:
+                    trailer = reader.readline()
+                    assert trailer.endswith(b"\r\n"), trailer
+                    if trailer == b"\r\n":
+                        break
+                return status, bytes(data)
+            chunk = reader.read(size)
+            assert len(chunk) == size
+            data.extend(chunk)
+            assert reader.read(2) == b"\r\n"
+    size = int(headers[b"content-length"])
+    data = reader.read(size)
+    assert len(data) == size
+    return status, data
+
+
 def check(path, image):
     owned = []
 
@@ -46,14 +82,15 @@ def check(path, image):
         for streamed in (False, True):
             variants = ("fixed", "chunked", "trailers") if streamed else (
                 "fixed", "chunked", "trailers", "duplicate-length", "extension")
-            for variant in variants:
-                for expect in (False, True):
+            for expect in (False, True):
+                for variant in variants:
                     connection = Connection(path)
                     payload = archive.getvalue() if streamed else create
                     chunked = variant in ("chunked", "trailers", "extension")
                     method = "PUT" if streamed else "POST"
                     url = ("/v1.47/containers/" + target + "/archive?path=/tmp"
                            if streamed else "/v1.47/containers/create")
+                    reader = None
                     try:
                         connection.putrequest(method, url)
                         connection.putheader("Content-Type", "application/x-tar" if streamed else "application/json")
@@ -68,13 +105,9 @@ def check(path, image):
                         if expect:
                             connection.putheader("Expect", "100-continue")
                         connection.endheaders()
+                        reader = connection.sock.makefile("rb")
                         if expect:
-                            interim = b""
-                            while len(interim) < 25:
-                                received = connection.sock.recv(25 - len(interim))
-                                assert received, "closed before 100 Continue"
-                                interim += received
-                            assert interim == b"HTTP/1.1 100 Continue\r\n\r\n", interim
+                            assert response(reader) == (100, b"")
                         if chunked:
                             extension = ";test=" + "x" * 128 if variant == "extension" else ""
                             for piece in (payload[:7], payload[7:]):
@@ -82,17 +115,18 @@ def check(path, image):
                             connection.send(b"0\r\n" + (b"X-Checksum: test\r\n" if variant == "trailers" else b"") + b"\r\n")
                         else:
                             connection.send(payload)
-                        response = connection.getresponse()
-                        data = response.read()
-                        assert response.status == (200 if streamed else 201), (streamed, variant, expect, response.status, data)
+                        status, data = response(reader)
+                        assert status == (200 if streamed else 201), (streamed, variant, expect, status, data)
                         if not streamed:
                             owned.append(json.loads(data)["Id"])
-                            connection.request("GET", "/_ping")
-                            ping = connection.getresponse()
-                            assert (ping.status, ping.read()) == (200, b"OK")
+                            connection.send(b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                            ping = response(reader)
+                            assert ping == (200, b"OK"), (streamed, variant, expect, ping)
                         count += 1
                         print("PASS", "streamed" if streamed else "buffered", variant, "expect" if expect else "immediate", flush=True)
                     finally:
+                        if reader is not None:
+                            reader.close()
                         connection.close()
         print(count, "HTTP upload framing cases passed")
     finally:
