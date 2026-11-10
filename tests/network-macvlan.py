@@ -51,7 +51,7 @@ def check(path, image):
         return tag + name
 
     def run(net, name, aliases=(), publish=False):
-        body = {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": net}}
+        body = {"Image": image, "Cmd": ["sleep", "600"], "HostConfig": {"NetworkMode": net}}
         if aliases:
             body["NetworkingConfig"] = {"EndpointsConfig": {net: {"Aliases": list(aliases)}}}
         if publish:
