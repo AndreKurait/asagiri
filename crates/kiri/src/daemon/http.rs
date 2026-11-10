@@ -467,8 +467,11 @@ pub fn json(w: &mut impl Write, status: u16, body: &str) -> io::Result<()> {
     respond(w, status, "application/json", body.as_bytes())
 }
 
-pub fn no_content(w: &mut impl Write) -> io::Result<()> {
-    respond(w, 204, "", b"")
+/// A success with no body. Docker sends no Content-Type with one, and a
+/// zero Content-Length unless the status (204, 304) rules a body out.
+pub fn empty(w: &mut impl Write, status: u16) -> io::Result<()> {
+    head(w, status, if status == 204 || status == 304 { "" } else { "Content-Length: 0\r\n" })?;
+    w.flush()
 }
 
 /// Docker's error shape: `{"message": "..."}`.
@@ -798,6 +801,20 @@ mod tests {
             assert!(!response.contains("Content-Length:"));
             assert!(!response.contains("Transfer-Encoding:"));
             assert!(response.ends_with("\r\n\r\n"));
+        }
+    }
+
+    #[test]
+    fn empty_responses_have_no_content_type() {
+        for (status, length) in [(200, true), (201, true), (204, false), (304, false)] {
+            let mut out = Vec::new();
+            empty(&mut out, status).unwrap();
+            let text = String::from_utf8(out).unwrap();
+            assert!(text.starts_with(&format!("HTTP/1.1 {status} ")), "{text}");
+            assert!(text.ends_with("\r\n\r\n"), "{text}");
+            assert!(!text.to_ascii_lowercase().contains("content-type"), "{text}");
+            // Without a length a keep-alive client would wait for a 200's body.
+            assert_eq!(text.contains("Content-Length: 0\r\n"), length, "{text}");
         }
     }
 

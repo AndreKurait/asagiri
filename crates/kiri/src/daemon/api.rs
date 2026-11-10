@@ -72,7 +72,7 @@ pub(super) enum Next {
 
 pub(super) fn reply(w: &mut UnixStream, result: Result<Value, Error>, ok: u16) -> io::Result<Next> {
     match result {
-        Ok(Value::Null) => http::no_content(w)?,
+        Ok(Value::Null) => http::empty(w, ok)?,
         Ok(v) => http::json(w, ok, &v.to_string())?,
         Err(e) => error(w, e)?,
     }
@@ -2194,7 +2194,7 @@ fn exec_start(req: &Request, engine: &Arc<Engine>, id: &str, w: &mut UnixStream,
     if detach {
         // Nobody will read the output; let it drain on its own thread.
         std::thread::spawn(move || for _ in rx {});
-        http::no_content(w)?;
+        http::empty(w, 200)?;
         return Ok(Next::KeepAlive);
     }
     http::raw_stream(req, w)?;
@@ -2518,7 +2518,7 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     };
     // Docker answers 200 with no body.
     match result {
-        Ok(()) => http::respond(w, 200, "text/plain", b"")?,
+        Ok(()) => http::empty(w, 200)?,
         Err(e) => error(w, e)?,
     }
     // The body may be partly unread after a refusal: this connection is done.
@@ -2578,6 +2578,21 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_responses_keep_the_operations_status_code() {
+        use std::io::Read;
+        for status in [200, 201, 204, 304] {
+            let (mut client, mut server) = UnixStream::pair().unwrap();
+            reply(&mut server, Ok(Value::Null), status).unwrap();
+            drop(server);
+            let mut text = String::new();
+            client.read_to_string(&mut text).unwrap();
+            assert!(text.starts_with(&format!("HTTP/1.1 {status} ")), "{text}");
+            // No body, so nothing to name the type of.
+            assert!(text.ends_with("\r\n\r\n") && !text.contains("Content-Type"), "{text}");
+        }
+    }
 
     #[test]
     fn kernel_release_is_trimmed_and_empty_is_none() {
