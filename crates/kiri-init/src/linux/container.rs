@@ -1044,6 +1044,10 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio) -> ! {
     for (src, target) in &p.etc_files {
         bind_file(root, src, target).unwrap_or_else(|e| fail(&target.to_string_lossy(), e));
     }
+    // SDKs use Docker's marker to detect container execution when cgroup
+    // namespaces hide the host's cgroup path. Resolve it inside the image,
+    // before changing user or making the root filesystem read-only.
+    inroot::open(root, Path::new(".dockerenv"), Last::File).unwrap_or_else(|e| fail("container marker", e));
     // The image's tree without the mounts made on it, for filling new
     // volumes; closed (and so unmounted) once they are all in place.
     let image = if p.mounts.iter().any(|m| m.copy_up) { image_tree() } else { None };

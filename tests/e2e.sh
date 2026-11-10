@@ -118,6 +118,10 @@ t entrypoint-image "nginx version" $D run --rm nginx:alpine nginx -v
 t hostname-is-id "" $D run --rm alpine hostname
 t hostname-file "" $D run --rm alpine cat /etc/hostname
 t pid1 "1" $D run --rm alpine sh -c 'echo $$'
+t container-marker "marker-ok" $D run --rm alpine sh -c 'test -f /.dockerenv && test ! -s /.dockerenv && echo marker-ok'
+t container-marker-nonroot "marker-ok" $D run --rm -u 1000 alpine sh -c 'test -r /.dockerenv && test ! -s /.dockerenv && echo marker-ok'
+t container-marker-readonly "marker-ok" $D run --rm --read-only alpine sh -c 'test -f /.dockerenv && test ! -s /.dockerenv && echo marker-ok'
+t container-marker-readonly-nonroot "marker-ok" $D run --rm --read-only -u 1000 alpine sh -c 'test -r /.dockerenv && test ! -s /.dockerenv && echo marker-ok'
 t proc "PID" $D run --rm alpine ps
 t dev-null "ok" $D run --rm alpine sh -c 'echo x > /dev/null && echo ok'
 t dev-null-nonroot "ok" $D run --rm -u 1000 alpine sh -c 'echo x > /dev/null && head -c 1 /dev/urandom >/dev/null && echo ok'
