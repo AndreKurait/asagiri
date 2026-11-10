@@ -782,6 +782,7 @@ t compose-multi-net "PONG" bash -c "d=\$(mktemp -d); printf 'services:\n  db:\n 
 $D rm -f multi >/dev/null; $D network rm na nb >/dev/null
 code network-connect-dns 0 python3 "$(dirname "$0")/network-connect-dns.py" "$SOCK" alpine
 code network-late-default-route 0 python3 "$(dirname "$0")/network-late-default-route.py" "$SOCK" alpine
+code network-interface-numbers 0 python3 "$(dirname "$0")/network-interface-numbers.py" "$SOCK" alpine
 
 section "events, prune, system df, search"
 t events "start" bash -c "($D events --filter container=evt --format '{{.Action}}' & p=\$!; sleep 0.5; $D run --name evt alpine true >/dev/null; sleep 0.5; kill \$p) 2>/dev/null"
