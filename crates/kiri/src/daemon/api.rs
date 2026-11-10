@@ -90,6 +90,14 @@ pub(super) fn error(w: &mut UnixStream, e: Error) -> io::Result<()> {
 }
 
 fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    if let Some(message) = req.version_error() {
+        // The body of a refused request was never read: the connection can
+        // only carry on when there is none. HEAD gets the headers alone.
+        let close = req.has_body();
+        let body = if req.method == "HEAD" { String::new() } else { json!({"message": message}).to_string() };
+        http::respond_with(w, 400, "application/json", if close { "Connection: close\r\n" } else { "" }, body.as_bytes())?;
+        return Ok(if close { Next::Close } else { Next::KeepAlive });
+    }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
     }
@@ -351,10 +359,10 @@ fn version() -> Value {
     let v = env!("CARGO_PKG_VERSION");
     json!({
         "Platform": {"Name": "Kiri"},
-        "Components": [{"Name": "Engine", "Version": v, "Details": {"ApiVersion": http::API_VERSION, "MinAPIVersion": "1.24", "Arch": go_arch(), "Os": "linux"}}],
+        "Components": [{"Name": "Engine", "Version": v, "Details": {"ApiVersion": http::API_VERSION, "MinAPIVersion": http::MIN_API_VERSION, "Arch": go_arch(), "Os": "linux"}}],
         "Version": v,
         "ApiVersion": http::API_VERSION,
-        "MinAPIVersion": "1.24",
+        "MinAPIVersion": http::MIN_API_VERSION,
         "Os": "linux",
         "Arch": go_arch(),
         "KernelVersion": kernel_version(),

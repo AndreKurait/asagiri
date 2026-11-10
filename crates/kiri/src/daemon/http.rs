@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// API version this daemon speaks. The Docker CLI negotiates down to it.
 pub const API_VERSION: &str = "1.47";
+pub const MIN_API_VERSION: &str = "1.24";
 
 /// Largest request body read into memory (container create, etc.). Archives
 /// and image loads are streamed with [`Body`] instead, at any size.
@@ -75,6 +76,7 @@ pub struct Request {
     pub method: String,
     /// Path without the `/v1.xx` prefix or the query string.
     pub path: String,
+    api_version: Option<String>,
     query: Vec<(String, String)>,
     headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -106,7 +108,7 @@ impl Request {
     /// container create), so it goes through the same code as a client's.
     pub fn internal(method: &str, path: &str, query: &[(&str, &str)], body: Vec<u8>) -> Request {
         let query = query.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Request { method: method.to_owned(), path: path.to_owned(), query, headers: Vec::new(), body, awaits_continue: AtomicBool::new(false) }
+        Request { method: method.to_owned(), path: path.to_owned(), api_version: None, query, headers: Vec::new(), body, awaits_continue: AtomicBool::new(false) }
     }
 
     /// Tells a client waiting on `Expect: 100-continue` to send the body.
@@ -120,6 +122,23 @@ impl Request {
         }
         Ok(())
     }
+
+    pub fn version_error(&self) -> Option<String> {
+        use std::cmp::Ordering::{Greater, Less};
+        let version = self.api_version.as_deref()?;
+        if compare_versions(version, MIN_API_VERSION) == Less {
+            Some(format!("client version {version} is too old. Minimum supported API version is {MIN_API_VERSION}, please upgrade your client to a newer version"))
+        } else if compare_versions(version, API_VERSION) == Greater {
+            Some(format!("client version {version} is too new. Maximum supported API version is {API_VERSION}"))
+        } else {
+            None
+        }
+    }
+
+    /// Whether the client sent, or may have sent, a body with this request.
+    pub fn has_body(&self) -> bool {
+        self.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("transfer-encoding") || (k.eq_ignore_ascii_case("content-length") && v != "0"))
+    }
 }
 
 /// Reads the next request on a connection. `Ok(None)` is a clean close.
@@ -130,7 +149,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     serving("", "");
     // The request line and headers are read through a cap, so a client
     // cannot exhaust memory with an endless line. The body is read after.
-    let (method, path, query, headers) = {
+    let (method, path, api_version, query, headers) = {
         let mut head = (&mut *r).take(MAX_HEAD);
         let mut line = String::new();
         if head.read_line(&mut line)? == 0 {
@@ -144,7 +163,14 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
         // Decoded before the version is stripped, as Docker routes: an
         // escaped dot or slash in the prefix still makes it the prefix.
-        let path = if escapes_are_valid(raw_path) { Ok(strip_version(&percent_decode(raw_path, false)).to_owned()) } else { Err(raw_path.to_owned()) };
+        let decoded = escapes_are_valid(raw_path).then(|| percent_decode(raw_path, false));
+        let (path, api_version) = match &decoded {
+            Some(decoded) => {
+                let path = strip_version(decoded);
+                (Ok(path.to_owned()), (path != decoded.as_str()).then(|| decoded[2..decoded.len() - path.len()].to_owned()))
+            }
+            None => (Err(raw_path.to_owned()), None),
+        };
         serving(&method, match &path {
             Ok(path) | Err(path) => path,
         });
@@ -174,7 +200,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
             };
             headers.push((k.to_owned(), v.trim_matches([' ', '\t']).to_owned()));
         }
-        (method, path, query, headers)
+        (method, path, api_version, query, headers)
     };
     let path = match path {
         Ok(path) => path,
@@ -187,7 +213,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         }
     };
     let streamed = stream(&method, &path);
-    let mut req = Request { method, path, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
+    let mut req = Request { method, path, api_version, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
     validate_framing(&req)?;
     let length = req.header("content-length").and_then(|v| v.parse::<u64>().ok());
     if !streamed && length.is_some_and(|n| n > MAX_BODY as u64) {
@@ -195,7 +221,10 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     }
     let has_body = req.header("transfer-encoding").is_some() || length.is_some_and(|n| n != 0);
     req.awaits_continue = AtomicBool::new(has_body && req.header("expect").is_some_and(|v| v.eq_ignore_ascii_case("100-continue")));
-    if streamed {
+    // The router rejects incompatible clients and closes the connection if
+    // a body is pending. Do not wait for one (possibly withheld for 100
+    // Continue) first.
+    if streamed || req.version_error().is_some() {
         return Ok(Some(req));
     }
     let mut body = Vec::new();
@@ -312,7 +341,7 @@ impl Read for Body<'_> {
 fn strip_version(path: &str) -> &str {
     if let Some(rest) = path.strip_prefix("/v")
         && let Some(i) = rest.find('/')
-            && rest[..i].bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+            && i > 0 && rest[..i].bytes().all(|b| b.is_ascii_digit() || b == b'.') {
                 return &rest[i..];
             }
     path
@@ -322,6 +351,26 @@ fn strip_version(path: &str) -> &str {
 fn escapes_are_valid(path: &str) -> bool {
     let b = path.as_bytes();
     (0..b.len()).all(|i| b[i] != b'%' || (i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit()))
+}
+
+/// Orders two versions the way Docker does: number by number between the
+/// dots, a missing or empty one counting as 0, so `1.47.0` is `1.47` and
+/// `1.` is `1.0`.
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    // A prefix holds digits and dots only: a number that does not fit is
+    // simply larger than any real version.
+    let number = |part: Option<&str>| part.filter(|p| !p.is_empty()).map_or(0, |p| p.parse::<u64>().unwrap_or(u64::MAX));
+    let (mut a, mut b) = (a.split('.'), b.split('.'));
+    loop {
+        let (x, y) = (a.next(), b.next());
+        if x.is_none() && y.is_none() {
+            return std::cmp::Ordering::Equal;
+        }
+        let order = number(x).cmp(&number(y));
+        if order.is_ne() {
+            return order;
+        }
+    }
 }
 
 fn percent_decode(s: &str, form: bool) -> String {
@@ -757,6 +806,99 @@ mod tests {
         assert_eq!(strip_version("/v1.47/containers/json"), "/containers/json");
         assert_eq!(strip_version("/_ping"), "/_ping");
         assert_eq!(strip_version("/volumes"), "/volumes");
+        for path in ["/v1/info", "/v1./info", "/v.47/info", "/v./info", "/v1..47/info", "/v1.47.0/info"] {
+            assert_eq!(strip_version(path), "/info");
+        }
+        for path in ["/v/info", "/v1.x/info", "/V1.47/info", "/v+1.47/info", "/v1.47"] {
+            assert_eq!(strip_version(path), path);
+        }
+    }
+
+    #[test]
+    fn versions_compare_number_by_number() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        for (a, b, order) in [
+            ("1.47", "1.47", Equal),
+            ("1.47.0", "1.47", Equal),
+            ("1.047", "1.47", Equal),
+            ("01.47", "1.47", Equal),
+            ("1.47.1", "1.47", Greater),
+            ("1.100", "1.47", Greater),
+            ("2", "1.47", Greater),
+            ("1.99999999999999999999", "1.47", Greater),
+            ("99999999999999999999.1", "1.47", Greater),
+            ("1.9", "1.24", Less),
+            ("1", "1.24", Less),
+            ("1.", "1.24", Less),
+            (".47", "1.24", Less),
+            (".", "1.24", Less),
+            ("1..47", "1.24", Less),
+        ] {
+            assert_eq!(compare_versions(a, b), order, "{a} against {b}");
+            assert_eq!(compare_versions(b, a), order.reverse(), "{b} against {a}");
+        }
+    }
+
+    #[test]
+    fn rejects_outside_the_advertised_version_range_without_reading_a_body() {
+        for (version, rejected) in [
+            ("1.23", true),
+            ("1.24", false),
+            (API_VERSION, false),
+            ("1.47.0", false),
+            ("1.24.0", false),
+            ("1.47.1", true),
+            ("1.48", true),
+            ("2.0", true),
+            ("1", true),
+            ("2", true),
+            ("1.", true),
+            (".47", true),
+            (".", true),
+            ("1..47", true),
+            ("1.99999999999999999999", true),
+        ] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            let body = if rejected { "Content-Length: 100\r\nExpect: 100-continue\r\n" } else { "" };
+            client.write_all(format!("GET /v{version}/info HTTP/1.1\r\n{body}\r\n").as_bytes()).unwrap();
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+            let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            assert_eq!(request.path, "/info");
+            assert_eq!(request.api_version.as_deref(), Some(version));
+            assert_eq!(request.version_error().is_some(), rejected, "{version}");
+        }
+        assert!(Request::internal("GET", "/info", &[], Vec::new()).version_error().is_none());
+    }
+
+    #[test]
+    fn version_errors_read_as_dockers_do() {
+        let error = |target: &str| {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
+            read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap().version_error()
+        };
+        assert_eq!(error("/v1.23/info").as_deref(), Some("client version 1.23 is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
+        assert_eq!(error("/v1./info").as_deref(), Some("client version 1. is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
+        assert_eq!(error("/v2/info").as_deref(), Some("client version 2 is too new. Maximum supported API version is 1.47"));
+        assert_eq!(error("/v1.47.1/info").as_deref(), Some("client version 1.47.1 is too new. Maximum supported API version is 1.47"));
+        // Not a version prefix at all: the router answers these with 404.
+        for target in ["/v/info", "/v1.x/info", "/V1.47/info", "/info"] {
+            assert_eq!(error(target), None, "{target}");
+        }
+    }
+
+    #[test]
+    fn a_body_is_expected_from_its_framing_headers() {
+        let request = |headers: &str| {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET /v9.99/info HTTP/1.1\r\n{headers}\r\n").as_bytes()).unwrap();
+            read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap()
+        };
+        assert!(!request("").has_body());
+        assert!(!request("Content-Length: 0\r\n").has_body());
+        for headers in ["Content-Length: 100\r\n", "Content-Length: +0\r\n", "Content-Length: 0, 5\r\n", "Content-Length: 0\r\nContent-Length: 5\r\n", "Transfer-Encoding: chunked\r\n", "Content-Length: 0\r\nTransfer-Encoding: identity\r\n"] {
+            assert!(request(headers).has_body(), "{headers}");
+        }
     }
 
     #[test]
