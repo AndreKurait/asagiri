@@ -573,8 +573,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         let owner = late.map_or(n.ip, |l| l.ip);
                         let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug)
                             .and_then(|()| if plug.no_ipv4 { Ok(()) } else { dns.serve(n.bridge, n.gateway) })
-                            .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)))
-                            .and_then(|()| late.map_or(Ok(()), |l| l.switch()));
+                            .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)));
                         match attached {
                             Ok(()) => {
                                 if !plug.no_ipv4 {
@@ -585,6 +584,11 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                 }
                                 if let Some(p) = procs.get_mut(&pid) {
                                     if let Some(late) = p.run.late_dns.take() {
+                                        // The network is joined either way: a file
+                                        // that cannot be written is not its failure.
+                                        if let Err(e) = late.switch() {
+                                            eprintln!("kiri-init: resolv.conf of {id} not switched to the embedded DNS: {e}");
+                                        }
                                         dns.set_upstream(late.ip, late.servers);
                                         // Dropped with the container, as its names are.
                                         if !p.run.dns_entries.iter().any(|(b, a)| *b == late.bridge && *a == late.ip) {
