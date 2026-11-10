@@ -40,6 +40,9 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// reservation and CPU/NUMA sets to Limits. Upgrade host and guest together.
 pub const PROTOCOL: u16 = 5;
 
+// `Run` is far larger than the rest, but boxing it would cost `Msg` its
+// `Copy`, and a `Msg` only lives while its frame is handled.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Msg<'a> {
     /// Guest → host, sent once on connect.

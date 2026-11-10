@@ -147,10 +147,10 @@ fn top(engine: &Engine, key: &str) -> Result<Value, Error> {
 fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
     let b = body(req)?;
     let _update = engine.lock_resource_updates();
-    let base = engine.with(key, |c| c.spec.limits.clone())?;
-    super::api::validate_limits(&b)?;
-    if b["NanoCpus"].as_u64().is_some_and(|n| n > engine.cpus() as u64 * 1_000_000_000) {
-        return Err(Error::BadRequest("NanoCpus exceeds the available CPUs".into()));
+    let (id, base) = engine.with(key, |c| (c.id.clone(), c.spec.limits.clone()))?;
+    let warnings = super::api::validate_limits(&b, engine.container_cpus(), true)?;
+    if let Some(conflict) = super::api::update_conflict(&b, &base) {
+        return Err(Error::Conflict(format!("Cannot update container {id}: Conflicting options: {conflict}")));
     }
     let limits = super::api::limits_from(&b, base);
     let restart = b["RestartPolicy"]["Name"].as_str().filter(|n| !n.is_empty()).map(|n| super::engine::RestartPolicy {
@@ -158,7 +158,8 @@ fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
         max_retries: b["RestartPolicy"]["MaximumRetryCount"].as_u64().unwrap_or(0) as u32,
     });
     engine.update(key, limits, restart)?;
-    Ok(json!({"Warnings": []}))
+    // Docker sends null, not an empty list, when it has nothing to say.
+    Ok(json!({"Warnings": if warnings.is_empty() { Value::Null } else { json!(warnings) }}))
 }
 
 /// Starts a copy-service job and checks it accepted: `CopyDone` first.

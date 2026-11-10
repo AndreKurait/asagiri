@@ -22,9 +22,6 @@ pub fn update_limits(dir: &Path, l: &Limits) -> io::Result<()> {
 }
 
 fn validate_limits(l: &Limits) -> io::Result<()> {
-    if l.memory_max > 0 && l.memory_reservation > l.memory_max {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "memory reservation exceeds memory limit"));
-    }
     if l.memory_swap > 0 && (l.memory_max == 0 || (l.memory_swap as u64) < l.memory_max) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "MemorySwap must be at least Memory"));
     }
@@ -58,8 +55,9 @@ fn write_limits(dir: &Path, l: &Limits) -> io::Result<()> {
     let swap = if l.memory_swap < 0 || (l.memory_swap == 0 && l.memory_max == 0) { "max".into() }
         else if l.memory_swap == 0 { l.memory_max.to_string() }
         else { (l.memory_swap as u64 - l.memory_max).to_string() };
+    // A kernel without swap accounting has no such file: the memory limit
+    // then stands alone, as it does under Docker.
     if dir.join("memory.swap.max").exists() { write("memory.swap.max", swap)?; }
-    else if l.memory_swap != 0 { return Err(io::Error::new(io::ErrorKind::Unsupported, "swap controller unavailable")); }
     write("memory.low", l.memory_reservation.to_string())?;
     for (file, value) in [("cpuset.mems", l.cpuset_mems), ("cpuset.cpus", l.cpuset_cpus)] {
         if !value.is_empty() { write(file, value.to_owned())?; }
@@ -241,6 +239,22 @@ pub fn top(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_memory_limit_does_not_need_swap_accounting() {
+        let dir = std::env::temp_dir().join(format!("kiri-cgroup-limits-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let limits = Limits { memory_max: 64 << 20, memory_swap: 128 << 20, ..Limits::default() };
+        apply_limits(&dir, &limits).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("memory.max")).unwrap(), "67108864");
+        assert!(!dir.join("memory.swap.max").exists());
+        // Where the kernel accounts for swap, it gets what is left of memory+swap.
+        fs::write(dir.join("memory.swap.max"), "max").unwrap();
+        update_limits(&dir, &limits).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("memory.swap.max")).unwrap(), "67108864");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn memory_pressure_reads_full_avg10() {

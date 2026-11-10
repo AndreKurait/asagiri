@@ -1277,29 +1277,34 @@ fn caps_from(host: &Value) -> Result<u64, Error> {
 pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engine::Limits {
     let mut l = base;
     if let Some(v) = h["MemorySwap"].as_i64().filter(|v| *v != 0) { l.memory_swap = v; }
-    if let Some(v) = h["MemoryReservation"].as_u64().filter(|v| *v != 0) { l.memory_reservation = v; }
+    // A negative reservation is none, as in Docker.
+    if let Some(v) = h["MemoryReservation"].as_i64().filter(|v| *v != 0) { l.memory_reservation = v.max(0) as u64; }
     if let Some(v) = h["CpusetCpus"].as_str().filter(|v| !v.is_empty()) { l.cpuset_cpus = v.to_owned(); }
     if let Some(v) = h["CpusetMems"].as_str().filter(|v| !v.is_empty()) { l.cpuset_mems = v.to_owned(); }
     if let Some(m) = h["Memory"].as_u64().filter(|m| *m > 0) {
         l.memory_max = m;
     }
+    // Kept as given: inspect must return what create accepts again.
     if let Some(n) = h["NanoCpus"].as_u64().filter(|n| *n > 0) {
-        // --cpus 1.5 → 150 ms of CPU time every 100 ms.
-        l.cpu_period = 100_000;
-        l.cpu_quota = ((n as u128 * 100_000) / 1_000_000_000) as u64;
+        l.nano_cpus = n;
     }
-    if let Some(q) = h["CpuQuota"].as_i64().filter(|q| *q > 0) {
-        l.cpu_quota = q as u64;
-        l.cpu_period = h["CpuPeriod"].as_u64().filter(|p| *p > 0).unwrap_or(100_000) as u32;
-    }
-    if h["CpuQuota"].as_i64() == Some(-1) {
-        l.cpu_quota = 0;
+    match h["CpuQuota"].as_i64() {
+        Some(q) if q > 0 => l.cpu_quota = q as u64,
+        // A negative quota removes the CPU limit, however it was set.
+        Some(q) if q < 0 => {
+            l.cpu_quota = 0;
+            l.nano_cpus = 0;
+        }
+        _ => {}
     }
     if let Some(period) = h["CpuPeriod"].as_u64().filter(|p| *p > 0) {
         l.cpu_period = period as u32;
     }
     if let Some(shares) = h["CpuShares"].as_u64().filter(|s| *s > 0) {
+        l.cpu_shares = shares;
         // runc's conversion from v1 shares (2–262144) to v2 weight (1–10000).
+        // Docker on cgroup v2 fails the start for shares outside that range;
+        // they are clamped here instead.
         let shares = shares.clamp(2, 262_144);
         l.cpu_weight = (1 + (shares - 2) * 9999 / 262_142) as u32;
     }
@@ -1309,56 +1314,108 @@ pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engi
     l
 }
 
-pub(super) fn validate_limits(h: &Value) -> Result<(), Error> {
-    for key in ["Memory", "MemorySwap", "MemoryReservation", "NanoCpus", "CpuQuota", "CpuPeriod", "CpuShares", "PidsLimit"] {
-        if h[key].is_null() {
-            continue;
+/// Docker's check of a `0-3,5` CPU or memory-node list, with its messages.
+fn cpuset_list(value: &str) -> Result<(), String> {
+    let number = |s: &str| if s.bytes().all(|b| b.is_ascii_digit()) { s.parse::<u32>().ok() } else { None };
+    for part in value.split(',') {
+        let (first, last) = part.split_once('-').unwrap_or((part, part));
+        match (number(first), number(last)) {
+            (Some(first), Some(last)) if first <= last => {
+                if last > 8192 {
+                    return Err("value of out range, maximum is 8192".into());
+                }
+            }
+            _ => return Err(format!("invalid format: {value}")),
         }
-        let n = h[key].as_i64().ok_or_else(|| Error::BadRequest(format!("{key} must be a signed integer")))?;
-        let valid = match key {
-            "Memory" => n == 0 || n >= 6 * 1024 * 1024,
-            "MemorySwap" => n >= -1,
-            "MemoryReservation" => n == 0 || n >= 6 * 1024 * 1024,
-            "NanoCpus" => n == 0 || n >= 10_000_000,
-            "CpuQuota" => n == -1 || n == 0 || n >= 1000,
-            "CpuPeriod" => n == 0 || (1000..=1_000_000).contains(&n),
-            // Docker clamps positive shares to cgroup v1's range before
-            // converting to v2 weights.
-            "CpuShares" => n >= 0,
-            // Docker treats non-positive values as unlimited.
-            "PidsLimit" => n <= u32::MAX as i64,
-            _ => unreachable!(),
-        };
-        if !valid {
-            return Err(Error::BadRequest(format!("invalid {key}: {n}")));
-        }
-    }
-    for key in ["CpusetCpus", "CpusetMems"] {
-        if h[key].is_null() { continue; }
-        let value = h[key].as_str().ok_or_else(|| Error::BadRequest(format!("{key} must be a string")))?;
-        if !value.is_empty() && !value.split(',').all(|part| {
-            if !part.bytes().all(|b| b.is_ascii_digit() || b == b'-') { return false; }
-            let mut range = part.split('-');
-            let start = range.next().and_then(|v| v.parse::<u32>().ok());
-            let end = range.next().map(|v| v.parse::<u32>());
-            range.next().is_none() && match (start, end) { (Some(_), None) => true, (Some(a), Some(Ok(b))) => a <= b, _ => false }
-        }) { return Err(Error::BadRequest(format!("invalid {key}: {value}"))); }
-    }
-    if !h["OomKillDisable"].is_null() && !h["OomKillDisable"].is_boolean() {
-        return Err(Error::BadRequest("OomKillDisable must be a boolean".into()));
-    }
-    // Linux cgroup v2 has no per-cgroup OOM-killer disable switch.
-    if h["OomKillDisable"] == true {
-        return Err(Error::BadRequest("OomKillDisable is not supported by Linux cgroup v2".into()));
-    }
-    if h["MemorySwap"].as_i64().unwrap_or(0) > 0 && h["Memory"].as_u64().unwrap_or(0) > h["MemorySwap"].as_u64().unwrap_or(0) {
-        return Err(Error::BadRequest("MemorySwap must be at least Memory".into()));
-    }
-    if h["NanoCpus"].as_i64().unwrap_or(0) > 0
-        && (h["CpuQuota"].as_i64().unwrap_or(0) != 0 || h["CpuPeriod"].as_i64().unwrap_or(0) != 0) {
-        return Err(Error::BadRequest("conflicting options: NanoCpus and CpuPeriod or CpuQuota".into()));
     }
     Ok(())
+}
+
+/// Checks the resource settings of one create or update request the way
+/// dockerd does, with its messages, and returns the warnings for the reply.
+/// `cpus` is how many CPUs a container can use. An update may name
+/// MemorySwap alone: the container's Memory stands.
+pub(super) fn validate_limits(h: &Value, cpus: usize, update: bool) -> Result<Vec<&'static str>, Error> {
+    const MIN_MEMORY: i64 = 6 << 20;
+    let int = |key: &str| match &h[key] {
+        Value::Null => Ok(0),
+        v => v.as_i64().ok_or_else(|| Error::BadRequest(format!("{key} must be a signed integer"))),
+    };
+    let (memory, swap, reservation) = (int("Memory")?, int("MemorySwap")?, int("MemoryReservation")?);
+    let (nano, quota, period, shares, pids) = (int("NanoCpus")?, int("CpuQuota")?, int("CpuPeriod")?, int("CpuShares")?, int("PidsLimit")?);
+    let bad = |message: &str| Err(Error::BadRequest(message.to_owned()));
+    if memory != 0 && memory < MIN_MEMORY {
+        return bad("Minimum memory limit allowed is 6MB");
+    }
+    if memory > 0 && swap > 0 && swap < memory {
+        return bad("Minimum memoryswap limit should be larger than memory limit, see usage");
+    }
+    if memory == 0 && swap > 0 && !update {
+        return bad("You should always set the Memory limit when using Memoryswap limit, see usage");
+    }
+    if reservation > 0 && reservation < MIN_MEMORY {
+        return bad("Minimum memory reservation allowed is 6MB");
+    }
+    if memory > 0 && reservation > memory {
+        return bad("Minimum memory limit can not be less than memory reservation limit, see usage");
+    }
+    let mut warnings = Vec::new();
+    match &h["OomKillDisable"] {
+        Value::Null | Value::Bool(false) => {}
+        // cgroup v2 cannot switch the OOM killer off for one group: Docker
+        // drops the request with this warning rather than refusing it.
+        Value::Bool(true) => warnings.push("Your kernel does not support OomKillDisable. OomKillDisable discarded."),
+        _ => return bad("OomKillDisable must be a boolean"),
+    }
+    // pids.max cannot hold more; non-positive values mean no limit.
+    if pids > i64::from(u32::MAX) {
+        return bad(&format!("invalid PidsLimit: {pids}"));
+    }
+    if nano > 0 && period > 0 {
+        return bad("Conflicting options: Nano CPUs and CPU Period cannot both be set");
+    }
+    if nano > 0 && quota > 0 {
+        return bad("Conflicting options: Nano CPUs and CPU Quota cannot both be set");
+    }
+    if nano < 0 || nano as u128 > cpus as u128 * 1_000_000_000 {
+        return bad(&format!("range of CPUs is from 0.01 to {cpus}.00, as there are only {cpus} CPUs available"));
+    }
+    if shares < 0 {
+        return bad(&format!("invalid CPU shares ({shares}): value must be a positive integer"));
+    }
+    if period != 0 && !(1000..=1_000_000).contains(&period) {
+        return bad("CPU cfs period can not be less than 1ms (i.e. 1000) or larger than 1s (i.e. 1000000)");
+    }
+    if quota > 0 && quota < 1000 {
+        return bad("CPU cfs quota can not be less than 1ms (i.e. 1000)");
+    }
+    for (key, what) in [("CpusetCpus", "cpus"), ("CpusetMems", "mems")] {
+        let value = match &h[key] {
+            Value::Null => continue,
+            v => v.as_str().ok_or_else(|| Error::BadRequest(format!("{key} must be a string")))?,
+        };
+        if !value.is_empty() {
+            cpuset_list(value).map_err(|e| Error::BadRequest(format!("Invalid value {value} for cpuset {what}: {e}")))?;
+        }
+    }
+    Ok(warnings)
+}
+
+/// Why Docker refuses an update that mixes `--cpus` with a quota or period:
+/// each replaces the other in the kernel, so the saved one would be wrong.
+pub(super) fn update_conflict(h: &Value, saved: &super::engine::Limits) -> Option<&'static str> {
+    let sets = |key: &str| h[key].as_i64().is_some_and(|v| v > 0);
+    if sets("NanoCpus") && saved.cpu_period > 0 {
+        Some("Nano CPUs cannot be updated as CPU Period has already been set")
+    } else if sets("NanoCpus") && saved.cpu_quota > 0 {
+        Some("Nano CPUs cannot be updated as CPU Quota has already been set")
+    } else if sets("CpuPeriod") && saved.nano_cpus > 0 {
+        Some("CPU Period cannot be updated as NanoCPUs has already been set")
+    } else if sets("CpuQuota") && saved.nano_cpus > 0 {
+        Some("CPU Quota cannot be updated as NanoCPUs has already been set")
+    } else {
+        None
+    }
 }
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
@@ -1368,15 +1425,12 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         return Err(Error::BadRequest("no image specified".into()));
     }
     let host = &body["HostConfig"];
-    validate_limits(host)?;
-    if host["NanoCpus"].as_u64().is_some_and(|n| n > engine.cpus() as u64 * 1_000_000_000) {
-        return Err(Error::BadRequest("NanoCpus exceeds the available CPUs".into()));
-    }
+    let warnings = validate_limits(host, engine.container_cpus(), false)?;
     let mut limits = super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) };
-    // Docker defaults the combined memory+swap limit to twice Memory.
+    // Docker defaults the combined memory+swap limit to twice Memory; a
+    // Memory too large to double is left without a swap limit.
     if limits.memory_max > 0 && limits.memory_swap == 0 {
-        limits.memory_swap = i64::try_from(limits.memory_max.checked_mul(2).unwrap_or(u64::MAX))
-            .map_err(|_| Error::BadRequest("Memory is too large for the default MemorySwap".into()))?;
+        limits.memory_swap = i64::try_from(limits.memory_max.saturating_mul(2)).unwrap_or(-1);
     }
     limits.validate()?;
     let network_mode = match host["NetworkMode"].as_str().unwrap_or("default") {
@@ -1445,7 +1499,6 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         let ip = if ip == "host-gateway" { super::ports::HOST_ADDR } else { ip };
         extra_hosts.push(format!("{ip}\t{name}"));
     }
-    let warnings: Vec<&str> = Vec::new();
     // --ulimit, --sysctl, --device, --device-cgroup-rule, --group-add:
     // refused now with Docker's error rather than at start.
     let host_opts = super::hostopts::from_host(host);
@@ -1911,10 +1964,10 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "CpusetCpus": c.spec.limits.cpuset_cpus,
             "CpusetMems": c.spec.limits.cpuset_mems,
             "OomKillDisable": false,
-            "NanoCpus": if c.spec.limits.cpu_period > 0 { ((u128::from(c.spec.limits.cpu_quota) * 1_000_000_000) / u128::from(c.spec.limits.cpu_period)).min(u128::from(u64::MAX)) as u64 } else { 0 },
+            "NanoCpus": c.spec.limits.nano_cpus,
             "CpuQuota": c.spec.limits.cpu_quota,
             "CpuPeriod": c.spec.limits.cpu_period,
-            "CpuShares": if c.spec.limits.cpu_weight > 0 { 2 + (u64::from(c.spec.limits.cpu_weight) - 1) * 262_142 / 9999 } else { 0 },
+            "CpuShares": if c.spec.limits.cpu_shares > 0 { c.spec.limits.cpu_shares } else if c.spec.limits.cpu_weight > 0 { 2 + (u64::from(c.spec.limits.cpu_weight) - 1) * 262_142 / 9999 } else { 0 },
             "PidsLimit": if c.spec.limits.pids_max > 0 { Value::from(c.spec.limits.pids_max) } else { Value::Null },
             "NetworkMode": c.spec.network_mode,
             "Dns": c.spec.dns,
@@ -2639,7 +2692,7 @@ mod tests {
             ..Default::default()
         };
         let value = json!({"PidsLimit": -1, "CpuQuota": -1});
-        validate_limits(&value).unwrap();
+        validate_limits(&value, 2, true).unwrap();
         let updated = limits_from(&value, base.clone());
         assert_eq!(updated.pids_max, 0);
         assert_eq!(updated.cpu_quota, 0);
@@ -2647,25 +2700,77 @@ mod tests {
         assert_eq!(updated.cpu_period, base.cpu_period);
         assert_eq!(limits_from(&json!({"PidsLimit": 0}), base.clone()).pids_max, 0);
         assert_eq!(limits_from(&json!({}), base).pids_max, 32);
+        // A negative quota lifts a `--cpus` limit too.
+        let cpus = limits_from(&json!({"NanoCpus": 1_500_000_000}), Default::default());
+        assert_eq!(cpus.wire().cpu_quota, 150_000);
+        assert_eq!(limits_from(&json!({"CpuQuota": -1}), cpus).wire().cpu_quota, 0);
     }
 
     #[test]
     fn resource_validation_prevents_truncation_and_conflicting_options() {
         for value in [
             json!({"PidsLimit": 4294967296u64}),
-            json!({"CpuPeriod": 1}), json!({"Memory": -1}),
+            json!({"CpuPeriod": 1}), json!({"Memory": -1}), json!({"Memory": 1048576}), json!({"Memory": "64m"}),
+            json!({"MemorySwap": 67108864}), json!({"Memory": 67108864, "MemorySwap": 6291456}),
+            json!({"MemoryReservation": 1}), json!({"Memory": 67108864, "MemoryReservation": 134217728}),
+            json!({"CpuQuota": 999}), json!({"NanoCpus": -1}),
             json!({"CpuShares": -1}), json!({"NanoCpus": 1_000_000_000, "CpuQuota": 10000}),
+            json!({"NanoCpus": 1_000_000_000, "CpuPeriod": 10000}), json!({"OomKillDisable": "yes"}),
+            json!({"CpusetCpus": "3-1"}), json!({"CpusetCpus": "0,"}), json!({"CpusetMems": "x"}), json!({"CpusetCpus": "8193"}),
         ] {
-            assert!(validate_limits(&value).is_err(), "{value}");
+            assert!(validate_limits(&value, 2, false).is_err(), "{value}");
         }
+        // What Docker creates, Kiri creates: the kernel has the last word.
+        for value in [
+            json!({"MemorySwap": -2}), json!({"MemoryReservation": -1}), json!({"CpuQuota": -2}),
+            json!({"NanoCpus": 1_000_000_000, "CpuQuota": -1}), json!({"NanoCpus": 1}),
+            json!({"CpusetCpus": "0-3,8192", "CpusetMems": "0"}), json!({"OomKillDisable": false}),
+            json!({"Memory": i64::MAX}),
+        ] {
+            assert_eq!(validate_limits(&value, 2, false).unwrap(), Vec::<&str>::new(), "{value}");
+        }
+        // Only an update may raise the swap limit of the Memory already set.
+        validate_limits(&json!({"MemorySwap": 67108864}), 2, true).unwrap();
         let value = json!({"NanoCpus": i64::MAX});
         // The arithmetic cannot overflow even for an adversarial request.
-        assert_eq!(limits_from(&value, Default::default()).cpu_quota, i64::MAX as u64 / 10000);
+        assert_eq!(limits_from(&value, Default::default()).wire().cpu_quota, i64::MAX as u64 / 10000);
         for (shares, weight) in [(1, 1), (262145, 10000)] {
             let value = json!({"CpuShares": shares});
-            validate_limits(&value).unwrap();
+            validate_limits(&value, 2, false).unwrap();
             assert_eq!(limits_from(&value, Default::default()).cpu_weight, weight);
         }
+    }
+
+    #[test]
+    fn nano_cpus_are_bounded_by_the_cpus_given() {
+        validate_limits(&json!({"NanoCpus": 12_000_000_000u64}), 12, false).unwrap();
+        let Err(Error::BadRequest(message)) = validate_limits(&json!({"NanoCpus": 12_000_000_001u64}), 12, false) else { panic!() };
+        assert_eq!(message, "range of CPUs is from 0.01 to 12.00, as there are only 12 CPUs available");
+        assert!(validate_limits(&json!({"NanoCpus": 4_000_000_000u64}), 2, true).is_err());
+    }
+
+    #[test]
+    fn oom_kill_disable_is_discarded_with_dockers_warning() {
+        for update in [false, true] {
+            let warnings = validate_limits(&json!({"OomKillDisable": true}), 2, update).unwrap();
+            assert_eq!(warnings, ["Your kernel does not support OomKillDisable. OomKillDisable discarded."]);
+        }
+    }
+
+    #[test]
+    fn cpu_limits_are_kept_as_given() {
+        use super::super::engine::Limits;
+        let cpus = limits_from(&json!({"NanoCpus": 1_500_000_000, "CpuShares": 512}), Limits::default());
+        assert_eq!((cpus.nano_cpus, cpus.cpu_quota, cpus.cpu_period, cpus.cpu_shares), (1_500_000_000, 0, 0, 512));
+        let quota = limits_from(&json!({"CpuQuota": 20000}), Limits::default());
+        assert_eq!((quota.nano_cpus, quota.cpu_quota, quota.cpu_period), (0, 20000, 0));
+        assert_eq!(quota.wire().cpu_quota, 20000);
+        // Each form refuses an update in the other; a zero or absent field asks for nothing.
+        assert!(update_conflict(&json!({"CpuQuota": 20000}), &cpus).unwrap().starts_with("CPU Quota"));
+        assert!(update_conflict(&json!({"CpuPeriod": 50000}), &cpus).unwrap().starts_with("CPU Period"));
+        assert!(update_conflict(&json!({"NanoCpus": 1_000_000_000}), &quota).unwrap().starts_with("Nano CPUs"));
+        assert_eq!(update_conflict(&json!({"NanoCpus": 2_000_000_000u64, "CpuQuota": -1, "CpuPeriod": 0}), &cpus), None);
+        assert_eq!(update_conflict(&json!({"CpuQuota": 30000, "CpuPeriod": 50000}), &quota), None);
     }
 
     #[test]

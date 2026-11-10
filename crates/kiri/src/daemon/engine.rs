@@ -278,6 +278,13 @@ pub struct Limits {
     pub cpuset_cpus: String,
     #[serde(default)]
     pub cpuset_mems: String,
+    /// `NanoCpus` and `CpuShares` as given, so inspect returns what create
+    /// was sent. Containers saved before these existed have the quota,
+    /// period and weight they stood for instead.
+    #[serde(default)]
+    pub nano_cpus: u64,
+    #[serde(default)]
+    pub cpu_shares: u64,
 }
 
 impl Limits {
@@ -285,16 +292,16 @@ impl Limits {
         if self.memory_swap > 0 && (self.memory_max == 0 || (self.memory_swap as u64) < self.memory_max) {
             return Err(Error::BadRequest("MemorySwap requires Memory and must be at least Memory".into()));
         }
-        if self.memory_max > 0 && self.memory_reservation > self.memory_max {
-            return Err(Error::BadRequest("MemoryReservation must not exceed Memory".into()));
-        }
         Ok(())
     }
 
     pub fn wire(&self) -> kiri_proto::Limits<'_> {
+        // `--cpus 1.5` is 150 ms of CPU time every 100 ms; an explicit quota
+        // replaces it, as in the runtime spec dockerd builds.
+        let cpu_quota = if self.cpu_quota > 0 { self.cpu_quota } else { (u128::from(self.nano_cpus) * 100_000 / 1_000_000_000) as u64 };
         kiri_proto::Limits {
             memory_max: self.memory_max,
-            cpu_quota: self.cpu_quota,
+            cpu_quota,
             cpu_period: self.cpu_period,
             cpu_weight: self.cpu_weight,
             pids_max: self.pids_max,
@@ -989,6 +996,12 @@ impl Engine {
     /// CPUs the VM has (or will boot with).
     pub fn cpus(&self) -> usize {
         self.cpus.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// CPUs a container can be given: this machine's on Linux, where
+    /// containers run on its kernel, and the VM's elsewhere.
+    pub fn container_cpus(&self) -> usize {
+        if cfg!(target_os = "linux") { max_cpus() } else { self.cpus() }
     }
 
     /// Whether the VM is running right now.
