@@ -654,13 +654,16 @@ fn macvlan_parent(nl: &mut Netlink, name: &str) -> io::Result<i32> {
         Ok(index) => index,
         Err(_) => {
             netlink::create_dummy(nl, name)?;
-            let mut made = MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner());
-            if !made.iter().any(|m| m == name) {
-                made.push(name.to_owned());
-            }
             netlink::index_of(name)?
         }
     };
+    // One that an agent before this one left is this engine's too, as a
+    // bridge that is found already made is.
+    let mut made = MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !made.iter().any(|m| m == name) {
+        made.push(name.to_owned());
+    }
+    drop(made);
     netlink::set_up(nl, index)?;
     Ok(index)
 }
