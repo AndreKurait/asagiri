@@ -416,6 +416,9 @@ pub mod net_opts {
     /// only the name the guest keeps it by: neither it nor the bridge gets
     /// one, and DNS has no A record for it.
     pub const NO_IPV4: &str = "noipv4";
+    /// `noicc=1`: the network has `com.docker.network.bridge.enable_icc`
+    /// off: its containers do not reach each other over it.
+    pub const NO_ICC: &str = "noicc";
 
     /// The values given for `key`, in order.
     pub fn values<'a>(opts: super::StrList<'a>, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {

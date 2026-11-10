@@ -71,12 +71,14 @@ pub struct Plug {
     pub internal: bool,
     /// IPv6-only: no IPv4 address on the container or the bridge.
     pub no_ipv4: bool,
+    /// `enable_icc=false`: the network's containers do not reach each other.
+    pub no_icc: bool,
 }
 
 impl Plug {
     pub fn from_opts(opts: kiri_proto::StrList<'_>) -> Plug {
         use kiri_proto::net_opts as k;
-        Plug { internal: k::values(opts, k::INTERNAL).next().is_some(), no_ipv4: k::values(opts, k::NO_IPV4).next().is_some() }
+        Plug { internal: k::values(opts, k::INTERNAL).next().is_some(), no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(), no_icc: k::values(opts, k::NO_ICC).next().is_some() }
     }
 }
 
@@ -658,7 +660,7 @@ pub fn attach_container(
 /// MAC is made from it): neither the interface nor the bridge gets it.
 #[allow(clippy::too_many_arguments)]
 pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<()> {
-    let Plug { internal, no_ipv4 } = plug;
+    let Plug { internal, no_ipv4, no_icc } = plug;
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
     let bridge_index = bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?;
     let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
@@ -667,6 +669,14 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     delete_retired(&mut host);
     let ifname = format!("eth{n}");
     netlink::create_veth(&mut host, host_ifname, bridge_index, &netns, CONTAINER_MTU, &ifname, mac)?;
+    if no_icc {
+        // Traffic between two ports of a bridge is switched and never
+        // reaches the forward filter, so the bridge itself keeps them apart:
+        // isolated ports exchange nothing with each other, and still reach
+        // the bridge's own address (the gateway, DNS, the way out). Before
+        // the interface inside is up, so nothing passes first.
+        sys::write_file(&format!("/sys/class/net/{host_ifname}/brport/isolated"), "1")?;
+    }
     // By name: a new namespace may have tunl0, gre0 … before it.
     let index = netlink::index_in(&netns, &ifname)?;
     if v6.is_none() {
@@ -760,5 +770,17 @@ mod tests {
         kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
         assert_eq!(Ip6::from_opts(net.opts), None);
+    }
+
+    #[test]
+    fn isolation_comes_from_the_options() {
+        let mut buf = Vec::new();
+        kiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "noicc=1"]);
+        let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+        assert_eq!(Plug::from_opts(net.opts), Plug { internal: true, no_ipv4: false, no_icc: true });
+        let mut buf = Vec::new();
+        kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
+        let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+        assert!(!Plug::from_opts(net.opts).no_icc);
     }
 }

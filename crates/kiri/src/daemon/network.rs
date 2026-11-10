@@ -166,6 +166,11 @@ impl Network {
         matches!(self.name.as_str(), "bridge" | "host" | "none")
     }
 
+    /// Whether its containers may reach each other over it; see [`icc_option`].
+    pub fn icc(&self) -> bool {
+        icc_option(&self.options).unwrap_or(true)
+    }
+
     /// Docker's `"172.17.0.0/16"`.
     pub fn subnet_str(&self) -> String {
         format!("{}/{}", ip_str(self.subnet), self.prefix)
@@ -354,6 +359,20 @@ pub struct Settings {
     /// An IPv6 `IPAM.Config` entry; without one an IPv6 network gets a /64
     /// from the pool.
     pub ipam6: Option<Ipam6>,
+}
+
+/// The option Docker's bridge driver reads inter-container connectivity from.
+pub const ICC_OPTION: &str = "com.docker.network.bridge.enable_icc";
+
+/// `--opt com.docker.network.bridge.enable_icc=false`, read as Docker does,
+/// with Go's `ParseBool`: on unless the option says otherwise.
+pub fn icc_option(options: &serde_json::Value) -> Result<bool, String> {
+    let Some(raw) = options.get(ICC_OPTION) else { return Ok(true) };
+    match raw.as_str().unwrap_or_default() {
+        "1" | "t" | "T" | "true" | "TRUE" | "True" => Ok(true),
+        "0" | "f" | "F" | "false" | "FALSE" | "False" => Ok(false),
+        raw => Err(format!("failed to parse {ICC_OPTION} value: {raw} (strconv.ParseBool: parsing {raw:?}: invalid syntax)")),
+    }
 }
 
 /// One IPv6 `IPAM.Config` entry, checked.
@@ -608,6 +627,7 @@ impl Networks {
         if s.no_ipv4 && s.ipam.is_some() {
             return Err("invalid network config: an IPv4 subnet was given, but IPv4 is disabled (--ipv4=false)".into());
         }
+        icc_option(&s.options)?;
         let taken: Vec<([u8; 4], u8)> = self.list.iter().filter(|n| !n.bridge.is_empty()).map(|n| (n.subnet, n.prefix)).collect();
         let (subnet, gateway) = match &s.ipam {
             Some(ipam) => {
@@ -1007,5 +1027,31 @@ mod tests {
         let mut b = net(None);
         b.name = "bridge".into();
         assert!(b.check_static([10, 5, 0, 10]).unwrap_err().contains("user defined networks only"));
+    }
+
+    #[test]
+    fn the_icc_option_is_read_as_docker_does() {
+        let icc = |v: &str| icc_option(&serde_json::json!({ ICC_OPTION: v }));
+        assert_eq!(icc_option(&serde_json::json!({})), Ok(true));
+        assert_eq!(icc_option(&serde_json::Value::Null), Ok(true));
+        for on in ["1", "t", "T", "true", "TRUE", "True"] {
+            assert_eq!(icc(on), Ok(true), "{on}");
+        }
+        for off in ["0", "f", "F", "false", "FALSE", "False"] {
+            assert_eq!(icc(off), Ok(false), "{off}");
+        }
+        assert_eq!(icc("maybe").unwrap_err(), "failed to parse com.docker.network.bridge.enable_icc value: maybe (strconv.ParseBool: parsing \"maybe\": invalid syntax)");
+        for bad in ["", "no", "tRUE", " true"] {
+            assert!(icc(bad).is_err(), "{bad:?}");
+        }
+        // A network refuses a bad one and remembers a good one for the agent.
+        let (mut nets, dir) = nets();
+        let options = |v: &str| Settings { options: serde_json::json!({ ICC_OPTION: v }), ..Settings::default() };
+        assert!(nets.create("bad", options("maybe")).unwrap_err().contains(ICC_OPTION));
+        assert!(nets.find("bad").is_none());
+        assert!(!nets.create("apart", options("false")).unwrap().icc());
+        assert!(nets.create("together", options("true")).unwrap().icc());
+        assert!(nets.create("plain", Settings::default()).unwrap().icc());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
