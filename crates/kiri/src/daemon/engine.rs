@@ -370,6 +370,7 @@ pub fn endpoint_names(name: &str, aliases: &[String], id: &str, hostname: &str) 
 /// A container on a network: (id, name, ip, IPv6 ip, the MAC address it
 /// asked for, whether it is running).
 pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>, String, bool);
+
 /// The seccomp security option in effect: the last one given, as with
 /// Docker. `None` is the default profile (no option, or `builtin`).
 fn seccomp_option(options: &[String]) -> Option<&str> {
@@ -448,9 +449,6 @@ mod seccomp_options_tests {
         assert_eq!(sent(&spec), ["seccomp\t{}"]);
     }
 }
-
-/// A container on a network: (id, name, ip, IPv6 ip).
-pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraNetwork {
