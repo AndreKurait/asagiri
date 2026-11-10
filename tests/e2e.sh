@@ -589,6 +589,7 @@ $D rm -f bystander >/dev/null
 rm -rf "$CP"
 
 section "docker cp"
+code archive-proc-symlink 0 python3 "$(dirname "$0")/archive-proc-symlink.py" "$SOCK"
 CPD=$(mktemp -d); mkdir -p "$CPD/dir/sub"; echo one > "$CPD/a.txt"; echo two > "$CPD/dir/sub/b.txt"
 $D run -d --name cpc alpine sleep 120 >/dev/null
 t cp-in-file "one" bash -c "$D cp $CPD/a.txt cpc:/tmp/ && $D exec cpc cat /tmp/a.txt"
