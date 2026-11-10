@@ -82,8 +82,11 @@ def check(path, image):
         cpu, mem = (value.split(",")[0].split("-")[0] for value in effective)
         cid = create({"Memory": 67108864, "MemorySwap": 100663296, "MemoryReservation": 16777216,
                       "CpusetCpus": cpu, "CpusetMems": mem, "PidsLimit": 32, "CpuQuota": 20000, "CpuPeriod": 100000})
-        start(cid)
         assert inspect(cid)["OomKillDisable"] is False
+        start(cid)
+        # Docker clears this nullable field at start when the host cannot
+        # disable the OOM killer (cgroup v2). Both forms mean it stays enabled.
+        assert inspect(cid)["OomKillDisable"] in (None, False)
         assert capture(cid, command) == ["67108864", "33554432", "16777216", cpu, mem, "32", "20000 100000"]
         print("PASS create enforces all resource fields", flush=True)
 
