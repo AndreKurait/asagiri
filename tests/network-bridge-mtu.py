@@ -62,7 +62,7 @@ def check(path, image):
         target = "/tmp/mtu-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
                       {"Cmd": ["sh", "-c", "(" + command + ") > " + target + " 2>&1"]}, (201,))["Id"]
-        # Upstream's separate empty-response fix changes this 204 to Docker's 200.
+        # Docker answers 200; Kiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:
@@ -88,20 +88,20 @@ def check(path, image):
         assert mtu(one) == "1400" and mtu(two) == "1400", (mtu(one), mtu(two))
         # Larger packets still arrive, in fragments, also through the bridge's own address.
         gateway = request("GET", "/containers/" + one + "/json")["NetworkSettings"]["Networks"][small]["Gateway"]
-        capture(one, "ping -c 1 -W 3 -s 3000 mtu-two-" + tag + " && ping -c 1 -W 3 -s 3000 " + gateway)
+        capture(one, "ping -c 2 -W 3 -s 3000 mtu-two-" + tag + " && ping -c 2 -W 3 -s 3000 " + gateway)
         print("PASS a network's MTU option is the MTU of its containers' interfaces", flush=True)
 
         jumbo = "mtu-jumbo-" + tag
         network(jumbo, "9000")
         big, peer = run("mtu-big-" + tag, jumbo), run("mtu-peer-" + tag, jumbo)
         assert mtu(big) == "9000" and mtu(peer) == "9000", (mtu(big), mtu(peer))
-        capture(big, "ping -c 1 -W 3 -s 8000 mtu-peer-" + tag)
+        capture(big, "ping -c 2 -W 3 -s 8000 mtu-peer-" + tag)
         print("PASS an MTU above 1500 works between containers of that network", flush=True)
 
         late = run("mtu-late-" + tag)
         request("POST", "/networks/" + small + "/connect", {"Container": late}, (200, 204))
         assert mtu(late, "eth1") == "1400" and mtu(late, "eth0") == "1500", (mtu(late, "eth1"), mtu(late, "eth0"))
-        capture(late, "ping -c 1 -W 3 " + request("GET", "/containers/" + one + "/json")["NetworkSettings"]["Networks"][small]["IPAddress"])
+        capture(late, "ping -c 2 -W 3 " + request("GET", "/containers/" + one + "/json")["NetworkSettings"]["Networks"][small]["IPAddress"])
         print("PASS a container connected later gets the MTU on that interface only", flush=True)
 
         default = "mtu-default-" + tag
@@ -119,6 +119,8 @@ def check(path, image):
         assert MTU in error and "abc" in error, error
         error = network(bad, "-5", (400,))["message"]
         assert "invalid MTU number: -5" in error, error
+        error = network(bad, "99999999999999999999", (400,))["message"]
+        assert "value out of range" in error, error
         # Docker fails these when it sets the bridge up, with a 500.
         for value in ("", "10", "67", "65536"):
             network(bad, value, (400, 500))
