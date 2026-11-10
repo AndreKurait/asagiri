@@ -567,9 +567,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         let mac = kiri_proto::net_opts::values(n.opts, kiri_proto::net_opts::MAC).next().and_then(net::parse_mac);
                         let v6 = net::Ip6::from_opts(n.opts);
                         let plug = net::Plug::from_opts(n.opts);
+                        // A container that started on the default bridge takes up
+                        // the embedded DNS with its first user network.
+                        let late = procs.get(&pid).and_then(|p| p.run.late_dns.as_ref());
+                        let owner = late.map_or(n.ip, |l| l.ip);
                         let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug)
                             .and_then(|()| if plug.no_ipv4 { Ok(()) } else { dns.serve(n.bridge, n.gateway) })
-                            .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, n.ip, n.bridge)));
+                            .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)))
+                            .and_then(|()| late.map_or(Ok(()), |l| l.switch()));
                         match attached {
                             Ok(()) => {
                                 if !plug.no_ipv4 {
@@ -579,6 +584,13 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                     dns.register6(n.bridge, n.dns_names.iter(), n.ip, v.ip);
                                 }
                                 if let Some(p) = procs.get_mut(&pid) {
+                                    if let Some(late) = p.run.late_dns.take() {
+                                        dns.set_upstream(late.ip, late.servers);
+                                        // Dropped with the container, as its names are.
+                                        if !p.run.dns_entries.iter().any(|(b, a)| *b == late.bridge && *a == late.ip) {
+                                            p.run.dns_entries.push((late.bridge, late.ip));
+                                        }
+                                    }
                                     p.run.dns_entries.push((n.bridge.to_owned(), n.ip));
                                     p.run.veths.push(host_if.clone());
                                 }

@@ -76,6 +76,9 @@ pub struct Process {
     pub tty: bool,
     /// (bridge, ip) registered with the DNS server, to drop on exit.
     pub dns_entries: Vec<(String, [u8; 4])>,
+    /// For a container whose resolv.conf names no embedded DNS (the default
+    /// bridge): what moves it there when it joins a user network later.
+    pub late_dns: Option<LateDns>,
     /// Host sides of its veths. Deleted on exit: a container sharing this
     /// network namespace would otherwise keep them, and the address that
     /// goes back to the pool, alive.
@@ -360,6 +363,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         stdin,
         tty: prepared.tty,
         dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
+        late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
         veths,
         netns,
         teardown: Some(Teardown { base, rootfs, cgroup, remove }),
@@ -477,6 +481,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         stdin,
         tty: prepared.tty,
         dns_entries: Vec::new(),
+        late_dns: None,
         veths: Vec::new(),
         netns: 0,
         teardown: None,
@@ -776,6 +781,48 @@ fn embedded_dns(spec: &RunSpec<'_>, upstream: &[[u8; 4]], relay: bool) -> bool {
 /// the Mac's resolver, and VPN and company names would stop resolving.
 fn embedded_address(spec: &RunSpec<'_>, relay: bool) -> [u8; 4] {
     if relay && spec.flags & run_flags::DNS_GATEWAY == 0 && spec.net.gateway != [0; 4] { spec.net.gateway } else { super::dns::EMBEDDED }
+}
+
+/// A container on the default bridge asks the host's resolvers, or its own
+/// `--dns` servers, and none of them knows a container's name. Once it joins
+/// a user network (`network connect`) it asks 127.0.0.11 instead, as with
+/// Docker, which answers that network's names and forwards the rest.
+#[derive(Debug)]
+pub struct LateDns {
+    /// The container's resolv.conf, bound over its /etc/resolv.conf.
+    file: PathBuf,
+    /// What start wrote there, and the same naming 127.0.0.11.
+    written: String,
+    embedded: String,
+    /// The container's first network and its address there, which its
+    /// `--dns` servers are kept under (`Dns::set_upstream`).
+    pub bridge: String,
+    pub ip: [u8; 4],
+    pub servers: Vec<[u8; 4]>,
+}
+
+impl LateDns {
+    /// Names 127.0.0.11 in the container's resolv.conf. A file the container
+    /// has changed since start is left as it is, as Docker leaves it.
+    pub fn switch(&self) -> io::Result<()> {
+        if fs::read_to_string(&self.file)? == self.written {
+            // In place: the container has this very file bound.
+            fs::write(&self.file, &self.embedded)?;
+        }
+        Ok(())
+    }
+}
+
+/// None for a container that starts with 127.0.0.11 in its resolv.conf.
+fn late_dns(spec: &RunSpec<'_>, etc_dir: &std::path::Path, upstream: &[[u8; 4]], nameserver: Option<[u8; 4]>) -> Option<LateDns> {
+    (nameserver != Some(super::dns::EMBEDDED)).then(|| LateDns {
+        file: etc_dir.join("resolv.conf"),
+        written: resolv_conf(spec, upstream, nameserver),
+        embedded: resolv_conf(spec, upstream, Some(super::dns::EMBEDDED)),
+        bridge: spec.net.bridge.to_owned(),
+        ip: spec.net.ip,
+        servers: net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect(),
+    })
 }
 
 fn resolv_conf(spec: &RunSpec<'_>, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> String {
@@ -1611,6 +1658,46 @@ mod tests {
         // The default bridge and host networks get the servers themselves.
         assert_eq!(resolv(0, &opts, &[[192, 168, 64, 1]]), "nameserver 8.8.8.8\nsearch corp.example\noptions ndots:2 timeout:1\n");
         assert_eq!(resolv(0, &[], &[[192, 168, 64, 1]]), "nameserver 192.168.64.1\n");
+    }
+
+    #[test]
+    fn a_container_without_the_embedded_dns_can_take_it_up_later() {
+        let late = |flags: u32, opts: &[&str], nameserver: Option<[u8; 4]>, dir: &std::path::Path| {
+            let mut buf = Vec::new();
+            let net = Net { bridge: "kiri0", ip: [172, 17, 0, 2], prefix: 16, gateway: [172, 17, 0, 1], extra_hosts: &[], dns_names: &[], opts };
+            encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str]);
+            let Ok(Msg::Run(spec)) = decode(&buf) else { panic!() };
+            super::late_dns(&spec, dir, &[[192, 168, 64, 1]], nameserver)
+        };
+        let dir = std::env::temp_dir().join(format!("kiri-late-dns-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("resolv.conf");
+        // A container that starts with 127.0.0.11 has nothing to change.
+        assert!(late(run_flags::DNS_GATEWAY, &[], Some(super::super::dns::EMBEDDED), &dir).is_none());
+        // The host's resolver, the bridge's gateway (the VM) and `--dns`
+        // servers all give way to 127.0.0.11; the rest of the file stays.
+        for (opts, nameserver, written, embedded, servers) in [
+            (&[][..], None, "nameserver 192.168.64.1\n", "nameserver 127.0.0.11\n", vec![]),
+            (&[][..], Some([172, 17, 0, 1]), "nameserver 172.17.0.1\n", "nameserver 127.0.0.11\n", vec![]),
+            (
+                &["nameserver=8.8.8.8", "nameserver=9.9.9.9", "search=corp.example", "option=ndots:2"][..],
+                None,
+                "nameserver 8.8.8.8\nnameserver 9.9.9.9\nsearch corp.example\noptions ndots:2\n",
+                "nameserver 127.0.0.11\nsearch corp.example\noptions ndots:2\n",
+                vec![[8, 8, 8, 8], [9, 9, 9, 9]],
+            ),
+        ] {
+            let l = late(0, opts, nameserver, &dir).expect("no embedded DNS yet");
+            assert_eq!((l.bridge.as_str(), l.ip, &l.servers), ("kiri0", [172, 17, 0, 2], &servers));
+            std::fs::write(&file, written).unwrap();
+            l.switch().unwrap();
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), embedded);
+            // A file the container changed is not Kiri's to rewrite.
+            std::fs::write(&file, "nameserver 192.0.2.53\n").unwrap();
+            l.switch().unwrap();
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), "nameserver 192.0.2.53\n");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
