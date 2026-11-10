@@ -93,7 +93,7 @@ def check(path, image):
 
         before = inspect(cid)
         for invalid in ({"MemorySwap": 1}, {"MemoryReservation": 1}, {"Memory": -1},
-                        {"CpuPeriod": 1}, {"CpuShares": 262145}, {"CpusetCpus": "3-1"},
+                        {"CpuPeriod": 1}, {"CpuShares": -1}, {"CpusetCpus": "3-1"},
                         {"NanoCpus": 1000000000, "CpuQuota": 10000}):
             # Docker 28 reports some merged-limit failures from runc as 500;
             # Kiri can reject the same combination before contacting the guest.

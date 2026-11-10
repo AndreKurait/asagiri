@@ -1322,7 +1322,9 @@ pub(super) fn validate_limits(h: &Value) -> Result<(), Error> {
             "NanoCpus" => n == 0 || n >= 10_000_000,
             "CpuQuota" => n == -1 || n == 0 || n >= 1000,
             "CpuPeriod" => n == 0 || (1000..=1_000_000).contains(&n),
-            "CpuShares" => n == 0 || (2..=262_144).contains(&n),
+            // Docker clamps positive shares to cgroup v1's range before
+            // converting to v2 weights.
+            "CpuShares" => n >= 0,
             // Docker treats non-positive values as unlimited.
             "PidsLimit" => n <= u32::MAX as i64,
             _ => unreachable!(),
@@ -2651,13 +2653,18 @@ mod tests {
         for value in [
             json!({"PidsLimit": 4294967296u64}),
             json!({"CpuPeriod": 1}), json!({"Memory": -1}),
-            json!({"CpuShares": 262145}), json!({"NanoCpus": 1_000_000_000, "CpuQuota": 10000}),
+            json!({"CpuShares": -1}), json!({"NanoCpus": 1_000_000_000, "CpuQuota": 10000}),
         ] {
             assert!(validate_limits(&value).is_err(), "{value}");
         }
         let value = json!({"NanoCpus": i64::MAX});
         // The arithmetic cannot overflow even for an adversarial request.
         assert_eq!(limits_from(&value, Default::default()).cpu_quota, i64::MAX as u64 / 10000);
+        for (shares, weight) in [(1, 1), (262145, 10000)] {
+            let value = json!({"CpuShares": shares});
+            validate_limits(&value).unwrap();
+            assert_eq!(limits_from(&value, Default::default()).cpu_weight, weight);
+        }
     }
 
     #[test]
