@@ -146,6 +146,14 @@ fn top(engine: &Engine, key: &str) -> Result<Value, Error> {
 
 fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
     let b = body(req)?;
+    // Like Docker: a policy is checked before the container is looked up,
+    // and one without a name changes nothing, whatever its retry count.
+    let policy = &b["RestartPolicy"];
+    let restart = if policy.is_null() || (policy.is_object() && (policy["Name"].is_null() || policy["Name"] == "")) {
+        None
+    } else {
+        Some(super::api::restart_policy(policy, false)?)
+    };
     let _update = engine.lock_resource_updates();
     let (id, base) = engine.with(key, |c| (c.id.clone(), c.spec.limits.clone()))?;
     let warnings = super::api::validate_limits(&b, engine.container_cpus(), true)?;
@@ -153,10 +161,11 @@ fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
         return Err(Error::Conflict(format!("Cannot update container {id}: Conflicting options: {conflict}")));
     }
     let limits = super::api::limits_from(&b, base);
-    let restart = b["RestartPolicy"]["Name"].as_str().filter(|n| !n.is_empty()).map(|n| super::engine::RestartPolicy {
-        name: n.to_owned(),
-        max_retries: b["RestartPolicy"]["MaximumRetryCount"].as_u64().unwrap_or(0) as u32,
-    });
+    if restart.as_ref().is_some_and(|r| r.name != "no")
+        && let Some(id) = engine.with(key, |c| c.spec.auto_remove.then(|| c.id.clone()))?
+    {
+        return Err(Error::Conflict(format!("Cannot update container {id}: Restart policy cannot be updated because AutoRemove is enabled for the container")));
+    }
     engine.update(key, limits, restart)?;
     // Docker sends null, not an empty list, when it has nothing to say.
     Ok(json!({"Warnings": if warnings.is_empty() { Value::Null } else { json!(warnings) }}))

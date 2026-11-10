@@ -112,6 +112,7 @@ code archive-permission-bits 0 python3 "$(dirname "$0")/archive-permissions.py" 
 code http-body-framing 0 python3 "$(dirname "$0")/http-body-framing.py" "$SOCK"
 code archive-directory-contents 0 python3 "$(dirname "$0")/archive-directory-contents.py" "$SOCK"
 code resource-limits 0 python3 "$(dirname "$0")/resource-limits.py" "$SOCK" alpine
+code restart-policy-validation 0 python3 "$(dirname "$0")/restart-policy.py" "$SOCK" alpine
 t env "bar" $D run --rm -e FOO=bar alpine sh -c 'echo $FOO'
 t env-image "PATH=/usr/local/sbin" $D run --rm alpine env
 t workdir "/tmp" $D run --rm -w /tmp alpine pwd
