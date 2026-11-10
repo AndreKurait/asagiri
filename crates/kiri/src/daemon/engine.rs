@@ -261,7 +261,7 @@ pub struct Link {
 }
 
 /// cgroup limits as saved with a container; see [`kiri_proto::Limits`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     pub memory_max: u64,
     pub cpu_quota: u64,
@@ -270,17 +270,46 @@ pub struct Limits {
     pub pids_max: u32,
     #[serde(default)]
     pub shm_size: u64,
+    #[serde(default)]
+    pub memory_swap: i64,
+    #[serde(default)]
+    pub memory_reservation: u64,
+    #[serde(default)]
+    pub cpuset_cpus: String,
+    #[serde(default)]
+    pub cpuset_mems: String,
+    /// `NanoCpus` and `CpuShares` as given, so inspect returns what create
+    /// was sent. Containers saved before these existed have the quota,
+    /// period and weight they stood for instead.
+    #[serde(default)]
+    pub nano_cpus: u64,
+    #[serde(default)]
+    pub cpu_shares: u64,
 }
 
 impl Limits {
-    pub fn wire(&self) -> kiri_proto::Limits {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.memory_swap > 0 && (self.memory_max == 0 || (self.memory_swap as u64) < self.memory_max) {
+            return Err(Error::BadRequest("MemorySwap requires Memory and must be at least Memory".into()));
+        }
+        Ok(())
+    }
+
+    pub fn wire(&self) -> kiri_proto::Limits<'_> {
+        // `--cpus 1.5` is 150 ms of CPU time every 100 ms; an explicit quota
+        // replaces it, as in the runtime spec dockerd builds.
+        let cpu_quota = if self.cpu_quota > 0 { self.cpu_quota } else { (u128::from(self.nano_cpus) * 100_000 / 1_000_000_000) as u64 };
         kiri_proto::Limits {
             memory_max: self.memory_max,
-            cpu_quota: self.cpu_quota,
+            cpu_quota,
             cpu_period: self.cpu_period,
             cpu_weight: self.cpu_weight,
             pids_max: self.pids_max,
             shm_size: self.shm_size,
+            memory_swap: self.memory_swap,
+            memory_reservation: self.memory_reservation,
+            cpuset_cpus: &self.cpuset_cpus,
+            cpuset_mems: &self.cpuset_mems,
         }
     }
 }
@@ -501,6 +530,8 @@ pub struct Engine {
     pub store: Store,
     pub networks: Mutex<Networks>,
     state: Mutex<State>,
+    /// Serialises read/merge/apply/persist for resource updates.
+    resource_updates: Mutex<()>,
     changed: Condvar,
     /// Serialises sending layers, so two creates of a new image don't send
     /// the same layers twice.
@@ -606,6 +637,7 @@ impl Engine {
             networks,
             store,
             state: Mutex::default(),
+            resource_updates: Mutex::new(()),
             changed: Condvar::new(),
             layers: Mutex::new(()),
             records,
@@ -966,9 +998,19 @@ impl Engine {
         self.cpus.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// CPUs a container can be given: this machine's on Linux, where
+    /// containers run on its kernel, and the VM's elsewhere.
+    pub fn container_cpus(&self) -> usize {
+        if cfg!(target_os = "linux") { max_cpus() } else { self.cpus() }
+    }
+
     /// Whether the VM is running right now.
     pub fn is_awake(&self) -> bool {
         self.awake().is_some()
+    }
+
+    pub(super) fn lock_resource_updates(&self) -> MutexGuard<'_, ()> {
+        self.resource_updates.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -2411,19 +2453,16 @@ impl Engine {
     /// `docker update`: new limits now, and at every later start.
     pub fn update(&self, key: &str, limits: Limits, restart: Option<RestartPolicy>) -> Result<(), Error> {
         let id = self.resolve(key)?;
-        let running = {
+        limits.validate()?;
+        let running = self.with(&id, |c| c.status == Status::Running)?;
+        if running { self.vm()?.update(&id, limits.wire())?; }
+        {
             let mut st = self.lock();
-            let c = st.containers.get_mut(&id).expect("resolved");
+            let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             c.spec.limits = limits;
-            if let Some(r) = restart {
-                c.spec.restart = r;
-            }
-            c.status == Status::Running
-        };
-        self.save();
-        if running {
-            self.vm()?.update(&id, limits.wire())?;
+            if let Some(r) = restart { c.spec.restart = r; }
         }
+        self.save();
         self.emit_container("update", &id, &[]);
         Ok(())
     }
