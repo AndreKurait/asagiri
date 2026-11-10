@@ -71,12 +71,14 @@ pub struct Plug {
     pub internal: bool,
     /// IPv6-only: no IPv4 address on the container or the bridge.
     pub no_ipv4: bool,
+    /// The network's MTU option, when it has one.
+    pub mtu: Option<u32>,
 }
 
 impl Plug {
     pub fn from_opts(opts: kiri_proto::StrList<'_>) -> Plug {
         use kiri_proto::net_opts as k;
-        Plug { internal: k::values(opts, k::INTERNAL).next().is_some(), no_ipv4: k::values(opts, k::NO_IPV4).next().is_some() }
+        Plug { internal: k::values(opts, k::INTERNAL).next().is_some(), no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(), mtu: k::values(opts, k::MTU).next().and_then(|m| m.parse().ok()) }
     }
 }
 
@@ -658,7 +660,7 @@ pub fn attach_container(
 /// MAC is made from it): neither the interface nor the bridge gets it.
 #[allow(clippy::too_many_arguments)]
 pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<()> {
-    let Plug { internal, no_ipv4 } = plug;
+    let Plug { internal, no_ipv4, mtu } = plug;
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
     let bridge_index = bridges.ensure(bridge, (!no_ipv4).then_some(gateway), prefix, v6)?;
     let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
@@ -666,7 +668,17 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     // A stopped container's veth may still hold this address and MAC.
     delete_retired(&mut host);
     let ifname = format!("eth{n}");
-    netlink::create_veth(&mut host, host_ifname, bridge_index, &netns, CONTAINER_MTU, &ifname, mac)?;
+    netlink::create_veth(&mut host, host_ifname, bridge_index, &netns, mtu.unwrap_or(CONTAINER_MTU), &ifname, mac)?;
+    if let Some(mtu) = mtu {
+        // The bridge sends too (the gateway, forwarded replies), and left
+        // alone it only ever shrinks to its smallest port. After the veth:
+        // an older kernel refuses a bridge an MTU above its ports'.
+        if let Err(e) = netlink::set_mtu(&mut host, bridge_index, mtu) {
+            // The link is not left plugged into a bridge with another MTU.
+            let _ = netlink::delete_link(&mut host, host_ifname);
+            return Err(e);
+        }
+    }
     // By name: a new namespace may have tunl0, gre0 … before it.
     let index = netlink::index_in(&netns, &ifname)?;
     if v6.is_none() {
@@ -760,5 +772,17 @@ mod tests {
         kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
         assert_eq!(Ip6::from_opts(net.opts), None);
+    }
+
+    #[test]
+    fn the_mtu_comes_from_the_options() {
+        let mut buf = Vec::new();
+        kiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "mtu=1400"]);
+        let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+        assert_eq!(Plug::from_opts(net.opts), Plug { internal: true, no_ipv4: false, mtu: Some(1400) });
+        let mut buf = Vec::new();
+        kiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "kiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
+        let Ok(kiri_proto::Msg::NetAttach { net, .. }) = kiri_proto::decode(&buf) else { panic!() };
+        assert_eq!(Plug::from_opts(net.opts).mtu, None);
     }
 }
