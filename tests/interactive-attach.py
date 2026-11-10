@@ -208,7 +208,16 @@ def check(path, image):
                 client.close()
         print("PASS attach by name and by short ID", flush=True)
 
+        # An engine refuses a version older than the oldest it supports: Docker 29
+        # starts at 1.40, so the text frames of 1.27 can be seen only on an
+        # engine that still takes it.
+        oldest = int(request("GET", "/version")["MinAPIVersion"].split(".")[1])
+        skipped = 0
         for version, once in ((47, False), (47, True), (41, False), (27, False)):
+            if version < oldest:
+                print(f"SKIP WebSocket version=1.{version}: the engine starts at 1.{oldest}", flush=True)
+                skipped += 1
+                continue
             cid = create(["cat"], OpenStdin=True, StdinOnce=once)
             start(cid)
             query = "stream=1" + ("&stdin=1&stdout=1&stderr=1" if version >= 42 else "")
@@ -310,7 +319,7 @@ def check(path, image):
             reader.close()
             client.close()
         print("PASS WebSocket log replay and stderr filtering", flush=True)
-        print("14 interactive attach scenarios passed")
+        print(14 - skipped, "interactive attach scenarios passed")
     finally:
         failed = sys.exc_info()[0] is not None
         errors = []
