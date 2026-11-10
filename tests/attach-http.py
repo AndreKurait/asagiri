@@ -50,42 +50,61 @@ def output(data, tty):
     return bytes(result)
 
 
-def check(path, image, headers, status, tty, attach):
-    create = {"Image": image, "Cmd": ["sh", "-c", "printf out; printf err >&2"]
+def check(path, image, headers, status, tty, attach, stdin):
+    command = "read -r value; printf '%s' \"$value\"; printf err >&2" if stdin else "printf out; printf err >&2"
+    if stdin and tty:
+        command = "stty -echo; printf ready; " + command
+    create = {"Image": image, "Cmd": ["sh", "-c", command]
               if attach else ["sleep", "120"], "Tty": tty,
-              "HostConfig": {"NetworkMode": "none"}}
+              "OpenStdin": stdin, "HostConfig": {"NetworkMode": "none"}}
     cid = request(path, "POST", "/containers/create", create, 201)["Id"]
     conn = Connection(path)
+    writer = None
     try:
         if attach:
-            url = f"/containers/{cid}/attach?stream=1&stdout=1&stderr=1"
+            url = f"/containers/{cid}/attach?stream=1&stdout=1&stderr=1&stdin={int(stdin)}"
             body = None
         else:
             request(path, "POST", f"/containers/{cid}/start", expected=204)
             eid = request(path, "POST", f"/containers/{cid}/exec", {
-                "Cmd": ["sh", "-c", "printf out; printf err >&2"],
+                "Cmd": ["sh", "-c", command], "AttachStdin": stdin,
                 "AttachStdout": True, "AttachStderr": True, "Tty": tty,
             }, 201)["Id"]
             url, body = f"/exec/{eid}/start", json.dumps({"Detach": False, "Tty": tty})
         conn.request("POST", "/v1.47" + url, body,
                      {"Content-Type": "application/json", **headers})
+        if stdin:
+            writer = conn.sock.dup()
         response = conn.getresponse()
         assert response.status == status, (url, headers, response.status)
         assert response.getheader("Content-Length") is None
         assert response.getheader("Transfer-Encoding") is None
         if status == 200:
             assert response.getheader("Content-Type") == "application/vnd.docker.raw-stream"
+            assert response.getheader("Upgrade") is None
         else:
             assert response.getheader("Upgrade") == "tcp"
         if attach:
             # SDKs receive a final response before starting the container.
             request(path, "POST", f"/containers/{cid}/start", expected=204)
+        if stdin:
+            if tty:
+                assert response.fp.read(5) == b"ready", "Wait until the terminal has echo disabled"
+            writer.sendall(b"out\n")
         # Read the hijacked 101 stream as well as the close-delimited 200 body.
         data = output(response.fp.read(), tty)
         assert data in (b"outerr", b"errout"), data
     finally:
+        if writer is not None:
+            writer.close()
         conn.close()
-        request(path, "DELETE", f"/containers/{cid}?force=1", expected=204)
+        failure = sys.exc_info()[1]
+        try:
+            request(path, "DELETE", f"/containers/{cid}?force=1", expected=204)
+        except Exception as cleanup:
+            if failure is None:
+                raise
+            print(f"Cleanup of {cid} also failed: {cleanup}", file=sys.stderr)
 
 
 def main():
@@ -94,14 +113,16 @@ def main():
         ({}, 200),
         ({"Connection": "Upgrade"}, 200),
         ({"Upgrade": "tcp"}, 101),
+        ({"Upgrade": ""}, 101),
         ({"upgrade": "other"}, 101),
         ({"Upgrade": "TCP", "Connection": "keep-alive, Upgrade"}, 101),
     ]
     for attach in (True, False):
         for tty in (False, True):
-            for headers, status in cases:
-                check(path, image, headers, status, tty, attach)
-    print("20 attach/exec HTTP negotiation cases passed")
+            for stdin in (False, True):
+                for headers, status in cases:
+                    check(path, image, headers, status, tty, attach, stdin)
+    print("48 attach/exec HTTP negotiation cases passed")
 
 
 if __name__ == "__main__":
