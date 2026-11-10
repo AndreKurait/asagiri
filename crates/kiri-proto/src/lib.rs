@@ -37,8 +37,10 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// a client's stdin blocked after `INPUT_WINDOW` bytes. 4 added
 /// `UsageQuery`, which has no reply: an older agent's "unexpected" error
 /// would be taken as the reply to the next request. 5 adds swap, memory
-/// reservation and CPU/NUMA sets to Limits. Upgrade host and guest together.
-pub const PROTOCOL: u16 = 5;
+/// reservation and CPU/NUMA sets to Limits. 6 added the `noicc` network
+/// option, which an older agent would ignore and leave the containers of an
+/// `enable_icc=false` network connected. Upgrade host and guest together.
+pub const PROTOCOL: u16 = 6;
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.
@@ -431,6 +433,9 @@ pub mod net_opts {
     /// `mtu=1400`: the network's `com.docker.network.driver.mtu`, for the
     /// bridge and both ends of the container's link. Absent: 1500.
     pub const MTU: &str = "mtu";
+    /// `noicc=1`: the network has `com.docker.network.bridge.enable_icc`
+    /// off: its containers do not reach each other over it.
+    pub const NO_ICC: &str = "noicc";
 
     /// The values given for `key`, in order.
     pub fn values<'a>(opts: super::StrList<'a>, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {

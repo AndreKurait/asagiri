@@ -171,6 +171,12 @@ impl Network {
         mtu_option(&self.options, self.v6.is_some()).ok().flatten()
     }
 
+    /// Whether its containers may reach each other over it; see [`icc_option`].
+    /// A stored value that is not a boolean means on (see `Networks::load`).
+    pub fn icc(&self) -> bool {
+        icc_option(&self.options).unwrap_or(true)
+    }
+
     /// Docker's `"172.17.0.0/16"`.
     pub fn subnet_str(&self) -> String {
         format!("{}/{}", ip_str(self.subnet), self.prefix)
@@ -386,6 +392,20 @@ pub fn mtu_option(options: &serde_json::Value, ipv6: bool) -> Result<Option<u32>
     }
 }
 
+/// The option Docker's bridge driver reads inter-container connectivity from.
+pub const ICC_OPTION: &str = "com.docker.network.bridge.enable_icc";
+
+/// `--opt com.docker.network.bridge.enable_icc=false`, read as Docker does,
+/// with Go's `ParseBool`: on unless the option says otherwise.
+pub fn icc_option(options: &serde_json::Value) -> Result<bool, String> {
+    let Some(raw) = options.get(ICC_OPTION) else { return Ok(true) };
+    match raw.as_str().unwrap_or_default() {
+        "1" | "t" | "T" | "true" | "TRUE" | "True" => Ok(true),
+        "0" | "f" | "F" | "false" | "FALSE" | "False" => Ok(false),
+        raw => Err(format!("failed to parse {ICC_OPTION} value: {raw} (strconv.ParseBool: parsing {raw:?}: invalid syntax)")),
+    }
+}
+
 /// One IPv6 `IPAM.Config` entry, checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ipam6 {
@@ -576,6 +596,13 @@ impl Networks {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e),
         };
+        // An older Kiri stored any value for this option and ignored it: one
+        // that is not a boolean still leaves the containers connected.
+        for n in &saved {
+            if let Err(e) = icc_option(&n.options) {
+                crate::diag::warn!("enable_icc is not a boolean: the network's containers stay connected", network = n.name.clone(), error = e);
+            }
+        }
         // 172.17.0.0/16 as Docker uses, unless the host already routes it
         // (Kiri on a Linux host inside another engine's container) or a
         // saved network has it.
@@ -639,6 +666,7 @@ impl Networks {
             return Err("invalid network config: an IPv4 subnet was given, but IPv4 is disabled (--ipv4=false)".into());
         }
         mtu_option(&s.options, s.ipv6)?;
+        icc_option(&s.options)?;
         let taken: Vec<([u8; 4], u8)> = self.list.iter().filter(|n| !n.bridge.is_empty()).map(|n| (n.subnet, n.prefix)).collect();
         let (subnet, gateway) = match &s.ipam {
             Some(ipam) => {
@@ -1071,6 +1099,41 @@ mod tests {
         assert!(nets.find("bad").is_none());
         assert_eq!(nets.create("small", options("1400")).unwrap().mtu(), Some(1400));
         assert_eq!(nets.create("plain", Settings::default()).unwrap().mtu(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_icc_option_is_read_as_docker_does() {
+        let icc = |v: &str| icc_option(&serde_json::json!({ ICC_OPTION: v }));
+        assert_eq!(icc_option(&serde_json::json!({})), Ok(true));
+        assert_eq!(icc_option(&serde_json::Value::Null), Ok(true));
+        for on in ["1", "t", "T", "true", "TRUE", "True"] {
+            assert_eq!(icc(on), Ok(true), "{on}");
+        }
+        for off in ["0", "f", "F", "false", "FALSE", "False"] {
+            assert_eq!(icc(off), Ok(false), "{off}");
+        }
+        assert_eq!(icc("maybe").unwrap_err(), "failed to parse com.docker.network.bridge.enable_icc value: maybe (strconv.ParseBool: parsing \"maybe\": invalid syntax)");
+        for bad in ["", "no", "tRUE", " true"] {
+            assert!(icc(bad).is_err(), "{bad:?}");
+        }
+        // A network refuses a bad one and remembers a good one for the agent.
+        let (mut nets, dir) = nets();
+        let options = |v: &str| Settings { options: serde_json::json!({ ICC_OPTION: v }), ..Settings::default() };
+        assert!(nets.create("bad", options("maybe")).unwrap_err().contains(ICC_OPTION));
+        assert!(nets.find("bad").is_none());
+        assert!(!nets.create("apart", options("false")).unwrap().icc());
+        assert!(nets.create("together", options("true")).unwrap().icc());
+        assert!(nets.create("plain", Settings::default()).unwrap().icc());
+        // What an older Kiri stored is read the same way; a value it took
+        // that is not a boolean leaves the network as it was then: on.
+        assert!(!Networks::load(&dir).unwrap().find("apart").unwrap().icc());
+        let file = dir.join("networks.json");
+        let stored = std::fs::read_to_string(&file).unwrap();
+        let old = stored.replace(&format!("{ICC_OPTION:?}:\"false\""), &format!("{ICC_OPTION:?}:\"off\""));
+        assert_ne!(old, stored);
+        std::fs::write(&file, old).unwrap();
+        assert!(Networks::load(&dir).unwrap().find("apart").unwrap().icc());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

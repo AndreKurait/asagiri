@@ -1711,6 +1711,9 @@ impl Engine {
                         if let Some(mtu) = n.mtu() {
                             net6_opts.push(format!("{}={mtu}", kiri_proto::net_opts::MTU));
                         }
+                        if !n.icc() {
+                            net6_opts.push(format!("{}=1", kiri_proto::net_opts::NO_ICC));
+                        }
                     }
                     Err(e) => {
                         self.lock_networks().release(&n.name, ip);
@@ -2367,6 +2370,9 @@ impl Engine {
         }
         if let Some(mtu) = net.mtu() {
             opts.push(format!("{}={mtu}", kiri_proto::net_opts::MTU));
+        }
+        if !net.icc() {
+            opts.push(format!("{}=1", kiri_proto::net_opts::NO_ICC));
         }
         if let Err(e) = vm.net_attach(id, n, &net.bridge, ip, net.prefix, net.gateway, &names, &opts) {
             let mut nets = self.lock_networks();
