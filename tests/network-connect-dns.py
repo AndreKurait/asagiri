@@ -83,6 +83,12 @@ def check(path, image):
         code, text = sh(cid, "nslookup -type=a " + name)
         return code == 0 and ("Address: " + address + "\n") in text + "\n"
 
+    # UDP datagrams that reached the container and found no one listening.
+    def unanswered(cid):
+        code, text = sh(cid, "awk '/^Udp: [0-9]/ {print $3}' /proc/net/snmp")
+        assert code == 0 and text.strip().isdigit(), (code, text)
+        return int(text)
+
     def join(network, cid, statuses=(200, 204)):
         request("POST", "/networks/" + network + "/connect", {"Container": cid}, statuses)
 
@@ -126,9 +132,13 @@ def check(path, image):
         cases += 1
 
         # `--dns`, `--dns-search` and `--dns-option`: the servers leave the
-        # file (127.0.0.11 forwards to them), the rest of it stays.
-        own = run(tag + "-own", {"Dns": ["192.0.2.53"], "DnsSearch": ["corp.example"], "DnsOptions": ["ndots:2"]})
-        assert nameservers(own) == ["192.0.2.53"], resolv(own)
+        # file (127.0.0.11 forwards to them), the rest of it stays. The
+        # server here is a container that answers nothing; its kernel counts
+        # the questions that reach it.
+        server = run(tag + "-server")
+        server_ip = address(server, "bridge")
+        own = run(tag + "-own", {"Dns": [server_ip], "DnsSearch": ["corp.example"], "DnsOptions": ["ndots:2"]})
+        assert nameservers(own) == [server_ip], resolv(own)
         join(network, own)
         lines = resolv(own)
         assert nameservers(own) == ["127.0.0.11"], lines
@@ -137,6 +147,10 @@ def check(path, image):
         # The name is asked for as it is: with the search domain it would
         # first go to the servers given, and nothing answers there.
         assert resolves(own, tag + "-peer.", peer_ip), sh(own, "nslookup -type=a " + tag + "-peer.")
+        # A name no network has goes on to the container's own server.
+        before = unanswered(server)
+        sh(own, "timeout 5 nslookup -type=a outside-" + tag + ".example.")
+        assert unanswered(server) > before, "127.0.0.11 did not ask the container's own DNS server"
         print("PASS a container with its own DNS servers", flush=True)
         cases += 1
 
@@ -166,13 +180,13 @@ def check(path, image):
         errors = []
         for cid in reversed(containers):
             try:
-                request("DELETE", "/containers/" + cid + "?force=true", statuses=(204,))
+                request("DELETE", "/containers/" + cid + "?force=true", statuses=(204, 404))
             except Exception as error:
                 errors.append(error)
                 print("Cleanup failed:", repr(error), file=sys.stderr)
         for network in reversed(networks):
             try:
-                request("DELETE", "/networks/" + network, statuses=(204,))
+                request("DELETE", "/networks/" + network, statuses=(204, 404))
             except Exception as error:
                 errors.append(error)
                 print("Cleanup failed:", repr(error), file=sys.stderr)
