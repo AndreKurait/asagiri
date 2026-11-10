@@ -916,12 +916,17 @@ mod tests {
         let request = |headers: &str| {
             let (mut client, server) = UnixStream::pair().unwrap();
             client.write_all(format!("GET /v9.99/info HTTP/1.1\r\n{headers}\r\n").as_bytes()).unwrap();
-            read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap()
+            read_request(&mut BufReader::new(server), |_, _| false)
         };
-        assert!(!request("").has_body());
-        assert!(!request("Content-Length: 0\r\n").has_body());
-        for headers in ["Content-Length: 100\r\n", "Content-Length: +0\r\n", "Content-Length: 0, 5\r\n", "Content-Length: 0\r\nContent-Length: 5\r\n", "Transfer-Encoding: chunked\r\n", "Content-Length: 0\r\nTransfer-Encoding: identity\r\n"] {
-            assert!(request(headers).has_body(), "{headers}");
+        assert!(!request("").unwrap().unwrap().has_body());
+        assert!(!request("Content-Length: 0\r\n").unwrap().unwrap().has_body());
+        for headers in ["Content-Length: 100\r\n", "Transfer-Encoding: chunked\r\n"] {
+            assert!(request(headers).unwrap().unwrap().has_body(), "{headers}");
+        }
+        // Framing that leaves the body's end open is refused before the
+        // version is looked at, as Go's server refuses it before Docker's router runs.
+        for headers in ["Content-Length: +0\r\n", "Content-Length: 0, 5\r\n", "Content-Length: 0\r\nContent-Length: 5\r\n", "Content-Length: 0\r\nTransfer-Encoding: identity\r\n"] {
+            assert!(request(headers).is_err(), "{headers}");
         }
     }
 
