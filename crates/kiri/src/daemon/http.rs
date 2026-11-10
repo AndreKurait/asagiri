@@ -21,6 +21,7 @@ pub struct Request {
     pub method: String,
     /// Path without the `/v1.xx` prefix or the query string.
     pub path: String,
+    pub(super) api_version: Option<String>,
     query: Vec<(String, String)>,
     headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -49,7 +50,7 @@ impl Request {
     /// container create), so it goes through the same code as a client's.
     pub fn internal(method: &str, path: &str, query: &[(&str, &str)], body: Vec<u8>) -> Request {
         let query = query.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Request { method: method.to_owned(), path: path.to_owned(), query, headers: Vec::new(), body }
+        Request { method: method.to_owned(), path: path.to_owned(), api_version: None, query, headers: Vec::new(), body }
     }
 }
 
@@ -59,7 +60,7 @@ impl Request {
 pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -> bool) -> io::Result<Option<Request>> {
     // The request line and headers are read through a cap, so a client
     // cannot exhaust memory with an endless line. The body is read after.
-    let (method, path, query, headers) = {
+    let (method, path, api_version, query, headers) = {
         let mut head = (&mut *r).take(MAX_HEAD);
         let mut line = String::new();
         if head.read_line(&mut line)? == 0 {
@@ -71,7 +72,9 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         };
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-        let path = strip_version(raw_path).to_owned();
+        let path = strip_version(raw_path);
+        let api_version = (path != raw_path).then(|| raw_path[2..raw_path.len() - path.len()].to_owned());
+        let path = path.to_owned();
         let query: Vec<(String, String)> = raw_query
             .split('&')
             .filter(|kv| !kv.is_empty())
@@ -94,10 +97,10 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
                 headers.push((k.trim().to_owned(), v.trim().to_owned()));
             }
         }
-        (method, path, query, headers)
+        (method, path, api_version, query, headers)
     };
     let streamed = stream(&method, &path);
-    let mut req = Request { method, path, query, headers, body: Vec::new() };
+    let mut req = Request { method, path, api_version, query, headers, body: Vec::new() };
     if streamed {
         return Ok(Some(req));
     }

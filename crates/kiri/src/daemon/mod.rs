@@ -10,6 +10,7 @@ mod builder;
 pub mod dns;
 pub mod tls;
 pub mod proxy;
+mod detach;
 mod domains;
 mod engine;
 mod filters;
@@ -31,6 +32,7 @@ mod usb;
 mod vmcpu;
 mod vmlink;
 mod volumes;
+mod websocket;
 
 use std::io;
 use std::os::unix::fs::PermissionsExt;
