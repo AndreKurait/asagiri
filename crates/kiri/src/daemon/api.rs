@@ -215,8 +215,11 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
             ("POST", "start") => {
-                match engine.with(id, |c| c.status == Status::Running) {
-                    Ok(true) => {
+                // An idle BuildKit container that Kiri paused itself counts
+                // as running: the next build resumes it.
+                match engine.with(id, |c| (c.status == Status::Running, c.paused && !super::engine::is_builder(c))) {
+                    Ok((_, true)) => return reply(w, Err(Error::Conflict("cannot start a paused container, try unpause instead".into())), 204),
+                    Ok((true, _)) => {
                         http::respond(w, 304, "", b"")?;
                         return Ok(Next::KeepAlive);
                     }
@@ -227,20 +230,20 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
                 return reply(w, engine.start(id).map(|()| Value::Null), 204);
             }
             ("POST", "stop") => {
-                match engine.with(id, |c| c.status == Status::Running) {
+                let t = stop_timeout(req, engine, id);
+                // The engine decides: a stop that only cancels a pending
+                // restart still changed something.
+                return match engine.stop(id, t) {
                     Ok(false) => {
                         http::respond(w, 304, "", b"")?;
-                        return Ok(Next::KeepAlive);
+                        Ok(Next::KeepAlive)
                     }
-                    Err(e) => return reply(w, Err(e), 204),
-                    _ => {}
-                }
-                let t = stop_timeout(req, engine, id);
-                return reply(w, engine.stop(id, t).map(|()| Value::Null), 204);
+                    r => reply(w, r.map(|_| Value::Null), 204),
+                };
             }
             ("POST", "restart") => {
                 let t = stop_timeout(req, engine, id);
-                let r = engine.stop(id, t).and_then(|()| {
+                let r = engine.stop(id, t).and_then(|_| {
                     // Wait for the exit to be recorded before starting again.
                     engine.wait(id, "not-running")?;
                     super::builder::before_start(engine, id);

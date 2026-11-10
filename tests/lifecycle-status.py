@@ -4,6 +4,7 @@ import http.client
 import json
 import socket
 import sys
+import time
 
 
 class Connection(http.client.HTTPConnection):
@@ -55,6 +56,45 @@ def check(path, image):
             status, state = request("GET", "/containers/" + cid + "/json", (200, 404))
             assert status == 404 or not state["State"]["Running"], state
         print("PASS three stops with automatic removal", flush=True)
+
+        _, created = request("POST", "/containers/create", (201,),
+                             {"Image": image, "Cmd": ["false"],
+                              "HostConfig": {"NetworkMode": "none", "RestartPolicy": {"Name": "always"}}})
+        cid = created["Id"]
+        owned.append(cid)
+        request("POST", "/containers/" + cid + "/start", (204,))
+        # The delay before each restart doubles: after four of them the
+        # process has exited and the next restart is most of a second away.
+        deadline = time.monotonic() + 30
+        while request("GET", "/containers/" + cid + "/json", (200,))[1]["RestartCount"] < 4:
+            assert time.monotonic() < deadline, "the container did not keep restarting"
+            time.sleep(0.05)
+        request("POST", "/containers/" + cid + "/stop?t=0", (204,))
+        _, stopped = request("GET", "/containers/" + cid + "/json", (200,))
+        assert not stopped["State"]["Running"] and not stopped["State"]["Restarting"], stopped["State"]
+        request("POST", "/containers/" + cid + "/stop?t=0", (304,))
+        # Long enough for the restart that was pending to have happened.
+        time.sleep(3)
+        _, later = request("GET", "/containers/" + cid + "/json", (200,))
+        assert not later["State"]["Running"] and not later["State"]["Restarting"], later["State"]
+        assert later["RestartCount"] == stopped["RestartCount"], (stopped["RestartCount"], later["RestartCount"])
+        print("PASS stop cancels a pending restart", flush=True)
+
+        _, created = request("POST", "/containers/create", (201,),
+                             {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": "none"}})
+        cid = created["Id"]
+        owned.append(cid)
+        request("POST", "/containers/" + cid + "/start", (204,))
+        request("POST", "/containers/" + cid + "/pause", (204,))
+        _, error = request("POST", "/containers/" + cid + "/start", (409,))
+        assert error["message"] == "cannot start a paused container, try unpause instead", error
+        request("POST", "/containers/" + cid + "/unpause", (204,))
+        request("POST", "/containers/" + cid + "/start", (304,))
+        request("POST", "/containers/" + cid + "/pause", (204,))
+        request("POST", "/containers/" + cid + "/stop?t=0", (204,))
+        _, state = request("GET", "/containers/" + cid + "/json", (200,))
+        assert not state["State"]["Running"] and not state["State"]["Paused"], state["State"]
+        print("PASS start and stop of a paused container", flush=True)
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
