@@ -1299,6 +1299,8 @@ pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engi
     l
 }
 
+/// Docker's checks on a restart policy, in its order and with its messages.
+/// `auto_remove` is for a create: `--rm` allows no policy.
 pub(super) fn restart_policy(value: &Value, auto_remove: bool) -> Result<RestartPolicy, Error> {
     if !value.is_null() && !value.is_object() {
         return Err(Error::BadRequest("restart policy must be an object".into()));
@@ -1310,22 +1312,24 @@ pub(super) fn restart_policy(value: &Value, auto_remove: bool) -> Result<Restart
         None | Some("") => "no",
         Some(name) => name,
     };
-    if !matches!(name, "no" | "always" | "unless-stopped" | "on-failure") {
-        return Err(Error::BadRequest(format!("invalid restart policy {name}")));
-    }
-    let retries = if value["MaximumRetryCount"].is_null() { 0 } else {
-        value["MaximumRetryCount"].as_u64().and_then(|n| u32::try_from(n).ok())
-            .ok_or_else(|| Error::BadRequest("invalid restart policy maximum retry count".into()))?
-    };
-    if retries != 0 && name != "on-failure" {
-        return Err(Error::BadRequest("maximum retry count can only be used with 'on-failure'".into()));
-    }
     if auto_remove && name != "no" {
         return Err(Error::BadRequest("can't create 'AutoRemove' container with restart policy".into()));
     }
-    Ok(RestartPolicy { name: name.to_owned(), max_retries: retries })
+    let retries = if value["MaximumRetryCount"].is_null() { 0 } else {
+        value["MaximumRetryCount"].as_i64().ok_or_else(|| Error::BadRequest("invalid restart policy: maximum retry count must be an integer".into()))?
+    };
+    match name {
+        "no" | "always" | "unless-stopped" if retries != 0 => {
+            let negative = if retries < 0 { " and cannot be negative" } else { "" };
+            return Err(Error::BadRequest(format!("invalid restart policy: maximum retry count can only be used with 'on-failure'{negative}")));
+        }
+        "on-failure" if retries < 0 => return Err(Error::BadRequest("invalid restart policy: maximum retry count cannot be negative".into())),
+        "no" | "always" | "unless-stopped" | "on-failure" => {}
+        _ => return Err(Error::BadRequest(format!("invalid restart policy: unknown policy '{name}'; use one of 'no', 'always', 'on-failure', or 'unless-stopped'"))),
+    }
+    let max_retries = u32::try_from(retries).map_err(|_| Error::BadRequest("invalid restart policy: maximum retry count is too large".into()))?;
+    Ok(RestartPolicy { name: name.to_owned(), max_retries })
 }
-
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
@@ -2573,16 +2577,34 @@ mod tests {
 
     #[test]
     fn restart_policy_validation_applies_before_create_and_update() {
-        for value in [
-            json!({"Name": "invalid"}), json!({"Name": "always", "MaximumRetryCount": 1}),
-            json!({"Name": "on-failure", "MaximumRetryCount": -1}),
-            json!({"Name": "on-failure", "MaximumRetryCount": 4294967296u64}),
+        let unknown = "invalid restart policy: unknown policy 'invalid'; use one of 'no', 'always', 'on-failure', or 'unless-stopped'";
+        let only_on_failure = "invalid restart policy: maximum retry count can only be used with 'on-failure'";
+        let auto_remove = "can't create 'AutoRemove' container with restart policy";
+        // Docker's messages, word for word.
+        for (value, auto, message) in [
+            (json!({"Name": "invalid"}), false, unknown.to_owned()),
+            (json!({"Name": "invalid", "MaximumRetryCount": -1}), false, unknown.to_owned()),
+            (json!({"Name": "always", "MaximumRetryCount": 1}), false, only_on_failure.to_owned()),
+            (json!({"Name": "", "MaximumRetryCount": 1}), false, only_on_failure.to_owned()),
+            (json!({"MaximumRetryCount": 1}), true, only_on_failure.to_owned()),
+            (json!({"Name": "no", "MaximumRetryCount": -1}), false, format!("{only_on_failure} and cannot be negative")),
+            (json!({"Name": "on-failure", "MaximumRetryCount": -1}), false, "invalid restart policy: maximum retry count cannot be negative".to_owned()),
+            (json!({"Name": "always"}), true, auto_remove.to_owned()),
+            // `--rm` is checked first, so it wins over an invalid policy.
+            (json!({"Name": "invalid"}), true, auto_remove.to_owned()),
+            (json!({"Name": "on-failure", "MaximumRetryCount": -1}), true, auto_remove.to_owned()),
         ] {
-            assert!(restart_policy(&value, false).is_err(), "{value}");
+            match restart_policy(&value, auto) {
+                Err(Error::BadRequest(m)) => assert_eq!(m, message, "{value}"),
+                other => panic!("{value}: {other:?}"),
+            }
         }
-        assert!(restart_policy(&json!({"Name": "always"}), true).is_err());
+        for value in [json!({"Name": "on-failure", "MaximumRetryCount": 4294967296u64}), json!({"Name": "on-failure", "MaximumRetryCount": 1.5}), json!({"Name": 5}), json!("always")] {
+            assert!(matches!(restart_policy(&value, false), Err(Error::BadRequest(_))), "{value}");
+        }
         assert_eq!(restart_policy(&json!({"Name": "on-failure", "MaximumRetryCount": 3}), false).unwrap().max_retries, 3);
         assert_eq!(restart_policy(&Value::Null, false).unwrap().name, "no");
+        assert_eq!(restart_policy(&json!({"Name": "no"}), true).unwrap().name, "no");
     }
 
     #[test]

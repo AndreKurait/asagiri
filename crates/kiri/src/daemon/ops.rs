@@ -146,15 +146,21 @@ fn top(engine: &Engine, key: &str) -> Result<Value, Error> {
 
 fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
     let b = body(req)?;
-    let base = engine.with(key, |c| c.spec.limits)?;
-    let limits = super::api::limits_from(&b, base);
-    let restart = if b["RestartPolicy"].is_null() {
+    // Like Docker: a policy is checked before the container is looked up,
+    // and one without a name changes nothing, whatever its retry count.
+    let policy = &b["RestartPolicy"];
+    let restart = if policy.is_null() || (policy.is_object() && (policy["Name"].is_null() || policy["Name"] == "")) {
         None
     } else {
-        let auto_remove = engine.with(key, |c| c.spec.auto_remove)?;
-        let policy = super::api::restart_policy(&b["RestartPolicy"], auto_remove)?;
-        b["RestartPolicy"]["Name"].as_str().filter(|name| !name.is_empty()).map(|_| policy)
+        Some(super::api::restart_policy(policy, false)?)
     };
+    let base = engine.with(key, |c| c.spec.limits)?;
+    let limits = super::api::limits_from(&b, base);
+    if restart.as_ref().is_some_and(|r| r.name != "no")
+        && let Some(id) = engine.with(key, |c| c.spec.auto_remove.then(|| c.id.clone()))?
+    {
+        return Err(Error::Conflict(format!("Cannot update container {id}: Restart policy cannot be updated because AutoRemove is enabled for the container")));
+    }
     engine.update(key, limits, restart)?;
     Ok(json!({"Warnings": []}))
 }
