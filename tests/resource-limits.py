@@ -83,6 +83,7 @@ def check(path, image):
         cid = create({"Memory": 67108864, "MemorySwap": 100663296, "MemoryReservation": 16777216,
                       "CpusetCpus": cpu, "CpusetMems": mem, "PidsLimit": 32, "CpuQuota": 20000, "CpuPeriod": 100000})
         start(cid)
+        assert inspect(cid)["OomKillDisable"] is False
         assert capture(cid, command) == ["67108864", "33554432", "16777216", cpu, mem, "32", "20000 100000"]
         print("PASS create enforces all resource fields", flush=True)
 

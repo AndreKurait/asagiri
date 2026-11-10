@@ -1910,6 +1910,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "MemoryReservation": c.spec.limits.memory_reservation,
             "CpusetCpus": c.spec.limits.cpuset_cpus,
             "CpusetMems": c.spec.limits.cpuset_mems,
+            "OomKillDisable": false,
             "NanoCpus": if c.spec.limits.cpu_period > 0 { ((u128::from(c.spec.limits.cpu_quota) * 1_000_000_000) / u128::from(c.spec.limits.cpu_period)).min(u128::from(u64::MAX)) as u64 } else { 0 },
             "CpuQuota": c.spec.limits.cpu_quota,
             "CpuPeriod": c.spec.limits.cpu_period,
