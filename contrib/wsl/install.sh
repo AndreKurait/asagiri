@@ -17,6 +17,7 @@ After=network-online.target
 [Service]
 ExecStart=/usr/local/bin/kiri daemon
 Environment=HOME=/var/lib/kiri-daemon
+Environment=KIRI_SOCKET=/var/lib/kiri-daemon/.kiri/run/docker.sock
 Delegate=yes
 KillMode=mixed
 Restart=on-failure
@@ -30,9 +31,9 @@ UNIT
 else
   # No systemd in this distro: start Kiri when WSL boots it.
   if ! grep -q 'kiri daemon' /etc/wsl.conf 2>/dev/null; then
-    printf '\n[boot]\ncommand = HOME=/var/lib/kiri-daemon nohup /usr/local/bin/kiri daemon >/var/log/kiri.log 2>&1 &\n' >> /etc/wsl.conf
+    printf '\n[boot]\ncommand = HOME=/var/lib/kiri-daemon KIRI_SOCKET=/var/lib/kiri-daemon/.kiri/run/docker.sock nohup /usr/local/bin/kiri daemon >/var/log/kiri.log 2>&1 &\n' >> /etc/wsl.conf
   fi
   pkill -f '/usr/local/bin/kiri daemon' 2>/dev/null || true
-  HOME=/var/lib/kiri-daemon nohup /usr/local/bin/kiri daemon >/var/log/kiri.log 2>&1 &
+  HOME=/var/lib/kiri-daemon KIRI_SOCKET=/var/lib/kiri-daemon/.kiri/run/docker.sock nohup /usr/local/bin/kiri daemon >/var/log/kiri.log 2>&1 &
 fi
 echo "Kiri runs in WSL on /var/lib/kiri-daemon/.kiri/run/docker.sock"

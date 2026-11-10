@@ -10,11 +10,11 @@ BIN=$(cd "$(dirname "$0")/.." && pwd)/target/linux/release
 $D rm -f kiri-linux-host >/dev/null 2>&1
 $D run -d --name kiri-linux-host --privileged --tmpfs /run -v kiri-linux-host:/var/lib/kiri -v kiri-linux-host-store:/root/.local/share/kiri \
   -v "$BIN:/opt/kiri:ro" alpine sh -c 'apk add -q docker-cli curl >/dev/null 2>&1; exec /opt/kiri/kiri daemon' >/dev/null
-for _ in $(seq 60); do $D exec kiri-linux-host sh -c 'DOCKER_HOST=unix:///root/.kiri/run/docker.sock docker version' >/dev/null 2>&1 && break; sleep 1; done
+for _ in $(seq 60); do $D exec kiri-linux-host sh -c 'DOCKER_HOST=unix:///run/kiri/docker.sock docker version' >/dev/null 2>&1 && break; sleep 1; done
 PASS=0; FAIL=0
 t() {
   local name=$1 want=$2; shift 2
-  local got; got=$($D exec kiri-linux-host sh -c "export DOCKER_HOST=unix:///root/.kiri/run/docker.sock; $*" 2>&1 | tr -d '\r')
+  local got; got=$($D exec kiri-linux-host sh -c "export DOCKER_HOST=unix:///run/kiri/docker.sock; $*" 2>&1 | tr -d '\r')
   if [[ "$got" == *"$want"* ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$name" "$want" "$(echo "$got" | head -3)"; fi
 }
 t server-os "linux" "docker version --format '{{.Server.Os}}'"
