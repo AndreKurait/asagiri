@@ -10,10 +10,13 @@ import socket
 import struct
 import sys
 
+# Generous for a slow machine: a case takes well under a second.
+TIMEOUT = 30
+
 
 class Connection(http.client.HTTPConnection):
     def __init__(self, path):
-        super().__init__("localhost", timeout=10)
+        super().__init__("localhost", timeout=TIMEOUT)
         self.path = path
 
     def connect(self):
@@ -36,18 +39,17 @@ def request(path, method, url, body=None, expected=200):
         conn.close()
 
 
-def output(data, tty):
-    if tty:
-        return data
-    result = bytearray()
+def frames(data):
+    """Splits a multiplexed stream into what it carried for stdout and stderr."""
+    streams = {1: bytearray(), 2: bytearray()}
     while data:
         assert len(data) >= 8, data
         stream, length = data[0], struct.unpack(">I", data[4:8])[0]
-        assert stream in (1, 2) and data[1:4] == b"\0\0\0", data[:8]
+        assert stream in streams and data[1:4] == b"\0\0\0", data[:8]
         assert len(data) >= 8 + length, data
-        result.extend(data[8:8 + length])
+        streams[stream].extend(data[8:8 + length])
         data = data[8 + length:]
-    return bytes(result)
+    return bytes(streams[1]), bytes(streams[2])
 
 
 def check(path, image, headers, status, tty, attach, stdin):
@@ -92,8 +94,11 @@ def check(path, image, headers, status, tty, attach, stdin):
                 assert response.fp.read(5) == b"ready", "Wait until the terminal has echo disabled"
             writer.sendall(b"out\n")
         # Read the hijacked 101 stream as well as the close-delimited 200 body.
-        data = output(response.fp.read(), tty)
-        assert data in (b"outerr", b"errout"), data
+        data = response.fp.read()
+        if tty:
+            assert data in (b"outerr", b"errout"), data
+        else:
+            assert frames(data) == (b"out", b"err"), data
     finally:
         if writer is not None:
             writer.close()
@@ -117,12 +122,14 @@ def main():
         ({"upgrade": "other"}, 101),
         ({"Upgrade": "TCP", "Connection": "keep-alive, Upgrade"}, 101),
     ]
+    passed = 0
     for attach in (True, False):
         for tty in (False, True):
             for stdin in (False, True):
                 for headers, status in cases:
                     check(path, image, headers, status, tty, attach, stdin)
-    print("48 attach/exec HTTP negotiation cases passed")
+                    passed += 1
+    print(f"{passed} attach/exec HTTP negotiation cases passed")
 
 
 if __name__ == "__main__":
