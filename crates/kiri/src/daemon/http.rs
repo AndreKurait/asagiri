@@ -155,16 +155,20 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         let mut headers = Vec::new();
         loop {
             line.clear();
-            if head.read_line(&mut line)? == 0 {
+            head.read_line(&mut line)?;
+            let Some(l) = line.strip_suffix('\n') else {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "headers too large or cut short"));
-            }
-            let l = line.trim_end();
+            };
+            let l = l.strip_suffix('\r').unwrap_or(l);
             if l.is_empty() {
                 break;
             }
-            if let Some((k, v)) = l.split_once(':') {
-                headers.push((k.trim().to_owned(), v.trim().to_owned()));
-            }
+            // A name is a token with the colon right after it: a folded
+            // line or a padded name must not pass for a framing header.
+            let Some((k, v)) = l.split_once(':').filter(|(k, _)| is_token(k)) else {
+                return Err(Refused::Malformed("malformed header line").into());
+            };
+            headers.push((k.to_owned(), v.trim_matches([' ', '\t']).to_owned()));
         }
         (method, path, query, headers)
     };
@@ -187,6 +191,11 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     }
     req.body = body;
     Ok(Some(req))
+}
+
+/// A header name: one or more of HTTP's token characters.
+fn is_token(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
 /// Refuses framing that leaves the end of the body open to interpretation.
@@ -511,8 +520,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_header_lines_that_could_pass_for_framing() {
+        for headers in [
+            "X-A: b\r\n Content-Length: 2",
+            "X-A: b\r\n\tTransfer-Encoding: chunked",
+            "X-A: b\r\n \r\nContent-Length: 2",
+            " Content-Length: 2",
+            "Content-Length : 2",
+            "Content-Length\t: 2",
+            "Content Length: 2",
+            "Content-Length\r: 2",
+            ": 2",
+            "Content-Length",
+        ] {
+            let mut r = input(format!("POST /auth HTTP/1.1\r\n{headers}\r\n\r\n{{}}").as_bytes());
+            assert_eq!(refusal(&read_request(&mut r, |_, _| false).unwrap_err()), Some(400), "{headers:?}");
+        }
+        // Only spaces and tabs around a value are not part of it.
+        for (headers, status) in [("Content-Length: 2\x0b", 400), ("Content-Length: 2\r", 400), ("Transfer-Encoding: \x0cchunked", 501)] {
+            let mut r = input(format!("POST /auth HTTP/1.1\r\n{headers}\r\n\r\n{{}}").as_bytes());
+            assert_eq!(refusal(&read_request(&mut r, |_, _| false).unwrap_err()), Some(status), "{headers:?}");
+        }
+        let mut r = input(b"POST /auth HTTP/1.1\r\nContent-Length: \t 2 \t\r\n\r\n{}GET /_ping HTTP/1.1\n\n");
+        assert_eq!(body(&mut r, false).unwrap(), b"{}");
+        assert_eq!(read_request(&mut r, |_, _| false).unwrap().unwrap().path, "/_ping");
+    }
+
+    #[test]
     fn a_connection_that_fails_is_not_a_refusal() {
-        for wire in ["POST /auth HTTP/1.1\r\nContent-Length: 2\r\n\r\n{", "POST /auth HTTP/1.1\r\nContent-Length: 2\r\n"] {
+        for wire in ["POST /auth HTTP/1.1\r\nContent-Length: 2\r\n\r\n{", "POST /auth HTTP/1.1\r\nContent-Length: 2\r\n", "POST /auth HTTP/1.1\r\nContent-Len"] {
             let mut r = input(wire.as_bytes());
             assert_eq!(refusal(&read_request(&mut r, |_, _| false).unwrap_err()), None, "{wire:?}");
         }
