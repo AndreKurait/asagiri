@@ -369,9 +369,14 @@ pub const MTU_OPTION: &str = "com.docker.network.driver.mtu";
 /// to 65535, the range a bridge takes. IPv6 needs 1280, so Docker fails to
 /// set up a smaller IPv6 bridge.
 pub fn mtu_option(options: &serde_json::Value, ipv6: bool) -> Result<Option<u32>, String> {
+    use std::num::IntErrorKind::{NegOverflow, PosOverflow};
     let Some(raw) = options.get(MTU_OPTION) else { return Ok(None) };
     let raw = raw.as_str().unwrap_or_default();
-    let mtu: i64 = raw.parse().map_err(|_| format!("failed to parse {MTU_OPTION} value: {raw} (strconv.Atoi: parsing {raw:?}: invalid syntax)"))?;
+    let mtu: i64 = raw.parse().map_err(|e: std::num::ParseIntError| {
+        // `Atoi`'s two errors: a number too large for an int, or no number.
+        let why = if matches!(e.kind(), PosOverflow | NegOverflow) { "value out of range" } else { "invalid syntax" };
+        format!("failed to parse {MTU_OPTION} value: {raw} (strconv.Atoi: parsing {raw:?}: {why})")
+    })?;
     match mtu {
         0 => Ok(None),
         m if m < 0 => Err(format!("invalid MTU number: {m}")),
@@ -1050,6 +1055,9 @@ mod tests {
         assert!(mtu("65536", false).is_err());
         assert_eq!(mtu("-5", false).unwrap_err(), "invalid MTU number: -5");
         assert_eq!(mtu("abc", false).unwrap_err(), "failed to parse com.docker.network.driver.mtu value: abc (strconv.Atoi: parsing \"abc\": invalid syntax)");
+        assert_eq!(mtu("99999999999999999999", false).unwrap_err(), "failed to parse com.docker.network.driver.mtu value: 99999999999999999999 (strconv.Atoi: parsing \"99999999999999999999\": value out of range)");
+        assert!(mtu("-99999999999999999999", false).unwrap_err().ends_with("value out of range)"));
+        assert!(mtu("9223372036854775807", false).unwrap_err().starts_with("invalid MTU number"));
         assert!(mtu(" 1400", false).is_err());
         assert!(mtu("", false).is_err());
         // IPv6 needs 1280.
