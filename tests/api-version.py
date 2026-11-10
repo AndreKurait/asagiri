@@ -23,29 +23,38 @@ def check(path):
         try:
             connection.request("GET", target)
             reply = connection.getresponse()
-            return reply.status, json.loads(reply.read())
+            return reply.status, reply.read()
         finally:
             connection.close()
+
+    # A client older than 1.24 expects an error as plain text. Docker 29 answers
+    # it so; Docker 28 and Kiri answer every client in JSON.
+    def message(version, data):
+        if tuple(int(number or 0) for number in version.split(".")) < (1, 24) and not data.startswith(b"{"):
+            return data.decode().rstrip("\n")
+        return json.loads(data)["message"]
 
     cases = 0
     status, version = request("/version")
     assert status == 200, (status, version)
+    version = json.loads(version)
+    # Docker 28 and Kiri start at 1.24, Docker 29 at 1.40.
     oldest, newest = version["MinAPIVersion"], version["ApiVersion"]
-    assert oldest == "1.24", version
+    older = "1.%d" % (int(oldest.split(".")[1]) - 1)
     too_old = "client version %s is too old. Minimum supported API version is " + oldest + ", please upgrade your client to a newer version"
     too_new = "client version %s is too new. Maximum supported API version is " + newest
     # A version is compared number by number: a third number of 0 changes nothing.
     for supported in (oldest, "1.47", newest, oldest + ".0", newest + ".0"):
         status, data = request("/v" + supported + "/version")
-        assert status == 200 and data["ApiVersion"] == newest, (supported, status, data)
+        assert status == 200 and json.loads(data)["ApiVersion"] == newest, (supported, status, data)
         print("PASS supported", supported)
         cases += 1
     # A missing or empty number counts as 0.
-    for unsupported, message in (("1.23", too_old), ("1", too_old), ("1.", too_old), (".47", too_old), (".", too_old),
-                                 ("1..47", too_old), ("99.0", too_new), ("2", too_new), (newest + ".1", too_new),
-                                 ("1.99999999999999999999", too_new)):
+    for unsupported, expected in {older: too_old, "1.23": too_old, "1": too_old, "1.": too_old, ".47": too_old,
+                                  ".": too_old, "1..47": too_old, "99.0": too_new, "2": too_new,
+                                  newest + ".1": too_new, "1.99999999999999999999": too_new}.items():
         status, data = request("/v" + unsupported + "/info")
-        assert status == 400 and data["message"] == message % unsupported, (unsupported, status, data)
+        assert status == 400 and message(unsupported, data) == expected % unsupported, (unsupported, status, data)
         print("PASS rejected", unsupported)
         cases += 1
     # Not a version prefix at all: no such route.
