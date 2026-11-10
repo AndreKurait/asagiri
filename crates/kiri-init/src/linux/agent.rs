@@ -581,6 +581,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                 if let Some(p) = procs.get_mut(&pid) {
                                     p.run.dns_entries.push((n.bridge.to_owned(), n.ip));
                                     p.run.veths.push(host_if.clone());
+                                    p.run.ways_out.extend(net::WayOut::of(ifname, n.gateway, v6, plug));
                                 }
                                 Msg::Ack.encode(&mut out)
                             }
@@ -606,9 +607,17 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         if let Some(p) = procs.get_mut(&pid) {
                             p.run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
                             p.run.veths.retain(|v| *v != host_if);
+                            p.run.ways_out.retain(|w| w.ifname != ifname);
                         }
                         match net::detach(&host_if) {
-                            Ok(()) => Msg::Ack.encode(&mut out),
+                            Ok(()) => {
+                                // The network is gone either way; a route that
+                                // cannot be given back is not its failure.
+                                if let Some(p) = procs.get(&pid) {
+                                    let _ = net::restore_default_routes(pid, &p.run.ways_out);
+                                }
+                                Msg::Ack.encode(&mut out)
+                            }
                             Err(e) => Msg::Error(&format!("disconnect: {e}")).encode(&mut out),
                         }
                     }
