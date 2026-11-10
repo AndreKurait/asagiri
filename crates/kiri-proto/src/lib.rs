@@ -436,6 +436,11 @@ pub mod net_opts {
     /// `noicc=1`: the network has `com.docker.network.bridge.enable_icc`
     /// off: its containers do not reach each other over it.
     pub const NO_ICC: &str = "noicc";
+    /// `macvlan=bridge`: a macvlan network (`--driver macvlan`), with its
+    /// mode (`-o macvlan_mode`). The container's interface is a macvlan
+    /// link on the network's own link, which `bridge` names here: no
+    /// bridge, no gateway and no default route.
+    pub const MACVLAN: &str = "macvlan";
 
     /// The values given for `key`, in order.
     pub fn values<'a>(opts: super::StrList<'a>, key: &'a str) -> impl Iterator<Item = &'a str> + 'a {

@@ -1850,9 +1850,10 @@ fn ps_status(c: &Container, health: Option<&super::health::Health>) -> String {
 
 /// The IPv4 and IPv6 gateways an endpoint on `net` shows, each only with an
 /// address of its family. An internal network has no way out, so Docker
-/// shows none for its endpoints; the network itself keeps its own.
+/// shows none for its endpoints; the network itself keeps its own. A macvlan
+/// network is no way out either, whatever gateway it was given.
 fn endpoint_gateways(net: Option<&super::network::Network>, v4: bool, v6: bool) -> (String, String) {
-    let Some(net) = net.filter(|n| !n.internal) else { return Default::default() };
+    let Some(net) = net.filter(|n| !n.internal && n.driver != "macvlan") else { return Default::default() };
     let gateway = if v4 && net.gateway != [0; 4] { super::network::ip_str(net.gateway) } else { String::new() };
     let gateway6 = net.v6.as_ref().filter(|_| v6).map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default();
     (gateway, gateway6)
@@ -2132,8 +2133,11 @@ fn network_settings(c: &Container, nets: &[super::network::Network]) -> Value {
     let v4_on = |name: &str| !nets.iter().any(|n| n.name == name && n.no_ipv4);
     let ip = c.ip.filter(|_| v4_on(&c.spec.network_mode)).map(super::network::ip_str).unwrap_or_default();
     let v6 = |name: &str, ip6: Option<[u8; 16]>| {
-        let n = nets.iter().find(|n| n.name == name).and_then(|n| n.v6.as_ref()).filter(|_| ip6.is_some());
-        (ip6.map(super::network::ip6_str).unwrap_or_default(), n.map_or(0, |v| v.prefix), n.map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default())
+        let net = nets.iter().find(|n| n.name == name);
+        let n = net.and_then(|n| n.v6.as_ref()).filter(|_| ip6.is_some());
+        // None on a macvlan network, as in the endpoints.
+        let gateway = n.filter(|_| net.is_some_and(|n| n.driver != "macvlan")).map(|v| super::network::ip6_str(v.gateway)).unwrap_or_default();
+        (ip6.map(super::network::ip6_str).unwrap_or_default(), n.map_or(0, |v| v.prefix), gateway)
     };
     let mut networks = serde_json::Map::new();
     let (ip6, prefix6, gateway6) = v6(&c.spec.network_mode, c.ip6);
@@ -2187,7 +2191,11 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
     let ipam = if n.bridge.is_empty() {
         json!([])
     } else {
-        let mut c = json!({"Subnet": n.subnet_str(), "Gateway": super::network::ip_str(n.gateway)});
+        // A macvlan network has a gateway only when it was given one.
+        let mut c = json!({"Subnet": n.subnet_str()});
+        if n.gateway != [0; 4] {
+            c["Gateway"] = super::network::ip_str(n.gateway).into();
+        }
         if let Some(r) = n.ip_range_str() {
             c["IPRange"] = r.into();
         }
@@ -2197,7 +2205,10 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
         // An IPv6-only network's IPv4 subnet is Kiri's own, not shown.
         let mut configs = if n.no_ipv4 { Vec::new() } else { vec![c] };
         if let Some(v) = &n.v6 {
-            let mut c = json!({"Subnet": v.subnet_str(), "Gateway": super::network::ip6_str(v.gateway)});
+            let mut c = json!({"Subnet": v.subnet_str()});
+            if v.gateway != [0; 16] {
+                c["Gateway"] = super::network::ip6_str(v.gateway).into();
+            }
             if let Some(r) = v.ip_range_str() {
                 c["IPRange"] = r.into();
             }
@@ -2254,13 +2265,15 @@ fn network_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
 fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let name = body["Name"].as_str().unwrap_or_default();
-    match body["Driver"].as_str().unwrap_or("bridge") {
-        "" | "bridge" => {}
-        d => return Err(Error::BadRequest(format!("Kiri supports only bridge networks, not {d}"))),
-    }
+    let macvlan = match body["Driver"].as_str().unwrap_or("bridge") {
+        "" | "bridge" => false,
+        "macvlan" => true,
+        d => return Err(Error::BadRequest(format!("Kiri supports only bridge and macvlan networks, not {d}"))),
+    };
     let (ipam, ipam6) = super::network::parse_ipam_both(&body["IPAM"]).map_err(Error::BadRequest)?;
     let settings = super::network::Settings {
         labels: body["Labels"].clone(),
+        macvlan,
         internal: body["Internal"].as_bool().unwrap_or(false),
         attachable: body["Attachable"].as_bool().unwrap_or(false),
         options: body["Options"].clone(),

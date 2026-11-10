@@ -571,11 +571,19 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         // the embedded DNS with its first user network.
                         let late = procs.get(&pid).and_then(|p| p.run.late_dns.as_ref());
                         let owner = late.map_or(n.ip, |l| l.ip);
-                        let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug)
-                            .and_then(|()| if plug.no_ipv4 { Ok(()) } else { dns.serve(n.bridge, n.gateway) })
-                            .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)));
+                        // A macvlan network has no gateway address to answer on.
+                        let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug).and_then(|link| {
+                            let served = if plug.no_ipv4 || plug.macvlan.is_some() { Ok(()) } else { dns.serve(n.bridge, n.gateway) }
+                                .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)));
+                            // Nothing outside the container names a macvlan
+                            // link for the next try to clear away.
+                            if let (Err(_), Some(m)) = (&served, &link) {
+                                let _ = net::unplug(m);
+                            }
+                            served.map(|()| link)
+                        });
                         match attached {
-                            Ok(()) => {
+                            Ok(link) => {
                                 if !plug.no_ipv4 {
                                     dns.register(n.bridge, n.dns_names.iter(), n.ip);
                                 }
@@ -596,7 +604,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                         }
                                     }
                                     p.run.dns_entries.push((n.bridge.to_owned(), n.ip));
-                                    p.run.veths.push(host_if.clone());
+                                    match link {
+                                        Some(m) => p.run.macvlans.push(m),
+                                        None => p.run.veths.push(host_if.clone()),
+                                    }
                                     // The interface is new: nothing kept under its name holds.
                                     p.run.ways_out.retain(|w| w.ifname != ifname);
                                     p.run.ways_out.extend(net::WayOut::of(ifname, n.gateway, v6, plug));
@@ -627,12 +638,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         dns.unregister(bridge, ip);
                         dns.leave(pid, bridge);
                         let host_if = extra_veth(id, num);
+                        let mut macvlan = None;
                         if let Some(p) = procs.get_mut(&pid) {
                             p.run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
                             p.run.veths.retain(|v| *v != host_if);
                             p.run.ways_out.retain(|w| w.ifname != ifname);
+                            macvlan = p.run.macvlans.iter().position(|m| m.ifname == ifname).map(|i| p.run.macvlans.remove(i));
                         }
-                        let detached = net::detach(&host_if);
+                        let detached = macvlan.map_or_else(|| net::detach(&host_if), |m| net::unplug(&m));
                         // Whatever the answer, the daemon takes the network as
                         // left. A default route that is still there stays, and a
                         // route that cannot be given back is not the disconnect's
