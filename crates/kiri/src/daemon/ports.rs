@@ -222,14 +222,25 @@ impl Drop for Forwards {
     }
 }
 
-fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
+/// A wake pipe: closing the write end stops a listener's thread. Both ends
+/// are close-on-exec: a child the daemon starts later (on a Linux host, the
+/// agent) would otherwise hold a copy of the write end, the pipe would never
+/// close, and stopping the listener would wait forever.
+pub(super) fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [0; 2];
     // SAFETY: `fds` has room for the two descriptors pipe writes.
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: pipe succeeded, so both are fresh and ours.
-    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
+    let (r, w) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    for fd in [&r, &w] {
+        // SAFETY: F_SETFD on a descriptor we own.
+        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok((r, w))
 }
 
 fn kernel_host_ip(ip: &str) -> Option<[u8; 4]> {
@@ -355,7 +366,12 @@ pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]
                     e
                 }
             };
-            let sock = match bind_socket(addr, b.proto == "udp") {
+            // Kiri's own container-domain router on this port lets it go
+            // (domains::step_aside), and the bind goes again.
+            let bound = bind_socket(addr, b.proto == "udp").or_else(|e| {
+                if e.kind() == io::ErrorKind::AddrInUse && b.proto == "tcp" && port != 0 && super::domains::step_aside(port) { bind_socket(addr, false) } else { Err(e) }
+            });
+            let sock = match bound {
                 Ok(s) => s,
                 Err(e) if required => return Err(taken(e)),
                 // No IPv6 on this host, or `::` of this port held by something
