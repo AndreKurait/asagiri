@@ -7,10 +7,12 @@ import stat
 import sys
 
 variant = sys.argv[1]
-path = "/run/kiri/docker.sock"
+path = sys.argv[2] if len(sys.argv) > 2 else "/run/kiri/docker.sock"
+# Only the service socket lets a group in without one being named.
+open_to_group = variant != "custom-path"
 metadata = os.stat(path)
 assert stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode) == 0o755
-assert stat.S_IMODE(metadata.st_mode) == 0o660
+assert stat.S_IMODE(metadata.st_mode) == (0o660 if open_to_group else 0o600), oct(metadata.st_mode)
 assert metadata.st_uid == 0
 expected_gid = grp.getgrnam("docker").gr_gid if variant == "docker-group" else 0
 assert metadata.st_gid == expected_gid, (metadata.st_gid, expected_gid)
@@ -46,6 +48,11 @@ def probe(groups, expected):
     assert os.waitstatus_to_exitcode(status) == 0, (variant, groups, expected, status)
 
 
-probe([expected_gid], variant != "managed")
+probe([expected_gid], variant in ("docker-group", "fallback", "fallback-gid"))
+if variant == "fallback-gid":
+    # The group the daemon ran with, which the socket was made with.
+    probe([int(sys.argv[3])], False)
+if variant == "custom-path":
+    probe([grp.getgrnam("docker").gr_gid], False)
 probe([], False)
 print(f"PASS {variant}: socket ownership, group-only container UID access, unrelated UID rejection")
