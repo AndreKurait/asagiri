@@ -71,7 +71,9 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         };
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
-        let path = percent_decode(strip_version(raw_path), false);
+        // Decoded before the version is stripped, as Docker routes: an
+        // escaped dot or slash in the prefix still makes it the prefix.
+        let path = if escapes_are_valid(raw_path) { Ok(strip_version(&percent_decode(raw_path, false)).to_owned()) } else { Err(raw_path.to_owned()) };
         let query: Vec<(String, String)> = raw_query
             .split('&')
             .filter(|kv| !kv.is_empty())
@@ -95,6 +97,16 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
             }
         }
         (method, path, query, headers)
+    };
+    let path = match path {
+        Ok(path) => path,
+        Err(raw) => {
+            // Go's HTTP server, and so Docker, answers a malformed escape
+            // itself with a plain 400 and closes the connection.
+            serving(&method, &raw);
+            respond_with(r.get_mut(), 400, "text/plain; charset=utf-8", "Connection: close\r\n", b"400 Bad Request")?;
+            return Ok(None);
+        }
     };
     let streamed = stream(&method, &path);
     let mut req = Request { method, path, query, headers, body: Vec::new() };
@@ -198,6 +210,12 @@ fn strip_version(path: &str) -> &str {
                 return &rest[i..];
             }
     path
+}
+
+/// Whether every `%` in a path starts a two-digit hex escape.
+fn escapes_are_valid(path: &str) -> bool {
+    let b = path.as_bytes();
+    (0..b.len()).all(|i| b[i] != b'%' || (i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit()))
 }
 
 fn percent_decode(s: &str, form: bool) -> String {
@@ -379,5 +397,41 @@ mod tests {
         assert_eq!(request.query("name"), Some("a b"));
         assert_eq!(percent_decode("/%E2%82%AC+%2B", false), "/€++");
         assert_eq!(percent_decode("/%FF", false), "/\u{fffd}");
+    }
+
+    #[test]
+    fn version_prefix_is_stripped_after_decoding() {
+        for (target, path) in [
+            ("/v1%2E47/_ping", "/_ping"),
+            ("/%761.47/_ping", "/_ping"),
+            ("/v1.47%2Fcontainers/web/json", "/containers/web/json"),
+            ("/v1.47/%5fping", "/_ping"),
+            ("/v1.47/containers/a%252Fb/json", "/containers/a%2Fb/json"),
+            ("/images/v1.2%2Fapp/json", "/images/v1.2/app/json"),
+        ] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
+            let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            assert_eq!(request.path, path, "{target}");
+        }
+    }
+
+    #[test]
+    fn malformed_path_escapes_are_a_bad_request() {
+        for target in ["/containers/%zz/json", "/containers/web%/json", "/networks/net%a", "/v1.47/%4", "/v1%2/_ping"] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("GET {target}?name=100% HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes()).unwrap();
+            let mut reader = BufReader::new(server);
+            assert!(read_request(&mut reader, |_, _| false).unwrap().is_none(), "{target}");
+            drop(reader);
+            let mut reply = String::new();
+            client.read_to_string(&mut reply).unwrap();
+            assert!(reply.starts_with("HTTP/1.1 400 Bad Request\r\n") && reply.contains("\r\nConnection: close\r\n") && reply.ends_with("\r\n\r\n400 Bad Request"), "{target}: {reply}");
+        }
+        // A query keeps its lenient decoding.
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(b"GET /info?name=100% HTTP/1.1\r\n\r\n").unwrap();
+        let request = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+        assert_eq!(request.query("name"), Some("100%"));
     }
 }
