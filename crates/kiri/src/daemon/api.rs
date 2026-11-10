@@ -1316,6 +1316,30 @@ fn caps_from(host: &Value) -> Result<u64, Error> {
     Ok(if mask == 0 { 1u64 << 63 } else { mask })
 }
 
+/// cgroup v2's `cpu.weight` (1–10000) for Docker's CPU shares (2–262144), as
+/// runc has converted them since 1.3 and Docker 29 with it: a curve through
+/// both ends on which the default of 1024 shares is the default weight of
+/// 100. The straight line before it made 1024 shares a weight of 39, less
+/// than a container that asked for nothing gets.
+fn cpu_weight(shares: u64) -> u32 {
+    if shares <= 2 {
+        return 1;
+    }
+    if shares >= 262_144 {
+        return 10_000;
+    }
+    let l = (shares as f64).log2();
+    10f64.powf((l * l + 125.0 * l) / 612.0 - 7.0 / 34.0).ceil() as u32
+}
+
+/// The shares that `cpu_weight` turns into `weight`: the curve solved for
+/// the shares, then a step back when rounding passed the last such value.
+fn cpu_shares(weight: u32) -> u64 {
+    let l = (-125.0 + (15_625.0 + 2448.0 * (f64::from(weight).log10() + 7.0 / 34.0)).sqrt()) / 2.0;
+    let shares = 2f64.powf(l).round() as u64;
+    if cpu_weight(shares) > weight { shares - 1 } else { shares }
+}
+
 pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engine::Limits {
     let mut l = base;
     if let Some(v) = h["MemorySwap"].as_i64().filter(|v| *v != 0) { l.memory_swap = v; }
@@ -1344,11 +1368,7 @@ pub(super) fn limits_from(h: &Value, base: super::engine::Limits) -> super::engi
     }
     if let Some(shares) = h["CpuShares"].as_u64().filter(|s| *s > 0) {
         l.cpu_shares = shares;
-        // runc's conversion from v1 shares (2–262144) to v2 weight (1–10000).
-        // Docker on cgroup v2 fails the start for shares outside that range;
-        // they are clamped here instead.
-        let shares = shares.clamp(2, 262_144);
-        l.cpu_weight = (1 + (shares - 2) * 9999 / 262_142) as u32;
+        l.cpu_weight = cpu_weight(shares);
     }
     if let Some(p) = h["PidsLimit"].as_i64() {
         l.pids_max = if p <= 0 { 0 } else { p as u32 };
@@ -2071,7 +2091,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "NanoCpus": c.spec.limits.nano_cpus,
             "CpuQuota": c.spec.limits.cpu_quota,
             "CpuPeriod": c.spec.limits.cpu_period,
-            "CpuShares": if c.spec.limits.cpu_shares > 0 { c.spec.limits.cpu_shares } else if c.spec.limits.cpu_weight > 0 { 2 + (u64::from(c.spec.limits.cpu_weight) - 1) * 262_142 / 9999 } else { 0 },
+            "CpuShares": if c.spec.limits.cpu_shares > 0 { c.spec.limits.cpu_shares } else if c.spec.limits.cpu_weight > 0 { cpu_shares(c.spec.limits.cpu_weight) } else { 0 },
             "PidsLimit": if c.spec.limits.pids_max > 0 { Value::from(c.spec.limits.pids_max) } else { Value::Null },
             "NetworkMode": c.spec.network_mode,
             "Dns": c.spec.dns,
@@ -2994,6 +3014,31 @@ mod tests {
     fn kernel_release_is_trimmed_and_empty_is_none() {
         assert_eq!(parse_release("7.0.0-38-generic\n").as_deref(), Some("7.0.0-38-generic"));
         assert_eq!(parse_release(" \n"), None);
+    }
+
+    #[test]
+    fn cpu_shares_get_the_weight_docker_gives_them() {
+        // As measured in containers of Docker 29.9.3 (runc 1.5.2).
+        for (shares, weight) in [
+            (1, 1), (2, 1), (3, 2), (4, 2), (5, 2), (8, 3), (10, 4), (16, 5), (50, 10), (100, 17), (256, 35), (500, 58),
+            (512, 59), (1000, 99), (1023, 100), (1024, 100), (1025, 101), (1500, 136), (2048, 174), (4096, 303),
+            (10_000, 627), (50_000, 2402), (100_000, 4340), (200_000, 7899), (262_143, 10_000), (262_144, 10_000),
+            (262_145, 10_000), (1_000_000, 10_000),
+        ] {
+            assert_eq!(cpu_weight(shares), weight, "{shares}");
+            let limits = limits_from(&json!({"CpuShares": shares}), super::super::engine::Limits::default());
+            assert_eq!(limits.cpu_weight, weight, "{shares}");
+        }
+        assert_eq!(limits_from(&json!({"CpuShares": 0}), super::super::engine::Limits::default()).cpu_weight, 0);
+    }
+
+    #[test]
+    fn a_weight_reads_back_as_shares_that_give_it() {
+        assert_eq!((cpu_shares(1), cpu_shares(100), cpu_shares(10_000)), (2, 1024, 262_144));
+        for weight in 1..=10_000 {
+            let shares = cpu_shares(weight);
+            assert_eq!(cpu_weight(shares), weight, "{shares}");
+        }
     }
 
     #[cfg(target_os = "linux")]
