@@ -12,6 +12,7 @@ Left as they are:
   translation alone: elsewhere "kirim" is a name of ours (a macvlan link);
 - LICENSE, this script, and the files listed in KEEP.
 """
+import os
 import re
 import subprocess
 import sys
@@ -76,6 +77,10 @@ def main():
             else:
                 subprocess.run(["mkdir", "-p", f"{root}/{to}".rsplit("/", 1)[0]], check=True)
                 git(root, "mv", "-k", f, to)
+                try:  # the folders the file was in, where it was the last thing in them
+                    os.removedirs(f"{root}/{f}".rsplit("/", 1)[0])
+                except OSError:
+                    pass
     print(f"{changed} files rewritten, {moved} renamed", file=sys.stderr)
 
 
