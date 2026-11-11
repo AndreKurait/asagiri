@@ -1,6 +1,4 @@
 # Security checks for every pull request and for main.
-#
-# Each job runs only in libracoder/kiri: copies of this repository skip them.
 name: Security
 
 on:
@@ -21,7 +19,6 @@ concurrency:
 jobs:
   cargo-deny:
     name: cargo-deny (${{ matrix.checks }})
-    if: github.repository == 'libracoder/kiri'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +41,6 @@ jobs:
 
   shellcheck:
     name: ShellCheck
-    if: github.repository == 'libracoder/kiri'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,7 +58,6 @@ jobs:
 
   zizmor:
     name: zizmor (workflow audit)
-    if: github.repository == 'libracoder/kiri'
     runs-on: ubuntu-latest
     permissions:
       contents: read

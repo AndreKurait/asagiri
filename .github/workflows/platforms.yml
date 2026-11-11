@@ -1,6 +1,7 @@
 # Builds and unit-tests the engine on Linux, macOS and Windows, and keeps
-# each platform's binary as a workflow artifact. The binaries are unsigned
-# development builds, not a release.
+# each platform's binary, with its SHA-256, as a workflow artifact. On Linux
+# the build is then run as an engine and tested live (scripts/ci/live-tests.sh).
+# The binaries are unsigned development builds, not a release.
 
 name: Platform builds
 
@@ -21,7 +22,7 @@ jobs:
   linux:
     name: Linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,6 +35,12 @@ jobs:
           docker run --rm --privileged --tmpfs /tmp -v "$PWD:/src" -v "$RUNNER_TEMP/bin:/out" -w /src -e CARGO_TARGET_DIR=/t rust:1-alpine sh -c \
             'apk add -q build-base && cargo test --locked -p kiri -p kiri-init -p kiri-proto -p kiri-image && cargo build --release --locked -p kiri -p kiri-init && cp /t/release/kiri /t/release/kiri-init /out/'
           ls -l "$RUNNER_TEMP/bin"
+          (cd "$RUNNER_TEMP/bin" && sha256sum kiri kiri-init > SHA256SUMS && cat SHA256SUMS)
+      - name: Live tests on a private engine
+        # The build just made, run as an engine, and the conformance scripts
+        # in tests/ against it: containers, archives, attach, networks,
+        # limits and seccomp, on busybox and alpine.
+        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-${{ runner.arch }}
@@ -51,11 +58,14 @@ jobs:
       - name: Test
         run: rustup update stable --no-self-update && cargo test --locked
       - name: Build
-        run: cargo build --release --locked -p kiri
+        run: |
+          cargo build --release --locked -p kiri
+          mkdir -p "$RUNNER_TEMP/bin" && cp target/release/kiri "$RUNNER_TEMP/bin/"
+          (cd "$RUNNER_TEMP/bin" && shasum -a 256 kiri > SHA256SUMS && cat SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-${{ runner.arch }}
-          path: target/release/kiri
+          path: ${{ runner.temp }}/bin
           retention-days: 14
 
   windows:
@@ -69,9 +79,16 @@ jobs:
       - name: Test
         run: rustup update stable --no-self-update; cargo test --locked -p kiri-win
       - name: Build
-        run: cargo build --release --locked -p kiri-win
+        run: |
+          cargo build --release --locked -p kiri-win
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\bin" | Out-Null
+          Copy-Item target\release\kiri-win.exe "$env:RUNNER_TEMP\bin\"
+          $h = (Get-FileHash "$env:RUNNER_TEMP\bin\kiri-win.exe" -Algorithm SHA256).Hash.ToLower()
+          "$h  kiri-win.exe" | Set-Content -Encoding ascii "$env:RUNNER_TEMP\bin\SHA256SUMS"
+          Get-Content "$env:RUNNER_TEMP\bin\SHA256SUMS"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-${{ runner.arch }}
-          path: target/release/kiri-win.exe
+          path: ${{ runner.temp }}/bin
           retention-days: 14

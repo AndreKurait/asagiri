@@ -27,6 +27,6 @@ AI tools used to write this change: <!-- yes / no; if yes, which parts -->
 
 ## Checklist
 
-- [ ] I have at most 3 pull requests open on Kiri, this one included
+- [ ] I have at most 2 pull requests ready for review and 2 drafts open here, this one included
 - [ ] `cargo fmt`, `cargo clippy` and the tests pass
 - [ ] It works on macOS, Windows and Linux, or the change only touches one of them

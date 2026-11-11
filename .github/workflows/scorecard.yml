@@ -1,7 +1,8 @@
 # OpenSSF Scorecard: grades the repository's security practices and
 # publishes the result (https://scorecard.dev).
 #
-# Runs only in libracoder/kiri: copies of this repository skip it.
+# The Scorecard API only takes public repositories, so this waits until the
+# repository is public.
 name: Scorecard
 
 on:
@@ -17,7 +18,7 @@ permissions: {}
 jobs:
   analysis:
     name: Scorecard
-    if: github.repository == 'libracoder/kiri'
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
