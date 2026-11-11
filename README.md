@@ -1,146 +1,93 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="brand/logo/asagiri-horizontal-dark.svg">
-    <img src="brand/logo/asagiri-horizontal-light.svg" alt="Asagiri" width="220">
+    <img src="brand/logo/asagiri-horizontal-light.svg" alt="Asagiri" width="360">
   </picture>
 </p>
+<p align="center"><b>朝霧 · Morning mist</b><br>A fast Docker-compatible engine. A fresh start.</p>
+<p align="center"><a href="https://andrekurait.github.io/asagiri/">Website & demo</a> · <a href="docs/development.md">Development</a> · <a href="UPSTREAM.md">Upstream history</a> · <a href="README.pt-BR.md">Português brasileiro</a></p>
 
-<p align="center">
-  <b>A tiny, fast container runtime for macOS, Windows and Linux.</b><br>
-  Runs your Docker images and works with the <code>docker</code> CLI, Compose and buildx you already use.
-</p>
+Asagiri runs Linux containers on **macOS, Linux, and Windows** and speaks the
+Docker Engine API. Use the Docker CLI, Compose, buildx, and Docker SDKs, or
+manage your containers in the native app. The engine is written in Rust.
 
-<p align="center">
-  <b>English</b> · <a href="README.pt-BR.md">Português (Brasil)</a>
-</p>
+![The Asagiri app showing a sample development stack](docs/images/asagiri-window.png)
 
-<p align="center">
-  <a href="https://runkiri.com/releases/">Download</a> ·
-  <a href="docs/features.md">Features</a> ·
-  <a href="docs/development.md">Build from source</a> ·
-  <a href="https://github.com/libracoder/kiri/releases">Releases</a>
-</p>
+The screenshot and browser demo use sample data in the real app UI.
 
-<p align="center">
-  <a href="https://github.com/libracoder/kiri/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/libracoder/kiri?label=release&color=2f6feb"></a>
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-555"></a>
-  <a href="#in-your-language"><img alt="15 languages" src="https://img.shields.io/badge/languages-15-2ea043"></a>
-</p>
+## What you get
 
-<p align="center">
-  🇬🇧 🇮🇩 🇩🇪 🇪🇸 🇫🇷 🇮🇹 🇵🇱 🇧🇷 🇻🇳 🇹🇷 🇷🇺 🇯🇵 🇰🇷 🇨🇳 🇹🇼<br>
-  <sub>Asagiri speaks 15 languages. <a href="#in-your-language">Is yours one?</a></sub>
-</p>
+- Familiar Docker tools, with a small engine and a native desktop app.
+- Containers, images, volumes, networks, logs, terminals, and resource controls.
+- A Linux VM on macOS, WSL 2 on Windows, and native containers on Linux.
+- Container names for local development, plus Kubernetes and Linux machines.
+- An interface in 15 languages, with the same core features on all three platforms.
+- Cross-platform CI, live Docker API conformance tests, and performance checks.
 
-<p align="center">
-  <img src="docs/images/asagiri-window.png" alt="The Asagiri window, showing containers grouped by Compose project with their state, ports, local domains and size" width="900">
-</p>
+## Build from source
 
----
-
-Asagiri is a lightweight replacement for Docker Desktop and OrbStack, written in
-Rust. It runs containers in one small Linux VM (or straight on the kernel on
-Linux) and speaks the Docker Engine API, so your tools just work.
-
-The name comes from the Igbo word *ntakịrị*, "small".
-
-## Why Asagiri
-
-- **Fast**: a container starts and exits in about 2.5 ms through the Docker API. That's around 80 times faster than Docker Desktop.
-- **Light**: the VM sleeps after 60 s idle, the daemon stays at about 15 MB, and it wakes in about 0.15 s.
-- **Compatible**: `docker`, Compose, buildx, `docker login` and amd64 images through Rosetta.
-- **Local domains**: `http://<name>.asagiri.local`, with HTTPS from Asagiri's own certificate authority.
-- **More than containers**: a one-command Kubernetes cluster and Linux machines.
-- **A native window** for containers, images, volumes and networks, plus a menu bar item.
-- **In your language**: 15 languages, on macOS, Windows and Linux alike.
-
-### In your language
-
-Asagiri's window and setup come in these languages. It follows your system's language, and you can change it in Settings → Appearance.
-
-| | Language | | Language | | Language |
-|---|---|---|---|---|---|
-| 🇬🇧 | English | 🇮🇹 | Italiano | 🇷🇺 | Русский |
-| 🇮🇩 | Bahasa Indonesia | 🇵🇱 | Polski | 🇯🇵 | 日本語 |
-| 🇩🇪 | Deutsch | 🇧🇷 | Português (Brasil) | 🇰🇷 | 한국어 |
-| 🇪🇸 | Español | 🇻🇳 | Tiếng Việt | 🇨🇳 | 简体中文 |
-| 🇫🇷 | Français | 🇹🇷 | Türkçe | 🇹🇼 | 繁體中文 |
-
-Missing yours? Translations live in [`crates/asagiri/src/ui/lang`](crates/asagiri/src/ui/lang); see [Contributing](#contributing).
-
-## Install
-
-| Platform | Get it |
-|----------|--------|
-| macOS 14+ (Apple silicon or Intel) | `.dmg` from [runkiri.com/releases](https://runkiri.com/releases/) |
-| Windows 10 and 11 (x86-64 or Arm, through WSL 2) | `.msi` from [runkiri.com/releases](https://runkiri.com/releases/) |
-| Linux (Ubuntu, Fedora and others) | `.deb` or `.rpm` from [runkiri.com/releases](https://runkiri.com/releases/) |
-
-The first time you open Asagiri, it sets up a `asagiri` Docker context. Asagiri updates itself, and checks each new release's signature first.
-
-## Quick start
+**There are no Asagiri releases yet.** Build from this repository. Actions
+artifacts are unsigned development binaries, not complete desktop installers.
+Asagiri has no default update feed and will not update itself into another
+project. See [release status](RELEASES.md).
 
 ```sh
-docker --context asagiri run --rm alpine echo hello
+git clone https://github.com/AndreKurait/asagiri.git
+cd asagiri
+```
+
+Use a current stable Rust toolchain. The bundled guest, kernel, Linux packages,
+and Windows engine also need a working Docker engine.
+
+| Platform | Build | Output |
+| --- | --- | --- |
+| macOS | `cargo xtask app-dev` | `target/Asagiri Dev.app` |
+| Linux engine | `cargo xtask linux` | static engine and guest agent in `target/` |
+| Windows | `cargo xtask windows-dev` | `target/asagiri-windows-x86_64/` |
+
+For Intel Macs, add `--arch x86_64`; for Windows on Arm, add `--arch arm64`.
+See [development](docs/development.md) for prerequisites, platform details, and
+running a build, and [packaging](packaging/README.md) for installers.
+
+Once Asagiri is set up, use its Docker context:
+
+```sh
+docker --context asagiri run --rm alpine echo 'Good morning, Asagiri'
 docker --context asagiri compose up -d
-asagiri k8s start                      # single-node Kubernetes as the `asagiri` kubectl context
-asagiri machine create dev --distro ubuntu && asagiri machine shell dev
-asagiri import                         # bring images, volumes and containers over from OrbStack or Docker Desktop
 ```
 
-Docker's commands also work as `asagiri` commands (`asagiri run`, `asagiri ps`,
-`asagiri compose up`, and so on), and always target Asagiri.
+Sharing requires your own compatible server. Asagiri does not operate a hosted
+sharing service; see [sharing](docs/sharing.md).
 
-## Numbers
+## What differs from Kiri
 
-`alpine` running `true` and removed, median of 30 runs, same `docker` CLI for all three:
+Asagiri has its own name, app identity, state directories, socket, installer
+identity, visual assets, and release infrastructure. Kiri installations keep
+their own identity. Data is not migrated automatically.
 
-|                | Docker Engine API | `docker` CLI |
-|----------------|------------------:|-------------:|
-| **Asagiri**       | **2.55 ms**       | **14.2 ms**  |
-| Docker Desktop | 213 ms            | 243 ms       |
-| OrbStack       | 380 ms            | 442 ms       |
+This tree integrates additional Docker compatibility work: lifecycle races,
+HTTP and archive behavior, SDK attach, resource limits, seccomp profiles, and
+bridge, macvlan, and ipvlan networking. It also carries reviewed upstream fixes.
+[UPSTREAM.md](UPSTREAM.md) records sources, follow-ups, and remaining limitations.
 
-Method and every other figure are in [`bench/results.json`](bench/results.json). Rerun with `asagiri bench`.
+## Lineage and attribution
 
-## How it works
+Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri),
+created by libracoder and the Kiri contributors. It shares that foundation and
+preserves contributor authorship. It is not affiliated with or endorsed by the
+Kiri project or Canestack Labs. Kiri's services, release binaries, and trademarks
+belong to their respective owners.
 
-```
-docker CLI ─┐
-compose ────┼─ Docker Engine API ─► asagiri daemon ── vsock ──► guest agent (PID 1)
-buildx ─────┤                         owns the VM           clone3 → container
-asagiri UI ────┘
-```
+**Asagiri** (朝霧) means *morning mist*; *kiri* (霧) means *mist*. Our sun rising
+through three bars of mist acknowledges that lineage with a distinct mark.
 
-The VM uses a custom 10 MB kernel, and its PID 1 is a ~900 KB Rust agent.
-That agent starts containers with a single `clone3` into namespaces and a
-cgroup. There's no runc, no shim and no dockerd. More detail is in
-[docs/development.md](docs/development.md#architecture).
+The workspace is licensed under [Apache-2.0](LICENSE). Third-party attribution
+and license texts are in [NOTICE](NOTICE). The separately distributed Linux
+kernel has its own GPL-2.0-only [source offer](guest/kernel/SOURCE_OFFER.md).
 
-## Documentation
+## Contribute
 
-- [Features](docs/features.md): everything supported today, release files and known issues
-- [Development](docs/development.md): building, running from source, architecture and repository layout
-- [Release notes](docs/releases)
-
-## Roadmap
-
-Next is a built-in builder. Asagiri will serve Docker's own build endpoints, so
-buildx uses its docker driver against Asagiri as it does against Docker
-Desktop. This brings `host-gateway` support to BuildKit builds, and images
-load straight into Asagiri.
-
-## Contributing
-
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
-and the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability
-privately, see [SECURITY.md](SECURITY.md).
-
-## License
-
-[Apache-2.0](LICENSE). Third-party licences are in [NOTICE](NOTICE). The guest
-kernel is Linux (GPL-2.0); its config, patches and the source offer are in
-[`guest/kernel`](guest/kernel).
-
-The name "Asagiri" and the Asagiri logo are not covered by the licence. Forks are
-welcome, under a different name and logo.
+Read [CONTRIBUTING.md](CONTRIBUTING.md), report bugs in this repository, and use
+[private vulnerability reporting](https://github.com/AndreKurait/asagiri/security/advisories/new)
+for security issues. Historical benchmark files and Kiri release notes retain
+their original attribution; they are not measurements or releases of Asagiri.

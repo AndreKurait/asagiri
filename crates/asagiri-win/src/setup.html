@@ -6,10 +6,10 @@
 <title>Asagiri Setup</title>
 <style>
 :root{
-  --bg:#0F1419; --rail:#131920; --surface:#171E26; --sunk:#0B0F13; --line:#26303A; --line-2:#1B232C; --stroke:#3A4652;
+  --bg:#161B33; --rail:#1B203C; --surface:#202643; --sunk:#12162A; --line:#394164; --line-2:#252B49; --stroke:#3A4652;
   --ink:#F6F2EA; --text-2:#C9CDD2; --muted:#9AA3AE;
-  --ember:#E0B420; --lid:#F2CF5B; --ember-text:#E8C04A; --ember-deep:#CC9A0C;
-  --moss:#5CC99A; --bad:#F28B82; --primary:#0D6EFD; --primary-hover:#0B5ED7;
+  --ember:#F2684A; --lid:#FFA36C; --ember-text:#FFA18C; --ember-deep:#C64A32;
+  --moss:#5CC99A; --bad:#F28B82; --primary:#C64A32; --primary-hover:#AE3D28;
   --f-text:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --f-display:"Segoe UI Variable Display","Segoe UI",sans-serif;
   --f-mono:"Cascadia Mono",Consolas,monospace;
@@ -229,7 +229,9 @@ main.choose .foot{position:sticky;bottom:-24px;margin-bottom:-24px;padding:14px 
 <div class="app">
   <aside class="rail" aria-label="Setup steps">
     <div class="brand">
-      <svg viewBox="0 0 64 64" width="36" height="36" aria-hidden="true" focusable="false"><defs><clipPath id="su-rail"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath></defs><g transform="translate(6 0) skewX(-10)"><rect x="22" y="12" width="34" height="40" rx="10" fill="#E0B420"/><rect x="10" y="0" width="60" height="21.5" fill="#F2CF5B" clip-path="url(#su-rail)"/><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6" fill="#0F1419"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6" fill="#0F1419"/></g><g fill="#F6F2EA"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></svg>
+      <svg width="36" height="36" viewBox="0 0 64 64" aria-hidden="true"><clipPath id="setup-sun"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#setup-sun)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="currentColor"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g></svg>
       <span>Asagiri</span>
     </div>
     <ol class="steps" id="steps"></ol>
@@ -330,63 +332,30 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
   var DISP = 'Segoe UI Variable Display, Segoe UI, sans-serif';
 
   /* ---------- illustrations (decorative; copied from the design) ---------- */
-  var BODY = function (id, eyes) { return '<rect x="22" y="12" width="34" height="40" rx="10" fill="#E0B420"/><rect x="10" y="0" width="60" height="21.5" fill="#F2CF5B" clip-path="url(#' + id + ')"/>' + eyes; };
-  var CLIP = function (id) { return '<defs><clipPath id="' + id + '"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath></defs>'; };
-  var ARMS = '<g fill="#F6F2EA"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g>';
-  var EYES = function (x1, x2, y, glint) {
-    return '<ellipse cx="' + x1 + '" cy="' + y + '" rx="3.1" ry="3.6" fill="#0F1419"/><ellipse cx="' + x2 + '" cy="' + y + '" rx="3.1" ry="3.6" fill="#0F1419"/>' +
-      (glint ? '<circle cx="' + (x1 + glint[0]) + '" cy="' + (y + glint[1]) + '" r="0.9" fill="#FFFFFF"/><circle cx="' + (x2 + glint[0]) + '" cy="' + (y + glint[1]) + '" r="0.9" fill="#FFFFFF"/>' : '');
-  };
+  var MIST = function (id) { return '<clipPath id="' + id + '"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>   <g clip-path="url(#' + id + ')" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>   <g fill="#F3F1F7"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g>'; };
   var SVG = function (vb, w, h, inner) { return '<svg viewBox="' + vb + '" width="' + w + '" height="' + h + '" aria-hidden="true" focusable="false">' + inner + '</svg>'; };
-
+  var halo = '<circle cx="110" cy="90" r="82" fill="#F2684A" opacity="0.08"/>';
+  var dawn = function (id) { return SVG('0 0 220 180', 220, 180, halo + '<g transform="translate(46 16) scale(2)">' + MIST(id) + '</g>'); };
+  var choice = function (label, own) { return SVG('0 0 440 168', '100%', 168,
+    '<path d="M0 150Q90 85 190 133T440 115V168H0Z" fill="#252B49"/>' +
+    (own ? '<g transform="translate(70 20) scale(1.7)">' + MIST('su-choice') + '</g>' : '<g fill="none" stroke="#ADB3CD" stroke-width="3"><rect x="88" y="43" width="76" height="62" rx="9"/><path d="M104 65h40m-40 17h25"/></g>') +
+    '<text x="255" y="83" fill="#F3F1F7" font-family="' + MONO + '" font-size="18">' + esc(label) + '</text><path d="M224 104h136" stroke="#F2684A" stroke-width="3" stroke-linecap="round"/>'); };
   var ART = {
-    welcome: SVG('0 0 220 180', 220, 180, CLIP('su-a1') +
-      '<circle cx="110" cy="92" r="84" fill="#E0B420" opacity="0.08"/><rect x="128" y="44" width="62" height="104" rx="8" fill="#171E26" stroke="#3A4652" stroke-width="2"/><circle cx="178" cy="98" r="3.5" fill="#9AA3AE"/>' +
-      '<text x="159" y="34" text-anchor="middle" font-family="' + MONO + '" font-size="12" fill="#9AA3AE">Linux</text><rect x="16" y="147" width="190" height="2" rx="1" fill="#26303A"/>' +
-      '<g transform="translate(18 62) scale(1.35)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-a1', EYES(43, 52, 28, [1, -1.4])) + '</g>' + ARMS + '</g>'),
-    download: SVG('0 0 64 64', 72, 72, '<circle cx="32" cy="32" r="30" fill="#131920" stroke="#26303A" stroke-width="2"/><path d="M32 16 v26 m-11 -11 l11 11 l11 -11 M20 48 h24" fill="none" stroke="#E0B420" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'),
-    restart: SVG('0 0 240 190', 240, 190, CLIP('su-a3') +
-      '<circle cx="120" cy="96" r="88" fill="#E0B420" opacity="0.08"/><path d="M188 96 a68 68 0 1 1 -20 -48" fill="none" stroke="#3A4652" stroke-width="8" stroke-linecap="round"/><path d="M172 26 l-2 26 l26 -4" fill="none" stroke="#3A4652" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<g transform="translate(70 58) scale(1.3)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-a3', '<path d="M38.5 29.5 q3 2.4 6 0 M47.5 29.5 q3 2.4 6 0" fill="none" stroke="#0F1419" stroke-width="2" stroke-linecap="round"/>') + '</g></g>' +
-      '<text x="168" y="70" font-family="' + DISP + '" font-size="22" font-weight="700" fill="#E8C04A">z</text><text x="182" y="54" font-family="' + DISP + '" font-size="15" font-weight="700" fill="#E8C04A" opacity="0.7">z</text>'),
-    chooseAsagiri: function (label) {
-      return SVG('0 0 440 168', '100%', 168, CLIP('su-ck') +
-        '<path d="M30 140 L110 72 L150 104 L196 58 L262 120 L300 92 L360 140 Z" fill="#1B232C"/><path d="M196 58 L184 69 L192 67 L198 72 L205 66 L210 70 Z" fill="#26303A"/><rect x="20" y="139" width="400" height="2" rx="1" fill="#26303A"/>' +
-        '<g transform="translate(138 52) scale(1.35)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-ck', EYES(42.5, 51.5, 29, [1.1, -1.4])) + '</g>' + ARMS + '</g>' +
-        '<g transform="translate(250 96)"><rect x="0" y="0" width="46" height="40" rx="7" fill="#1B232C" stroke="#E0B420" stroke-width="2"/><rect x="19" y="0" width="8" height="40" fill="#E0B420" opacity="0.55"/>' +
-        '<text x="23" y="-10" text-anchor="middle" font-family="' + MONO + '" font-size="13" font-weight="600" fill="#E8C04A">' + esc(label) + '</text></g>' +
-        '<circle cx="330" cy="46" r="3" fill="#E0B420" opacity="0.7"/><circle cx="352" cy="62" r="2" fill="#F2CF5B" opacity="0.6"/><circle cx="318" cy="72" r="1.6" fill="#F6F2EA" opacity="0.5"/>').replace('<svg ', '<svg preserveAspectRatio="xMidYMid meet" ');
-    },
-    chooseUbuntu: function (label) {
-      return SVG('0 0 440 168', '100%', 168, CLIP('su-cu') +
-        '<rect x="20" y="139" width="400" height="2" rx="1" fill="#26303A"/><path d="M262 46 a18 18 0 0 1 34 -8 a14 14 0 0 1 26 6 a12 12 0 0 1 -2 24 h-56 a11 11 0 0 1 -2 -22 z" fill="#1B232C" stroke="#3A4652" stroke-width="2"/>' +
-        '<path d="M290 74 v20 m-8 -8 l8 8 l8 -8" fill="none" stroke="#9AA3AE" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
-        '<g stroke="#3A4652" stroke-width="2" fill="#1B232C"><rect x="214" y="100" width="76" height="38" rx="6"/><rect x="292" y="100" width="76" height="38" rx="6"/></g>' +
-        '<g stroke="#26303A" stroke-width="2"><path d="M214 113 h76 M214 125 h76 M292 113 h76 M292 125 h76"/></g>' +
-        '<rect x="226" y="66" width="128" height="32" rx="6" fill="#1B232C" stroke="#3A4652" stroke-width="2"/>' +
-        '<text x="290" y="88" text-anchor="middle" font-family="' + MONO + '" font-size="14" font-weight="600" fill="#C9CDD2">' + esc(label) + '</text>' +
-        '<g transform="translate(96 82) scale(0.86)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-cu', EYES(43, 52, 26.5, [1, -1.7])) + '</g></g>' +
-        '<text x="130" y="72" font-family="Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#9AA3AE">?</text>');
-    },
-    linuxAsagiri: SVG('0 0 120 100', 120, 100, CLIP('su-a5') +
-      '<circle cx="60" cy="52" r="46" fill="#E0B420" opacity="0.1"/><g transform="translate(30 20) scale(0.8)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-a5', EYES(42.5, 51.5, 29)) + '</g></g>' +
-      '<path d="M22 62 h76 l-6 30 h-64 z" fill="#1B232C" stroke="#E0B420" stroke-width="2" stroke-linejoin="round"/><path d="M22 62 l-10 -12 M98 62 l10 -12" stroke="#E0B420" stroke-width="2" stroke-linecap="round"/>'),
-    linuxUbuntu: SVG('0 0 120 100', 120, 100,
-      '<circle cx="60" cy="52" r="46" fill="#9AA3AE" opacity="0.08"/><path d="M36 32 a14 14 0 0 1 27 -6 a11 11 0 0 1 20 5 a9 9 0 0 1 -1 18 h-45 a8.5 8.5 0 0 1 -1 -17 z" fill="#1B232C" stroke="#3A4652" stroke-width="2"/>' +
-      '<path d="M60 52 v16 m-7 -7 l7 7 l7 -7" fill="none" stroke="#E0B420" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><g fill="#1B232C" stroke="#3A4652" stroke-width="1.5"><rect x="32" y="76" width="26" height="16" rx="3"/><rect x="62" y="76" width="26" height="16" rx="3"/></g>'),
-    engine: SVG('0 0 120 100', 120, 100, CLIP('su-a6') +
-      '<circle cx="60" cy="52" r="46" fill="#E0B420" opacity="0.1"/><g transform="translate(78 30)" fill="none" stroke="#3A4652" stroke-width="6"><circle r="16"/><path d="M0 -26 v8 M0 18 v8 M-26 0 h8 M18 0 h8 M-18 -18 l6 6 M12 12 l6 6 M18 -18 l-6 6 M-12 12 l-6 6" stroke-linecap="round"/></g>' +
-      '<g transform="translate(14 30) scale(0.95)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-a6', EYES(42.5, 51.5, 29)) + '</g>' + ARMS + '</g>'),
-    ready: SVG('0 0 280 200', 280, 200, CLIP('su-a8') +
-      '<circle cx="140" cy="100" r="92" fill="#E0B420" opacity="0.1"/><ellipse cx="140" cy="182" rx="44" ry="6" fill="#0B0F13"/>' +
-      '<g transform="translate(84 18) scale(1.6)"><g transform="translate(6 0) skewX(-10)">' + BODY('su-a8', '<path d="M38.5 30 q3 -3 6 0 M47.5 30 q3 -3 6 0" fill="none" stroke="#0F1419" stroke-width="2.2" stroke-linecap="round"/>') + '</g>' + ARMS + '</g>' +
-      '<g><rect x="40" y="40" width="10" height="5" rx="2.5" fill="#E0B420" transform="rotate(-30 45 42)"/><rect x="226" y="54" width="10" height="5" rx="2.5" fill="#5CC99A" transform="rotate(25 231 56)"/><rect x="60" y="120" width="8" height="4" rx="2" fill="#F6F2EA" transform="rotate(40 64 122)"/><rect x="214" y="130" width="9" height="4" rx="2" fill="#F2CF5B" transform="rotate(-20 218 132)"/><circle cx="236" cy="96" r="3.5" fill="#E0B420"/><circle cx="40" cy="86" r="3" fill="#5CC99A"/><circle cx="198" cy="28" r="2.5" fill="#F6F2EA"/></g>')
+    welcome: dawn('su-welcome'),
+    download: SVG('0 0 64 64', 72, 72, '<circle cx="32" cy="32" r="30" fill="#1B203C" stroke="#394164" stroke-width="2"/><path d="M32 16v26m-11-11 11 11 11-11M20 48h24" fill="none" stroke="#F2684A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'),
+    restart: SVG('0 0 220 180', 220, 180, halo + '<path d="M181 80a73 73 0 1 1-18-42m-4-18 4 18 18-4" fill="none" stroke="#848BA8" stroke-width="5" stroke-linecap="round"/><g transform="translate(62 32) scale(1.5)">' + MIST('su-restart') + '</g>'),
+    chooseAsagiri: function (label) { return choice(label, true); },
+    chooseUbuntu: function (label) { return choice(label, false); },
+    linuxAsagiri: SVG('0 0 120 100', 120, 100, '<g transform="translate(20 3) scale(1.25)">' + MIST('su-linux') + '</g>'),
+    linuxUbuntu: SVG('0 0 120 100', 120, 100, '<rect x="17" y="14" width="86" height="64" rx="9" fill="#252B49" stroke="#848BA8" stroke-width="2"/><path d="m33 35 12 10-12 10m22 0h25M44 88h32" fill="none" stroke="#F2684A" stroke-width="4" stroke-linecap="round"/>'),
+    engine: SVG('0 0 120 100', 120, 100, '<g transform="translate(20 3) scale(1.25)">' + MIST('su-engine') + '</g>'),
+    ready: SVG('0 0 280 200', 280, 200, '<circle cx="140" cy="100" r="92" fill="#F2684A" opacity="0.08"/><g transform="translate(62 7) scale(2.4)">' + MIST('su-ready') + '</g><circle cx="214" cy="145" r="21" fill="#5CC99A"/><path d="m204 145 7 7 13-14" fill="none" stroke="#161B33" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
   };
   var TOOL_ICON = {
     docker: '&gt;_',
-    compose: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><g fill="none" stroke="#E8C04A" stroke-width="2"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="8" y="13" width="8" height="7" rx="1.5"/></g></svg>',
-    buildx: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M4 20 L10 8 L14 14 L16 11 L20 20 Z" fill="none" stroke="#E8C04A" stroke-width="2" stroke-linejoin="round"/></svg>',
-    build: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><g fill="none" stroke="#E8C04A" stroke-width="2" stroke-linejoin="round"><path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z"/><path d="M4 7.5 L12 12 L20 7.5 M12 12 V21"/></g></svg>'
+    compose: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><g fill="none" stroke="#FFA18C" stroke-width="2"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="8" y="13" width="8" height="7" rx="1.5"/></g></svg>',
+    buildx: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M4 20 L10 8 L14 14 L16 11 L20 20 Z" fill="none" stroke="#FFA18C" stroke-width="2" stroke-linejoin="round"/></svg>',
+    build: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><g fill="none" stroke="#FFA18C" stroke-width="2" stroke-linejoin="round"><path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z"/><path d="M4 7.5 L12 12 L20 7.5 M12 12 V21"/></g></svg>'
   };
   function toolIcon(label) {
     var l = String(label || '').toLowerCase();

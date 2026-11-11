@@ -552,7 +552,7 @@ const SYSTEM_LINK: &str = "/usr/local/bin/asagiri";
 
 fn system_link(asagiri: &Path) {
     let link = Path::new(SYSTEM_LINK);
-    // Missing, or a link an older Asagiri left (to a Asagiri.app or ~/.asagiri/bin
+    // Missing, or a link an older Asagiri left (to an Asagiri.app or ~/.asagiri/bin
     // that moved, or to nothing): made again to this one. Anything else there
     // isn't Asagiri's to replace; stale::stale_asagiri() names it.
     let replace = match std::fs::read_link(link) {
@@ -565,7 +565,7 @@ fn system_link(asagiri: &Path) {
     }
 }
 
-/// A link target that is some Asagiri's `asagiri`: inside a Asagiri app bundle, or a
+/// A link target that is some Asagiri's `asagiri`: inside an Asagiri app bundle, or a
 /// Asagiri bin directory (~/.asagiri/bin, ~/.asagiri-dev/bin).
 fn asagiri_link(target: &Path) -> bool {
     let t = target.to_string_lossy();

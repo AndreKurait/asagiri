@@ -32,7 +32,7 @@
   <?ifndef Size ?><?define Size = "" ?><?endif?>
   <?define Name = "Asagiri" ?>
   <?define Manufacturer = "Asagiri" ?>
-  <?define Url = "https://runkiri.com" ?>
+  <?define Url = "https://andrekurait.github.io/asagiri" ?>
   <?define Description = "Tiny, fast container runtime" ?>
   <?define Keywords = "containers, docker, wsl, runtime" ?>
 
@@ -50,7 +50,7 @@
   <Package Name="$(Name)"
            Manufacturer="$(Manufacturer)"
            Version="$(Version)"
-           UpgradeCode="7C2E4B9A-5D13-4F8E-9B6A-0E1D3C5A7F21"
+           UpgradeCode="09468702-99A9-5400-8567-0C02E69698E6"
            Scope="perUser"
            Language="1033"
            Codepage="1252"
@@ -111,7 +111,7 @@
       anything.
     -->
     <ComponentGroup Id="AsagiriComponents">
-      <Component Id="AsagiriApp" Directory="INSTALLFOLDER" Guid="2B7D9F41-6A3C-4E85-B1D2-8C4F6A0E3B57">
+      <Component Id="AsagiriApp" Directory="INSTALLFOLDER" Guid="FD9FE458-4BBF-5E28-8493-5EFEC52B1CA2">
         <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Version" Type="string" Value="$(Version)" />
         <File Id="AsagiriWinExe" Source="$(Bundle)\asagiri-win.exe" />
@@ -135,14 +135,14 @@
         <util:RemoveFolderEx On="uninstall" Property="ASAGIRIDIR" />
         <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
       </Component>
-      <Component Id="AsagiriDockerCli" Directory="BinFolder" Guid="9E5A1C73-0B2D-4F6E-A8C1-3D7B5E9F2A64">
+      <Component Id="AsagiriDockerCli" Directory="BinFolder" Guid="056D88BE-3209-5632-9E78-B7A2FF78F486">
         <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Bin" Type="string" Value="[BinFolder]" KeyPath="yes" />
         <File Id="DockerExe" Source="$(Bundle)\bin\docker.exe" />
         <!-- `asagiri` in PowerShell, cmd and Git Bash (crates/asagiri/src/wsl.rs). -->
         <File Id="AsagiriCliExe" Source="$(Bundle)\bin\asagiri.exe" />
         <RemoveFolder Id="RemoveBinFolder" Directory="BinFolder" On="uninstall" />
       </Component>
-      <Component Id="AsagiriDockerPlugins" Directory="PluginsFolder" Guid="4F8B2D16-7C9E-4A3B-9D5F-1E6C8A0B4D72">
+      <Component Id="AsagiriDockerPlugins" Directory="PluginsFolder" Guid="0853F7CD-0E95-558A-9835-BB8F51F05D16">
         <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Plugins" Type="string" Value="[PluginsFolder]" KeyPath="yes" />
         <File Id="ComposeExe" Source="$(Bundle)\bin\cli-plugins\docker-compose.exe" />
         <File Id="BuildxExe" Source="$(Bundle)\bin\cli-plugins\docker-buildx.exe" />

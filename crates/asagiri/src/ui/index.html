@@ -7,14 +7,14 @@
 <style>
 /* Asagiri window. Hand-written, no framework: only the rules this page uses. */
 :root {
-  --blue: #0D6EFD; --blue-hover: #0B5ED7; --blue-active: #0A58CA; --blue-light: #6EA8FE;
+  --blue: #C64A32; --blue-hover: #AE3D28; --blue-active: #96331F; --blue-light: #FFA18C;
   --moss: #3FB68B; --sun: #FFC23D; --red: #DC3545;
   /* The same hues as small text, at 4.5:1 or better on the panels. */
   --sun-text: #FFC23D; --red-text: #F87171;
   /* External: a share another computer on the account runs. */
   --ext: #A78BFA; --ext-text: #C4B5FD;
-  --bg: #0F1419; --side: #121920; --panel: #171D24; --raised: #1E252D; --line: #2A313A;
-  --text: #F2F0EB; --muted: #98A1AC; --faint: #66707C;
+  --bg: #161B33; --side: #1B203C; --panel: #202643; --raised: #293051; --line: #394164;
+  --text: #F3F1F7; --muted: #ADB3CD; --faint: #848BA8;
   --row-hover: rgba(255, 255, 255, .035);
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
   --mono-font: ui-monospace, "SF Mono", Menlo, monospace;
@@ -23,8 +23,8 @@
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #F5F7FA; --side: #EDF0F5; --panel: #FFFFFF; --raised: #F3F5F9; --line: #DDE3EB;
-    --text: #0F1419; --muted: #5E6773; --faint: #8A929C; --row-hover: rgba(15, 20, 25, .035);
+    --bg: #F3F1F7; --side: #ECE9F2; --panel: #FFFFFF; --raised: #F5F3F8; --line: #DDD9E8;
+    --text: #161B33; --muted: #5E6773; --faint: #8A929C; --row-hover: rgba(15, 20, 25, .035);
     --sun-text: #8A6100; --red-text: #B42318; --ext-text: #6941C6;
     color-scheme: light;
   }
@@ -48,7 +48,7 @@ body { display: grid; grid-template-columns: 212px 1fr; grid-template-rows: var(
 .mono { font: var(--fs-mono) var(--mono-font); }
 svg.i { width: 16px; height: 16px; fill: currentColor; flex: none; }
 
-/* --- buttons: flat, Bootstrap blue ------------------------------------------------ */
+/* --- buttons: flat, dawn coral ------------------------------------------------ */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 14px;
        border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
        font: 600 var(--fs)/1 var(--ui-font); cursor: pointer; white-space: nowrap;
@@ -581,7 +581,7 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
 .console .quiet { color: var(--faint); }
 .term .console { font-size: var(--fs); height: auto; min-height: 0; overflow: visible; border: 0; border-radius: 0; background: none; padding: 0; }
 .term .console:empty { display: none; }
-.term .cmd { color: #F2F0EB; }
+.term .cmd { color: #F3F1F7; }
 .term .ps1 { color: #8FD3FF; white-space: pre; }
 .term .exit { color: var(--faint); }
 /* One full-height console, as in a terminal: the prompt follows the output and the whole thing scrolls. */
@@ -590,7 +590,7 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
 .term form { display: flex; align-items: center; gap: 8px; }
 .term form { gap: 0; }
 .term form span { color: #8FD3FF; font: var(--fs)/1.55 var(--mono-font); white-space: pre; }
-.term input { flex: 1; background: none; border: 0; outline: none; padding: 0; color: #F2F0EB; font: var(--fs)/1.55 var(--mono-font); }
+.term input { flex: 1; background: none; border: 0; outline: none; padding: 0; color: #F3F1F7; font: var(--fs)/1.55 var(--mono-font); }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; font: var(--fs-mono) var(--mono-font); }
 .crumbs button { border: 0; background: none; color: var(--blue-light); font: inherit; padding: 2px 3px; cursor: pointer; border-radius: 4px; }
 .crumbs button:hover { background: var(--raised); }
@@ -1689,12 +1689,12 @@ nav .sh-globes .g { box-shadow: 0 0 0 1.5px var(--side); background: color-mix(i
 /* The Share column: a share on this computer that asagiri share made, with a hover card. */
 .tipwrap { position: relative; display: inline-block; }
 .tip { position: absolute; z-index: 5; left: -4px; top: calc(100% + 4px); width: 250px; white-space: normal; display: none;
-       padding: 7px 10px; border-radius: 7px; background: #2B323B; color: #F2F0EB; font-size: var(--fs-small); line-height: 1.4; box-shadow: 0 6px 18px rgb(0 0 0 / .45); pointer-events: none; }
+       padding: 7px 10px; border-radius: 7px; background: #2B323B; color: #F3F1F7; font-size: var(--fs-small); line-height: 1.4; box-shadow: 0 6px 18px rgb(0 0 0 / .45); pointer-events: none; }
 .tipwrap:hover .tip, .tipwrap:focus-within .tip { display: block; }
 .tip::before { content: ""; position: absolute; left: 22px; top: -4px; width: 8px; height: 8px; transform: rotate(45deg); background: #2B323B; }
-.tip .mono { font-size: var(--fs-small); color: #6EA8FE; }
+.tip .mono { font-size: var(--fs-small); color: #FFA18C; }
 .tip .w { color: #C4B5FD; font-weight: 600; }
-.tip .h { color: #98A1AC; }
+.tip .h { color: #ADB3CD; }
 
 /* The plan-limit toast: wider, so the names fit. It stays until dismissed. */
 .toast.error.cap { width: 420px; cursor: default; }
@@ -2476,9 +2476,9 @@ const copyBtn = (value, what) => `<button class="copy" data-copy="${esc(value)}"
 
 /* Settings: the fonts and text size, applied to the whole window. */
 const prefs = { font: "System", mono: "System Mono", scale: 1, tab: "appearance", theme: "dark", accent: "blue" };
-/* Accents; Asagiri's own blue first. */
-const ACCENTS = [["blue", "Blue", "#0D6EFD"], ["purple", "Purple", "#8C6EF5"], ["orange", "Orange", "#F58228"], ["teal", "Teal", "#14B4A5"], ["pink", "Pink", "#EC408C"], ["green", "Green", "#28AA5A"]];
-/* i18n */ void [tr("Blue"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green")];
+/* Accents; Asagiri's dawn coral first. The stored key stays compatible. */
+const ACCENTS = [["blue", "Coral", "#C64A32"], ["purple", "Purple", "#8C6EF5"], ["orange", "Orange", "#F58228"], ["teal", "Teal", "#14B4A5"], ["pink", "Pink", "#EC408C"], ["green", "Green", "#28AA5A"]];
+/* i18n */ void [tr("Coral"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green")];
 const darkNow = () => prefs.theme === "dark" || (prefs.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { themeBtn(); if (ui.view === "settings") render(); });
 // The strip's theme button shows what a click switches to.
@@ -2941,15 +2941,13 @@ function localUrl(c, name) {
   return `${scheme}://${chosen || (project ? `${c.Labels["com.docker.compose.service"]}.${project}` : name)}.${ui.suffix}${port}`;
 }
 
-/* The tiny Asagiri: the mark's body, lid and eyes. */
-const ASAGIRI_MARK = `<svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(6 0) skewX(-10)">
-  <clipPath id="lid-cloud"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath><rect x="22" y="12" width="34" height="40" rx="10" fill="#E0B420"/>
-  <g clip-path="url(#lid-cloud)"><rect x="10" y="0" width="60" height="21.5" fill="#F2CF5B"/></g>
-  <g fill="#0F1419"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g>
-  <g fill="currentColor"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></svg>`;
-const KDOT = `<svg class="kdot" viewBox="0 0 30 32" aria-hidden="true"><g transform="skewX(-10) translate(5 0)"><rect x="2" y="1" width="26" height="30" rx="8" fill="#E0B420"/>
-  <path d="M2 9a8 8 0 0 1 8-8h10a8 8 0 0 1 8 8v-.5H2z" fill="#F2CF5B"/>
-  <ellipse cx="12" cy="15" rx="2.6" ry="3" fill="#0F1419"/><ellipse cx="20" cy="15" rx="2.6" ry="3" fill="#0F1419"/></g></svg>`;
+/* The morning-mist mark, from brand/generate.py. */
+const ASAGIRI_MARK = `<svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><clipPath id="cloud-sun"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#cloud-sun)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="currentColor"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g></svg>`;
+const KDOT = `<svg class="kdot" viewBox="0 0 64 64" aria-hidden="true"><clipPath id="dot-sun"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#dot-sun)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="currentColor"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g></svg>`;
 const localChip = (url) => `<button class="local" data-open="${esc(url)}" title="${tr("Open {url}", { url: esc(url) })}"><span>${esc(url.replace(/^https?:\/\//, ""))}</span></button>`;
 
 /* First open: two small pictures of the same app, by port and by name. */
@@ -2961,7 +2959,7 @@ const pictureBar = (url, asagiri) => `<svg viewBox="0 0 160 84" aria-hidden="tru
   ${asagiri ? "" : `<rect x="10" y="48" width="74" height="6" rx="3" style="fill:var(--line)"/><rect x="10" y="60" width="52" height="6" rx="3" style="fill:var(--line)"/>`}
   ${asagiri ? `<g transform="translate(67 44) skewX(-10)"><rect x="4" y="2" width="26" height="30" rx="8" fill="#E0B420"/>
     <path d="M4 10a8 8 0 0 1 8-8h10a8 8 0 0 1 8 8v-.5H4z" fill="#F2CF5B"/>
-    <ellipse cx="14" cy="16" rx="2.6" ry="3" fill="#0F1419"/><ellipse cx="22" cy="16" rx="2.6" ry="3" fill="#0F1419"/></g>` : ""}
+    <ellipse cx="14" cy="16" rx="2.6" ry="3" fill="#161B33"/><ellipse cx="22" cy="16" rx="2.6" ry="3" fill="#161B33"/></g>` : ""}
 </svg>`;
 
 /* Linux: the window opens on this checklist, not the main window, until Asagiri can run containers for
@@ -2982,7 +2980,9 @@ const ONB = [
   tr("Your account can use Asagiri"), tr("Checked once the engine runs"), tr("Applies after you log out and back in"), tr("Allow access"),
   tr("docker uses Asagiri"), tr("docker, Compose and Docker-socket tools reach Asagiri"), tr("docker talks to another engine now"), tr("Checked once your account can use Asagiri"), tr("Use Asagiri"),
   tr("Builds"), tr("docker build runs on Asagiri's builder"), tr("Set up Asagiri's builder so docker build runs here. Nothing downloads until your first build"), tr("Set up")];
-const ONB_LOGO = `<svg class="logo" viewBox="100 100 824 824" aria-hidden="true"><defs><linearGradient id="onb-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1B232C"/><stop offset="1" stop-color="#0F1419"/></linearGradient><radialGradient id="onb-gl" cx="0.62" cy="0.46" r="0.55"><stop offset="0" stop-color="#E0B420" stop-opacity="0.28"/><stop offset="1" stop-color="#E0B420" stop-opacity="0"/></radialGradient><linearGradient id="onb-bx" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EDC23A"/><stop offset="1" stop-color="#CC9A0C"/></linearGradient><clipPath id="onb-ic"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath></defs><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#onb-bg)"/><rect x="100" y="100" width="824" height="824" rx="185" fill="url(#onb-gl)"/><g transform="translate(154.2 136.6) scale(11.732)"><g transform="translate(6 0) skewX(-10)"><rect x="22" y="12" width="34" height="40" rx="10" fill="url(#onb-bx)"/><g clip-path="url(#onb-ic)" fill="#F2CF5B"><rect x="10" y="0" width="60" height="21.5"/></g><g fill="#0F1419"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g><g fill="#F6F2EA"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></g></svg>`;
+const ONB_LOGO = `<svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><clipPath id="onb-sun"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#onb-sun)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="currentColor"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g></svg>`;
 const onbIcon = (name) => `<svg class="i" viewBox="0 0 256 256" aria-hidden="true"><path d="${PH[name]}"/></svg>`;
 function onboarding(e) {
   ui.onb = { ...e, busy: null };
@@ -3164,7 +3164,7 @@ function importGo() {
 const IMPORT_ART = (cls) => `<svg class="is-art${cls}" viewBox="0 0 18 18" aria-hidden="true"><g class="load">
   <path d="M9 -2V3.5M4 3.5h10" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round" fill="none"/>
   <rect x="3" y="5" width="12" height="3.6" rx=".8" fill="#F2CF5B"/><rect x="3" y="9.2" width="12" height="3.6" rx=".8" fill="#E0B420"/><rect x="3" y="13.4" width="12" height="3.6" rx=".8" fill="#C99A12"/>
-  <path d="M6 5.6v2.4M9 5.6v2.4M12 5.6v2.4M6 9.8v2.4M9 9.8v2.4M12 9.8v2.4M6 14v2.4M9 14v2.4M12 14v2.4" stroke="#0F1419" stroke-opacity=".28" stroke-width=".8"/></g></svg>`;
+  <path d="M6 5.6v2.4M9 5.6v2.4M12 5.6v2.4M6 9.8v2.4M9 9.8v2.4M12 9.8v2.4M6 14v2.4M9 14v2.4M12 14v2.4" stroke="#161B33" stroke-opacity=".28" stroke-width=".8"/></g></svg>`;
 
 /* What the source has that Asagiri doesn't: { images, volumes, containers, total }. */
 function importable() {
@@ -3623,7 +3623,7 @@ function renderSettings() {
   };
   /* A tiny window in each theme's colours, for the Theme choice. */
   const mini = (dark) => {
-    const c = dark ? { bg: "#0F1419", side: "#121920", line: "#2A313A", bar: "#66707C", text: "#98A1AC" } : { bg: "#FFFFFF", side: "#EDF0F5", line: "#DDE3EB", bar: "#8A929C", text: "#5E6773" };
+    const c = dark ? { bg: "#161B33", side: "#1B203C", line: "#394164", bar: "#848BA8", text: "#ADB3CD" } : { bg: "#FFFFFF", side: "#ECE9F2", line: "#DDD9E8", bar: "#8A929C", text: "#5E6773" };
     const accent = (ACCENTS.find(([id]) => id === prefs.accent) || ACCENTS[0])[2];
     const rows = [0, 1, 2, 3].map((i) => `<rect x="46" y="${22 + i * 11}" width="${[40, 32, 44, 30][i]}" height="3" rx="1.5" fill="${i === 1 ? accent : c.text}"/><rect x="${96}" y="${22 + i * 11}" width="${[18, 24, 14, 20][i]}" height="3" rx="1.5" fill="${["#3FB68B", "#3FB68B", "#FFC23D", "#3FB68B"][i]}"/>`).join("");
     return `<svg viewBox="0 0 132 74" aria-hidden="true"><rect x=".5" y=".5" width="131" height="73" rx="6" fill="${c.bg}" stroke="${c.line}"/>
@@ -3683,7 +3683,7 @@ function renderSettings() {
   const aboutPane = `<div class="pane about"><div class="about-head">
       <svg viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(6 0) skewX(-10)"><clipPath id="lid2"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath>
         <rect x="22" y="12" width="34" height="40" rx="10" fill="#E0B420"/><g clip-path="url(#lid2)"><rect x="10" y="0" width="60" height="21.5" fill="#F2CF5B"/></g>
-        <g fill="#0F1419"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g>
+        <g fill="#161B33"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g>
         <g fill="currentColor" opacity=".55"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></svg>
       <div><div class="n">Asagiri <span class="devband">DEV</span></div><div class="muted">${tr("A small, fast container runtime.")}</div></div></div>
     ${aboutUpdate(a?.app)}
@@ -3692,8 +3692,8 @@ function renderSettings() {
       <dt>${tr(VM)}</dt><dd>${a?.running ? `${a.awake ? tr("Running") : tr("Asleep")} · ${tr("kernel {version}", { version: esc(a.kernel) })}` : "—"}</dd>
       <dt>${tr("CPUs")}</dt><dd>${esc(a?.cpus ?? "—")}</dd>
       <dt>${tr("Memory")}</dt><dd>${a?.running ? tr("up to {size}", { size: mib(a.memory) }) : "—"}</dd>
-      <dt>${tr("Website")}</dt><dd><a data-open-site="https://runkiri.com">runkiri.com</a></dd>
-      <dt>${tr("Made by")}</dt><dd><a data-open-site="https://canestack.com">Canestack Labs</a></dd>
+      <dt>${tr("Website")}</dt><dd><a data-open-site="https://andrekurait.github.io/asagiri">andrekurait.github.io/asagiri</a></dd>
+      <dt>${tr("Made by")}</dt><dd><a data-open-site="https://github.com/AndreKurait">Asagiri contributors</a></dd>
     </dl>
     <p class="muted">${tr("The name comes from the Igbo word ntakịrị, “small”.")}</p></div>`;
   const html = `<div class="settings"><div class="tabs">${tab("appearance", "textaa", tr("Appearance"))}${tab("resources", "stack", tr("Resources"))}${tab("network", "globe", tr("Network"))}${tab("builds", "hammer", tr("Builds"))}${loginsOn() ? tab("registries", "lock", tr("Registries")) : ""}${tab("kubernetes", "pods", "Kubernetes")}${tab("import", "stack", tr("Import"))}${tab("domains", "network", tr("Domains"))}${tab("diagnostics", "bug", tr("Diagnostics"))}${tab("about", "info", tr("About"))}</div>
@@ -3731,7 +3731,7 @@ function renderSettings() {
   $("pref-lang")?.addEventListener("change", (ev) => setPref("lang", ev.target.value));
   $("pref-mono")?.addEventListener("change", (ev) => setPref("mono", ev.target.value));
 }
-/* i18n */ void [tr("Blue"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green"), tr("Small"), tr("Medium"), tr("Large")];
+/* i18n */ void [tr("Coral"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green"), tr("Small"), tr("Medium"), tr("Large")];
 
 function show(view) {
   closeDetail();
@@ -4934,7 +4934,7 @@ setInterval(() => {
 }, 2000);
 
 // Feedback goes to the repo's GitHub issues; the app's "open" handler allows exactly this address.
-const FEEDBACK_URL = "https://github.com/libracoder/kiri/issues/new";
+const FEEDBACK_URL = "https://github.com/AndreKurait/asagiri/issues/new";
 
 /* The VM's memory: under 1 GB in MB, so an idle VM doesn't read as "0.2". */
 const memText = (mib) => (mib < 1024 ? `${Math.round(mib)} MB` : `${(mib / 1024).toFixed(1)} GB`);
@@ -5051,16 +5051,16 @@ function aboutUpdate(version) {
   } else if (s?.state === "available") {
     row = `<span>${tr("Version {version}", { version: v })}</span><span class="updpill new">${tr("{version} available", { version: esc(s.latest) })}</span>${btn(tr("Show"), "data-updcheck", "primary")}`;
   } else if (s?.state === "package") {
-    row = `<span>${tr("Version {version}", { version: v })}</span>${s.latest ? `<span class="updpill new">${tr("{version} available", { version: esc(s.latest) })}</span><button class="linkbtn" data-open-site="https://runkiri.com/releases/">${tr("Download the new .deb or .rpm")}</button>` : `<span class="updpill">${tr("Up to date")}</span><span class="faint">${tr("checked {ago}", { ago: ago(s.checked) })}</span>${check}`}`;
-  } else if (s?.state === "test" || s?.state === "dev") {
-    row = `<span>${tr("Version {version}", { version: v })}</span><span class="updpill test">${s.state === "dev" ? tr("Built from source") : tr("Test build")}</span><span class="faint">${tr("doesn't update itself")}</span>`;
+    row = `<span>${tr("Version {version}", { version: v })}</span>${s.latest ? `<span class="updpill new">${tr("{version} available", { version: esc(s.latest) })}</span><button class="linkbtn" data-open-site="https://github.com/AndreKurait/asagiri/releases">${tr("Download the new .deb or .rpm")}</button>` : `<span class="updpill">${tr("Up to date")}</span><span class="faint">${tr("checked {ago}", { ago: ago(s.checked) })}</span>${check}`}`;
+  } else if (s?.state === "test" || s?.state === "dev" || s?.state === "source") {
+    row = `<span>${tr("Version {version}", { version: v })}</span><span class="updpill test">${s.state !== "test" ? tr("Built from source") : tr("Test build")}</span><span class="faint">${tr("doesn't update itself")}</span>`;
   } else if (s?.state === "uptodate") {
     row = `<span>${tr("Version {version}", { version: v })}</span><span class="updpill">${tr("Up to date")}</span><span class="faint">${tr("checked {ago}", { ago: ago(s.checked) })}</span>${check}`;
   } else if (s?.state === "error") {
     row = `<span>${tr("Version {version}", { version: v })}</span><span class="faint">${tr("Couldn't check: {error}", { error: esc(s.error || "") })}</span>${check}`;
   } else row = `<span>${tr("Version {version}", { version: v })}</span>${check}`;
   const notes = u?.phase === "available" && u.notes.trim() ? `<div class="updnotes"><b>${tr("What's new in {version}", { version: esc(u.version) })}</b>${notesHtml(u.notes)}</div>` : "";
-  const fixed = s?.state === "test" || s?.state === "dev";
+  const fixed = s?.state === "test" || s?.state === "dev" || s?.state === "source";
   const auto = prefs.updateAuto !== false;
   return `<div class="updrow">${row}</div>${notes}${fixed ? "" : `<div class="pref"><span class="t">${tr("Check for updates automatically")}</span><span class="d">${auto ? tr("On: Asagiri checks each time it opens. It never updates without asking.") : tr("Off: Asagiri checks only when you click Check now.")}</span>
       <div class="seg" role="group" aria-label="${tr("Check for updates automatically")}"><button data-updauto="0" aria-pressed="${!auto}">${tr("Off")}</button><button data-updauto="1" aria-pressed="${auto}">${tr("On")}</button></div></div>`}`;
@@ -5112,7 +5112,7 @@ function updateAction(a) {
 
 /* What's new: the feed's notes, a small Markdown ("## New", "- a line", `code`,
    **bold**), in a window with Download. Without notes, the button opens notes_url. */
-const NOTES_URL = /^https:\/\/runkiri\.com\//;
+const NOTES_URL = /^https:\/\/github\.com\/AndreKurait\/asagiri\//;
 const WN_GROUPS = [
   [/new|added|feature/i, "new", "sparkle"],
   [/fix/i, "fix", "wrench"],
@@ -5136,7 +5136,7 @@ function notesHtml(md) {
 }
 const WN_ASAGIRI = `<svg class="wn-asagiri" viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(6 0) skewX(-10)"><clipPath id="wnlid"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath>
   <rect x="22" y="12" width="34" height="40" rx="10" fill="#E0B420"/><g clip-path="url(#wnlid)"><rect x="10" y="0" width="60" height="21.5" fill="#F2CF5B"/></g>
-  <g fill="#0F1419"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g>
+  <g fill="#161B33"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g></g>
   <g class="speed" fill="currentColor" opacity=".55"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></svg>`;
 function openNotes() {
   wnModal?.remove();
@@ -5173,7 +5173,7 @@ function drawNotes() {
       <p>${u.current ? `${tr("You have {version}.", { version: esc(u.current) })} ` : ""}${tr("Your containers keep running while it downloads.")}</p>
     </div>
     <div class="wn-body">${notesHtml(u.notes)}</div>
-    <div class="wn-foot">${NOTES_URL.test(u.notesUrl) ? `<button class="more" data-wn="more">${tr("Read more on runkiri.com ↗")}</button>` : `<span class="more"></span>`}${btn(tr("Later"), 'data-wn="close"')}<span data-wngo>${notesGo()}</span></div>
+    <div class="wn-foot">${NOTES_URL.test(u.notesUrl) ? `<button class="more" data-wn="more">${tr("Read more on GitHub ↗")}</button>` : `<span class="more"></span>`}${btn(tr("Later"), 'data-wn="close"')}<span data-wngo>${notesGo()}</span></div>
   </div>`;
 }
 
@@ -5269,7 +5269,7 @@ const mineRunning = () => ui.containers.filter((c) => c.State === "running").len
    you press Stop, whatever the engine does inside (setting up, fetching
    BuildKit, sleeping, waking). A fresh Asagiri reads Off until you press Start.
    A container of yours running (say docker run in a terminal) turns it on.
-   Kept in ~/.asagiri/ui.json as engineOn; a Asagiri from before that has
+   Kept in ~/.asagiri/ui.json as engineOn; an Asagiri from before that has
    containers counts as on. */
 function engineOn() {
   if (ui.vm === "stopped") return false;
@@ -5952,7 +5952,7 @@ function closable(el, close) {
 /* Star Asagiri, asked once ever: the first time something works (a container
    started, a pull done, a share link live, Kubernetes up), a card a moment
    after that toast. ui.json keeps starAsked, so it never comes back. */
-const STAR_URL = "https://github.com/libracoder/kiri";
+const STAR_URL = "https://github.com/AndreKurait/asagiri";
 const STAR_IC = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.6l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17.2l-5.9 3.2 1.3-6.5-4.9-4.5 6.6-.8Z"/></svg>`;
 let prefsIn = false, starTimer = 0;
 function starMoment(text) {
@@ -6037,7 +6037,7 @@ function pulledToast(e) {
   el.querySelector("[data-run]").addEventListener("click", () => { runImage(e.name); leave(); });
 }
 
-/* Diagnostics: Asagiri's own log, its crash files and reports to Asagiri Cloud.
+/* Diagnostics: Asagiri's own log, its crash files and reports to Share server.
    Settings → Diagnostics shows them; the card after a crash offers that
    crash's report; an error toast's Details shows its action's log lines. */
 const DG_PART = { ui: "Window", daemon: "Engine", cli: "CLI" };
@@ -6115,7 +6115,7 @@ function diagPane() {
   const crashes = dg.crashes == null ? `<div class="none">${tr("Looking for crash reports…")}</div>` : dg.crashes.length ? dg.crashes.map(crash).join("") : `<div class="none">${tr("No crashes. Asagiri keeps a report here if one of its parts ever stops unexpectedly.")}</div>`;
   return `<div class="pane diag"><h3>${tr("Diagnostics")}</h3>
     <div class="pref"><span class="t">${tr("Send crash reports automatically")}</span>
-      <span class="d">${tr("When part of Asagiri crashes, the stack trace and the last 200 log lines before it go to Asagiri Cloud, with Asagiri's and the system's versions, the computer's model and a random ID for this install. Never your Asagiri Cloud account, and nothing from inside your containers. Your home folder, image and container names, tokens and passwords are taken out.")}</span>
+      <span class="d">${tr("When part of Asagiri crashes, the stack trace and the last 200 log lines before it go to Share server, with Asagiri's and the system's versions, the computer's model and a random ID for this install. Never your Share server account, and nothing from inside your containers. Your home folder, image and container names, tokens and passwords are taken out.")}</span>
       <div class="seg" role="group" aria-label="${tr("Send crash reports automatically")}"><button data-dgauto="0" aria-pressed="${prefs.crashReports !== true}">${tr("Off")}</button><button data-dgauto="1" aria-pressed="${prefs.crashReports === true}">${tr("On")}</button></div></div>
     <div class="pref"><span class="t">${tr("Diagnostics report")}</span>
       <span class="d">${tr("Recent logs, crash reports and versions in one redacted file, for when something goes wrong.")}</span>
@@ -6198,7 +6198,7 @@ function drawReport() {
   const item = (t, d) => `<div class="rp-item">${dgIcon("check")}<span class="t">${t}</span><span class="d">${d}</span></div>`;
   scrim.innerHTML = `<div class="dialog rp-dialog" role="dialog" aria-modal="true" aria-labelledby="rp-t">
     <h3 id="rp-t">${send_ ? tr("Send a report to Asagiri") : tr("Create a diagnostics report")}</h3>
-    <p>${send_ ? tr("We get the file below, redacted, and you get an ID to quote when you write to us. If you're signed in to Asagiri Cloud, it says it's from you, so we can reply.") : tr("One text file, redacted, saved to your Desktop and shown in Finder. Read it before you share it.")}</p>
+    <p>${send_ ? tr("We get the file below, redacted, and you get an ID to quote when you write to us. If you're signed in to Share server, it says it's from you, so we can reply.") : tr("One text file, redacted, saved to your Desktop and shown in Finder. Read it before you share it.")}</p>
     <div class="rp-list">${item(tr("Asagiri's logs"), tr("The last 300 lines from the window, the engine and asagiri commands, and the engine's own output"))}
       ${item(tr("Crash reports"), tr("The 5 newest, and macOS's own crash reports for Asagiri from the last 30 days"))}
       ${item(tr("Asagiri and this Mac"), tr("Versions, macOS, whether the engine runs, how many containers and images"))}
@@ -6408,7 +6408,7 @@ window.asagiri = {
         ui.status = e;
         document.body.classList.toggle("dev", !!e.dev);
         document.body.classList.toggle("share", !!(e.share ?? e.dev));
-        // The context docker uses for this Asagiri: asagiri, or a Asagiri Dev's own.
+        // The context docker uses for this Asagiri: asagiri, or an Asagiri Dev's own.
         if (e.ours) empty.containers.vars.context = esc(e.ours);
         render(); if (!ui.imp.sources) send("importsources"); break;
       case "update": {
@@ -7936,12 +7936,13 @@ function renderShare() {
     : `<div class="sh-empty">${shGlobe}<h3>${tr("Nothing shared yet")}</h3><p>${tr("Press <b>Share</b> on a running container to give it a public https link anyone can open.")}</p>
         <button class="btn" data-shcontainers>${tr("Go to Containers")}</button></div>`;
   const foot = !a ? "" : a.signedIn
-    ? `<div class="sh-foot"><span class="sh-ghmark" title="${tr("Signed in with GitHub")}">${shSvg("github")}</span>${tr("Signed in to Asagiri Cloud with GitHub as {login}", { login: `<b>${esc(a.login || tr("you"))}</b>` })}
+    ? `<div class="sh-foot"><span class="sh-ghmark" title="${tr("Signed in with GitHub")}">${shSvg("github")}</span>${tr("Signed in to Share server with GitHub as {login}", { login: `<b>${esc(a.login || tr("you"))}</b>` })}
         ${a.session ? `<span class="sep">·</span><span title="${tr("This sign-in's ID: a hash of its token, safe to quote when asking for help")}">${tr("Session")} <code class="sh-sess">${esc(a.session)}</code></span>` : ""}
         <span class="sep">·</span><button class="linkish" data-shlogout>${tr("Sign out")}</button></div>`
     : `<div class="sh-foot">${tr("Not signed in")}<button class="linkish" data-shlogin>${tr("Sign in with GitHub")}</button></div>`;
-  const intro = `<p class="sh-intro">${tr("Share gives a container or a Kubernetes service a public https link through a secure tunnel to Asagiri Cloud.")} ${a?.signedIn && !sh.remoteOff ? tr("This lists every link on your account, on any computer.") : tr("It stays up while Asagiri is running.")}</p>`;
-  morph($("content"), `<div class="sh">${intro}${stats}${list}${foot}</div>`);
+  const setup = a?.configured === false ? `<div class="sh-intro"><b>${tr("Sharing needs a server")}</b><p>${tr("Asagiri does not provide hosted sharing. Configure your own compatible server to use Share.")}</p><code>ASAGIRI_SHARE_SERVER=share.example.org:443</code></div>` : "";
+  const intro = `<p class="sh-intro">${tr("Share gives a container or a Kubernetes service a public https link through a secure tunnel to Share server.")} ${a?.signedIn && !sh.remoteOff ? tr("This lists every link on your account, on any computer.") : tr("It stays up while Asagiri is running.")}</p>`;
+  morph($("content"), `<div class="sh">${setup}${intro}${stats}${list}${foot}</div>`);
 }
 /* Puts `html` in `el` changing only what differs, so a redraw doesn't restart
    animations, repaint icons or flash a hover. Rows are matched by what they
@@ -7991,7 +7992,7 @@ function shHealth(it) {
   const addr = (it.target || "").match(/\(([^)]+)\)/)?.[1];
   const notes = [];
   if (shDown(it)) notes.push(`<div class="sh-note bad">${shSvg("warning")}<span>${addr ? tr("<b>{name} isn't answering</b> on {addr}, so visitors get an error page. Is the app inside it running?", { name: esc(it.source), addr: esc(addr) }) : tr("<b>{name} isn't answering</b>, so visitors get an error page. Is the app inside it running?", { name: esc(it.source) })}</span></div>`);
-  if (it.warning && !it.paused) notes.push(`<div class="sh-note info">${shSvg("info")}<span>${tr("Visitors' browsers see a short <b>Asagiri Cloud notice page</b> first, then your app.")} <button class="linkish" data-shnotice title="${SH_NOTICE_URL}">${tr("See what it looks like ↗")}</button></span></div>`);
+  if (it.warning && !it.paused) notes.push(`<div class="sh-note info">${shSvg("info")}<span>${tr("Visitors' browsers see a short <b>Share server notice page</b> first, then your app.")} <button class="linkish" data-shnotice title="${SH_NOTICE_URL}">${tr("See what it looks like ↗")}</button></span></div>`);
   if (it.remaining != null && it.remaining < 512 * 2 ** 20) notes.push(`<div class="sh-note warn">${shSvg("warning")}<span>${tr("Only {size} left this month. When it runs out, the link stops until next month.", { size: size(it.remaining) })}</span></div>`);
   return `<div class="sh-healthline">${bits.join(`<span class="sep">·</span>`)}</div>${notes.join("")}`;
 }
@@ -8080,7 +8081,7 @@ function shSignin() {
        <div class="sh-waiting"><i class="sh-spin"></i>${tr("Waiting for GitHub…")}</div>
        <div class="row-end"><span></span><button class="btn" data-close>${tr("Cancel")}</button></div>`
     : `<h3 id="sh-in-t">${tr("Sign in to share {what}", { what })}</h3>
-       <p>${tr("Asagiri Cloud gives it a public https link through a secure tunnel from this {host}. You sign in with GitHub, so every link traces back to a person. Asagiri never sees your password.", { host: tr(HOST) })}</p>
+       <p>${tr("Share server gives it a public https link through a secure tunnel from this {host}. You sign in with GitHub, so every link traces back to a person. Asagiri never sees your password.", { host: tr(HOST) })}</p>
        <div class="row-end"><span></span><span><button class="btn" data-close>${tr("Not now")}</button> <button class="btn primary sh-gh" data-shlogin>${gh}${tr("Continue with GitHub")}</button></span></div>`}</div>`;
 }
 
@@ -8162,10 +8163,10 @@ function shCardOne(it) {
   const live = it.state === "live", host = (it.url || "").replace(/^https:\/\//, "");
   const k = kParse(it.source), c = ui.containers.find((x) => cname(x) === it.source), port = k ? k.port : (it.target || "").match(/:(\d+)\)?$/)?.[1];
   const node = (ic, label, cls = "") => `<div class="sh-node ${cls}"><div class="sh-nic">${ic}</div><span>${label}</span></div>`;
-  // Visitors → Asagiri Cloud → the container: a dot travels along for each request.
+  // Visitors → Share server → the container: a dot travels along for each request.
   const flow = `<div class="sh-flow" aria-hidden="true">
       ${node(shSvg("globe"), tr("Visitors"))}
-      <div class="sh-lane"></div>${node(ASAGIRI_MARK, "Asagiri Cloud", "asagiri")}<div class="sh-lane"></div>
+      <div class="sh-lane"></div>${node(ASAGIRI_MARK, "Share server", "asagiri")}<div class="sh-lane"></div>
       ${node(kShTile(it) || (c ? tile(c.icon, "cube") : `<div class="tile">${shGlobe}</div>`), `${esc(kShName(it))}${port ? `<em>:${port}</em>` : ""}`)}</div>`;
   return `<div class="dialog sh-dlg" role="dialog" aria-modal="false" aria-labelledby="sh-dlg-t">
     <button class="sh-x" data-close aria-label="${tr("Hide")}">×</button>
@@ -8174,7 +8175,7 @@ function shCardOne(it) {
     <p>${tr("Anyone with this link can open it while Asagiri is running.")}</p>
     ${host ? `<div class="sh-linkbox">${shSvg("link")}<span title="${esc(it.url)}">${esc(host)}</span>
       <button class="btn sm" data-mcopy>${tr("Copy")}</button><button class="btn sm" data-mopen>${tr("Open")}</button></div>` : ""}
-    ${live && it.warning ? `<p class="sh-popnote">${shSvg("info")}${tr("Browsers see a short Asagiri Cloud notice page first.")}<button class="linkish" data-mnotice title="${SH_NOTICE_URL}">${tr("See it ↗")}</button></p>` : ""}
+    ${live && it.warning ? `<p class="sh-popnote">${shSvg("info")}${tr("Browsers see a short Share server notice page first.")}<button class="linkish" data-mnotice title="${SH_NOTICE_URL}">${tr("See it ↗")}</button></p>` : ""}
     ${live ? `<div class="sh-feed" id="sh-feed">${shFeed(it, 4)}</div>` : ""}
     <div class="sh-dlg-foot"><button class="linkish danger" data-mstop>${tr("Stop sharing")}</button><span class="spacer"></span>
       <button class="linkish" data-mall>${tr("Details")}</button><button class="btn primary sm" data-close>${tr("Done")}</button></div></div>`;
@@ -8317,8 +8318,8 @@ function shPublished() {
 }
 const shareChip = (name) => { const it = shFor(name); return it?.url ? `<button class="sh-chip" data-shopen="${it.id}" title="${tr("Open {name}", { name: esc(it.url) })}"><span class="sh-led"></span><span>${esc(it.url.replace(/^https:\/\//, ""))}</span></button>` : ""; };
 
-// The notice page visitors see first, on runkiri.com; the app's "open" handler allows this address.
-const SH_NOTICE_URL = "https://runkiri.com/share/notice";
+// The notice page visitors see first, on andrekurait.github.io/asagiri; the app's "open" handler allows this address.
+const SH_NOTICE_URL = "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md";
 const shNotice = () => send("open", { name: SH_NOTICE_URL });
 
 function shClicks(ev) {
@@ -9496,7 +9497,7 @@ function htFind(open = true) {
   if (open) { const i = f.querySelector("input"); i.focus(); i.select(); }
   else { htPane()?.search?.clearDecorations(); htQ(".htcount").textContent = ""; htPane()?.term?.focus(); }
 }
-const HT_DECO = { matchBackground: "#6EA8FE55", activeMatchBackground: "#FFC23D", matchOverviewRuler: "#6EA8FE", activeMatchColorOverviewRuler: "#FFC23D" };
+const HT_DECO = { matchBackground: "#FFA18C55", activeMatchBackground: "#FFC23D", matchOverviewRuler: "#FFA18C", activeMatchColorOverviewRuler: "#FFC23D" };
 function htFindGo(back) {
   const s = htPane()?.search, q = htQ(".htfind input").value;
   ht.findQ = q;

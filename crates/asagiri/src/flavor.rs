@@ -12,7 +12,7 @@
 //! and updates.
 //!
 //! A feature app (`cargo xtask app-dev builds` builds `Asagiri Builds.app`,
-//! identifier `dev.asagiri.app.builds`) is a Asagiri Dev of its own, for
+//! identifier `dev.asagiri.app.builds`) is an Asagiri Dev of its own, for
 //! trying one unreleased feature: every Dev name with `dev` swapped for the
 //! feature's (`~/.asagiri-builds`, the `asagiri-builds` context, and so on).
 

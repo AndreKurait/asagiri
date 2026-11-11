@@ -90,7 +90,7 @@ impl Router {
                 // A client that never finishes its request must not hold a thread forever.
                 let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
                 let (engine, tls) = (self.engine.clone(), self.tls.clone());
-                let _ = std::thread::Builder::new().name("asagiri-domain-conn".into()).spawn(move || {
+                let _ = std::thread::Builder::new().name("asa-domain-conn".into()).spawn(move || {
                     let _ = match tls {
                         Some(config) => serve_tls(conn, &engine, config),
                         None => serve(conn, &engine),
@@ -150,7 +150,7 @@ fn reclaim() {
 fn register(router: Arc<Router>) -> io::Result<()> {
     let mut routers = ROUTERS.lock().unwrap_or_else(PoisonError::into_inner);
     if routers.is_empty() {
-        std::thread::Builder::new().name("asagiri-domains-reclaim".into()).spawn(reclaim)?;
+        std::thread::Builder::new().name("asa-domains-rec".into()).spawn(reclaim)?;
     }
     routers.push(router);
     Ok(())
@@ -332,7 +332,7 @@ fn serve(mut client: TcpStream, engine: &Engine) -> io::Result<()> {
     to_guest.write_all(&head)?;
     let mut from_guest = std::fs::File::from(guest.fd.try_clone()?);
     let mut client_read = client.try_clone()?;
-    let up = std::thread::Builder::new().name("asagiri-domain-up".into()).spawn(move || {
+    let up = std::thread::Builder::new().name("asa-domain-up".into()).spawn(move || {
         let _ = io::copy(&mut client_read, &mut to_guest);
         // SAFETY: half-closing a socket we own.
         unsafe { libc::shutdown(to_guest.as_raw_fd(), libc::SHUT_WR) };

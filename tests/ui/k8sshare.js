@@ -45,10 +45,10 @@ t("one web port shares straight away, to the cluster IP and service port", () =>
   eq(cell("web").textContent.trim(), "Sharing…", "spinner");
 });
 t("live: the cell reads Live and the link sits under the name", () => {
-  asagiri.on({ type: "share", id: 5, source: "service default/web :18080", target: "service default/web :18080", state: "live", url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 5, source: "service default/web :18080", target: "service default/web :18080", state: "live", url: "https://web-k3x9.share.example.org" });
   $("sh-modal")?.remove();
   eq(cell("web").textContent.trim(), "Live", "cell");
-  eq(row("web").querySelector(".addr .sh-chip").textContent.trim(), "web-k3x9.runkiri.cloud", "link under the name");
+  eq(row("web").querySelector(".addr .sh-chip").textContent.trim(), "web-k3x9.share.example.org", "link under the name");
 });
 t("several web ports open a menu, http ticked, the database port left out", () => {
   sent.length = 0; cell("shop").querySelector("button").click();
@@ -96,7 +96,7 @@ t("a shared pod that restarts offers its service", () => {
   sent.length = 0; show("pods");
   cell("web-5fc9-cdl9f").querySelector("button").click();
   $("k-pick").querySelector('[data-kgo^="pod "]').click();
-  asagiri.on({ type: "share", id: 6, source: "pod default/web-5fc9-cdl9f :80", target: "pod default/web-5fc9-cdl9f :80", state: "live", url: "https://web-5fc9-cdl9f-m4c8.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 6, source: "pod default/web-5fc9-cdl9f :80", target: "pod default/web-5fc9-cdl9f :80", state: "live", url: "https://web-5fc9-cdl9f-m4c8.share.example.org" });
   $("sh-modal")?.remove();
   lists(SVCS, PODS.filter((p) => p.name !== "debug" && p.name !== "web-5fc9-cdl9f"));
   eq(sh.items.get(6).reason, "Ended: pod restarted · share the service to keep a link", "reason");
@@ -110,10 +110,10 @@ t("a service's page has Share, and Stop sharing once live", () => {
   sh.starting.clear(); show("services"); openSvc("default/shop");
   eq(document.querySelector(".dhead .who b").textContent, "shop", "page");
   eq(!!document.querySelector('.dacts [data-ksh="service|default|shop"]'), true, "share");
-  asagiri.on({ type: "share", id: 8, source: "service default/shop :80", target: "service default/shop :80", state: "live", url: "https://shop-a1b2.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 8, source: "service default/shop :80", target: "service default/shop :80", state: "live", url: "https://shop-a1b2.share.example.org" });
   $("sh-modal")?.remove();
   eq(document.querySelector(".dacts [data-kstop]").textContent.trim(), "Stop sharing", "stop");
-  eq(document.querySelector(".dhead .sh-chip").textContent.trim(), "shop-a1b2.runkiri.cloud", "chip");
+  eq(document.querySelector(".dhead .sh-chip").textContent.trim(), "shop-a1b2.share.example.org", "chip");
 });
 t("a pod that declares no ports takes its service's port", () => {
   const bare = pod("default", "web-bare", "10.42.0.40", { app: "web" }, "ReplicaSet", undefined);

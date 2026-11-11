@@ -172,7 +172,12 @@ def bench(a):
 
 def sizes(a):
     def one(d):
-        return {b: os.path.getsize(os.path.join(d, b)) for b in ("asagiri", "asagiri-init")}
+        companions = [b for b in os.listdir(d) if b.endswith("-init")]
+        if len(companions) != 1:
+            raise ValueError(f"expected one *-init binary in {d}")
+        init = companions[0]
+        return {label: os.path.getsize(os.path.join(d, binary))
+                for label, binary in (("engine", init[:-5]), ("init", init))}
     with open(a.out, "w") as f:
         json.dump({"base": one(a.base), "head": one(a.head)}, f, indent=2)
 
@@ -209,7 +214,7 @@ def report(a):
     row("Daemon memory after the runs", "rss_after", res["base"]["rss_after"], res["head"]["rss_after"], "MiB", mib)
     if "syscalls" in res["base"]:
         row("System calls per container", "syscalls", res["base"]["syscalls"], res["head"]["syscalls"], "", lambda v: f"{v:.0f}")
-    for b in ("asagiri", "asagiri-init"):
+    for b in ("engine", "init"):
         if b in sz.get("base", {}):
             row(f"`{b}` binary", "size", sz["base"][b] / 1024, sz["head"][b] / 1024, "KiB", lambda v: f"{v:.0f}")
     n = res["base"]["run"]["n"]

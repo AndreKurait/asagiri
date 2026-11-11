@@ -1,5 +1,6 @@
 //! `asagiri share`: a public HTTPS URL for a local port or container, through
-//! the Asagiri Share edge (`edge.runkiri.com`, tunnels on `*.runkiri.cloud`).
+//! an explicitly configured, compatible Share server. No server is used
+//! by default; set `ASAGIRI_SHARE_SERVER` or `server` in share.json.
 //!
 //! # API (used by the CLI below and by the daemon for the UI)
 //!
@@ -43,7 +44,6 @@ use serde_json::{Value, json};
 #[cfg(unix)]
 use crate::client;
 
-const DEFAULT_SERVER: &str = "edge.runkiri.com:443";
 /// The edge pings every 30 s; three missed pings means the link is dead.
 const IDLE: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -69,7 +69,7 @@ fn build_key() -> Option<(&'static str, [u8; proto::attest::KEY_LEN])> {
 /// `~/.asagiri/share.json`.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// Edge to use instead of edge.runkiri.com, as `host[:port]`.
+    /// A compatible Share server, as `host[:port]`. Required to use sharing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -321,11 +321,47 @@ fn parse_server(s: &str) -> (String, u16) {
     }
 }
 
-fn server(cfg: &Config) -> Server {
-    let raw = std::env::var("ASAGIRI_SHARE_SERVER").ok().or_else(|| cfg.server.clone()).unwrap_or_else(|| DEFAULT_SERVER.to_owned());
+pub fn configured_server(cfg: &Config) -> Option<String> {
+    std::env::var("ASAGIRI_SHARE_SERVER").ok().or_else(|| cfg.server.clone()).filter(|s| !s.trim().is_empty())
+}
+
+fn require_server(raw: Option<String>) -> io::Result<(String, u16)> {
+    let raw = raw.filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::Unsupported,
+            "Sharing needs a compatible server. Set ASAGIRI_SHARE_SERVER or server in ~/.asagiri/share.json; Asagiri does not provide hosted sharing.")
+    })?;
     let (host, port) = parse_server(&raw);
+    if host.is_empty() || host.contains(['/', '@', ' ', '\n', '\r']) || port == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Share server must be host[:port], without credentials or a path"));
+    }
+    Ok((host, port))
+}
+
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+
+    #[test]
+    fn sharing_has_no_default_service() {
+        for value in [None, Some(String::new()), Some(" \n".into())] {
+            assert_eq!(require_server(value).unwrap_err().kind(), io::ErrorKind::Unsupported);
+        }
+    }
+
+    #[test]
+    fn an_explicit_server_cannot_contain_credentials_or_a_path() {
+        assert_eq!(require_server(Some("https://Share.Example.org:8443/".into())).unwrap(),
+            ("share.example.org".into(), 8443));
+        for value in ["https://user:password@share.example.org", "https://share.example.org/path", "share.example.org:0"] {
+            assert!(require_server(Some(value.into())).is_err(), "{value}");
+        }
+    }
+}
+
+fn server(cfg: &Config) -> io::Result<Server> {
+    let (host, port) = require_server(configured_server(cfg))?;
     let dial = std::env::var("ASAGIRI_SHARE_CONNECT").unwrap_or_else(|_| format!("{host}:{port}"));
-    Server { host, port, dial }
+    Ok(Server { host, port, dial })
 }
 
 fn tls_config(alpn: &[u8]) -> io::Result<Arc<rustls::ClientConfig>> {
@@ -428,15 +464,15 @@ fn api_error(v: &Value, status: u16) -> io::Error {
     io::Error::other(v["error"].as_str().map(str::to_owned).unwrap_or_else(|| format!("the Asagiri Share server answered {status}")))
 }
 
-/// Asagiri Cloud's diagnostics intake, `POST /v1/reports` on the same edge
+/// Share server's diagnostics intake, `POST /v1/reports` on the same edge
 /// (`ASAGIRI_SHARE_SERVER` and the config's `server` move it, as for sharing).
-/// `signed` sends the Asagiri Cloud token when there is one, so a report the
+/// `signed` sends the Share server token when there is one, so a report the
 /// person sent can be answered; crashes always go without it, so they never
 /// name the person's GitHub account. See `crate::diag::report` (and
 /// crates/asagiri-win/src/diag.rs on Windows).
 pub fn post_report(body: &Value, signed: bool) -> io::Result<(u16, Value)> {
     let cfg = read_config();
-    api(&server(&cfg), "POST", "/v1/reports", Some(body), cfg.token.as_deref().filter(|_| signed))
+    api(&server(&cfg)?, "POST", "/v1/reports", Some(body), cfg.token.as_deref().filter(|_| signed))
 }
 
 // ---------------------------------------------------------------- account
@@ -444,7 +480,7 @@ pub fn post_report(body: &Value, signed: bool) -> io::Result<(u16, Value)> {
 /// Signs in without GitHub. Only edges started with `--dev` allow it.
 pub fn login_dev(login: &str) -> io::Result<String> {
     let mut cfg = load()?;
-    let (status, v) = api(&server(&cfg), "POST", "/v1/login/dev", Some(&json!({ "login": login, "device": cfg.device })), None)?;
+    let (status, v) = api(&server(&cfg)?, "POST", "/v1/login/dev", Some(&json!({ "login": login, "device": cfg.device })), None)?;
     finish_login(&mut cfg, status, &v)
 }
 
@@ -470,7 +506,7 @@ pub struct DeviceCode {
 
 pub fn login_start() -> io::Result<DeviceCode> {
     let cfg = load()?;
-    let (status, v) = api(&server(&cfg), "POST", "/v1/login/start", Some(&json!({})), None)?;
+    let (status, v) = api(&server(&cfg)?, "POST", "/v1/login/start", Some(&json!({})), None)?;
     let (Some(device_code), Some(user_code), Some(uri)) = (v["device_code"].as_str(), v["user_code"].as_str(), v["verification_uri"].as_str()) else {
         return Err(api_error(&v, status));
     };
@@ -507,7 +543,7 @@ pub fn login_poll(code: &DeviceCode) -> io::Result<LoginPoll> {
         return Err(io::Error::other("the sign-in code expired; run `asagiri share login` again"));
     }
     let mut cfg = load()?;
-    let (status, v) = api(&server(&cfg), "POST", "/v1/login/poll", Some(&json!({ "device_code": code.device_code, "device": cfg.device })), None)?;
+    let (status, v) = api(&server(&cfg)?, "POST", "/v1/login/poll", Some(&json!({ "device_code": code.device_code, "device": cfg.device })), None)?;
     if status == 202 {
         let extra = if v["slow_down"].as_bool() == Some(true) { Duration::from_secs(5) } else { Duration::ZERO };
         return Ok(LoginPoll::Pending(code.interval + extra));
@@ -526,7 +562,7 @@ pub fn logout() -> io::Result<()> {
 pub fn whoami() -> io::Result<Value> {
     let cfg = load()?;
     let token = cfg.token.as_deref().ok_or_else(|| io::Error::other("not signed in; run `asagiri share login`"))?;
-    let (status, v) = api(&server(&cfg), "GET", "/v1/whoami", None, Some(token))?;
+    let (status, v) = api(&server(&cfg)?, "GET", "/v1/whoami", None, Some(token))?;
     if status == 401 {
         return Err(io::Error::other("your sign-in is no longer valid; run `asagiri share login`"));
     }
@@ -542,7 +578,7 @@ pub fn whoami() -> io::Result<Value> {
 fn signed_in(method: &str, path: &str, body: Option<&Value>) -> io::Result<(u16, Value)> {
     let cfg = load()?;
     let token = cfg.token.as_deref().ok_or_else(|| io::Error::other("not signed in; run `asagiri share login`"))?;
-    let (status, v) = api(&server(&cfg), method, path, body, Some(token))?;
+    let (status, v) = api(&server(&cfg)?, method, path, body, Some(token))?;
     if status == 401 {
         return Err(io::Error::other("your sign-in is no longer valid; run `asagiri share login`"));
     }
@@ -600,7 +636,7 @@ pub fn names() -> io::Result<Names> {
     Ok(Names { items: v["items"].as_array().into_iter().flatten().map(reserved_name).collect(), limit: v["limit"].as_u64(), refused })
 }
 
-/// Asks to reserve `name` for this account. Asagiri Cloud reviews each name
+/// Asks to reserve `name` for this account. Share server reviews each name
 /// (202, `pending`); once approved `--name NAME` gets exactly
 /// `NAME.<tunnel domain>`, and nobody else can use it.
 pub fn reserve(name: &str) -> io::Result<ReservedName> {
@@ -675,7 +711,7 @@ pub fn tunnels() -> io::Result<LiveTunnels> {
     let (status, v) = signed_in("GET", "/v1/tunnels/live", None)?;
     match status {
         200 => Ok(LiveTunnels { items: v["items"].as_array().into_iter().flatten().map(live_tunnel).collect(), limit: v["limit"].as_u64() }),
-        404 => Err(io::Error::new(io::ErrorKind::Unsupported, "this Asagiri Cloud can't list tunnels")),
+        404 => Err(io::Error::new(io::ErrorKind::Unsupported, "this Share server can't list tunnels")),
         _ => Err(api_error(&v, status)),
     }
 }
@@ -791,7 +827,7 @@ fn published_port(inspect: &Value) -> Option<String> {
     found.into_iter().next().map(|(_, a)| a)
 }
 
-/// `3000`, `host:port`, or the name of a Asagiri container with a published port.
+/// `3000`, `host:port`, or the name of an Asagiri container with a published port.
 pub fn resolve(arg: &str) -> io::Result<Target> {
     if let Some(t) = port_or_addr(arg) {
         return Ok(t);
@@ -984,7 +1020,7 @@ type OnEvent = Arc<dyn Fn(Event) + Send + Sync>;
 pub fn start(opts: Options, on_event: impl Fn(Event) + Send + Sync + 'static) -> io::Result<Handle> {
     let cfg = load()?;
     let token = cfg.token.clone().ok_or_else(|| io::Error::other("not signed in; run `asagiri share login`"))?;
-    let srv = server(&cfg);
+    let srv = server(&cfg)?;
     let stop = Arc::new(Stopper::default());
     let on_event: OnEvent = Arc::new(move |e: Event| {
         log_event(&e);
@@ -1619,7 +1655,7 @@ fn issued_name(url: &str) -> String {
 fn session(srv: &Server, token: &str, who: &Who, name: &str, target: &Target, stop: &Stopper, on_event: &OnEvent) -> io::Result<(End, Option<String>)> {
     let (sock, conn) = dial(srv, proto::ALPN)?;
     if conn.alpn_protocol() != Some(proto::ALPN) {
-        return Ok((End::Final(format!("{} isn't a Asagiri Share server", srv.host)), None));
+        return Ok((End::Final(format!("{} isn't an Asagiri Share server", srv.host)), None));
     }
     let mut reader = sock.try_clone()?;
     reader.set_read_timeout(Some(IDLE))?;
@@ -1722,7 +1758,7 @@ fn read_loop(sess: &Arc<Session>, reader: &mut TcpStream, welcomed: &mut Option<
 
 const USAGE: &str = "\
 usage: asagiri share PORT | HOST:PORT | CONTAINER [NAME | --name NAME] [--no-reserve] [--json]
-       asagiri share reserve NAME     ask to keep NAME.runkiri.cloud for yourself
+       asagiri share reserve NAME     ask to keep NAME on your server for yourself
        asagiri share names            your reserved names, and requests waiting for review
        asagiri share release NAME     give a reserved name up, or withdraw a request
        asagiri share login [--dev LOGIN]
@@ -1730,7 +1766,7 @@ usage: asagiri share PORT | HOST:PORT | CONTAINER [NAME | --name NAME] [--no-res
        asagiri share status [--json]
 
 `asagiri 3000` shares port 3000 at a random address; `asagiri 3000 myapp` (or
---name myapp) at myapp.runkiri.cloud once it's reserved. Asagiri Cloud checks each name before it's
+--name myapp) at the name assigned by your server once it's reserved. Your Share server checks each name before it's
 yours, usually within a day, and emails you; until then shares get a random address. If the name is free
 and your plan has a slot left, it's asked for first; --no-reserve uses it only as the start of a random
 address. --json prints
@@ -1751,7 +1787,7 @@ impl Paint {
         if self.on { format!("\x1b[{code}m{s}\x1b[0m") } else { s.to_owned() }
     }
 
-    /// Asagiri's mustard, #E0B420.
+    /// Asagiri's dawn coral, #F2684A.
     fn accent(&self, s: &str) -> String {
         self.wrap("38;2;224;180;32", s)
     }
@@ -2071,7 +2107,7 @@ fn event_json(e: &Event) -> serde_json::Value {
 fn status_cli(json: bool) -> io::Result<()> {
     let p = Paint::new();
     let cfg = load()?;
-    let srv = server(&cfg);
+    let srv = server(&cfg)?;
     if json {
         // Signed in or not, for programs: `{"signed_in", "server", "login"}`.
         let login = match cfg.token {
@@ -2113,12 +2149,12 @@ mod tests {
 
     #[test]
     fn a_name_waiting_for_review_is_pending() {
-        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.runkiri.cloud", "in_use": false, "status": "pending", "created_at": "2026-11-01T05:00:00Z" });
+        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.share.example.org", "in_use": false, "status": "pending", "created_at": "2026-11-01T05:00:00Z" });
         assert!(super::reserved_name(&v).pending);
-        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.runkiri.cloud", "in_use": true, "status": "approved" });
+        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.share.example.org", "in_use": true, "status": "approved" });
         assert!(!super::reserved_name(&v).pending);
         // Edges from before review send no status: the name is theirs.
-        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.runkiri.cloud", "in_use": true });
+        let v = serde_json::json!({ "name": "acme-shop", "url": "https://acme-shop.share.example.org", "in_use": true });
         assert!(!super::reserved_name(&v).pending);
     }
 
@@ -2127,12 +2163,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("asagiri-traffic-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = TrafficFile { path: dir.join("1.json"), url: Mutex::new(String::new()), counts: [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)], dirty: AtomicBool::new(false), done: AtomicBool::new(false) };
-        f.on(&Event::Live { url: "https://dock-4k.runkiri.cloud".into(), rate: 0, remaining: 0, warning: false, domains: Vec::new() });
+        f.on(&Event::Live { url: "https://dock-4k.share.example.org".into(), rate: 0, remaining: 0, warning: false, domains: Vec::new() });
         let req = |i, o| Event::Request(Request { method: "GET".into(), path: "/".into(), status: 200, ms: 1, bytes_in: i, bytes_out: o, at: SystemTime::now() });
         f.on(&req(100, 2000));
         f.on(&req(50, 48));
         f.write();
-        assert_eq!(traffic_in(&dir).get("https://dock-4k.runkiri.cloud"), Some(&[2, 150, 2048]));
+        assert_eq!(traffic_in(&dir).get("https://dock-4k.share.example.org"), Some(&[2, 150, 2048]));
         f.on(&Event::Ended { reason: "stopped".into(), error: false });
         assert!(traffic_in(&dir).is_empty(), "removed when it ends");
         let _ = std::fs::remove_dir_all(&dir);
@@ -2141,9 +2177,9 @@ mod tests {
 
     #[test]
     fn events_print_as_json_lines() {
-        let live = event_json(&Event::Live { url: "https://a.runkiri.cloud".into(), rate: 0, remaining: 5, warning: false, domains: vec![] });
+        let live = event_json(&Event::Live { url: "https://a.share.example.org".into(), rate: 0, remaining: 5, warning: false, domains: vec![] });
         assert_eq!(live["event"], "live");
-        assert_eq!(live["url"], "https://a.runkiri.cloud");
+        assert_eq!(live["url"], "https://a.share.example.org");
         let end = event_json(&Event::Ended { reason: "stopped".into(), error: false });
         assert_eq!((end["event"].as_str(), end["error"].as_bool()), (Some("ended"), Some(false)));
         let wait = event_json(&Event::Reconnecting { reason: "edge closed".into(), delay: Duration::from_millis(1500) });
@@ -2183,7 +2219,7 @@ mod tests {
 
     #[test]
     fn server_addresses() {
-        assert_eq!(parse_server("edge.runkiri.com"), ("edge.runkiri.com".into(), 443));
+        assert_eq!(parse_server("share.example.org"), ("share.example.org".into(), 443));
         assert_eq!(parse_server("https://Edge.Example:8443/"), ("edge.example".into(), 8443));
         assert_eq!(parse_server("localhost:"), ("localhost:".into(), 443));
     }
@@ -2258,7 +2294,7 @@ mod tests {
     #[test]
     fn live_tunnels_read_from_the_edge() {
         let t = live_tunnel(&json!({
-            "name": "api-7fq2ab", "label": "api", "url": "https://api-7fq2ab.runkiri.cloud", "machine": "m1", "device": "d1", "host": "paul-desktop",
+            "name": "api-7fq2ab", "label": "api", "url": "https://api-7fq2ab.share.example.org", "machine": "m1", "device": "d1", "host": "paul-desktop",
             "kind": "app", "client": "Asagiri Dev 0.9.4", "target": "api (localhost:3000)", "started": 1_800_000_000u64,
         }));
         assert_eq!((t.name.as_str(), t.label.as_str(), t.host.as_str(), t.kind.as_str(), t.started), ("api-7fq2ab", "api", "paul-desktop", "app", 1_800_000_000));

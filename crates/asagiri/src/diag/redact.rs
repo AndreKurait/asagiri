@@ -31,7 +31,7 @@ impl Redactor {
         Redactor::new(std::env::var("HOME").ok(), Vec::new())
     }
 
-    /// For a report: also the Asagiri Cloud token, when signed in.
+    /// For a report: also the Share server token, when signed in.
     pub fn for_user() -> Redactor {
         Redactor::new(std::env::var("HOME").ok(), crate::share::read_config().token.into_iter().collect())
     }
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(patterns("proxy failed: http://bob:p@ss@proxy.corp:3128, retrying"), "proxy failed: http://[redacted]@proxy.corp:3128, retrying");
         assert_eq!(patterns("https://ghp_x@github.com/a/b.git"), "https://[redacted]@github.com/a/b.git");
         // No password in these.
-        for text in ["https://example.com/a@b", "git@github.com:a/b.git", "http://localhost:8080/?who=a@b.c", "see https://runkiri.com."] {
+        for text in ["https://example.com/a@b", "git@github.com:a/b.git", "http://localhost:8080/?who=a@b.c", "see https://andrekurait.github.io/asagiri."] {
             assert_eq!(patterns(text), text);
         }
     }
@@ -696,7 +696,7 @@ mod tests {
         ] {
             assert_eq!(patterns(text), want, "{text}");
         }
-        for text in ["error: could not connect", "at 12:30: done", "see https://runkiri.com/token", "token refresh failed", "port = 5432", "password:\nnext"] {
+        for text in ["error: could not connect", "at 12:30: done", "see https://andrekurait.github.io/asagiri/token", "token refresh failed", "port = 5432", "password:\nnext"] {
             assert_eq!(patterns(text), text);
         }
     }

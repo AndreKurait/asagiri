@@ -55,7 +55,7 @@ fn session_id(token: &str) -> String {
 
 fn account() -> Value {
     match share::load() {
-        Ok(c) => json!({"type": "shareaccount", "signedIn": c.token.is_some(), "login": c.login, "server": c.server, "session": c.token.as_deref().map(session_id)}),
+        Ok(c) => json!({"type": "shareaccount", "signedIn": c.token.is_some(), "login": c.login, "server": share::configured_server(&c), "configured": share::configured_server(&c).is_some(), "session": c.token.as_deref().map(session_id)}),
         Err(e) => json!({"type": "shareaccount", "signedIn": false, "error": e.to_string()}),
     }
 }
@@ -430,21 +430,21 @@ mod tests {
 
     #[test]
     fn tunnels_are_coloured_by_computer_not_program() {
-        let own = vec!["https://web-k3x9ab.runkiri.cloud".to_owned()];
+        let own = vec!["https://web-k3x9ab.share.example.org".to_owned()];
         let at = |x: &share::LiveTunnel| {
             let v = tagged(x, "mac1", "dev1", &own);
             (v["where"].as_str().unwrap().to_owned(), v["mine"].as_bool().unwrap())
         };
         // This window's own link.
-        assert_eq!(at(&t("https://web-k3x9ab.runkiri.cloud", "mac1", "dev1", "app", "Asagiri Dev 0.9.4")), ("here".into(), true));
+        assert_eq!(at(&t("https://web-k3x9ab.share.example.org", "mac1", "dev1", "app", "Asagiri Dev 0.9.4")), ("here".into(), true));
         // `asagiri share` on this Mac, with its own config dir: another device, the same machine.
-        assert_eq!(at(&t("https://flower-x1ab23.runkiri.cloud", "mac1", "dev9", "cli", "asagiri 0.9.4")), ("here".into(), false));
+        assert_eq!(at(&t("https://flower-x1ab23.share.example.org", "mac1", "dev9", "cli", "asagiri 0.9.4")), ("here".into(), false));
         // An older CLI that sends no machine id, sharing this app's config.
-        assert_eq!(at(&t("https://old-ab12cd.runkiri.cloud", "", "dev1", "cli", "asagiri 0.8.0")), ("here".into(), false));
+        assert_eq!(at(&t("https://old-ab12cd.share.example.org", "", "dev1", "cli", "asagiri 0.8.0")), ("here".into(), false));
         // The app on another computer.
-        assert_eq!(at(&t("https://api-7fq2ab.runkiri.cloud", "mac2", "dev2", "app", "Asagiri Dev 0.9.4")), ("external".into(), false));
+        assert_eq!(at(&t("https://api-7fq2ab.share.example.org", "mac2", "dev2", "app", "Asagiri Dev 0.9.4")), ("external".into(), false));
         // No machine and another device: another computer, as far as anyone can tell.
-        assert_eq!(at(&t("https://old-zz12cd.runkiri.cloud", "", "dev7", "cli", "asagiri 0.8.0")), ("external".into(), false));
+        assert_eq!(at(&t("https://old-zz12cd.share.example.org", "", "dev7", "cli", "asagiri 0.8.0")), ("external".into(), false));
     }
 
     #[test]

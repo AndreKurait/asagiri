@@ -3,8 +3,7 @@
 //!
 //! The release feed is one small JSON file, `{"version", "url", "sha256"}`
 //! (and optionally `notes_url`, the page on what's new, and `size`), at
-//! `ASAGIRI_UPDATE_URL` (default: `download.runkiri.com/latest-windows-x86_64.json`,
-//! or `latest-windows-arm64.json` for Windows on Arm's build);
+//! an explicitly configured `ASAGIRI_UPDATE_URL` (there is no default feed);
 //! `url` is the MSI. The download is checked against the SHA-256, then the
 //! MSI itself is read (msi.dll) and must carry Asagiri's own UpgradeCode, this
 //! build's platform (x64 and arm64 share the UpgradeCode, so an x64 MSI
@@ -39,14 +38,12 @@ use serde_json::json;
 
 use crate::engine::{emit, notice, trf};
 
-#[cfg(not(target_arch = "aarch64"))]
-const FEED: &str = "https://download.runkiri.com/latest-windows-x86_64.json";
-#[cfg(target_arch = "aarch64")]
-const FEED: &str = "https://download.runkiri.com/latest-windows-arm64.json";
+#[path = "../../asagiri/src/update_feed.rs"]
+mod feed;
 /// The biggest download accepted (the MSI is about 55 MB).
 const MAX_DOWNLOAD: u64 = 2 << 30;
-/// installer/windows/asagiri.wxs's UpgradeCode: what makes an MSI a Asagiri one.
-const UPGRADE_CODE: &str = "{7C2E4B9A-5D13-4F8E-9B6A-0E1D3C5A7F21}";
+/// installer/windows/asagiri.wxs's UpgradeCode: what makes an MSI an Asagiri one.
+const UPGRADE_CODE: &str = "{09468702-99A9-5400-8567-0C02E69698E6}";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
@@ -115,7 +112,7 @@ fn first_line(bytes: &[u8], fallback: &str) -> String {
 }
 
 pub fn latest() -> io::Result<Release> {
-    let url = std::env::var("ASAGIRI_UPDATE_URL").unwrap_or_else(|_| FEED.to_owned());
+    let url = feed::url()?;
     allowed_url(&url)?;
     let out = curl().args(["-fsSL", "--max-time", "20", "--max-filesize", "65536", "--"]).arg(&url).output()?;
     if !out.status.success() {
@@ -296,13 +293,13 @@ pub fn restart_engine() -> io::Result<()> {
     Ok(())
 }
 
-/// Whether `msi` is a Asagiri installer of the version `promised`, newer than
+/// Whether `msi` is an Asagiri installer of the version `promised`, newer than
 /// this build: a swapped feed could otherwise point at any MSI, or at an
 /// older, genuine one and its known bugs.
 fn check(msi: &Path, promised: &str) -> io::Result<()> {
     let upgrade = msi_property(msi, "UpgradeCode")?;
     if !upgrade.trim().eq_ignore_ascii_case(UPGRADE_CODE) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "the update is not a Asagiri installer"));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "the update is not an Asagiri installer"));
     }
     let template = msi_template(msi)?;
     if !platform_matches(&template, crate::win::BUILD_ARCH) {
@@ -461,6 +458,10 @@ pub fn check_now(manual: bool) {
 /// Whether the feed has a newer release, and one already staged; the
 /// window's check and the 6-hourly one.
 fn feed_check(manual: bool) {
+    if !feed::configured() {
+        update_state("source", None, None);
+        return;
+    }
     {
         // A test build (0.1.8-dev.42, scripts/ci/test-version.sh) isn't
         // updated from the feed: it would "update" back to its release.
@@ -613,15 +614,15 @@ mod tests {
     fn reads_feeds_with_and_without_extras() {
         let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"https://x/K.msi","sha256":"ab"}"#).unwrap();
         assert_eq!((r.notes_url.as_str(), r.size), ("", 0));
-        let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"u","sha256":"ab","notes_url":"https://runkiri.com/","size":5}"#).unwrap();
-        assert_eq!((r.notes_url.as_str(), r.size), ("https://runkiri.com/", 5));
+        let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"u","sha256":"ab","notes_url":"https://andrekurait.github.io/asagiri/","size":5}"#).unwrap();
+        assert_eq!((r.notes_url.as_str(), r.size), ("https://andrekurait.github.io/asagiri/", 5));
     }
 
     #[test]
     fn only_https_feeds() {
-        assert!(super::allowed_url("https://download.runkiri.com/latest-windows-x86_64.json").is_ok());
+        assert!(super::allowed_url("https://updates.example.org/latest-windows-x86_64.json").is_ok());
         assert_eq!(super::allowed_url("file:///C:/t/latest.json").is_ok(), cfg!(debug_assertions));
-        assert!(super::allowed_url("http://download.runkiri.com/latest-windows-x86_64.json").is_err());
+        assert!(super::allowed_url("http://updates.example.org/latest-windows-x86_64.json").is_err());
         assert!(super::allowed_url("ftp://x/y").is_err());
     }
 

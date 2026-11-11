@@ -36,7 +36,7 @@ Package: asagiri
 Version: $version
 Architecture: $arch
 Maintainer: Asagiri
-Homepage: https://runkiri.com
+Homepage: https://andrekurait.github.io/asagiri
 Section: admin
 Priority: optional
 Installed-Size: $size

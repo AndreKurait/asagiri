@@ -101,7 +101,7 @@ pub fn serve_relay(stream: asagiri_vmm::VsockStream) {
         RELAYS.fetch_sub(1, Ordering::Relaxed);
         return;
     }
-    let spawned = std::thread::Builder::new().name("asagiri-dns-relay".into()).spawn(move || {
+    let spawned = std::thread::Builder::new().name("asa-dns-relay".into()).spawn(move || {
         relay_one(&stream);
         RELAYS.fetch_sub(1, Ordering::Relaxed);
     });

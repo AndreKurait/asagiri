@@ -12,7 +12,7 @@ Version:        %{asagiri_version}
 Release:        1%{?dist}
 Summary:        Tiny, fast container runtime (Docker API)%{!?with_cli:, engine only}
 License:        Apache-2.0
-URL:            https://runkiri.com
+URL:            https://andrekurait.github.io/asagiri
 Source0:        asagiri
 Source1:        asagiri-init
 Source2:        asagiri.service
@@ -265,5 +265,5 @@ exit 0
 %endif
 
 %changelog
-* Sun Oct 25 2026 Asagiri <kiri@canestack.com> - %{asagiri_version}-1
+* Sun Oct 25 2026 Asagiri <AndreKurait@gmail.com> - %{asagiri_version}-1
 - Packaged from the static Linux build

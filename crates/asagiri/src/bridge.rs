@@ -89,7 +89,7 @@ fn serve(mut input: impl Read, out: &Out, socket: &Path) -> io::Result<()> {
                     let window = credit.then(|| Arc::new(Window::default()));
                     conns.insert(id, Conn { tx, queued: queued.clone(), window: window.clone() });
                     let acks = credit.then(|| out.clone());
-                    std::thread::Builder::new().name("asagiri-bridge-w".into()).spawn(move || writer(id, s, &rx, &queued, acks.as_ref()))?;
+                    std::thread::Builder::new().name("asa-bridge-w".into()).spawn(move || writer(id, s, &rx, &queued, acks.as_ref()))?;
                     let out = out.clone();
                     std::thread::Builder::new().name("asagiri-bridge".into()).spawn(move || replies(id, reader, &out, window.as_deref()))?;
                 }

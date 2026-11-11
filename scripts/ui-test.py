@@ -78,8 +78,11 @@ def run(test, os_name=None):
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as f:
         f.write(page(test, os_name))
     try:
-        dom = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--virtual-time-budget=3000", "--dump-dom", f"file://{f.name}"],
-                             capture_output=True, text=True, timeout=120).stdout
+        with tempfile.TemporaryDirectory(prefix="asagiri-ui-chrome-") as profile:
+            dom = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--no-first-run",
+                                  "--no-default-browser-check", f"--user-data-dir={profile}",
+                                  "--virtual-time-budget=3000", "--dump-dom", f"file://{f.name}"],
+                                 capture_output=True, text=True, timeout=120).stdout
     finally:
         os.unlink(f.name)
     found = re.findall(r'<pre id="results">(.*?)</pre>', dom, re.S)

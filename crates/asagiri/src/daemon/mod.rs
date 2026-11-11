@@ -52,7 +52,7 @@ pub fn state_dir() -> io::Result<PathBuf> {
 }
 
 /// Root on Linux uses `/run/asagiri/docker.sock`; other users use their home.
-/// So does root in WSL: asagiri-win's bridge, and the boot command of a Asagiri
+/// So does root in WSL: asagiri-win's bridge, and the boot command of an Asagiri
 /// already installed there, know the engine by its home socket.
 pub fn socket_path() -> io::Result<PathBuf> {
     if let Some(s) = std::env::var_os("ASAGIRI_SOCKET") {

@@ -230,7 +230,7 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
 /// Follows the daemon's event stream on its own thread; each event asks
 /// the engine for a refresh. Reconnects when the daemon comes back.
 fn watch(tx: Sender<Cmd>) {
-    let _ = std::thread::Builder::new().name("asagiri-ui-events".into()).spawn(move || loop {
+    let _ = std::thread::Builder::new().name("asa-ui-events".into()).spawn(move || loop {
         if client::alive() {
             if tx.send(Cmd::Refresh).is_err() {
                 return;
@@ -301,7 +301,7 @@ pub(crate) fn ensure_daemon() -> io::Result<()> {
     Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
 }
 
-/// `docker build` through Asagiri, as on the Mac: BuildKit in a Asagiri container
+/// `docker build` through Asagiri, as on the Mac: BuildKit in an Asagiri container
 /// (buildx's docker-container driver), loading what it builds into Asagiri.
 /// That container is the daemon's managed builder, made when buildx first
 /// looks for it and stopped when idle (crates/asagiri/src/daemon/builder.rs);
@@ -447,7 +447,7 @@ fn cancel_pull(name: &str) {
         return;
     }
     let name = name.to_owned();
-    let _ = std::thread::Builder::new().name("asagiri-pull-cancel".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-pull-cancel".into()).spawn(move || {
         for _ in 0..600 {
             let closers: Vec<client::Closer> = {
                 let pulls = PULLING.lock().unwrap_or_else(PoisonError::into_inner);
@@ -823,7 +823,7 @@ fn set_pref(name: &str, value: Value) {
 
 /// A page link: only Asagiri's own addresses, as on the Mac.
 fn allowed_url(url: &str) -> bool {
-    if url == "https://kiri.canestack.com" || url == "https://learn.microsoft.com/windows/wsl/about" || url == "https://github.com/libracoder/kiri/issues/new" || url == "https://github.com/libracoder/kiri" {
+    if ["https://andrekurait.github.io/asagiri", "https://github.com/AndreKurait", "https://github.com/AndreKurait/asagiri/releases", "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md", "https://github.com/anchore/grype"].contains(&url) || url == "https://andrekurait.github.io/asagiri/" || url == "https://learn.microsoft.com/windows/wsl/about" || url == "https://github.com/AndreKurait/asagiri/issues/new" || url == "https://github.com/AndreKurait/asagiri" {
         return true;
     }
     let Some(rest) = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")) else { return false };
@@ -847,7 +847,7 @@ mod tests {
         assert!(allowed_url("http://localhost:8080/app"));
         assert!(allowed_url("https://web.asagiri.localhost/"));
         assert!(allowed_url("http://api.asagiri.local"));
-        assert!(allowed_url("https://github.com/libracoder/kiri"));
+        assert!(allowed_url("https://github.com/AndreKurait/asagiri"));
         assert!(!allowed_url("http://evil.example/"));
         // Bypass attempts the audit found.
         assert!(!allowed_url("http://localhost:1@evil.example/"));
@@ -1013,9 +1013,9 @@ pub fn on_message(msg: &str) {
         "updatecancel" => crate::update::cancel_download(),
         "updaterestart" => crate::update::restart_now(),
         "restartengine" => crate::update::restart_engine_now(),
-        // What's new: the feed names the page, so only runkiri.com's.
+        // What's new: the feed names the page, so only andrekurait.github.io/asagiri's.
         "updatenotes" => {
-            if c.name.strip_prefix("https://runkiri.com/").is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~/#".contains(&b))) {
+            if c.name.strip_prefix("https://github.com/AndreKurait/asagiri/").is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~/#".contains(&b))) {
                 crate::app::open_url(&c.name);
             }
         }

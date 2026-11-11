@@ -2,7 +2,7 @@
 //! (%LOCALAPPDATA%\Asagiri\asagiri-win.log) and the engine's (/var/log/asagiri.log in
 //! WSL), as the lines the page shows from ~/.asagiri/logs on the Mac
 //! (crates/asagiri/src/diag/report.rs `page_lines`); a report saved to the
-//! Desktop or sent to Asagiri Cloud, and the logs folder in Explorer. A panic
+//! Desktop or sent to Share server, and the logs folder in Explorer. A panic
 //! is a line in the window's log: there are no crash files on Windows.
 
 use std::io::{self, Read, Seek, SeekFrom};
@@ -20,7 +20,7 @@ use crate::daemon::time;
 
 /// How much of each log is read from its end, as on the Mac.
 const TAIL_BYTES: u64 = 512 << 10;
-/// Asagiri Cloud takes reports up to 1 MB.
+/// Share server takes reports up to 1 MB.
 const MAX_BODY: usize = 1 << 20;
 
 fn asagiri_dir() -> Option<PathBuf> {
@@ -266,9 +266,9 @@ fn send_report(text: &str) -> io::Result<String> {
             .as_str()
             .filter(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
             .map(str::to_owned)
-            .ok_or_else(|| io::Error::other("Asagiri Cloud took the report but sent back no id")),
-        429 => Err(io::Error::other(format!("Asagiri Cloud is taking no more reports for now (429){why}; try again later"))),
-        _ => Err(io::Error::other(format!("Asagiri Cloud answered {status}{why}"))),
+            .ok_or_else(|| io::Error::other("Share server took the report but sent back no id")),
+        429 => Err(io::Error::other(format!("Share server is taking no more reports for now (429){why}; try again later"))),
+        _ => Err(io::Error::other(format!("Share server answered {status}{why}"))),
     }
 }
 

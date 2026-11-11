@@ -17,7 +17,12 @@ import re
 import subprocess
 import sys
 
-KEEP = {"LICENSE", "scripts/rebrand.py", "scripts/port-upstream.sh", "UPSTREAM.md"}
+KEEP = {
+    "LICENSE", "NOTICE", "README.md", "README.pt-BR.md", "CONTRIBUTING.md",
+    "RELEASES.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "UPSTREAM.md",
+    "packaging/README.md", "docs/sharing.md", "brand/generate.py",
+    "scripts/rebrand.py", "scripts/port-upstream.sh", "scripts/port_upstream.py",
+}
 # Text that must come through unchanged, each replaced by a marker while the names are rewritten.
 PROTECT = re.compile(r"runkiri|libracoder/kiri|kiri(?=[.@]canestack)", re.IGNORECASE)
 INDONESIAN = re.compile(r"runkiri|libracoder/kiri|kiri(?=[.@]canestack)|[A-Za-z]*kirim\b", re.IGNORECASE)
@@ -48,8 +53,9 @@ def main():
     root = args[0] if args else "."
     files = [f for f in git(root, "ls-files", "-z").decode().split("\0") if f]
     changed = moved = 0
+    moved_paths = []
     for f in files:
-        if f in KEEP:
+        if f in KEEP or f.startswith(("docs/releases/", "bench/", "site/")):
             continue
         path = f"{root}/{f}"
         try:
@@ -75,12 +81,22 @@ def main():
             if dry:
                 print(f"{f} -> {to}")
             else:
-                subprocess.run(["mkdir", "-p", f"{root}/{to}".rsplit("/", 1)[0]], check=True)
-                git(root, "mv", "-k", f, to)
+                destination = f"{root}/{to}"
+                if os.path.lexists(destination):
+                    raise RuntimeError(f"refusing to replace an existing path: {to}")
+                os.makedirs(destination.rsplit("/", 1)[0], exist_ok=True)
+                os.rename(path, destination)
+                moved_paths.extend((f, to))
                 try:  # the folders the file was in, where it was the last thing in them
                     os.removedirs(f"{root}/{f}".rsplit("/", 1)[0])
                 except OSError:
                     pass
+    if moved_paths:
+        # Stage all renames in one call instead of spawning git per file.
+        subprocess.run(
+            ["git", "-C", root, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            input=("\0".join(moved_paths) + "\0").encode(), check=True,
+        )
     print(f"{changed} files rewritten, {moved} renamed", file=sys.stderr)
 
 

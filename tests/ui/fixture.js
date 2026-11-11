@@ -10,9 +10,9 @@ asagiri.on({type:"lists",containers:[
 asagiri.on({type:"shareaccount",signedIn:true,login:"octo",session:"ks_7f3a9c21e04b"});
 asagiri.on({type:"shareusage",login:"octo",used:1.9e9,cap:5e9,tunnels:3,rate:2e6});
 asagiri.on({type:"share",id:1,source:"web",target:"web (localhost:8080)",state:"connecting"});
-asagiri.on({type:"share",id:1,state:"live",url:"https://web-k3x9.runkiri.cloud"});
+asagiri.on({type:"share",id:1,state:"live",url:"https://web-k3x9.share.example.org"});
 asagiri.on({type:"share",id:2,source:"api",target:"api (localhost:3000)",state:"connecting"});
-asagiri.on({type:"share",id:2,state:"live",url:"https://api-7qp2.runkiri.cloud"});
+asagiri.on({type:"share",id:2,state:"live",url:"https://api-7qp2.share.example.org"});
 
 asagiri.on({type:"share",id:3,source:"postgres",target:"postgres (localhost:5432)",state:"connecting"});
 

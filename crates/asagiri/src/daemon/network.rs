@@ -810,7 +810,10 @@ impl Networks {
             (false, true) => ("ipvlan", "asagirii"),
             (false, false) => ("bridge", "asagiri"),
         };
-        let index = (1..).find(|i| !self.list.iter().any(|n| n.bridge == format!("{device}{i}"))).expect("unbounded");
+        // IFNAMSIZ includes the NUL: even the eight-byte macvlan/ipvlan
+        // prefix must leave the interface name at most 15 bytes long.
+        let index = (1..=9_999_999).find(|i| !self.list.iter().any(|n| n.bridge == format!("{device}{i}")))
+            .ok_or("no interface names available")?;
         let n = Network {
             id: super::engine::random_hex(32),
             name: name.into(),

@@ -95,7 +95,7 @@ t("pause stops the tunnel, resume replaces it, and it counts once", () => {
   const spin = document.querySelector('[data-shrow="90"] .sh-acts .rolling');
   eq(!!spin && spin.disabled, true, "a spinner where Resume was");
   eq(getComputedStyle(spin).borderTopColor, "rgba(0, 0, 0, 0)", "the spinner has no box");
-  asagiri.on({ type: "share", id: 90, state: "live", url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 90, state: "live", url: "https://web-k3x9.share.example.org" });
   eq(!!document.querySelector('[data-shrow="90"] [data-shpause="90"]'), true, "Pause once live");
   eq(order(), before2, "web keeps its place in the list");
   eq(kept.every((r) => r.isConnected), true, "the other rows weren't redrawn");
@@ -124,7 +124,7 @@ t("Copy in the dialog shows a Copied bubble above it, and the button stays as it
   show("containers");
 });
 t("a link that ended with an error can be shared again", () => {
-  asagiri.on({ type: "share", id: 91, source: "web", target: "web", state: "ended", reason: "that name is already in use by another of your tunnels", error: true, url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 91, source: "web", target: "web", state: "ended", reason: "that name is already in use by another of your tunnels", error: true, url: "https://web-k3x9.share.example.org" });
   show("share");
   const row = document.querySelector('.sh-row[data-shrow="91"]');
   eq(row.classList.contains("bad"), true, "reads as failed");

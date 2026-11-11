@@ -1,125 +1,72 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/logo/asagiri-horizontal-dark.svg">
-    <img src="brand/logo/asagiri-horizontal-light.svg" alt="Asagiri" width="220">
-  </picture>
-</p>
+<p align="center"><img src="brand/logo/asagiri-horizontal-light.svg" alt="Asagiri" width="360"></p>
+<p align="center"><b>朝霧 · Névoa da manhã</b><br>Um mecanismo rápido e compatível com Docker. Um novo começo.</p>
 
-<p align="center">
-  <b>Um runtime de containers pequeno e rápido para macOS, Windows e Linux.</b><br>
-  Roda suas imagens Docker e funciona com o <code>docker</code> CLI, o Compose e o buildx que você já usa.
-</p>
+[English](README.md) · [Site e demonstração](https://andrekurait.github.io/asagiri/)
 
-<p align="center">
-  <a href="README.md">English</a> · <b>Português (Brasil)</b>
-</p>
+O Asagiri executa contêineres Linux no **macOS, Linux e Windows** e implementa a
+API do Docker Engine. Use Docker CLI, Compose, buildx e SDKs do Docker, ou
+administre os contêineres pelo aplicativo nativo. O mecanismo é escrito em Rust.
 
-<p align="center">
-  <a href="https://runkiri.com/releases/">Download</a> ·
-  <a href="docs/features.pt-BR.md">Recursos</a> ·
-  <a href="docs/development.pt-BR.md">Compilar a partir do código-fonte</a> ·
-  <a href="https://github.com/libracoder/kiri/releases">Versões</a>
-</p>
+![O aplicativo Asagiri com uma pilha de desenvolvimento de exemplo](docs/images/asagiri-window.png)
 
-<p align="center">
-  <a href="https://github.com/libracoder/kiri/releases/latest"><img alt="Versão mais recente" src="https://img.shields.io/github/v/release/libracoder/kiri?label=release&color=2f6feb"></a>
-  <a href="LICENSE"><img alt="Licença: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-555"></a>
-</p>
+A captura de tela e a demonstração no navegador usam dados de exemplo na
+interface real do aplicativo.
 
-<p align="center">
-  <img src="docs/images/asagiri-window.png" alt="A janela do Asagiri, com os containers agrupados por projeto Compose, mostrando estado, portas, domínios locais e tamanho" width="900">
-</p>
+## Recursos
 
----
+- Contêineres, imagens, volumes, redes, logs, terminais e limites de recursos.
+- Máquina virtual Linux no macOS, WSL 2 no Windows e execução nativa no Linux.
+- Nomes locais para contêineres, Kubernetes e máquinas Linux.
+- Interface em 15 idiomas e verificações de CI nas três plataformas.
+- Testes de conformidade com a API do Docker e verificações de desempenho.
 
-O Asagiri é um substituto leve para o Docker Desktop e o OrbStack, escrito em
-Rust. Ele roda os containers em uma pequena VM Linux (ou direto no kernel, no
-Linux) e fala a Docker Engine API, então suas ferramentas simplesmente funcionam.
+## Compilar a partir do código-fonte
 
-O nome vem da palavra igbo *ntakịrị*, "pequeno".
-
-## Por que o Asagiri
-
-- **Rápido**: um container inicia e termina em cerca de 2,5 ms pela Docker API. Isso é cerca de 80 vezes mais rápido que o Docker Desktop.
-- **Leve**: a VM dorme após 60 s ociosa, o daemon fica em cerca de 15 MB e acorda em cerca de 0,15 s.
-- **Compatível**: `docker`, Compose, buildx, `docker login` e imagens amd64 via Rosetta.
-- **Domínios locais**: `http://<nome>.asagiri.local`, com HTTPS emitido pela autoridade certificadora do próprio Asagiri.
-- **Mais que containers**: um cluster Kubernetes com um só comando e máquinas Linux.
-- **Uma janela nativa** para containers, imagens, volumes e redes, além de um item na barra de menus.
-
-## Instalação
-
-| Plataforma | Onde obter |
-|------------|------------|
-| macOS 14+ (Apple silicon ou Intel) | `.dmg` em [runkiri.com/releases](https://runkiri.com/releases/) |
-| Windows 10 e 11 (x86-64 ou Arm, via WSL 2) | `.msi` em [runkiri.com/releases](https://runkiri.com/releases/) |
-| Linux (Ubuntu, Fedora e outros) | `.deb` ou `.rpm` em [runkiri.com/releases](https://runkiri.com/releases/) |
-
-Na primeira vez que você abre o Asagiri, ele cria um contexto Docker `asagiri`. O Asagiri se atualiza sozinho e verifica antes a assinatura de cada nova versão.
-
-## Início rápido
+**Ainda não há versões publicadas do Asagiri.** Os artefatos de CI são binários
+de desenvolvimento sem assinatura, não instaladores completos. Não há um feed
+padrão de atualizações.
 
 ```sh
-docker --context asagiri run --rm alpine echo hello
+git clone https://github.com/AndreKurait/asagiri.git
+cd asagiri
+```
+
+Use Rust estável e um mecanismo Docker para compilar o kernel e os componentes
+Linux. No macOS, execute `cargo xtask app-dev`; no Linux, `cargo xtask linux`;
+no Windows, `cargo xtask windows-dev`. Para Macs Intel, acrescente
+`--arch x86_64`; para Windows em Arm, `--arch arm64`.
+
+Consulte [desenvolvimento](docs/development.md),
+[empacotamento](packaging/README.md) e [versões](RELEASES.md).
+
+Após configurar o Asagiri:
+
+```sh
+docker --context asagiri run --rm alpine echo 'Bom dia, Asagiri'
 docker --context asagiri compose up -d
-asagiri k8s start                      # Kubernetes de um só nó, como o contexto kubectl `asagiri`
-asagiri machine create dev --distro ubuntu && asagiri machine shell dev
-asagiri import                         # traz imagens, volumes e containers do OrbStack ou do Docker Desktop
 ```
 
-Os comandos do Docker também funcionam como comandos `asagiri` (`asagiri run`, `asagiri ps`,
-`asagiri compose up` e assim por diante), e sempre apontam para o Asagiri.
+O Asagiri não opera um serviço de compartilhamento hospedado. Para usar Share,
+configure seu próprio servidor compatível; consulte [compartilhamento](docs/sharing.md).
 
-## Números
+## Diferenças e origem
 
-`alpine` executando `true` e sendo removido, mediana de 30 execuções, o mesmo `docker` CLI para os três:
+O Asagiri é um fork independente do [Kiri](https://github.com/libracoder/kiri),
+criado por libracoder e pelos colaboradores do Kiri. Preservamos a autoria e os
+créditos. Não somos afiliados ao projeto Kiri nem à Canestack Labs.
 
-|                | Docker Engine API | `docker` CLI |
-|----------------|------------------:|-------------:|
-| **Asagiri**       | **2,55 ms**       | **14,2 ms**  |
-| Docker Desktop | 213 ms            | 243 ms       |
-| OrbStack       | 380 ms            | 442 ms       |
+O projeto tem identidade, diretórios de dados, socket, instaladores, imagens e
+infraestrutura de lançamento próprios. Não migra dados automaticamente. Integra
+melhorias de compatibilidade com Docker para ciclo de vida, HTTP, arquivos,
+attach, recursos, seccomp e redes. [UPSTREAM.md](UPSTREAM.md) registra as origens,
+os ajustes e as limitações.
 
-O método e todos os outros números estão em [`bench/results.json`](bench/results.json). Rode de novo com `asagiri bench`.
+Asagiri (朝霧) significa *névoa da manhã*; kiri (霧) significa *névoa*. A marca
+mostra o sol nascendo por três faixas de névoa.
 
-## Como funciona
+O código é licenciado sob [Apache-2.0](LICENSE). Consulte [NOTICE](NOTICE) para
+licenças e atribuições de terceiros. O kernel Linux é distribuído separadamente
+sob GPL-2.0-only, com sua [oferta de código-fonte](guest/kernel/SOURCE_OFFER.md).
 
-```
-docker CLI ─┐
-compose ────┼─ Docker Engine API ─► asagiri daemon ── vsock ──► guest agent (PID 1)
-buildx ─────┤                         owns the VM           clone3 → container
-asagiri UI ────┘
-```
-
-A VM usa um kernel próprio de 10 MB, e o PID 1 dela é um agente Rust de ~900 KB.
-Esse agente inicia os containers com um único `clone3` em namespaces e um
-cgroup. Não há runc, nem shim, nem dockerd. Mais detalhes em
-[docs/development.pt-BR.md](docs/development.pt-BR.md#arquitetura).
-
-## Documentação
-
-- [Recursos](docs/features.pt-BR.md): tudo o que é suportado hoje, arquivos das versões e problemas conhecidos
-- [Desenvolvimento](docs/development.pt-BR.md): compilação, execução a partir do código-fonte, arquitetura e organização do repositório
-- [Notas de versão](docs/releases) (em inglês)
-
-## Roadmap
-
-O próximo passo é um builder embutido. O Asagiri vai servir os próprios endpoints de
-build do Docker, então o buildx usa o driver docker contra o Asagiri, como faz
-contra o Docker Desktop. Isso traz suporte a `host-gateway` para builds com
-BuildKit, e as imagens são carregadas direto no Asagiri.
-
-## Contribuindo
-
-Issues e pull requests são bem-vindos. Veja o [CONTRIBUTING.md](CONTRIBUTING.md)
-e o [Código de Conduta](CODE_OF_CONDUCT.md). Para relatar uma vulnerabilidade
-de forma privada, veja o [SECURITY.md](SECURITY.md).
-
-## Licença
-
-[Apache-2.0](LICENSE). As licenças de terceiros estão em [NOTICE](NOTICE). O kernel
-do guest é Linux (GPL-2.0); a configuração, os patches e a oferta do código-fonte
-estão em [`guest/kernel`](guest/kernel).
-
-O nome "Asagiri" e o logotipo do Asagiri não são cobertos pela licença. Forks são
-bem-vindos, com outro nome e outro logotipo.
+Leia [CONTRIBUTING.md](CONTRIBUTING.md) para contribuir. Relate problemas de
+segurança em particular por **Security → Report a vulnerability** neste repositório.

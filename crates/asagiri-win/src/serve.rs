@@ -122,7 +122,7 @@ pub fn start(cfg: Config) -> io::Result<()> {
     let hub = Arc::new(Hub { cfg: Mutex::new(cfg), current: Mutex::new(None), next_id: AtomicU32::new(1) });
     let _ = HUB.set(hub.clone());
     let h = hub.clone();
-    thread::Builder::new().name("asagiri-docker-engine".into()).spawn(move || docker_engine(&h))?;
+    thread::Builder::new().name("asa-docker-engi".into()).spawn(move || docker_engine(&h))?;
     // Start WSL now, so the first docker command does not wait for it.
     let h = hub.clone();
     thread::spawn(move || {

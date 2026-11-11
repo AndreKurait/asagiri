@@ -441,9 +441,9 @@ mod tests {
         round(Msg::Hello(Hello { protocol: PROTOCOL, token: "tok", device: "dev", name: "web", target: "localhost:3000", client: "asagiri 0.1.0", features: 0, machine: "", host: "" }));
         round(Msg::Hello(Hello { protocol: PROTOCOL, token: "tok", device: "dev", name: "web", target: "localhost:3000", client: "asagiri 0.1.0", features: FEATURE_ATTEST, machine: "", host: "" }));
         round(Msg::Hello(Hello { protocol: PROTOCOL, token: "tok", device: "dev", name: "web", target: "localhost:3000", client: "Asagiri Dev 0.9.4", features: FEATURE_ATTEST, machine: "3f9a0c41d2e87b65", host: "paul-mbp" }));
-        round(Msg::Welcome(Welcome { url: "https://web-x7k2.runkiri.cloud", rate: 512 * 1024, remaining: u64::MAX, warning: true, domains: "", lanes: 0, lane_key: "", window: 0 }));
-        round(Msg::Welcome(Welcome { url: "https://web.runkiri.cloud", rate: 0, remaining: u64::MAX, warning: false, domains: "https://dev.example.com,https://b.example.org", lanes: 0, lane_key: "", window: 0 }));
-        round(Msg::Welcome(Welcome { url: "https://web.runkiri.cloud", rate: 0, remaining: u64::MAX, warning: false, domains: "", lanes: 3, lane_key: "k3y", window: 1 << 20 }));
+        round(Msg::Welcome(Welcome { url: "https://web-x7k2.share.example.org", rate: 512 * 1024, remaining: u64::MAX, warning: true, domains: "", lanes: 0, lane_key: "", window: 0 }));
+        round(Msg::Welcome(Welcome { url: "https://web.share.example.org", rate: 0, remaining: u64::MAX, warning: false, domains: "https://dev.example.com,https://b.example.org", lanes: 0, lane_key: "", window: 0 }));
+        round(Msg::Welcome(Welcome { url: "https://web.share.example.org", rate: 0, remaining: u64::MAX, warning: false, domains: "", lanes: 3, lane_key: "k3y", window: 1 << 20 }));
         round(Msg::Join { key: "k3y" });
         round(Msg::Joined);
         round(Msg::Chunk { stream: 7, seq: 0, fin: false, data: b"hello" });
@@ -516,16 +516,16 @@ mod tests {
         // An older edge's Welcome has no domains field.
         let mut old = Vec::new();
         frame(&mut old, kind::WELCOME, |o| {
-            put_str(o, "https://web.runkiri.cloud");
+            put_str(o, "https://web.share.example.org");
             put_u32(o, 0);
             o.extend_from_slice(&u64::MAX.to_le_bytes());
             o.push(0);
         });
         let Msg::Welcome(w) = decode(&old).unwrap() else { panic!("not a Welcome") };
-        assert_eq!((w.url, w.domains), ("https://web.runkiri.cloud", ""));
+        assert_eq!((w.url, w.domains), ("https://web.share.example.org", ""));
         // A newer edge's Welcome starts with exactly what older clients read.
         let mut new = Vec::new();
-        Msg::Welcome(Welcome { url: "https://web.runkiri.cloud", rate: 0, remaining: u64::MAX, warning: false, domains: "https://dev.example.com", lanes: 2, lane_key: "k", window: 0 }).encode(&mut new);
+        Msg::Welcome(Welcome { url: "https://web.share.example.org", rate: 0, remaining: u64::MAX, warning: false, domains: "https://dev.example.com", lanes: 2, lane_key: "k", window: 0 }).encode(&mut new);
         assert_eq!(&new[6..old.len()], &old[6..]);
         // And without lanes, read as none.
         let Msg::Welcome(w) = decode(&old).unwrap() else { panic!("not a Welcome") };

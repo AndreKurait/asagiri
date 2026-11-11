@@ -5,7 +5,8 @@
 #
 #   scripts/perf-run.sh BASE_BIN HEAD_BIN WORK [RUNS]
 #
-# BASE_BIN and HEAD_BIN hold `asagiri` and `asagiri-init` (cargo xtask linux).
+# BASE_BIN and HEAD_BIN hold the engine and its *-init companion. Each side
+# can have a different product name; the limits still come from main.
 # Needs docker, python3 and strace, and root for strace and the sockets
 # (it uses sudo when not root). Writes WORK/report.md; exits 1 when the
 # change is past a limit.
@@ -23,16 +24,21 @@ trap stop EXIT
 stop
 for e in base head; do
   bin=$BASE_BIN; [ $e = head ] && bin=$HEAD_BIN
+  set -- "$bin/"*-init
+  [ "$#" -eq 1 ] && [ -x "$1" ] || { echo "expected one executable *-init in $bin"; exit 2; }
+  engine=$(basename "$1" -init)
+  [ -x "$bin/$engine" ] || { echo "missing engine $bin/$engine"; exit 2; }
+  socket_var=$(printf '%s_SOCKET' "$engine" | tr '[:lower:]' '[:upper:]')
   $SUDO rm -rf "$WORK/$e-run"; mkdir -p "$WORK/$e-run"
   # The socket is named, so both engines listen where the check looks even
   # when the two builds differ in where they would put it.
   docker run -d --name asagiri-perf-$e --privileged --tmpfs /run \
-    -v asagiri-perf-$e-lib:/var/lib/asagiri -v asagiri-perf-$e-store:/root/.local/share/asagiri \
-    -v "$bin:/opt/asagiri:ro" -v "$WORK/$e-run:/root/.asagiri/run" \
-    -e ASAGIRI_SOCKET=/root/.asagiri/run/docker.sock \
-    alpine:3.21 sh -c 'exec /opt/asagiri/asagiri daemon' >/dev/null
+    -v "asagiri-perf-$e-lib:/var/lib/$engine" -v "asagiri-perf-$e-store:/root/.local/share/$engine" \
+    -v "$bin:/opt/engine:ro" -v "$WORK/$e-run:/bench" \
+    -e "$socket_var=/bench/docker.sock" \
+    alpine:3.21 "/opt/engine/$engine" daemon >/dev/null
 done
-pid() { docker inspect -f '{{.State.Pid}}' asagiri-perf-$1; }
+pid() { docker inspect -f '{{.State.Pid}}' "asagiri-perf-$1"; }
 for e in base head; do
   i=0; while [ ! -S "$WORK/$e-run/docker.sock" ]; do
     i=$((i + 1)); [ $i -gt 120 ] && { docker logs asagiri-perf-$e 2>&1 | tail -20; echo "the $e engine made no socket"; exit 2; }

@@ -371,7 +371,7 @@ data:\n\
 /// A CoreDNS that was running before the manifest was there doesn't see it
 /// (its `reload` watches the Corefile, not what it imports), so once k3s
 /// has applied the ConfigMap, CoreDNS is restarted: only when the manifest
-/// was just written, so a cluster's first start with it, or a Asagiri that
+/// was just written, so a cluster's first start with it, or an Asagiri that
 /// changes it.
 fn restart_coredns() -> io::Result<()> {
     let script = "k='kubectl -n kube-system'; for i in $(seq 90); do \
@@ -459,7 +459,7 @@ pub(crate) fn sync_at_start() {
     if unsafe { libc::geteuid() } == 0 {
         return;
     }
-    let _ = std::thread::Builder::new().name("asagiri-k8s-context".into()).spawn(|| {
+    let _ = std::thread::Builder::new().name("asa-k8s-context".into()).spawn(|| {
         for _ in 0..50 {
             if client::alive() {
                 break;

@@ -2,9 +2,8 @@
 //!
 //! The release feed is one small JSON file, `{"version", "url", "sha256"}`
 //! (and optionally `notes`, Markdown for the window's What's new, and
-//! `notes_url`, a runkiri.com page on it), at
-//! `ASAGIRI_UPDATE_URL` (default: `download.runkiri.com/latest-mac-arm64.json`,
-//! and `latest-mac-x86_64.json` for the Intel build: each Mac has its own app). The
+//! `notes_url`, a page on it), at an explicitly configured
+//! `ASAGIRI_UPDATE_URL`. There is no default feed. The
 //! download is checked against the SHA-256, the installed app's own signing
 //! identity, notarization and the version the feed promised before it is
 //! staged beside the app in `.asagiri-update/`. Installing swaps the staged app
@@ -23,17 +22,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 
-/// Each Mac reads its own feed, so a release for one never reaches the other
-/// (and check() refuses an app without code for this CPU anyway).
-#[cfg(all(not(target_os = "linux"), not(target_arch = "x86_64")))]
-const FEED: &str = "https://download.runkiri.com/latest-mac-arm64.json";
-/// Intel Macs get the Intel app (`cargo xtask release --arch x86_64`).
-#[cfg(all(not(target_os = "linux"), target_arch = "x86_64"))]
-const FEED: &str = "https://download.runkiri.com/latest-mac-x86_64.json";
-/// Linux reads only the version: its asagiri is a .deb or .rpm installed from
-/// runkiri.com, so nothing is downloaded from the feed.
-#[cfg(target_os = "linux")]
-const FEED: &str = "https://download.runkiri.com/latest.json";
+#[path = "update_feed.rs"]
+mod feed;
+pub use feed::configured;
 /// The biggest download accepted (the app is about 60 MB packed).
 const MAX_DOWNLOAD: u64 = 2 << 30;
 
@@ -70,7 +61,7 @@ fn agent() -> ureq::Agent {
 }
 
 pub fn latest() -> io::Result<Release> {
-    let url = std::env::var("ASAGIRI_UPDATE_URL").unwrap_or_else(|_| FEED.to_owned());
+    let url = feed::url()?;
     let release = (|| -> io::Result<Release> {
         let body = agent().get(&url).call().map_err(io::Error::other)?.body_mut().with_config().limit(64 << 10).read_to_vec().map_err(io::Error::other)?;
         serde_json::from_slice(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{url}: {e}")))
@@ -294,7 +285,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
         return Ok(());
     }
     if cfg!(target_os = "linux") {
-        return Err(io::Error::other("download the new .deb or .rpm from https://runkiri.com/releases/ and install it as before"));
+        return Err(io::Error::other("download the new .deb or .rpm from https://github.com/AndreKurait/asagiri/releases and install it as before"));
     }
     download(&release, &mut |_, _| {}, &AtomicBool::new(false))?;
     install_staged()?;
@@ -358,8 +349,8 @@ mod tests {
     fn reads_feeds_with_and_without_notes_url() {
         let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"https://x/K.tar.gz","sha256":"ab"}"#).unwrap();
         assert_eq!(r.notes_url, "");
-        let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"u","sha256":"ab","notes_url":"https://runkiri.com/"}"#).unwrap();
-        assert_eq!(r.notes_url, "https://runkiri.com/");
+        let r: Release = serde_json::from_str(r#"{"version":"0.1.1","url":"u","sha256":"ab","notes_url":"https://andrekurait.github.io/asagiri/"}"#).unwrap();
+        assert_eq!(r.notes_url, "https://andrekurait.github.io/asagiri/");
         let r: Release = serde_json::from_str(r###"{"version":"0.1.5","url":"u","sha256":"ab","notes":"## New\n- a line"}"###).unwrap();
         assert_eq!(r.notes, "## New\n- a line");
     }

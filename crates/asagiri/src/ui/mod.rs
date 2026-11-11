@@ -355,7 +355,7 @@ fn engine(rx: Receiver<Cmd>, tx: Sender<Cmd>) {
 /// Follows the daemon's event stream on its own thread; each event asks
 /// the engine for a refresh. Reconnects when the daemon comes back.
 fn watch(tx: Sender<Cmd>) {
-    let _ = std::thread::Builder::new().name("asagiri-ui-events".into()).spawn(move || loop {
+    let _ = std::thread::Builder::new().name("asa-ui-events".into()).spawn(move || loop {
         if client::alive() {
             if tx.send(Cmd::Refresh).is_err() {
                 return;
@@ -646,6 +646,10 @@ fn update_check(manual: bool) {
 /// window's check and the 6-hourly one (recheck.rs).
 fn feed_check(manual: bool) {    // Asagiri Dev is rebuilt from source, never updated from the feed, unless
     // ASAGIRI_UPDATE_URL names a test feed (to try the update card and What's new).
+    if !update::configured() {
+        update_state("source", None, None);
+        return;
+    }
     if crate::flavor::dev() && std::env::var_os("ASAGIRI_UPDATE_URL").is_none() {
         if manual {
             emit(notice("ok", &trf("{app} doesn't update itself: rebuild it with cargo xtask app-dev", &[("app", &crate::flavor::APP)])));
@@ -1483,9 +1487,9 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             std::thread::spawn(update_restart);
             Ok(())
         }
-        // What's new: the feed names the page, so only runkiri.com's.
+        // What's new: the feed names the page, so only andrekurait.github.io/asagiri's.
         "updatenotes" => {
-            if msg.name.strip_prefix("https://runkiri.com/").is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~/#".contains(&b))) {
+            if msg.name.strip_prefix("https://github.com/AndreKurait/asagiri/").is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~/#".contains(&b))) {
                 open(&msg.name);
             }
             Ok(())
@@ -1969,7 +1973,7 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             let local = msg.name.strip_prefix("http://").or_else(|| msg.name.strip_prefix("https://")).and_then(|r| r.split(['/', ':']).next()).is_some_and(|h| h == "localhost" || h.ends_with(".asagiri.localhost") || h.ends_with(".asagiri.local"));
             // A build warning's rule page (docs.docker.com/go/dockerfile/rule/…).
             let docs = msg.name.strip_prefix("https://docs.docker.com/go/").is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"-/".contains(&b)));
-            if local || docs || msg.name == "https://runkiri.com" || msg.name == "https://runkiri.com/share/notice" || msg.name == "https://canestack.com" || msg.name == "https://github.com/libracoder/kiri/issues/new" || msg.name == "https://github.com/libracoder/kiri" || msg.name == "https://github.com/anchore/grype" {
+            if local || docs || msg.name == "https://github.com/AndreKurait/asagiri/releases" || msg.name == "https://andrekurait.github.io/asagiri" || msg.name == "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md" || msg.name == "https://github.com/AndreKurait" || msg.name == "https://github.com/AndreKurait/asagiri/issues/new" || msg.name == "https://github.com/AndreKurait/asagiri" || msg.name == "https://github.com/anchore/grype" {
                 open(&msg.name);
             }
             Ok(())

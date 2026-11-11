@@ -1,74 +1,50 @@
 # Contributing to Asagiri
 
-Thanks for helping. Issues and pull requests are welcome.
+Issues and pull requests are welcome in AndreKurait/asagiri. Describe the
+problem, what changes for users, and how you verified it. Discuss larger
+features in an issue before doing substantial work.
 
-## Before you start
+Keep at most **two ready pull requests and two drafts** open per person. The
+PR limit workflow converts an excess ready PR to a draft when there is room;
+otherwise it closes the excess PR. Bots are excluded. Reopen it when there is
+room. This rule also applies to maintainers.
 
-For anything larger than a small fix, open an issue first so we can agree on
-the approach, and wait for that before you write the code. Asagiri aims to be
-small and fast: changes that add a dependency, a background process or
-startup time need a good reason.
+## Development and checks
 
-Bug reports need the Asagiri version and system, the exact commands you ran and
-the output you got, as the issue form asks. A report we can't reproduce, or a
-problem found only by reading the code, may be closed until it can be shown
-on a real machine.
-
-Keep at most 4 pull requests open at a time: 2 ready for review and 2
-drafts. A few at a time get looked at properly and merged sooner. The
-"Pull request limit" check counts them for everyone, maintainers included:
-one past the limit is made a draft when you have room for a draft, and
-closed with a note when you don't. Nothing is lost; bring it back when one
-of your others is merged or closed.
-
-## Building and testing
+See [development](docs/development.md) for platform prerequisites. Keep the
+existing source style; do not run a workspace-wide formatter over unrelated
+code. Run the checks appropriate to your change:
 
 ```sh
-cargo xtask host      # target/release/asagiri, signed with the virtualization entitlement
-cargo test            # unit tests
-tests/e2e.sh          # the Docker compatibility suite, against a running `asagiri daemon`
+cargo test --locked
+cargo clippy --locked
+python3 scripts/i18n-check.py
+python3 scripts/ui-test.py
 ```
 
-Use `cargo xtask host`, not plain `cargo build`, for a binary you run as the
-daemon: without the virtualization entitlement the VM will not start. The
-guest needs `cargo xtask kernel`, `cargo xtask disk` and `cargo xtask guest`
-once; see the README.
+Linux engine tests that create namespaces or device nodes need the privileged
+container used by `.github/workflows/platforms.yml`. Run conformance tests only
+against a disposable engine. `scripts/ci/live-tests.sh <binary-directory>` starts
+one without publishing any ports and removes it afterwards.
 
-`tests/e2e.sh` only removes containers, networks and volumes it created.
+CI builds Linux, macOS, and Windows on every pull request. Include relevant
+live tests for behavior changes and preserve platform parity in the UI.
+Performance is checked against the base branch. Do not loosen the performance
+limits to make a regression pass. Explain platform limitations in the PR.
 
-## Every feature ships on macOS, Windows and Linux together
+## Commits and attribution
 
-- A feature comes in one pull request, for all three systems, built and
-  tested on each of them before it's merged.
-- No `if (WIN)` or Asagiri Dev (`flavor::dev()`) gate that hides a feature from
-  a system or from Asagiri. Words may differ by system ("Show in Finder"); what
-  the window offers may not. Plumbing (contexts, update URLs) may differ.
-- `python3 scripts/ui-test.py` must pass. Its parity test opens the window as
-  each system and fails when one shows something another doesn't, unless
-  `tests/ui/parity-allow.txt` gives the reason. A new line there needs a
-  maintainer's OK. It also runs on every pull request; on Linux, point
-  `CHROME` at your Chrome or Chromium.
+Use signed commits and add your sign-off with `git commit -S -s`. A sign-off
+certifies that you have the right to submit the contribution under the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/).
+Contributions are licensed under this project's Apache-2.0 license; Asagiri
+does not require a separate contributor license agreement.
 
-## Speed is a feature
+Preserve upstream authorship when porting a change. Use
+`scripts/port-upstream.sh`; [UPSTREAM.md](UPSTREAM.md) describes the workflow.
+Record review fixes separately from the original port. Do not submit private
+or undisclosed security work in a public pull request.
 
-Asagiri is small and fast on purpose, and every pull request is checked for it.
-The Speed check builds main and your change, runs both engines side by side
-on one machine and compares them: `docker run`, API round trips, the daemon's
-memory, the system calls one container costs, and the binaries' size. It
-fails when the change is slower than main past the limits in
-`scripts/perf.py`; the table is in the check's summary. To run it yourself on
-Linux, build both with `cargo xtask linux` and run
-`scripts/perf-run.sh <main's build> <your build> <work folder>`.
-
-## Pull requests
-
-- Keep each pull request to one change, with a message that says what it does
-  and why.
-- Run `cargo fmt`, `cargo clippy` and the tests. After changing Rust
-  dependencies or bundled tool versions, run `scripts/ci/notices.sh` and commit
-  the updated NOTICE.
-- Sign your commits and the [Contributor License Agreement](CLA.md) when CLA
-  Assistant asks for it on your first pull request.
-
-By submitting a contribution you agree it is licensed under Apache-2.0, as
-described in the README and the Contributor License Agreement.
+If AI tools helped, describe their use in the PR template. You are responsible
+for reviewing the result and its tests. Follow the [code of conduct](CODE_OF_CONDUCT.md).
+Security reports go through [SECURITY.md](SECURITY.md), not public issues.

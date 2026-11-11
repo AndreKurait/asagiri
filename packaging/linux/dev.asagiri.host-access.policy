@@ -6,7 +6,7 @@
      use it (crates/asagiri/src/hostaccess.rs). -->
 <policyconfig>
   <vendor>Asagiri</vendor>
-  <vendor_url>https://runkiri.com</vendor_url>
+  <vendor_url>https://andrekurait.github.io/asagiri</vendor_url>
   <action id="dev.asagiri.host-access">
     <description>Set up Asagiri for an account</description>
     <message>Asagiri needs your password to start its engine and let your account run containers.</message>

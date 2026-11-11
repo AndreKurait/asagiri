@@ -44,7 +44,7 @@
       }
     ]
   },
-  "asagiri": {
+  "kiri": {
     "rows": [
       {
         "metric": "run --rm alpine true (Docker API, bridge network)",
@@ -53,7 +53,7 @@
         "detail": "p50 of 30 next to OrbStack and Docker Desktop; 1.26 ms alone with --network none"
       },
       {
-        "metric": "asagiri run -d",
+        "metric": "kiri run -d",
         "value_ms": 6,
         "status": "target"
       },
@@ -77,7 +77,7 @@
         "metric": "engine daemon resident memory",
         "value_mb": 9.7,
         "status": "measured",
-        "detail": "asagiri daemon on the Mac (9.0 MB footprint) plus the guest agent inside the VM (0.69 MB resident); compare OrbStack dockerd + containerd"
+        "detail": "kiri daemon on the Mac (9.0 MB footprint) plus the guest agent inside the VM (0.69 MB resident); compare OrbStack dockerd + containerd"
       },
       {
         "metric": "guest init binary size",
@@ -86,7 +86,7 @@
         "detail": "PID 1, guest agent and container runtime, with gzip/zstd/tar for layers"
       },
       {
-        "metric": "asagiri host binary size",
+        "metric": "kiri host binary size",
         "value_kb": 2165,
         "status": "measured",
         "detail": "includes TLS for pulls, the Docker API server and the window"
@@ -101,7 +101,7 @@
         "metric": "Virtualization.framework configure + start",
         "value_ms": 95,
         "status": "measured",
-        "detail": "Apple's helper process start; outside Asagiri"
+        "detail": "Apple's helper process start; outside Kiri"
       },
       {
         "metric": "guest kernel boot to PID 1",
@@ -204,16 +204,16 @@
     "runs": 30,
     "rows": [
       {
-        "engine": "Asagiri",
-        "path": "Docker Engine API (asagiri daemon)",
+        "engine": "Kiri",
+        "path": "Docker Engine API (kiri daemon)",
         "network": "bridge",
         "p50_ms": 2.55,
         "p99_ms": 4.72,
         "status": "measured"
       },
       {
-        "engine": "Asagiri",
-        "path": "docker CLI (context asagiri)",
+        "engine": "Kiri",
+        "path": "docker CLI (context kiri)",
         "network": "bridge",
         "p50_ms": 14.15,
         "p99_ms": 17.37,
@@ -252,16 +252,16 @@
         "status": "measured"
       },
       {
-        "engine": "Asagiri",
-        "path": "Docker Engine API (asagiri daemon)",
+        "engine": "Kiri",
+        "path": "Docker Engine API (kiri daemon)",
         "network": "none",
         "p50_ms": 2.68,
         "p99_ms": 5.79,
         "status": "measured"
       },
       {
-        "engine": "Asagiri",
-        "path": "docker CLI (context asagiri)",
+        "engine": "Kiri",
+        "path": "docker CLI (context kiri)",
         "network": "none",
         "p50_ms": 13.97,
         "p99_ms": 15.84,
@@ -300,7 +300,7 @@
         "status": "measured"
       }
     ],
-    "asagiri_guest_breakdown": {
+    "kiri_guest_breakdown": {
       "namespaces_mounts_cgroup_ms": 0.39,
       "process_lifetime_ms": 1.41,
       "note": "includes the bridged network setup and generated /etc files; measured while two other container VMs were busy"
@@ -308,12 +308,12 @@
     "caveats": [
       "All three engines were driven by the same docker CLI (29.7.2) and the same Docker Engine API calls, in one run, on the same Mac, with default bridge networking and with --network none.",
       "During the run OrbStack had 86 containers and a Kubernetes cluster running, and Docker Desktop's VM was up as well; that load widens every engine's spread (p99). OrbStack's numbers are pessimistic.",
-      "Asagiri reports a --rm container's exit once its record is removed and deletes its files in the guest just after; with the deletion inside the timing, Asagiri's engine time was about 3 ms.",
-      "Of Asagiri's ~14 ms through the docker CLI, most is the docker CLI itself starting up."
+      "Kiri reports a --rm container's exit once its record is removed and deletes its files in the guest just after; with the deletion inside the timing, Kiri's engine time was about 3 ms.",
+      "Of Kiri's ~14 ms through the docker CLI, most is the docker CLI itself starting up."
     ],
-    "quiet_asagiri_ms": {
+    "quiet_kiri_ms": {
       "value": 1.26,
-      "detail": "Asagiri alone, Docker Desktop stopped, --network none, Docker API, p50 of 50"
+      "detail": "Kiri alone, Docker Desktop stopped, --network none, Docker API, p50 of 50"
     }
   }
 }

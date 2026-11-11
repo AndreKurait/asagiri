@@ -1,28 +1,27 @@
 # Security
 
-Asagiri runs a virtual machine, containers that can be privileged, and a local
-certificate authority on your computer (macOS, Windows or Linux), so security
-reports matter a lot.
+Asagiri runs containers, a Linux VM or WSL engine, and local networking
+services. Treat membership in the Linux `asagiri` group like Docker group
+membership: it grants powerful access to the host.
 
-## Reporting a vulnerability
+## Report a vulnerability privately
 
-Please do not open a public issue. Use GitHub's private vulnerability
-reporting on this repository (Security → Report a vulnerability).
+Use **Security → Report a vulnerability** in AndreKurait/asagiri, or
+https://github.com/AndreKurait/asagiri/security/advisories/new.
+Do not disclose an unpatched vulnerability in a public issue or PR.
 
-Include what you found, how to reproduce it, and the Asagiri version
-(Asagiri → About in the app). You should get a reply within a few days,
-and a fix or a plan once the issue is confirmed. Reporters are credited in
-the release notes unless they prefer not to be.
+Include the commit or version, operating system, reproduction steps, impact,
+and relevant redacted logs. The maintainer is Andre Kurait
+(AndreKurait@gmail.com). Attribution is offered unless you prefer anonymity.
 
-## Supported versions
+## Supported code
 
-Security fixes go into the latest release. Asagiri updates itself, so please
-update before reporting.
+Asagiri currently supports the latest `main` branch. There are no published
+Asagiri releases yet. Build from current source before retesting a report.
+There is no default update feed or hosted sharing server. Configuring either
+opts into infrastructure you choose and trust.
 
-## In scope
-
-- Escaping a container or the VM to the host (the Mac, Windows or the Linux
-  machine).
-- The daemon socket, the HTTP/HTTPS router, DNS, and the certificate
-  authority (it is limited to `asagiri.local` and `asagiri.localhost` names).
-- The installer, `asagiri setup` and auto-update.
+Reports about container or VM isolation, the Engine API socket, networking,
+local certificate handling, installers, image archives, and configured updates
+are in scope. Coordinate issues inherited from Kiri privately with the
+relevant maintainers before public disclosure.

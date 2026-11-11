@@ -1,5 +1,11 @@
 Asagiri third-party notices
 
+Asagiri is an independent derivative of Kiri (https://github.com/libracoder/kiri).
+Copyright remains with the original Kiri authors and contributors.
+Asagiri modifications, identity, and artwork: Copyright 2026 Andre Kurait and
+Asagiri contributors, licensed under Apache-2.0. This project is not affiliated
+with or endorsed by Kiri or Canestack Labs.
+
 Asagiri is licensed under Apache-2.0. This file contains the licence and
 attribution notices for code bundled with or downloaded by Asagiri. The guest
 Linux kernel is a separate GPL-2.0-only work; its source offer follows the

@@ -158,7 +158,7 @@ fn bridge(stream: UnixStream, early: Vec<u8>, output: Output, stdout: bool, stde
     let (mut incoming, outgoing) = UnixStream::pair()?;
     let stop = Stop(Arc::new(AtomicBool::new(false)));
     let stopping = stop.0.clone();
-    std::thread::Builder::new().name("asagiri-websocket-output".into()).spawn(move || forward(outgoing, output, &stopping, stdout, stderr))?;
+    std::thread::Builder::new().name("asa-websocket-o".into()).spawn(move || forward(outgoing, output, &stopping, stdout, stderr))?;
     stream.set_nonblocking(true)?;
     let mut ws = WebSocket::from_partially_read(stream, early, Role::Server, None);
     let mut closing = false;

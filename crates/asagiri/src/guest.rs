@@ -89,7 +89,7 @@ impl Guest {
         // Virtualization.framework cannot boot its x86-64 guest.
         #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
         if translated() {
-            return Err(io::Error::other("this is Asagiri for Intel Macs, and this Mac has Apple silicon: install Asagiri for Apple silicon from runkiri.com"));
+            return Err(io::Error::other("this is Asagiri for Intel Macs, and this Mac has Apple silicon: install Asagiri for Apple silicon from andrekurait.github.io/asagiri"));
         }
         if !Vm::is_supported() {
             return Err(io::Error::other(if cfg!(target_os = "linux") {

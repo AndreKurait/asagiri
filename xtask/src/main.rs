@@ -654,7 +654,7 @@ fn msi(root: &Path, arch: WinArch) -> io::Result<()> {
     // as `release` writes the Mac's.
     let size = fs::metadata(&out)?.len();
     let sum = sha256(&out)?;
-    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| "https://download.runkiri.com".to_owned());
+    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| format!("https://github.com/AndreKurait/asagiri/releases/download/v{version}"));
     let extra = feed_notes()?;
     let feed = format!("{{\"version\":\"{version}\",\"url\":\"{base}/{name}\",\"sha256\":\"{sum}\",\"size\":{size}{extra}}}\n");
     let feed_path = root.join("target").join(arch.feed());
@@ -972,7 +972,7 @@ fn json_escape(s: &str) -> String {
 
 /// What's new, for a feed (Mac's and Windows'): ASAGIRI_RELEASE_NOTES names a
 /// Markdown file ("## New", "- a line") shown in the window's What's new;
-/// ASAGIRI_RELEASE_NOTES_URL a runkiri.com page. Empty when neither is set.
+/// ASAGIRI_RELEASE_NOTES_URL a andrekurait.github.io/asagiri page. Empty when neither is set.
 fn feed_notes() -> io::Result<String> {
     let mut extra = String::new();
     if let Ok(path) = std::env::var("ASAGIRI_RELEASE_NOTES") {
@@ -993,7 +993,7 @@ fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     let tarball = root.join(format!("target/Asagiri-{version}{suffix}.tar.gz"));
     run(Command::new("tar").args(["-cSzf"]).arg(&tarball).arg("-C").arg(app.parent().unwrap_or(root)).arg("Asagiri.app"))?;
     let sum = sha256(&tarball)?;
-    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| "https://download.runkiri.com".to_owned());
+    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| format!("https://github.com/AndreKurait/asagiri/releases/download/v{version}"));
     let extra = feed_notes()?;
     let feed = format!("{{\"version\":\"{version}\",\"url\":\"{base}/Asagiri-{version}{suffix}.tar.gz\",\"sha256\":\"{sum}\"{extra}}}\n");
     let feed_path = root.join(format!("target/latest-mac{suffix}.json"));

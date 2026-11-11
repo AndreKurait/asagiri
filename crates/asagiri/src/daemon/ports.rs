@@ -612,7 +612,7 @@ fn open_udp_session(sock: &UdpSocket, vm: &VmLink, ip: [u8; 4], port: u16, peer:
     // A clone shares the socket (and its non-blocking mode); a send to a
     // client rarely has to wait, and a dropped reply is UDP's to lose.
     let reply = sock.try_clone()?;
-    let reader = std::thread::Builder::new().name("asagiri-udp-reply".into()).spawn(move || {
+    let reader = std::thread::Builder::new().name("asa-udp-reply".into()).spawn(move || {
         let mut len = [0u8; 2];
         let mut data = vec![0u8; 65_536];
         while from_guest.read_exact(&mut len).is_ok() {
@@ -928,7 +928,7 @@ pub const HOST_BOUND_PORT: u32 = 1026;
 /// One host-bound connection from a container: the guest sends
 /// `ip[4] port[2]` (always 127.0.0.1 today), and we connect there on the Mac.
 pub fn serve_host_bound(stream: asagiri_vmm::VsockStream) {
-    let _ = std::thread::Builder::new().name("asagiri-host-bound".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-host-bound".into()).spawn(move || {
         let _ = host_bound(stream);
     });
 }
@@ -952,7 +952,7 @@ fn host_bound(stream: asagiri_vmm::VsockStream) -> io::Result<()> {
     let mut to_guest = std::fs::File::from(stream.fd.try_clone()?);
     let mut target_read = target.try_clone()?;
     let mut target_write = target;
-    let down = std::thread::Builder::new().name("asagiri-host-bound-down".into()).spawn(move || {
+    let down = std::thread::Builder::new().name("asa-host-bound-".into()).spawn(move || {
         let _ = copy(&mut target_read, &mut to_guest);
         // SAFETY: half-closing a socket we own.
         unsafe { libc::shutdown(to_guest.as_raw_fd(), libc::SHUT_WR) };
@@ -980,7 +980,7 @@ fn ssh_auth_sock() -> Option<std::path::PathBuf> {
 
 /// One container connection to the SSH agent, relayed to the Mac's agent.
 pub fn serve_ssh_agent(stream: asagiri_vmm::VsockStream) {
-    let _ = std::thread::Builder::new().name("asagiri-ssh-agent".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-ssh-agent".into()).spawn(move || {
         let Some(path) = ssh_auth_sock() else { return };
         let Ok(agent) = std::os::unix::net::UnixStream::connect(path) else {
             return;
@@ -1010,7 +1010,7 @@ pub const ENGINE_API_PORT: u32 = 1036;
 /// One container connection to the engine's API, relayed to this daemon's
 /// own socket, so it is served like any other client.
 pub fn serve_engine_api(stream: asagiri_vmm::VsockStream) {
-    let _ = std::thread::Builder::new().name("asagiri-engine-api".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-engine-api".into()).spawn(move || {
         let Ok(api) = super::socket_path().and_then(std::os::unix::net::UnixStream::connect) else { return };
         let (Ok(mut api_read), Ok(from_guest), Ok(to_guest)) = (api.try_clone(), stream.fd.try_clone(), stream.fd.try_clone()) else {
             return;

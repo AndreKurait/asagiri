@@ -7,7 +7,7 @@ asagiri.on({ type: "status", version: "0.1.4", dev: true, app: "Asagiri Dev", ou
 asagiri.on({ type: "shareaccount", signedIn: true, login: "you", session: "ks_1" });
 for (const id of [...sh.items.keys()]) sh.items.delete(id);
 sh.served = { requests: 2, in: 100, out: 1000 };
-const DOCK = { name: "dock-4kcdss", label: "dock", url: "https://dock-4kcdss.runkiri.cloud", host: "mac", kind: "cli", program: "asagiri share", target: "localhost:8790", started: Date.now() / 1000 - 47, mine: false, where: "here" };
+const DOCK = { name: "dock-4kcdss", label: "dock", url: "https://dock-4kcdss.share.example.org", host: "mac", kind: "cli", program: "asagiri share", target: "localhost:8790", started: Date.now() / 1000 - 47, mine: false, where: "here" };
 asagiri.on({ type: "sharetunnels", items: [DOCK], limit: 5 });
 show("share");
 const row = () => document.querySelector(`[data-shname="${DOCK.name}"]`);

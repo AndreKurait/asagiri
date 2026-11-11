@@ -327,7 +327,7 @@ pub fn watch(engine: Arc<Engine>) {
     super::mirror::start(&engine);
     let me = Arc::downgrade(&engine);
     drop(engine);
-    let _ = std::thread::Builder::new().name("asagiri-builder-idle".into()).spawn(move || loop {
+    let _ = std::thread::Builder::new().name("asa-builder-idl".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(15));
         let Some(engine) = me.upgrade() else { return };
         let idle = idle_secs();

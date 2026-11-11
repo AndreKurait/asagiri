@@ -23,7 +23,7 @@
 //!
 //! A panic in any process leaves `~/.asagiri/crashes/<unix time>-<part>.txt`.
 //! `asagiri diag report` gathers logs and crashes, redacted, into one file
-//! (see [`report`]); crash files go to Asagiri Cloud by themselves only when
+//! (see [`report`]); crash files go to Share server by themselves only when
 //! the person turned that on (`"crashReports": true` in `ui.json`).
 
 use std::fmt::Write as _;

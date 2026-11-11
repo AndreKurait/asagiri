@@ -15,7 +15,7 @@ t("the first success asks, once", () => {
   prefs.starAsked = false;
   asagiri.on({ type: "pulled", name: "redis:7", ms: 1240 });
   const first = starTimer;
-  asagiri.on({ type: "share", id: 9, source: "web", state: "live", url: "https://web-x.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 9, source: "web", state: "live", url: "https://web-x.share.example.org" });
   if (!first || starTimer !== first) throw new Error("not asked, or asked again");
   clearTimeout(starTimer);
   starCard("Pulled redis:7 in 1.2 s.");
@@ -25,7 +25,7 @@ t("the first success asks, once", () => {
 });
 t("Star opens the repo and the card goes", () => {
   document.querySelector("#toasts .toast.star [data-star]").click();
-  if (!sent.some((m) => m.type === "open" && m.name === "https://github.com/libracoder/kiri")) throw new Error("didn't open");
+  if (!sent.some((m) => m.type === "open" && m.name === "https://github.com/AndreKurait/asagiri")) throw new Error("didn't open");
   if (!document.querySelector("#toasts .toast.star.leaving")) throw new Error("stayed");
 });
 t("a container newly running counts; ones already up don't", () => {

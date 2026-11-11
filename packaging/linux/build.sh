@@ -104,7 +104,7 @@ build_deb() { # name full(0|1)
   cat > "$pkg/usr/share/doc/$name/copyright" <<EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: asagiri
-Source: https://github.com/libracoder/kiri
+Source: https://github.com/AndreKurait/asagiri
 
 Files: *
 Copyright: 2026 Asagiri
@@ -130,8 +130,8 @@ Section: admin
 Priority: optional
 Architecture: $deb_arch
 Installed-Size: $size
-Maintainer: Asagiri <kiri@canestack.com>
-Homepage: https://runkiri.com
+Maintainer: Asagiri <AndreKurait@gmail.com>
+Homepage: https://andrekurait.github.io/asagiri
 Conflicts: $other
 Replaces: $other
 $([ "$full" = 1 ] || echo "Suggests: docker-cli | docker.io")

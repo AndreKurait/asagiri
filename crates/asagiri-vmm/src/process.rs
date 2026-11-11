@@ -79,7 +79,7 @@ impl Vm {
         // The agent's first dial: the host's control connection.
         let control = UnixListener::bind(dir.join(format!("h{}.sock", cfg.agent_port)))?;
         let tx = sender.clone();
-        std::thread::Builder::new().name("asagiri-agent-accept".into()).spawn(move || {
+        std::thread::Builder::new().name("asa-agent-accep".into()).spawn(move || {
             if let Ok((s, _)) = control.accept() {
                 let _ = tx.send(Event::GuestConnected(OwnedFd::from(s)));
             }
@@ -91,7 +91,7 @@ impl Vm {
         }
         let child = Arc::new(Mutex::new(cmd.spawn().map_err(|e| io::Error::new(e.kind(), format!("starting {}: {e}", cfg.initrd.display())))?));
         let (waiter, tx) = (child.clone(), sender);
-        std::thread::Builder::new().name("asagiri-agent-wait".into()).spawn(move || loop {
+        std::thread::Builder::new().name("asa-agent-wait".into()).spawn(move || loop {
             std::thread::sleep(Duration::from_millis(100));
             let status = waiter.lock().unwrap_or_else(|e| e.into_inner()).try_wait();
             match status {
@@ -131,7 +131,7 @@ impl Vm {
         let path = self.dir.join(format!("h{port}.sock"));
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path)?;
-        std::thread::Builder::new().name(format!("asagiri-agent-{port}")).spawn(move || {
+        std::thread::Builder::new().name(format!("asa-vs-{port:x}")).spawn(move || {
             for s in l.incoming().flatten() {
                 handler(VsockStream { fd: OwnedFd::from(s) });
             }

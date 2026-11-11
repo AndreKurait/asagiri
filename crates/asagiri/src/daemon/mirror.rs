@@ -72,12 +72,12 @@ pub fn start(engine: &Arc<Engine>) {
             match bind_freely(gateway, port) {
                 Ok(l) => {
                     let me = me.clone();
-                    let _ = std::thread::Builder::new().name("asagiri-build-mirror".into()).spawn(move || serve(l, me));
+                    let _ = std::thread::Builder::new().name("asa-build-mirro".into()).spawn(move || serve(l, me));
                 }
                 Err(e) => crate::diag::warn!("image mirror not on the bridge; builds pull from registries", error = e),
             }
         }
-        std::thread::Builder::new().name("asagiri-build-mirror".into()).spawn(move || serve(listener, me)).ok()?;
+        std::thread::Builder::new().name("asa-build-mirro".into()).spawn(move || serve(listener, me)).ok()?;
         crate::diag::info!("image mirror for builds", port = port);
         Some(port)
     });
@@ -167,7 +167,7 @@ fn serve(listener: TcpListener, engine: Weak<Engine>) {
     for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
         let Some(engine) = engine.upgrade() else { return };
-        let _ = std::thread::Builder::new().name("asagiri-build-mirror".into()).spawn(move || {
+        let _ = std::thread::Builder::new().name("asa-build-mirro".into()).spawn(move || {
             let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
             let _ = answer(conn, &engine);
         });

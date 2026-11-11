@@ -512,7 +512,7 @@ const BRIDGE_PREFIX: &[u8] = b"asagiri";
 
 /// `ip daddr <addr> tcp redirect to :<port>`: connections to `addr` (any
 /// port) go to a local listener, which can read the original port back.
-/// With `from_bridges`, only packets arriving on a Asagiri bridge match
+/// With `from_bridges`, only packets arriving on an Asagiri bridge match
 /// (`iifname "asagiri*"`): the redirect leads to the host's loopback, which
 /// nothing on the uplink (the LAN, on a Linux host) may reach.
 fn redirect_rule(chain: &str, addr: [u8; 4], port: u16, from_bridges: bool) -> Msg {

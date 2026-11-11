@@ -73,7 +73,7 @@ pub fn start(engine: Arc<Engine>) -> io::Result<PathBuf> {
                 continue;
             }
             let (engine, handles) = (engine.clone(), handles.clone());
-            let _ = std::thread::Builder::new().name("asagiri-nfs-conn".into()).spawn(move || {
+            let _ = std::thread::Builder::new().name("asa-nfs-conn".into()).spawn(move || {
                 let _ = Server { engine: &engine, handles: &handles, listing: None }.serve(conn);
             });
         }

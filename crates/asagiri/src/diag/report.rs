@@ -4,7 +4,7 @@
 //! engine runs, the last lines of every log, recent crash files and macOS's
 //! own crash reports for Asagiri, all through [`Redactor::for_user`].
 //!
-//! # Asagiri Cloud
+//! # Share server
 //!
 //! `asagiri diag report --send` (and, only when the person turned crash
 //! reports on, each new crash file) goes to `POST /v1/reports` on the Asagiri
@@ -18,7 +18,7 @@
 //! ```
 //!
 //! A report the person sends carries `Authorization: Bearer <token>` when
-//! signed in to Asagiri Cloud, so it can be answered. A crash never does: it
+//! signed in to Share server, so it can be answered. A crash never does: it
 //! goes without the person's account. Crash uploads also leave out the image
 //! and container names their log lines name. It answers `201 {"id":"rep_…"}`, the id a person can quote to us. Crash
 //! files that went become `<name>.sent.txt`; any other answer leaves them
@@ -48,7 +48,7 @@ logs     Asagiri's own log, oldest first: the window (--ui), the engine
 report   One file to send us: versions, whether the engine runs, recent
          log lines and crashes, with your home folder and any tokens taken
          out. Saved to the Desktop (or --out PATH). --send also sends it to
-         Asagiri Cloud and prints its id.";
+         Share server and prints its id.";
 
 /// A report body may be at most this big.
 pub const MAX_BODY: usize = 1 << 20;
@@ -470,12 +470,12 @@ fn report_cli(args: &[String]) -> io::Result<()> {
     if send_it {
         let id = send("report", super::part(), SystemTime::now(), &text)?;
         super::info!("report sent", id = id);
-        println!("sent to Asagiri Cloud as {id}: quote it when you write to us");
+        println!("sent to Share server as {id}: quote it when you write to us");
     }
     Ok(())
 }
 
-// ---------------------------------------------------------------- Asagiri Cloud
+// ---------------------------------------------------------------- Share server
 
 /// `~/.asagiri/install_id`: 128 random bits in hex, made on first use, so
 /// reports from one Mac can be told apart without saying whose it is.
@@ -530,7 +530,7 @@ pub fn body(kind: &str, part: Part, created: SystemTime, text: &str, install_id:
     }
 }
 
-/// Sends a report or crash; returns the id Asagiri Cloud gave it.
+/// Sends a report or crash; returns the id Share server gave it.
 pub fn send(kind: &str, part: Part, created: SystemTime, text: &str) -> io::Result<String> {
     let state = super::state_dir().ok_or_else(|| io::Error::other("HOME is not set"))?;
     let body = body(kind, part, created, text, &install_id(&state));
@@ -542,9 +542,9 @@ pub fn send(kind: &str, part: Part, created: SystemTime, text: &str) -> io::Resu
             .as_str()
             .filter(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
             .map(str::to_owned)
-            .ok_or_else(|| io::Error::other("Asagiri Cloud took the report but sent back no id")),
-        429 => Err(io::Error::other(format!("Asagiri Cloud is taking no more reports for now (429){why}; try again later"))),
-        _ => Err(io::Error::other(format!("Asagiri Cloud answered {status}{why}"))),
+            .ok_or_else(|| io::Error::other("Share server took the report but sent back no id")),
+        429 => Err(io::Error::other(format!("Share server is taking no more reports for now (429){why}; try again later"))),
+        _ => Err(io::Error::other(format!("Share server answered {status}{why}"))),
     }
 }
 
@@ -627,7 +627,7 @@ fn send_claimed(dir: &Path, name: &str, claimed: &Path, redactor: &Redactor) -> 
     };
     match send("crash", part, UNIX_EPOCH + Duration::from_secs(secs), &redactor.apply(&text)) {
         Ok(id) => {
-            let _ = std::fs::OpenOptions::new().append(true).open(claimed).and_then(|mut f| writeln!(f, "\nSent to Asagiri Cloud as {id}"));
+            let _ = std::fs::OpenOptions::new().append(true).open(claimed).and_then(|mut f| writeln!(f, "\nSent to Share server as {id}"));
             let sent = dir.join(format!("{}.sent.txt", name.strip_suffix(".txt").unwrap_or(name)));
             let _ = std::fs::rename(claimed, sent);
             super::info!("crash report sent", file = name, id = id);
@@ -695,7 +695,7 @@ fn replace_whole(s: &str, name: &str, with: &str) -> String {
 
 /// The id a sent crash file ends with.
 fn sent_id(text: &str) -> Option<&str> {
-    text.lines().rev().find_map(|l| l.strip_prefix("Sent to Asagiri Cloud as ")).map(str::trim).filter(|id| !id.is_empty())
+    text.lines().rev().find_map(|l| l.strip_prefix("Sent to Share server as ")).map(str::trim).filter(|id| !id.is_empty())
 }
 
 /// Sends one crash file the person picked in the window, whether or not
@@ -747,7 +747,7 @@ pub fn page_crashes(n: usize) -> Value {
 /// Sends waiting crash files in the background after `delay`, then every
 /// `every` if given (the engine runs for days).
 pub fn spawn_crash_sender(delay: Duration, every: Option<Duration>) {
-    let _ = std::thread::Builder::new().name("asagiri-crash-send".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-crash-send".into()).spawn(move || {
         std::thread::sleep(delay);
         loop {
             send_crashes();
@@ -931,7 +931,7 @@ mod tests {
     fn lists_crashes_with_their_ids() {
         let home = temp_home("list");
         std::fs::write(home.join("1792800000-daemon.txt"), "Asagiri crash report\nLocation: vm/balloon.rs:212:41\nMessage:  boom\n").unwrap();
-        std::fs::write(home.join("1792700000-ui.sent.txt"), "Asagiri crash report\nMessage:  older\n\nSent to Asagiri Cloud as rep_51c0e8d4\n").unwrap();
+        std::fs::write(home.join("1792700000-ui.sent.txt"), "Asagiri crash report\nMessage:  older\n\nSent to Share server as rep_51c0e8d4\n").unwrap();
         std::fs::write(home.join(".window-opened"), "1").unwrap();
         let list = crash_list(&home, 10);
         assert_eq!(list.len(), 2);

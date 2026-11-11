@@ -28,7 +28,7 @@ pub fn watch(on_gone: impl FnOnce(&Path) + Send + 'static) {
 }
 
 fn watch_path(path: PathBuf, every: Duration, on_gone: impl FnOnce(&Path) + Send + 'static) {
-    let _ = std::thread::Builder::new().name("asagiri-app-watch".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asa-app-watch".into()).spawn(move || {
         let mut missing = 0;
         while missing < 2 {
             std::thread::sleep(every);

@@ -171,7 +171,7 @@ impl VmLink {
         let wins = windows.clone();
         let usage = Arc::new(UsageSlot::default());
         let slot = usage.clone();
-        std::thread::Builder::new().name("asagiri-vm-reader".into()).spawn(move || {
+        std::thread::Builder::new().name("asa-vm-reader".into()).spawn(move || {
             let mut frame = Vec::with_capacity(64 * 1024);
             while read_frame(&mut reader, &mut frame).is_ok() {
                 let msg = asagiri_proto::decode(&frame);

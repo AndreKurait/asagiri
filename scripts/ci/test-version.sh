@@ -5,7 +5,7 @@
 # itself an "update" (ui/mod.rs). Releases take theirs from the tag instead.
 #   scripts/ci/test-version.sh
 set -eu
-last=$(curl -fsS -A asagiri-ci https://download.runkiri.com/latest.json | sed -n 's/.*"version": *"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' | head -1 || true)
+last=$(curl -fsS -A asagiri-ci https://updates.example.org/latest.json | sed -n 's/.*"version": *"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' | head -1 || true)
 v="${last:-0.0.0}-dev.${GITHUB_RUN_NUMBER:-0}"
 perl -pi -e 's/^version = "[^"]*"/version = "'"$v"'"/ && ($done = 1) unless $done' Cargo.toml
 grep -m1 '^version = ' Cargo.toml
