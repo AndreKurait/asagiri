@@ -371,8 +371,12 @@ pub struct Container {
     /// networks as (network, ip). Only networks with IPv6 give one.
     pub ip6: Option<[u8; 16]>,
     pub extra_ip6s: Vec<(String, [u8; 16])>,
-    /// True while the guest has the process. Until then, input is held here:
-    /// `docker run -i` attaches and sends stdin before it starts the container.
+    /// True while the guest has the process: from then on a signal has
+    /// something to reach.
+    in_guest: bool,
+    /// True once the guest has the process and the input held here until
+    /// then: `docker run -i` attaches and sends stdin before it starts the
+    /// container.
     live: bool,
     early_input: Vec<u8>,
     early_close: bool,
@@ -1010,6 +1014,7 @@ impl Engine {
                 ip: None,
                 pid: 0,
                 forwards: None,
+                in_guest: false,
                 live: false,
                 early_input: Vec::new(),
                 early_close: false,
@@ -1148,6 +1153,7 @@ impl Engine {
                             crate::diag::warn!("container killed for memory", name = c.name.clone(), exit_code = code);
                         }
                         c.exits += 1;
+                        c.in_guest = false;
                         c.live = false;
                         if let Some(ip) = c.ip.take() {
                             self.release_ip(&c.spec.network_mode, ip);
@@ -1507,6 +1513,7 @@ impl Engine {
                 ip: None,
                 pid: 0,
                 forwards: None,
+                in_guest: false,
                 live: false,
                 early_input: Vec::new(),
                 early_close: false,
@@ -1556,7 +1563,8 @@ impl Engine {
             c.finished = None;
             c.oom_killed = false;
             c.vm_stopped = false;
-            // Not live until the guest has the process, however the last run ended.
+            // Not until the guest has the process, however the last run ended.
+            c.in_guest = false;
             c.live = false;
             // `docker run --rm` without -d: its client is reading the output
             // and the log goes with the container, so it stays in memory.
@@ -1755,7 +1763,14 @@ impl Engine {
                 }
             }
         }
-        // The guest has the process now: deliver input that arrived early.
+        // The guest has the process now. A stop or kill that came in meanwhile
+        // waits for this, and not for the input below: handing that over
+        // takes as long as the program takes to read it.
+        if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
+            c.in_guest = true;
+        }
+        self.changed.notify_all();
+        // Deliver input that arrived early.
         // It is drained before the container goes live, so input still
         // arriving meanwhile (and its CloseStdin) queues behind it rather
         // than overtaking it.
@@ -1772,8 +1787,6 @@ impl Engine {
                 }
             };
             if early.is_empty() {
-                // A stop or kill that came in meanwhile waits for this.
-                self.changed.notify_all();
                 if close {
                     let _ = self.vm()?.close_stdin(&id);
                 }
@@ -2622,7 +2635,7 @@ impl Engine {
     fn wait_started(&self, id: &str) -> bool {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         let mut st = self.lock();
-        while st.containers.get(id).is_some_and(|c| c.status == Status::Running && !c.live) {
+        while st.containers.get(id).is_some_and(|c| c.status == Status::Running && !c.in_guest) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
                 break;
