@@ -347,6 +347,35 @@ fn listen_addrs(b: &Binding) -> Vec<(String, bool)> {
     }
 }
 
+/// The program that has `port` on this Mac, when it is another program:
+/// an engine left running beside Kiri (the one containers were imported
+/// from) or a server on the Mac holds the port, and "already allocated"
+/// alone reads as if Kiri had lost track of its own containers. None when
+/// Kiri itself has it, or when lsof says nothing.
+#[cfg(target_os = "macos")]
+fn holder(port: u16, udp: bool) -> Option<String> {
+    let spec = if udp { format!("-iUDP:{port}") } else { format!("-iTCP:{port}") };
+    let mut cmd = std::process::Command::new("/usr/sbin/lsof");
+    cmd.args(["-nP", &spec, "-Fc"]);
+    if !udp {
+        cmd.arg("-sTCP:LISTEN");
+    }
+    let out = cmd.stderr(std::process::Stdio::null()).output().ok()?;
+    holder_in(&String::from_utf8_lossy(&out.stdout))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn holder(_port: u16, _udp: bool) -> Option<String> {
+    None
+}
+
+/// The first command in `lsof -Fc` output (`p<pid>` and `c<command>`
+/// lines) that is not Kiri's own.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn holder_in(lsof: &str) -> Option<String> {
+    lsof.lines().filter_map(|l| l.strip_prefix('c')).map(str::trim).find(|c| !c.is_empty() && !c.to_ascii_lowercase().starts_with("kiri")).map(str::to_owned)
+}
+
 /// Binds every port first (so a clash fails the start cleanly), then starts
 /// one accept thread per listener.
 pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]) -> io::Result<Forwards> {
@@ -361,7 +390,9 @@ pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]
             let taken = |e: io::Error| {
                 if e.kind() == io::ErrorKind::AddrInUse {
                     let shown = if addr.is_ipv6() { format!("[{ip}]") } else { ip.clone() };
-                    io::Error::new(e.kind(), format!("Bind for {shown}:{} failed: port is already allocated", b.host_port))
+                    // Docker's words, then who has the port when it is not Kiri.
+                    let by = holder(b.host_port, b.proto == "udp").map(|name| format!(" (in use by {name})")).unwrap_or_default();
+                    io::Error::new(e.kind(), format!("Bind for {shown}:{} failed: port is already allocated{by}", b.host_port))
                 } else {
                     e
                 }
@@ -1041,6 +1072,17 @@ mod tests {
     use super::{MAX_PEER_SESSIONS, MAX_REMOTE_SESSIONS, MAX_TCP_SESSIONS, NAT_PORTS, REMOTE_SESSIONS, TCP_SESSIONS, kernel_forwards, kernel_host_ip, listening, nat_port, relays_too, tcp_permit};
     use std::net::IpAddr;
     use std::sync::atomic::Ordering;
+
+    /// A clash names the other program holding the port, never Kiri itself.
+    #[test]
+    fn a_taken_port_names_the_program_that_has_it() {
+        use super::holder_in;
+        assert_eq!(holder_in("p85299\ncPython\nf3\n").as_deref(), Some("Python"));
+        assert_eq!(holder_in("p10\nckiri\nf7\np11\ncOrbStack Helper\nf9\n").as_deref(), Some("OrbStack Helper"));
+        assert_eq!(holder_in("p10\nckiri\nf7\n"), None);
+        assert_eq!(holder_in("p10\ncKiri Dev\n"), None);
+        assert_eq!(holder_in(""), None);
+    }
 
     #[test]
     fn non_ipv4_bindings_never_become_wildcard() {
