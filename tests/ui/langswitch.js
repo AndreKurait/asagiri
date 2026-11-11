@@ -11,7 +11,8 @@ const words = () => {
   const c = document.body.cloneNode(true);
   c.querySelectorAll("script, #results, .toasts").forEach((x) => x.remove());
   const attrs = [...c.querySelectorAll("[title], [aria-label], [placeholder]")].map((el) => [el.title, el.getAttribute("aria-label"), el.getAttribute("placeholder")].join("|"));
-  return c.textContent.replace(/\s+/g, " ") + "\n" + attrs.join("\n");
+  // A share's time live counts up while the test runs: not a difference.
+  return c.textContent.replace(/\s+/g, " ").replace(/live \d+ s\b/g, "live") + "\n" + attrs.join("\n");
 };
 const PLACES = [["containers"], ["images"], ["volumes"], ["networks"], ["builds"], ["share"], ["image", () => { show("images"); openImage("nginx:alpine"); }]];
 for (const id of ["appearance", "resources", "network", "builds", "kubernetes", "import", "domains", "diagnostics", "about"])
