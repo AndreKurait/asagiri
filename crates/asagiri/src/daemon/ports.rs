@@ -465,7 +465,7 @@ pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]
         fw.wake.push(wake_w);
         let vm = vm.clone();
         let container_port = b.container_port;
-        fw.threads.push(std::thread::Builder::new().name(format!("asagiri-udp-{port}")).spawn(move || {
+        fw.threads.push(std::thread::Builder::new().name(format!("asa-udp-{port}")).spawn(move || {
             udp_loop(&sock, &wake_r, &vm, target_ip, container_port);
         })?);
         fw.bound.push((b, ip, port));
@@ -487,7 +487,7 @@ pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]
         fw.wake.push(wake_w);
         let vm = vm.clone();
         let container_port = b.container_port;
-        fw.threads.push(std::thread::Builder::new().name(format!("asagiri-port-{port}")).spawn(move || {
+        fw.threads.push(std::thread::Builder::new().name(format!("asa-port-{port}")).spawn(move || {
             accept_loop(&listener, &wake_r, &vm, target_ip, container_port, nat);
         })?);
         fw.bound.push((b, ip, port));

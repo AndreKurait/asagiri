@@ -301,7 +301,7 @@ fn read_loop<B: Backend + ?Sized>(
                     let (tx, rx) = mpsc::channel::<Urb>();
                     let s = session.clone();
                     let done = finished.clone();
-                    let spawned = std::thread::Builder::new().name(format!("asagiri-usb-ep{key:02x}")).spawn(move || {
+                    let spawned = std::thread::Builder::new().name(format!("asa-usb-ep{key:02x}")).spawn(move || {
                         for u in rx {
                             s.run(u);
                         }
