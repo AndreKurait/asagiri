@@ -2797,10 +2797,9 @@ impl Engine {
     /// was not running and its restart policy was not about to start it.
     pub fn stop(&self, key: &str, timeout: Duration) -> Result<bool, Error> {
         let id = self.resolve(key)?;
-        self.wait_started(&id);
         self.thaw_for_signal(&id);
         let cancelled = self.mark_stopped(&id);
-        if !self.is_running(&id) {
+        if !self.wait_started(&id) {
             return Ok(cancelled);
         }
         self.emit_container("kill", &id, &[("signal", (libc::SIGTERM).to_string())]);
@@ -2850,11 +2849,16 @@ impl Engine {
         }
     }
 
-    /// Waits for a start that is under way to finish. Until the guest has
-    /// the process there is nothing to signal: a stop or kill sent now
-    /// would be dropped, and would report success while the container
-    /// kept running. A start that never finishes is not waited for forever.
-    fn wait_started(&self, id: &str) {
+    /// Waits for a start that is under way to finish, and says whether the
+    /// container is running then. Until the guest has the process there is
+    /// nothing to signal: a stop or kill sent now would be dropped, and
+    /// would report success while the container kept running. A start that
+    /// never finishes is not waited for forever.
+    ///
+    /// The answer is the one to act on. Asking whether the container is
+    /// running in a second look would let a start that is accepted between
+    /// the two through, with the guest still without its process.
+    fn wait_started(&self, id: &str) -> bool {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         let mut st = self.lock();
         while st.containers.get(id).is_some_and(|c| c.status == Status::Running && !c.live) {
@@ -2864,13 +2868,13 @@ impl Engine {
             }
             st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
         }
+        st.containers.get(id).is_some_and(|c| c.status == Status::Running)
     }
 
     pub fn kill(&self, key: &str, signal: u32) -> Result<(), Error> {
         let id = self.resolve(key)?;
-        self.wait_started(&id);
         self.thaw_for_signal(&id);
-        if !self.is_running(&id) {
+        if !self.wait_started(&id) {
             return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
         }
         if signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32 {
