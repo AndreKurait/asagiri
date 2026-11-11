@@ -413,7 +413,8 @@ fn translated() -> bool {
 fn missing_kernel(kernel: &std::path::Path, exe: Option<&std::path::Path>) -> io::Error {
     let msg = match exe {
         Some(exe) if !exe.exists() => format!("{} was deleted or moved while it ran: open Kiri again from where it is now", crate::flavor::APP),
-        _ => format!("the guest kernel {} is missing: reinstall Kiri", kernel.display()),
+        // The whole path, so it shows where Kiri looked.
+        _ => format!("the guest kernel {} is missing: reinstall Kiri", std::path::absolute(kernel).unwrap_or_else(|_| kernel.to_owned()).display()),
     };
     io::Error::new(io::ErrorKind::NotFound, msg)
 }
@@ -426,7 +427,9 @@ pub fn guest_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("KIRI_GUEST_DIR") {
         return PathBuf::from(d);
     }
-    let exe = std::env::current_exe().ok();
+    // Through its links: `kiri` on the PATH is one (~/.kiri/bin/kiri), and
+    // the guest is beside the binary it leads to, not beside the link.
+    let exe = std::env::current_exe().ok().map(|e| e.canonicalize().unwrap_or(e));
     let bundled = exe.as_ref().and_then(|e| e.parent().map(|d| d.join("../Resources/guest"))).filter(|d| d.join(KERNEL).is_file());
     // From a checkout: what `cargo xtask guest`/`kernel` built, the Intel
     // guest under guest/out/x86_64. Found from the binary's place in
