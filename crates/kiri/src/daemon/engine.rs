@@ -2668,7 +2668,7 @@ impl Engine {
         // container that was running all along.
         if st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
             drop(st);
-            return self.remove(key, force, with_volumes);
+            return self.remove(&id, force, with_volumes);
         }
         let removed = st.containers.remove(&id);
         let code = removed.as_ref().map_or(0, |c| c.exit_code);
