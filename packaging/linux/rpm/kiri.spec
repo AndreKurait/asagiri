@@ -106,6 +106,9 @@ getent group kiri >/dev/null || groupadd --system kiri
 exit 0
 
 %post
+# NetworkManager reads conf.d when it starts or is told to: without this,
+# kiri.conf there would wait for the next boot. Nothing to do without it.
+nmcli general reload conf >/dev/null 2>&1 || :
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || :
   # Not started or enabled: it starts when someone sets Kiri up (the window's
@@ -226,6 +229,10 @@ exit 0
 %postun
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || :
+fi
+# On removal, NetworkManager forgets kiri.conf now rather than at the next boot.
+if [ "$1" -eq 0 ]; then
+  nmcli general reload conf >/dev/null 2>&1 || :
 fi
 if [ "$1" -eq 0 ]; then
   echo "Kiri is removed; its images, containers and volumes stay in /var/lib/kiri"
