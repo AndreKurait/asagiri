@@ -66,7 +66,7 @@ t("an answer for a language no longer picked changes nothing", () => {
   hostHold = false; hostFlush();
   if (document.documentElement.lang !== "en") throw new Error("lang is " + document.documentElement.lang);
 });
-t("tags map to the languages Kiri has, as lang.rs maps them", () => {
+t("tags map to the languages Asagiri has, as lang.rs maps them", () => {
   const want = { zh: "zh-Hans", "zh-CN": "zh-Hans", "zh-SG": "zh-Hans", "zh-Hans-HK": "zh-Hans", zh_TW: "zh-Hant", "zh-TW": "zh-Hant", "zh-HK": "zh-Hant", "zh-MO": "zh-Hant", "zh-Hant": "zh-Hant", "zh-Hant-CN": "zh-Hant",
     zhx: "", in: "id", "in-ID": "id", "id-ID": "id", iw: "", "iw-IL": "", "ja-JP": "ja", "ko-KR": "ko", "ru-RU": "ru", "pl-PL": "pl", "tr-TR": "tr", "vi-VN": "vi", "it-CH": "it", "pt-PT": "pt-BR", "fr-CA": "fr", "en-GB": "en", nl: "" };
   const bad = Object.entries(want).filter(([tag, id]) => langFor(tag) !== id).map(([tag, id]) => `${tag} → ${langFor(tag)}, not ${id}`);

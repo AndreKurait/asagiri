@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Asagiri
+GenericName=Containers
+Comment=Run and share containers
+Exec=/usr/lib/asagiri/asagiri-window ui
+Icon=/usr/share/icons/hicolor/scalable/apps/asagiri.svg
+Terminal=false
+Categories=Development;
+Keywords=docker;containers;kubernetes;
+StartupWMClass=asagiri

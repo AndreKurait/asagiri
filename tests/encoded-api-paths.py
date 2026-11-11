@@ -21,7 +21,7 @@ def check(path, image):
         finally:
             connection.close()
 
-    repository = "kiri-path-test/" + uuid.uuid4().hex
+    repository = "asagiri-path-test/" + uuid.uuid4().hex
     name = repository + ":sdk"
     source = urllib.parse.quote(image, safe="/:")
     status, data = request("POST", "/v1.47/images/" + source + "/tag?repo="
@@ -46,7 +46,7 @@ def check(path, image):
             print("Cleanup failed:", status, data, file=sys.stderr)
 
     # A container name, and the version prefix itself, may carry escapes.
-    container = "kiri-path-test-" + uuid.uuid4().hex + "1"
+    container = "asagiri-path-test-" + uuid.uuid4().hex + "1"
     status, data = request("POST", "/v1.47/containers/create?name=" + container, json.dumps({"Image": image}))
     assert status == 201, (status, data)
     try:

@@ -5,7 +5,7 @@ const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.pu
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m + ": got " + JSON.stringify(a) + " want " + JSON.stringify(b)); };
 const key = (el, k) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
 const fill = (form, u, tk) => { form.querySelector('[name="u"]').value = u; form.querySelector('[name="t"]').value = tk; };
-const logins = (items, store = "Saved with docker-credential-osxkeychain") => kiri.on({ type: "logins", items, store, stores: {} });
+const logins = (items, store = "Saved with docker-credential-osxkeychain") => asagiri.on({ type: "logins", items, store, stores: {} });
 const REF = "ghcr.io/acme/api:1.2";
 const row = () => document.querySelector(`tr[data-key="pull:${REF}"]`);
 const form = () => row()?.querySelector("[data-signin]");
@@ -14,7 +14,7 @@ ui.loginsOn = true;
 logins([]);
 show("images");
 pullRef(REF);
-kiri.on({ type: "pull", state: "done", name: REF, error: "Couldn't find an image called ghcr.io/acme/api. Check the name; if it's private, sign in with docker login." });
+asagiri.on({ type: "pull", state: "done", name: REF, error: "Couldn't find an image called ghcr.io/acme/api. Check the name; if it's private, sign in with docker login." });
 t("a pull that needs a sign-in asks for it in its row, saying where it's kept", () => {
   const f = form();
   eq([!!f, f.querySelector('[name="t"]').type, f.querySelector("[data-signin-go]").textContent], [true, "password", "Sign in and pull"], "form");
@@ -35,11 +35,11 @@ t("Sign in and pull sends it, and the button says so without a spinner inside", 
   eq([b.disabled, b.textContent, !!b.querySelector(".hspin")], [true, "Signing in…", false], "busy");
 });
 t("typing survives the lists coming again", () => {
-  kiri.on({ type: "lists", containers: ui.containers, volumes: [], networks: [], images: [] });
+  asagiri.on({ type: "lists", containers: ui.containers, volumes: [], networks: [], images: [] });
   eq(form().querySelector('[name="u"]').value, "octo", "kept");
 });
 t("a wrong password says so under the fields, which keep what was typed", () => {
-  kiri.on({ type: "login", server: "ghcr.io", error: "ghcr.io didn't accept that username and password or token." });
+  asagiri.on({ type: "login", server: "ghcr.io", error: "ghcr.io didn't accept that username and password or token." });
   eq(row().querySelector(".signin-err").textContent, "ghcr.io didn't accept that username and password or token.", "error");
   eq([form().querySelector('[name="u"]').value, form().querySelector("[data-signin-go]").disabled], ["octo", false], "again");
 });
@@ -48,14 +48,14 @@ t("Enter in the token field signs in; once signed in, the pull goes again", () =
   form().querySelector('[name="t"]').value = "ghp_right";
   key(form().querySelector('[name="t"]'), "Enter");
   eq(sent.filter((m) => m.type === "login").map((m) => m.value.secret), ["ghp_right"], "sent");
-  kiri.on({ type: "login", server: "ghcr.io", username: "octo", store: "Saved with docker-credential-osxkeychain" });
+  asagiri.on({ type: "login", server: "ghcr.io", username: "octo", store: "Saved with docker-credential-osxkeychain" });
   logins([{ server: "ghcr.io", username: "octo", via: "docker-credential-osxkeychain" }]);
   eq(sent.filter((m) => m.type === "pull").map((m) => m.name), [REF], "pulled again");
   eq([!!form(), /Starting|Asking/.test(row().textContent)], [false, true], "row pulling");
 });
 t("Docker Hub's not found offers a sign-in for a private image", () => {
   pullRef("acme/secret");
-  kiri.on({ type: "pull", state: "done", name: "acme/secret:latest", error: "Couldn't find an image called acme/secret. Check the name; if it's private, sign in with docker login." });
+  asagiri.on({ type: "pull", state: "done", name: "acme/secret:latest", error: "Couldn't find an image called acme/secret. Check the name; if it's private, sign in with docker login." });
   const r = document.querySelector('tr[data-key="pull:acme/secret:latest"]');
   r.querySelector("[data-pauth]").click();
   const f = document.querySelector('tr[data-key="pull:acme/secret:latest"] [data-signin]');
@@ -75,7 +75,7 @@ t("Pull image: not signed in, it offers to sign in first, right there", () => {
   fill(f, "robot", "tok");
   key(f.querySelector('[name="t"]'), "Enter");
   eq([sent.filter((m) => m.type === "login").map((m) => m.name), sent.filter((m) => m.type === "pull").length, $("pp").hidden], [["quay.io"], 0, false], "signs in, doesn't pull");
-  kiri.on({ type: "login", server: "quay.io", username: "robot" });
+  asagiri.on({ type: "login", server: "quay.io", username: "robot" });
   logins([{ server: "ghcr.io", username: "octo" }, { server: "quay.io", username: "robot" }]);
   eq([/Signed in as robot\./.test($("pplist").textContent), !!$("pplist").querySelector("[data-signin]")], [true, false], "signed in");
   closePull();
@@ -106,11 +106,11 @@ t("Sign in to a registry: Docker Hub unless named, with a hint for each", () => 
   fill(f, "octo", "ghp_x");
   f.querySelector("[data-signin-go]").click();
   eq(sent.filter((m) => m.type === "login").map((m) => [m.name, m.value.username]), [["ghcr.io", "octo"]], "sent");
-  kiri.on({ type: "login", server: "ghcr.io", error: "ghcr.io didn't accept that username and password or token." });
+  asagiri.on({ type: "login", server: "ghcr.io", error: "ghcr.io didn't accept that username and password or token." });
   const g = document.querySelector('[data-signin="settings"]');
   eq([g.querySelector(".signin-err").textContent.startsWith("ghcr.io didn't accept"), g.querySelector('[name="u"]').value, g.querySelector('[name="s"]').value], [true, "octo", "GHCR.io"], "error, kept");
   g.querySelector("[data-signin-go]").click();
-  kiri.on({ type: "login", server: "ghcr.io", username: "octo" });
+  asagiri.on({ type: "login", server: "ghcr.io", username: "octo" });
   logins([{ server: "https://index.docker.io/v1/", username: "me" }, { server: "ghcr.io", username: "octo" }]);
   eq([!!document.querySelector('[data-signin="settings"]'), !!document.querySelector("[data-regopen]"), document.querySelectorAll("[data-logout]").length], [false, true, 2], "done");
 });
@@ -125,7 +125,7 @@ t("held back: the app has no Registries tab and says docker login in the row", (
   show("images");
   const R2 = "ghcr.io/acme/web:1";
   pullRef(R2);
-  kiri.on({ type: "pull", state: "done", name: R2, error: "Couldn't find an image called ghcr.io/acme/web. Check the name; if it's private, sign in with docker login." });
+  asagiri.on({ type: "pull", state: "done", name: R2, error: "Couldn't find an image called ghcr.io/acme/web. Check the name; if it's private, sign in with docker login." });
   const r = document.querySelector(`tr[data-key="pull:${R2}"]`);
   eq([!!r.querySelector("[data-signin]"), !!r.querySelector("[data-pretry]"), r.textContent.includes("docker login ghcr.io")], [false, true, true], "row");
   r.querySelector("[data-pdismiss]")?.click();

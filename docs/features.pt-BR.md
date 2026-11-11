@@ -1,6 +1,6 @@
 # Recursos
 
-O que o Kiri suporta hoje, pelo contexto Docker `kiri`.
+O que o Asagiri suporta hoje, pelo contexto Docker `asagiri`.
 
 ## Plataformas
 
@@ -29,25 +29,25 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
   `--gateway`, `--ip-range`, `--aux-address`), `--ip`, `--mac-address`,
   `--dns`, `--dns-search`, `--dns-option`, `--domainname`, `--link`,
   `--ipv6` (`enable_ipv6` do Compose: uma sub-rede IPv6 ao lado da IPv4, vinda de
-  `--subnet` ou de um /64 do próprio Kiri dentro de fd00::/8; a bridge padrão continua
+  `--subnet` ou de um /64 do próprio Asagiri dentro de fd00::/8; a bridge padrão continua
   só IPv4, como a do Docker), e
-  `http://<nome>.kiri.local` depois que você ativa (o app pergunta na primeira abertura;
-  Settings → Domains altera isso), ou `http://<nome>.kiri.localhost` sem
-  configuração. Os serviços do Compose respondem em `<serviço>.<projeto>.kiri.local`, e um
-  label `dev.kiri.domain=api.myapp` escolhe os nomes de um container; HTTPS também
-  (`https://<nome>.kiri.local`), com a autoridade certificadora do próprio Kiri em
-  `~/.kiri/tls`, cujas name constraints permitem apenas `*.kiri.local` e
-  `*.kiri.localhost` (Settings → Domains → HTTPS pede ao macOS para confiar nela)
+  `http://<nome>.asagiri.local` depois que você ativa (o app pergunta na primeira abertura;
+  Settings → Domains altera isso), ou `http://<nome>.asagiri.localhost` sem
+  configuração. Os serviços do Compose respondem em `<serviço>.<projeto>.asagiri.local`, e um
+  label `dev.asagiri.domain=api.myapp` escolhe os nomes de um container; HTTPS também
+  (`https://<nome>.asagiri.local`), com a autoridade certificadora do próprio Asagiri em
+  `~/.asagiri/tls`, cujas name constraints permitem apenas `*.asagiri.local` e
+  `*.asagiri.localhost` (Settings → Domains → HTTPS pede ao macOS para confiar nela)
 - **Armazenamento**: volumes nomeados e anônimos, bind mounts de caminhos do Mac
   (virtiofs), `--tmpfs`, `--mount`, comandos `volume`
 - **Imagens**: `pull` (com as credenciais do `docker login`), `push`, `tag`,
   `save`, `load`, `history`, `search`, `image prune`, `system df`;
   **imagens amd64 rodam via Rosetta**, `--platform` respeitado
 - **Builds**: `docker build` / `buildx build` via BuildKit rodando em um
-  container do Kiri (driver docker-container do buildx), parado quando ocioso;
+  container do Asagiri (driver docker-container do buildx), parado quando ocioso;
   no Apple silicon, as etapas de build amd64 também rodam via Rosetta
 - **Compose**: `up`, `down`, `ps`, `logs`, `exec`, múltiplas redes, eventos
-- **Integração com o Mac**: arquivos dos containers em `~/Kiri` no Finder (NFS
+- **Integração com o Mac**: arquivos dos containers em `~/Asagiri` no Finder (NFS
   somente leitura, sempre atualizado), encaminhamento do agente SSH em
   `/run/host-services/ssh-auth.sock`
 - **Memória**: um balloon devolve a memória não usada enquanto roda, e a VM
@@ -57,49 +57,49 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
   container tem sua própria página com detalhes, logs ao vivo (busca, filtro de nível),
   uma linha de comando (e "Open in Terminal" para um shell completo) e seus arquivos
   (pré-visualização, Save to Downloads, Show in Finder); Settings de fontes, tamanho
-  do texto, CPUs e memória da VM (`~/.kiri/vm.json`, usado a partir do próximo
-  início da VM; `KIRI_CPUS` e `KIRI_MEMORY_MIB` têm precedência) e nomes locais
-- **Barra de menus**: o Kiri fica na barra de menus quando a janela fecha, com o
+  do texto, CPUs e memória da VM (`~/.asagiri/vm.json`, usado a partir do próximo
+  início da VM; `ASAGIRI_CPUS` e `ASAGIRI_MEMORY_MIB` têm precedência) e nomes locais
+- **Barra de menus**: o Asagiri fica na barra de menus quando a janela fecha, com o
   estado da VM, os containers em execução (clique em um para abri-lo) e Start/Stop
-- **Kubernetes**: `kiri k8s start` — um cluster k3s de um só nó em um único
-  container, pronto em ~20 s, como o contexto kubectl `kiri`
-- **Máquinas Linux**: `kiri machine create dev --distro ubuntu` e
-  `kiri machine shell dev` — seu usuário, sudo e `/Users` no mesmo caminho
-- **O app**: `cargo xtask app` gera o `Kiri.app` com o `docker` CLI,
-  Compose e buildx dentro; abri-lo executa `kiri setup` (contexto docker,
-  LaunchAgent, builder de build) e a janela; `kiri update` instala novas
+- **Kubernetes**: `asagiri k8s start` — um cluster k3s de um só nó em um único
+  container, pronto em ~20 s, como o contexto kubectl `asagiri`
+- **Máquinas Linux**: `asagiri machine create dev --distro ubuntu` e
+  `asagiri machine shell dev` — seu usuário, sudo e `/Users` no mesmo caminho
+- **O app**: `cargo xtask app` gera o `Asagiri.app` com o `docker` CLI,
+  Compose e buildx dentro; abri-lo executa `asagiri setup` (contexto docker,
+  LaunchAgent, builder de build) e a janela; `asagiri update` instala novas
   versões depois de verificar o SHA-256 e a assinatura
-- **Hosts Linux**: o mesmo `kiri` sem VM — o agente roda no kernel do
-  host (`cargo xtask linux`, `contrib/linux/kiri.service`); arm64 e
+- **Hosts Linux**: o mesmo `asagiri` sem VM — o agente roda no kernel do
+  host (`cargo xtask linux`, `contrib/linux/asagiri.service`); arm64 e
   x86-64; `tests/linux-host.sh` verifica isso. Empacotado como `.deb` e `.rpm`
-  (`packaging/linux`): `kiri` com o docker CLI, Compose e buildx, ou
-  `kiri-lite` só com o engine. Pertencer ao grupo `kiri` equivale a ter
+  (`packaging/linux`): `asagiri` com o docker CLI, Compose e buildx, ou
+  `asagiri-lite` só com o engine. Pertencer ao grupo `asagiri` equivale a ter
   root, exatamente como o grupo `docker`
-- **Windows**: o build Linux x86-64 em uma distro WSL2, e o `kiri-win.exe`,
-  que serve a API em `npipe:////./pipe/kiri` (o contexto docker `kiri`) e
-  a leva para dentro do WSL por um único `wsl.exe … kiri bridge`, então não
+- **Windows**: o build Linux x86-64 em uma distro WSL2, e o `asagiri-win.exe`,
+  que serve a API em `npipe:////./pipe/asagiri` (o contexto docker `asagiri`) e
+  a leva para dentro do WSL por um único `wsl.exe … asagiri bridge`, então não
   exige mudanças nos ajustes de rede do WSL nem do Windows (`cargo xtask
-  msi` gera `target/Kiri-<versão>-x86_64.msi`, um instalador por usuário
-  em torno de `target/kiri-windows-x86_64`; o `kiri.ps1` nessa pasta instala
+  msi` gera `target/Asagiri-<versão>-x86_64.msi`, um instalador por usuário
+  em torno de `target/asagiri-windows-x86_64`; o `asagiri.ps1` nessa pasta instala
   o mesmo sem MSI). Não usa TCP:
   o relay de localhost do WSL descarta half-closes, e o `docker run` perde
   a saída
 
 Os serviços LoadBalancer do Kubernetes são publicados em `localhost`, e
-`kiri machine create NOME --systemd` inicia o systemd como init da máquina.
+`asagiri machine create NOME --systemd` inicia o systemd como init da máquina.
 
 ## Versões
 
 O app e os DMGs são assinados com um Developer ID e notarizados. As versões e
 os feeds de atualização ficam em `https://download.runkiri.com`, e cada arquivo e
-feed indica sua arquitetura: `Kiri-<versão>-arm64.dmg`, `Kiri-<versão>-arm64.tar.gz`
+feed indica sua arquitetura: `Asagiri-<versão>-arm64.dmg`, `Asagiri-<versão>-arm64.tar.gz`
 e `latest-mac-arm64.json` para Apple silicon (`-x86_64` para Macs Intel),
-`Kiri-<versão>-x86_64.msi` / `-arm64.msi` com `latest-windows-x86_64.json` /
+`Asagiri-<versão>-x86_64.msi` / `-arm64.msi` com `latest-windows-x86_64.json` /
 `latest-windows-arm64.json` para Windows. Cada app lê apenas o próprio feed, e
-cada plataforma é publicada separadamente. Dois DMGs: `Kiri-<versão>-arm64.dmg`
-inclui o docker CLI, Compose e buildx; `Kiri-Lite-<versão>-arm64.dmg`
+cada plataforma é publicada separadamente. Dois DMGs: `Asagiri-<versão>-arm64.dmg`
+inclui o docker CLI, Compose e buildx; `Asagiri-Lite-<versão>-arm64.dmg`
 (`cargo xtask app-lite`) os deixa de fora e baixa as mesmas versões fixadas
-na primeira abertura (`crates/kiri/src/cli_pins.rs`, verificadas por SHA-256),
+na primeira abertura (`crates/asagiri/src/cli_pins.rs`, verificadas por SHA-256),
 a menos que o Mac já tenha um docker CLI.
 
 ## Problemas conhecidos
@@ -107,9 +107,9 @@ a menos que o Mac já tenha um docker CLI.
 - **`docker build --add-host name:host-gateway` com BuildKit falha** com
   `host-gateway is not supported by the docker-container driver`. O buildx
   recusa `host-gateway` em todo builder exceto o embutido do Docker, e o
-  builder do Kiri é um builder docker-container, então o build para antes de o
-  Kiri recebê-lo. Os builders docker-container do próprio Docker fazem o mesmo. Até
-  o Kiri ter um builder embutido (planejado), use o próprio endereço
+  builder do Asagiri é um builder docker-container, então o build para antes de o
+  Asagiri recebê-lo. Os builders docker-container do próprio Docker fazem o mesmo. Até
+  o Asagiri ter um builder embutido (planejado), use o próprio endereço
   (`--add-host name:172.18.0.1` no Windows e no Linux, o gateway da bridge
-  padrão; `198.19.248.254` em um Mac) ou `DOCKER_BUILDKIT=0`, em que o Kiri
+  padrão; `198.19.248.254` em um Mac) ou `DOCKER_BUILDKIT=0`, em que o Asagiri
   mapeia `host-gateway` por conta própria.

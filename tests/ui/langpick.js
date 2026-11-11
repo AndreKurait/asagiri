@@ -11,7 +11,7 @@ const welcomeOpen = () => !!document.querySelector('[aria-labelledby="welcome-ti
 const saved = (name) => sent.filter((m) => m.type === "setpref" && m.name === name).at(-1)?.value;
 const rail = () => document.querySelector("nav [data-view=containers] .lbl").textContent;
 
-kiri.on({ type: "langpick" });
+asagiri.on({ type: "langpick" });
 t("a langpick event opens the language step with fifteen tiles", () => {
   if (!dlg()) throw new Error("no dialog");
   const ids = tilesNow().map((b) => b.dataset.lang).join(" ");
@@ -35,7 +35,7 @@ t("the system's language is marked and picked", () => {
   if (pickTile("en").getAttribute("aria-checked") !== "true" || tilesNow().filter((b) => b.getAttribute("aria-checked") === "true").length !== 1) throw new Error("not the one picked");
 });
 
-kiri.on({ type: "welcome" });
+asagiri.on({ type: "welcome" });
 t("a welcome that arrives meanwhile waits behind it", () => {
   if (welcomeOpen()) throw new Error("the welcome opened over the language step");
   if (!dlg()) throw new Error("the language step went away");
@@ -97,10 +97,10 @@ document.querySelector('[aria-labelledby="welcome-title"]')?.closest(".scrim")?.
 
 // A French system: its tile is the one marked, and the step opens in French.
 // Escape keeps that, as Continue does.
-window.KIRI_LANG.os = ["fr-CA", "en-US"];
+window.ASAGIRI_LANG.os = ["fr-CA", "en-US"];
 setPref("lang", "system");
 sent.length = 0;
-kiri.on({ type: "langpick" });
+asagiri.on({ type: "langpick" });
 t("a French system's tile is the one marked, and the step reads French", () => {
   const marked = tilesNow().filter((b) => b.querySelector(".sys")).map((b) => b.dataset.lang);
   if (marked.join() !== "fr") throw new Error("marked: " + marked);
@@ -113,6 +113,6 @@ t("Escape closes it as Continue does, keeping the language", () => {
   if (saved("langAsked") !== true) throw new Error("langAsked is " + saved("langAsked"));
   if (saved("lang") !== undefined || document.documentElement.lang !== "fr") throw new Error(`saved ${saved("lang")}, lang ${document.documentElement.lang}`);
 });
-window.KIRI_LANG.os = ["en-US"];
+window.ASAGIRI_LANG.os = ["en-US"];
 setPref("lang", "system");
 report(R);

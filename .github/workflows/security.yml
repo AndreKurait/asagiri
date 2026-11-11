@@ -53,7 +53,7 @@ jobs:
           git ls-files -z '*.sh' \
             'contrib/linux/deb/postinst' 'contrib/linux/deb/postrm' 'contrib/linux/deb/prerm' \
             'packaging/linux/deb/postinst' 'packaging/linux/deb/postrm' 'packaging/linux/deb/prerm' \
-            'packaging/linux/docker-wrapper' 'contrib/wsl/kiri-linux/kiri-start' \
+            'packaging/linux/docker-wrapper' 'contrib/wsl/asagiri-linux/asagiri-start' \
             | xargs -0 shellcheck --severity=error
 
   zizmor:

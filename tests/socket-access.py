@@ -7,7 +7,7 @@ import stat
 import sys
 
 variant = sys.argv[1]
-path = sys.argv[2] if len(sys.argv) > 2 else "/run/kiri/docker.sock"
+path = sys.argv[2] if len(sys.argv) > 2 else "/run/asagiri/docker.sock"
 # Only the service socket lets a group in without one being named.
 open_to_group = variant != "custom-path"
 metadata = os.stat(path)

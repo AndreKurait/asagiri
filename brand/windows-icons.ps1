@@ -1,19 +1,19 @@
-# Kiri's Windows icons, from icon/kiri-app-icon-windows.svg (generate.py):
+# Asagiri's Windows icons, from icon/asagiri-app-icon-windows.svg (generate.py):
 # Windows draws icons to the edge of their square, so that variant's tile
 # fills the canvas and its mark is drawn larger than the Mac icon's, which
 # keeps Apple's margin and looks a size small in the taskbar. Rendered with
 # Edge (headless, on every Windows), then scaled to each size Windows uses.
-# Writes icon/windows/kiri-{16..256}.png and kiri.ico.
+# Writes icon/windows/asagiri-{16..256}.png and asagiri.ico.
 #   powershell -File brand/windows-icons.ps1
 Add-Type -AssemblyName System.Drawing
-$svg = Join-Path $PSScriptRoot "icon\kiri-app-icon-windows.svg"
+$svg = Join-Path $PSScriptRoot "icon\asagiri-app-icon-windows.svg"
 $out = Join-Path $PSScriptRoot "icon\windows"
 New-Item -ItemType Directory -Force $out | Out-Null
 
 $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $edge) { throw "Microsoft Edge is needed to render the SVG" }
-$master = Join-Path $env:TEMP "kiri-icon-1024.png"
-$profile = Join-Path $env:TEMP "kiri-icon-edge"
+$master = Join-Path $env:TEMP "asagiri-icon-1024.png"
+$profile = Join-Path $env:TEMP "asagiri-icon-edge"
 Remove-Item $master -ErrorAction SilentlyContinue
 $url = "file:///" + ($svg -replace '\\', '/')
 & $edge --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --default-background-color=00000000 `
@@ -30,7 +30,7 @@ foreach ($s in $sizes) {
   $g.InterpolationMode = "HighQualityBicubic"; $g.PixelOffsetMode = "HighQuality"; $g.SmoothingMode = "HighQuality"; $g.CompositingQuality = "HighQuality"
   $g.DrawImage($src, [System.Drawing.Rectangle]::new(0, 0, $s, $s), [System.Drawing.Rectangle]::new(0, 0, $src.Width, $src.Height), "Pixel")
   $g.Dispose()
-  $file = Join-Path $out "kiri-$s.png"
+  $file = Join-Path $out "asagiri-$s.png"
   $bmp.Save($file, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
   $pngs[$s] = [System.IO.File]::ReadAllBytes($file)
 }
@@ -48,5 +48,5 @@ foreach ($s in $sizes) {
   $offset += $pngs[$s].Length
 }
 foreach ($s in $sizes) { $w.Write($pngs[$s]) }
-[System.IO.File]::WriteAllBytes((Join-Path $out "kiri.ico"), $ico.ToArray())
-"rendered $svg; wrote $($sizes.Count) PNGs and kiri.ico to $out"
+[System.IO.File]::WriteAllBytes((Join-Path $out "asagiri.ico"), $ico.ToArray())
+"rendered $svg; wrote $($sizes.Count) PNGs and asagiri.ico to $out"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kiri's speed check: main against a pull request, on the same machine.
+"""Asagiri's speed check: main against a pull request, on the same machine.
 
 Two Linux engines run side by side, one built from main and one from the
 pull request, each in its own privileged container (see .github/workflows/
@@ -123,7 +123,7 @@ def summary(xs):
 def syscalls_per_run(e, runs):
     """System calls the daemon (every thread, and what it starts) makes for
     one container, from strace's count over `runs` of them."""
-    out = f"/tmp/kiri-strace-{e.pid}.txt"
+    out = f"/tmp/asagiri-strace-{e.pid}.txt"
     st = subprocess.Popen(["strace", "-f", "-c", "-o", out, "-p", str(e.pid)], stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     for _ in range(runs):
@@ -172,7 +172,7 @@ def bench(a):
 
 def sizes(a):
     def one(d):
-        return {b: os.path.getsize(os.path.join(d, b)) for b in ("kiri", "kiri-init")}
+        return {b: os.path.getsize(os.path.join(d, b)) for b in ("asagiri", "asagiri-init")}
     with open(a.out, "w") as f:
         json.dump({"base": one(a.base), "head": one(a.head)}, f, indent=2)
 
@@ -209,7 +209,7 @@ def report(a):
     row("Daemon memory after the runs", "rss_after", res["base"]["rss_after"], res["head"]["rss_after"], "MiB", mib)
     if "syscalls" in res["base"]:
         row("System calls per container", "syscalls", res["base"]["syscalls"], res["head"]["syscalls"], "", lambda v: f"{v:.0f}")
-    for b in ("kiri", "kiri-init"):
+    for b in ("asagiri", "asagiri-init"):
         if b in sz.get("base", {}):
             row(f"`{b}` binary", "size", sz["base"][b] / 1024, sz["head"][b] / 1024, "KiB", lambda v: f"{v:.0f}")
     n = res["base"]["run"]["n"]

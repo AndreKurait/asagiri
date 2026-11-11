@@ -1,5 +1,5 @@
-// Kiri Dev's icon (`cargo xtask app-dev`): the app icon with a blue DEV band
-// across the bottom, so it can't be mistaken for Kiri, as a 1024px PNG.
+// Asagiri Dev's icon (`cargo xtask app-dev`): the app icon with a blue DEV band
+// across the bottom, so it can't be mistaken for Asagiri, as a 1024px PNG.
 //   swift xtask/dev-icon.swift <app icon 1024px png> <out.png> [LABEL]
 // A feature app (`cargo xtask app-dev builds`) puts its name in the band.
 import AppKit

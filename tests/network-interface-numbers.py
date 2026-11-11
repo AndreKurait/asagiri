@@ -62,7 +62,7 @@ def check(path, image):
         request("POST", "/containers/" + cid + "/wait?condition=not-running")
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
 
-    # Docker answers 200 to both; Kiri answers 204 today.
+    # Docker answers 200 to both; Asagiri answers 204 today.
     def join(net, cid):
         request("POST", "/networks/" + net + "/connect", {"Container": cid}, (200, 204))
 
@@ -73,7 +73,7 @@ def check(path, image):
         target = "/tmp/links-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
                       {"Cmd": ["sh", "-c", "(" + command + ") > " + target + " 2>&1"]}, (201,))["Id"]
-        # Docker answers 200; Kiri answers 204 today.
+        # Docker answers 200; Asagiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:

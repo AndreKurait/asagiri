@@ -1,12 +1,12 @@
 name: Bug report
-description: Something in Kiri doesn't work as it should.
+description: Something in Asagiri doesn't work as it should.
 labels: ["bug"]
 body:
   - type: input
     id: version
     attributes:
-      label: Kiri version and system
-      description: From Kiri's About window, or `kiri version`.
+      label: Asagiri version and system
+      description: From Asagiri's About window, or `asagiri version`.
       placeholder: "0.2.0 on macOS 26.1 (Apple silicon)"
     validations:
       required: true
@@ -16,7 +16,7 @@ body:
       label: What you did
       description: The exact commands you ran, or the clicks in the window, so we can do the same.
       placeholder: |
-        kiri run --rm -p 8080:80 nginx
+        asagiri run --rm -p 8080:80 nginx
     validations:
       required: true
   - type: textarea
@@ -38,4 +38,4 @@ body:
     id: notes
     attributes:
       label: Anything else
-      description: How often it happens, a workaround you found, Kiri's logs if they show the problem.
+      description: How often it happens, a workaround you found, Asagiri's logs if they show the problem.

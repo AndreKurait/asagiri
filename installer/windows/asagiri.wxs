@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Asagiri for Windows: a per-user MSI around the bundle `cargo xtask windows`
+  builds (target/asagiri-windows-x86_64). It lays the bundle in %LOCALAPPDATA%\Asagiri,
+  the folder asagiri-win.exe uses anyway, adds a Start menu entry and an
+  Apps & features row, and opens Asagiri at the end: Asagiri's own first-run setup
+  then installs WSL if needed, imports the engine, and puts the docker CLI on
+  PATH, per user, with no administrator rights. Removing it runs
+  asagiri.ps1 -Uninstall -IfSetUp (engine out of WSL, PATH and docker context
+  undone) and deletes the folder.
+
+  Build (or `cargo xtask msi`, which builds the bundle first):
+    wix build -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+      -d Version=<version> -d Bundle=..\..\target\asagiri-windows-x86_64 -d Size="152.6 MB"
+      -loc asagiri.wxl -o ..\..\target\Asagiri-<version>-x86_64.msi asagiri.wxs
+
+  Windows on Arm (`cargo xtask msi`, arch arm64) is the same source with
+  -arch arm64, -d Bundle=..\..\target\asagiri-windows-aarch64 and -o
+  ..\..\target\Asagiri-<version>-arm64.msi: the Platform is Arm64, the custom action
+  DLL Wix4UtilCA_A64 ($(sys.BUILDARCHSHORT)), and nothing else differs. A
+  per-user install has no Program Files folder to choose, so there is no
+  ProgramFiles64Folder/ProgramFilesArm64 question either.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!-- The version comes from Cargo.toml; cargo xtask msi passes it. -->
+  <?ifndef Version ?><?error Pass -d Version=x.y.z (cargo xtask msi does, from Cargo.toml) ?><?endif?>
+  <?ifndef Bundle ?><?define Bundle = "..\..\target\asagiri-windows-x86_64" ?><?endif?>
+  <!-- What the install takes on disk, as the ready page says it: xtask measures the bundle. -->
+  <?ifndef Size ?><?define Size = "" ?><?endif?>
+  <?define Name = "Asagiri" ?>
+  <?define Manufacturer = "Asagiri" ?>
+  <?define Url = "https://runkiri.com" ?>
+  <?define Description = "Tiny, fast container runtime" ?>
+  <?define Keywords = "containers, docker, wsl, runtime" ?>
+
+  <!--
+    The UpgradeCode never changes; it is what makes a newer MSI replace an older one.
+    The x64 and arm64 MSIs share it, on purpose: both install the same files
+    into the same %LOCALAPPDATA%\Asagiri with the same HKCU keys and component
+    GUIDs, so two products side by side would fight over one folder. Shared,
+    the arm64 MSI replaces an x64 Asagiri put on an Arm PC by mistake (as a
+    major upgrade, AllowSameVersionUpgrades even at the same version), and
+    the reverse. asagiri-win's updater checks the MSI's platform as well as
+    this code, and reads its own feed per architecture, so an update never
+    swaps architectures.
+  -->
+  <Package Name="$(Name)"
+           Manufacturer="$(Manufacturer)"
+           Version="$(Version)"
+           UpgradeCode="7C2E4B9A-5D13-4F8E-9B6A-0E1D3C5A7F21"
+           Scope="perUser"
+           Language="1033"
+           Codepage="1252"
+           InstallerVersion="500"
+           Compressed="yes">
+
+    <SummaryInformation Keywords="$(Keywords)"
+                        Description="$(Description)"
+                        Comments="$(Description). Docker API on Windows with the engine in WSL2."
+                        Manufacturer="$(Manufacturer)" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(Name) is already installed."
+                  AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AsagiriIcon" SourceFile="..\..\brand\icon\windows\asagiri.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AsagiriIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="$(Url)" />
+    <Property Id="ARPURLUPDATEINFO" Value="$(Url)" />
+    <Property Id="ARPHELPLINK" Value="$(Url)" />
+    <Property Id="ARPCONTACT" Value="$(Manufacturer)" />
+    <Property Id="ARPCOMMENTS" Value="$(Description)" />
+    <!--
+      The folder tree util:RemoveFolderEx deletes on uninstall: Asagiri's own
+      %LOCALAPPDATA%\Asagiri, with what the app wrote there (setup.json, logs,
+      the WebView2 cache, and wsl\asagiri\ext4.vhdx, the Asagiri Linux distro's
+      disk, which asagiri.ps1 unregisters first). The registry value goes into
+      ASAGIRIDIR_FOUND and is copied to ASAGIRIDIR only when this product is
+      already installed and not being replaced: in a major upgrade
+      (UPGRADINGPRODUCTCODE is set while the old product is removed) ASAGIRIDIR
+      stays empty, RemoveFolderEx does nothing, and the user's data
+      survives. A value that is not <LocalAppData>\Asagiri\ (a
+      tampered registry, or ASAGIRIDIR given on the command line) is blanked.
+    -->
+    <Property Id="ASAGIRIDIR_FOUND">
+      <RegistrySearch Root="HKCU" Key="Software\$(Manufacturer)" Name="InstallDir" Type="raw" />
+    </Property>
+    <Property Id="ASAGIRIDIR" Secure="yes" />
+    <SetProperty Id="ASAGIRIDIR_HOME" Value="[LocalAppDataFolder]$(Name)\" After="AppSearch" Sequence="execute" />
+    <SetProperty Id="ASAGIRIDIR" Value="[ASAGIRIDIR_FOUND]" After="SetASAGIRIDIR_HOME" Sequence="execute" Condition="Installed AND NOT UPGRADINGPRODUCTCODE" />
+    <SetProperty Id="ASAGIRIDIR" Action="ResetASAGIRIDIR" Value="{}" After="SetASAGIRIDIR" Sequence="execute" Condition="NOT (ASAGIRIDIR ~= ASAGIRIDIR_HOME)" />
+
+    <!-- %LOCALAPPDATA%\Asagiri: asagiri-win.exe keeps setup.json, logs and the WebView2 cache here too. -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="$(Name)">
+        <Directory Id="BinFolder" Name="bin">
+          <Directory Id="PluginsFolder" Name="cli-plugins" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <!--
+      Per-user components key on HKCU values, not files (ICE38). The bundle
+      files keep their names and places: asagiri-win verifies each of them
+      against the SHA-256 embedded at build time before it imports or copies
+      anything.
+    -->
+    <ComponentGroup Id="AsagiriComponents">
+      <Component Id="AsagiriApp" Directory="INSTALLFOLDER" Guid="2B7D9F41-6A3C-4E85-B1D2-8C4F6A0E3B57">
+        <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Version" Type="string" Value="$(Version)" />
+        <File Id="AsagiriWinExe" Source="$(Bundle)\asagiri-win.exe" />
+        <File Id="AsagiriEngine" Source="$(Bundle)\asagiri" />
+        <File Id="AsagiriInit" Source="$(Bundle)\asagiri-init" />
+        <File Id="AsagiriLinux" Source="$(Bundle)\asagiri-linux.tar.gz" />
+        <File Id="InstallSh" Source="$(Bundle)\install.sh" />
+        <File Id="AsagiriPs1" Source="$(Bundle)\asagiri.ps1" />
+        <File Id="AsagiriLicense" Source="$(Bundle)\LICENSE" />
+        <File Id="AsagiriNotice" Source="$(Bundle)\NOTICE" />
+        <!-- Run by asagiri-win as files (-File), never as script text it carries: setup's tools step, and its elevated steps (WSL, the DNS rule). -->
+        <File Id="SetupToolsPs1" Source="$(Bundle)\setup-tools.ps1" />
+        <File Id="AsagiriAdminPs1" Source="$(Bundle)\asagiri-admin.ps1" />
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ProgramMenuFolder"
+                  Name="$(Name)"
+                  Description="$(Description)"
+                  Target="[#AsagiriWinExe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AsagiriIcon" />
+        <util:RemoveFolderEx On="uninstall" Property="ASAGIRIDIR" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      </Component>
+      <Component Id="AsagiriDockerCli" Directory="BinFolder" Guid="9E5A1C73-0B2D-4F6E-A8C1-3D7B5E9F2A64">
+        <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Bin" Type="string" Value="[BinFolder]" KeyPath="yes" />
+        <File Id="DockerExe" Source="$(Bundle)\bin\docker.exe" />
+        <!-- `asagiri` in PowerShell, cmd and Git Bash (crates/asagiri/src/wsl.rs). -->
+        <File Id="AsagiriCliExe" Source="$(Bundle)\bin\asagiri.exe" />
+        <RemoveFolder Id="RemoveBinFolder" Directory="BinFolder" On="uninstall" />
+      </Component>
+      <Component Id="AsagiriDockerPlugins" Directory="PluginsFolder" Guid="4F8B2D16-7C9E-4A3B-9D5F-1E6C8A0B4D72">
+        <RegistryValue Root="HKCU" Key="Software\$(Manufacturer)" Name="Plugins" Type="string" Value="[PluginsFolder]" KeyPath="yes" />
+        <File Id="ComposeExe" Source="$(Bundle)\bin\cli-plugins\docker-compose.exe" />
+        <File Id="BuildxExe" Source="$(Bundle)\bin\cli-plugins\docker-buildx.exe" />
+        <RemoveFolder Id="RemovePluginsFolder" Directory="PluginsFolder" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="$(Name)" Level="1">
+      <ComponentGroupRef Id="AsagiriComponents" />
+    </Feature>
+
+    <!-- A running Asagiri is closed before its files are replaced or removed. -->
+    <util:CloseApplication Id="CloseAsagiriWin" Target="asagiri-win.exe" CloseMessage="yes" TerminateProcess="1" RebootPrompt="no" />
+
+    <!--
+      Uninstall: undo what first-run setup did (engine in WSL, PATH, docker
+      context and builder, start at sign-in). asagiri.ps1 does nothing when
+      setup never completed, so removing an unused install is just files.
+      System64Folder is the 64-bit PowerShell: for the 32-bit msiexec,
+      SystemFolder is SysWOW64, and a 32-bit PowerShell from there sees
+      SysWOW64 in place of System32, where wsl.exe is not. The script logs
+      to %TEMP%\asagiri-uninstall.log (INSTALLFOLDER is going).
+    -->
+    <CustomAction Id="AsagiriUninstall"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;[INSTALLFOLDER]asagiri.ps1&quot; -Uninstall -IfSetUp"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="AsagiriUninstall" After="InstallInitialize" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <!--
+      The pages, as drawn in the Asagiri Installer Windows design: Welcome,
+      licence, ready, progress, done. All but the ready page are stock
+      WixUI dialogs. It is WixUI_InstallDir without its folder page:
+      asagiri-win runs from %LOCALAPPDATA%\Asagiri and nowhere else, so the
+      folder is not a choice; the ready page (AsagiriReadyDlg, below) shows
+      it instead, with the size and the scope. Repair and remove still go
+      through the stock VerifyReadyDlg.
+      The art is committed in brand\installer\windows: wix-dialog.bmp (night
+      panel at the left, white under the text) and wix-banner.bmp (chalk,
+      the lockup at the right). `cargo xtask msi` stamps the version onto a
+      copy of the dialog (make-bitmaps.ps1 -Stamp, no browser needed, so CI
+      builds from the checkout) and points Assets at it. The texts are in
+      asagiri.wxl.
+    -->
+    <?ifndef Assets ?><?define Assets = "..\..\brand\installer\windows" ?><?endif?>
+    <WixVariable Id="WixUIBannerBmp" Value="$(Assets)\wix-banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(Assets)\wix-dialog.bmp" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+    <UI Id="WixUI_Asagiri">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <!-- The ready page's table: labels in the design's slate, values in the system monospace. -->
+      <TextStyle Id="Asagiri_Font_Label" FaceName="Segoe UI" Size="9" Red="58" Green="66" Blue="76" />
+      <TextStyle Id="Asagiri_Font_Mono" FaceName="Consolas" Size="9" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="ARPNOMODIFY" Value="1" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="AsagiriReadyDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+
+      <Publish Dialog="AsagiriReadyDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="1" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <!-- The last page offers to launch Asagiri, which runs first-run setup. -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchAsagiri"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+
+      <!--
+        The ready page of a fresh install, as the design draws it: the stock
+        VerifyReadyDlg's words, then the folder, the size and the scope in a
+        table, since there was no folder page to say them. Its measurements
+        are VerifyReadyDlg's (370 by 270 dialog units, the banner 44 high).
+      -->
+      <Dialog Id="AsagiriReadyDlg" Width="370" Height="270" Title="!(loc.VerifyReadyDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.AsagiriReadyTitle)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Description" Type="Text" X="25" Y="60" Width="320" Height="30" Transparent="yes" NoPrefix="yes" Text="!(loc.VerifyReadyDlgInstallText)" />
+        <Control Id="FolderLabel" Type="Text" X="25" Y="104" Width="40" Height="12" Transparent="yes" NoPrefix="yes" Text="!(loc.AsagiriReadyFolder)" />
+        <Control Id="FolderValue" Type="Text" X="70" Y="104" Width="280" Height="12" Transparent="yes" NoPrefix="yes" Text="{\Asagiri_Font_Mono}[INSTALLFOLDER]" />
+        <Control Id="SizeLabel" Type="Text" X="25" Y="122" Width="40" Height="12" Transparent="yes" NoPrefix="yes" Text="!(loc.AsagiriReadySize)" />
+        <Control Id="SizeValue" Type="Text" X="70" Y="122" Width="280" Height="12" Transparent="yes" NoPrefix="yes" Text="{\Asagiri_Font_Mono}$(Size)" />
+        <Control Id="ScopeLabel" Type="Text" X="25" Y="140" Width="40" Height="12" Transparent="yes" NoPrefix="yes" Text="!(loc.AsagiriReadyScope)" />
+        <Control Id="ScopeValue" Type="Text" X="70" Y="140" Width="280" Height="12" Transparent="yes" NoPrefix="yes" Text="!(loc.AsagiriReadyScopeValue)" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.VerifyReadyDlgInstall)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="!(loc.AsagiriExitCheckbox)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="!(loc.AsagiriExitText)" />
+    <Property Id="WixShellExecTarget" Value="[#AsagiriWinExe]" />
+    <CustomAction Id="LaunchAsagiri" DllEntry="WixShellExec" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Impersonate="yes" Return="ignore" />
+  </Package>
+</Wix>

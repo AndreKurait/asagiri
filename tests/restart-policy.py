@@ -49,7 +49,7 @@ def check(path, image):
     unnamed = {"Name": "", "MaximumRetryCount": 2}
     try:
         for policy, message in invalid + ((unnamed, other_policy),):
-            volume = "kiri-policy-" + uuid.uuid4().hex
+            volume = "asagiri-policy-" + uuid.uuid4().hex
             volumes.append(volume)
             error = request("POST", "/containers/create",
                             {"Image": image, "Cmd": ["true"], "HostConfig": {
@@ -96,7 +96,7 @@ def check(path, image):
             "Name": "no", "MaximumRetryCount": 0}
         print("PASS auto-remove conflicts", flush=True)
 
-        missing = "/containers/kiri-policy-" + uuid.uuid4().hex + "/update"
+        missing = "/containers/asagiri-policy-" + uuid.uuid4().hex + "/update"
         error = request("POST", missing, {"RestartPolicy": {"Name": "invalid"}}, (400,))
         assert error["message"] == unknown, error
         request("POST", missing, {"RestartPolicy": {"Name": "always"}}, (404,))

@@ -1,5 +1,5 @@
-# The WiX dialog bitmaps for installer/windows/kiri.wxs, to the design in the
-# Kiri Installer Windows canvas: the dialog bitmap is a 164 px night panel
+# The WiX dialog bitmaps for installer/windows/asagiri.wxs, to the design in the
+# Asagiri Installer Windows canvas: the dialog bitmap is a 164 px night panel
 # (the stacked lockup, the version under it) beside a white field the WixUI
 # text sits on; the banner is a chalk strip with the horizontal lockup at
 # its right (Windows Installer draws the banner text black, so it stays
@@ -63,7 +63,7 @@ $logo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\logo')).Path
 $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $edge) { throw "Microsoft Edge is needed to render the installer bitmaps" }
 New-Item -ItemType Directory -Force $Out | Out-Null
-$work = Join-Path $env:TEMP 'kiri-wix-bitmaps'
+$work = Join-Path $env:TEMP 'asagiri-wix-bitmaps'
 New-Item -ItemType Directory -Force $work | Out-Null
 
 function FileUrl([string]$p) { 'file:///' + ($p -replace '\\', '/') }
@@ -93,8 +93,8 @@ function Render([string]$Name, [int]$W, [int]$H, [string]$Html) {
     Write-Host "wrote $(Join-Path $Out "$Name.bmp") ($W x $H)"
 }
 
-$stacked = FileUrl (Join-Path $logo 'kiri-stacked-dark.svg')
-$horizontal = FileUrl (Join-Path $logo 'kiri-horizontal-light.svg')
+$stacked = FileUrl (Join-Path $logo 'asagiri-stacked-dark.svg')
+$horizontal = FileUrl (Join-Path $logo 'asagiri-horizontal-light.svg')
 
 # Dialog: the night panel is 164 px, under the 180 px where WixUI's text
 # starts. The lockup (96 x 131) and an empty 11 px version line, 18 px apart,

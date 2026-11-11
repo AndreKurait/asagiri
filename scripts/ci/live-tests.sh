@@ -1,5 +1,5 @@
 #!/bin/sh
-# live-tests.sh <folder holding kiri and kiri-init>
+# live-tests.sh <folder holding asagiri and asagiri-init>
 #
 # Starts that build as a private engine in a container (privileged, as the
 # engine needs; no port is published, so nothing outside the machine can
@@ -9,13 +9,13 @@
 set -u
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
-name=kiri-live-$$
-sock=/run/kiri/docker.sock
+name=asagiri-live-$$
+sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
-docker run -d --privileged --name "$name" -e KIRI_SOCKET="$sock" \
-  -v "$bin:/opt/kiri:ro" -v "$src:/src:ro" -v /var/lib/kiri \
-  docker:28.0.4-cli sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/kiri/kiri daemon' >/dev/null || exit 2
+docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
+  -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri \
+  docker:28.0.4-cli sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
 trap 'docker rm -fv "$name" >/dev/null 2>&1' EXIT INT TERM
 
 i=0

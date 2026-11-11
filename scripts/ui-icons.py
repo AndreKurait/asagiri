@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Generates the window's icons:
 
-  crates/kiri/src/ui/brands.rs  brand logos for commonly containerized images
+  crates/asagiri/src/ui/brands.rs  brand logos for commonly containerized images
                                 (Simple Icons, CC0), compiled into the binary.
                                 The engine sends only the logos for images
                                 you have, so the page never carries the catalog.
-  crates/kiri/src/ui/icons.js   the few UI icons the page draws (Phosphor, MIT).
+  crates/asagiri/src/ui/icons.js   the few UI icons the page draws (Phosphor, MIT).
 
 Nothing is fetched at runtime.
 
@@ -83,8 +83,8 @@ CATALOG = {
 PHOSPHOR_ICONS = {"stack": "stack", "cube": "cube", "database": "database", "network": "share-network", "gear": "gear-six", "textaa": "text-aa", "info": "info", "globe": "globe-simple", "chatdots": "chat-circle-dots", "sparkle": "sparkle", "wrench": "wrench", "shieldcheck": "shield-check", "trendup": "trend-up", "dot": "dot-outline", "hammer": "hammer", "checkcircle": "check-circle", "xcircle": "x-circle", "lightning": "lightning", "warning": "warning", "clock": "clock", "calendar": "calendar-blank", "steps": "stack-simple", "expand": "arrows-out-simple", "collapse": "arrows-in-simple", "minus": "minus-circle", "copy": "copy", "check": "check", "pods": "hexagon", "services": "plugs-connected", "sun": "sun", "moon": "moon", "link": "link-simple", "github": "github-logo", "sliders": "sliders", "play": "play", "open": "arrow-square-out", "pull": "download-simple", "trash": "trash", "logs": "article", "stop": "stop", "restart": "arrow-clockwise", "bug": "bug", "folder": "folder-open", "send": "paper-plane-tilt", "caret": "caret-right", "eye": "eye", "eyeoff": "eye-slash", "lock": "lock", "regen": "arrows-clockwise", "pause": "pause", "sidebar": "sidebar-simple", "broom": "broom", "updown": "arrows-down-up", "warncircle": "warning-circle", "confetti": "confetti", "usb": "usb", "plug": "plug", "eject": "eject", "mouse": "mouse-simple", "keyboard": "keyboard", "ethernet": "network", "circuitry": "circuitry", "broadcast": "broadcast", "harddrive": "hard-drive", "microphone": "microphone", "webcam": "webcam"}
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_JS = os.path.join(ROOT, "crates/kiri/src/ui/icons.js")
-OUT_RS = os.path.join(ROOT, "crates/kiri/src/ui/brands.rs")
+OUT_JS = os.path.join(ROOT, "crates/asagiri/src/ui/icons.js")
+OUT_RS = os.path.join(ROOT, "crates/asagiri/src/ui/brands.rs")
 
 
 def get(url):

@@ -19,20 +19,20 @@ def check(socket, image):
     cid = run("run", "-d", "--network", "none", image, "sleep", "120").decode().strip()
     try:
         run("exec", cid, "sh", "-c",
-            "mkdir -p /tmp/kiri-archive-modes/dir; "
-            "printf contents > /tmp/kiri-archive-modes/file; "
-            "chmod 6751 /tmp/kiri-archive-modes/file; "
-            "chmod 1750 /tmp/kiri-archive-modes/dir; "
-            "ln -s file /tmp/kiri-archive-modes/link")
+            "mkdir -p /tmp/asagiri-archive-modes/dir; "
+            "printf contents > /tmp/asagiri-archive-modes/file; "
+            "chmod 6751 /tmp/asagiri-archive-modes/file; "
+            "chmod 1750 /tmp/asagiri-archive-modes/dir; "
+            "ln -s file /tmp/asagiri-archive-modes/link")
         for state in ("running", "stopped"):
             if state == "stopped":
                 run("stop", "-t", "0", cid)
                 run("wait", cid)
             for operation in ("copy", "export"):
-                data = run("cp", cid + ":/tmp/kiri-archive-modes", "-") if operation == "copy" else run("export", cid)
+                data = run("cp", cid + ":/tmp/asagiri-archive-modes", "-") if operation == "copy" else run("export", cid)
                 with tarfile.open(fileobj=io.BytesIO(data)) as archive:
                     entries = {(member.name[2:] if member.name.startswith("./") else member.name).rstrip("/"): member for member in archive}
-                prefix = "kiri-archive-modes/" if operation == "copy" else "tmp/kiri-archive-modes/"
+                prefix = "asagiri-archive-modes/" if operation == "copy" else "tmp/asagiri-archive-modes/"
                 for name, mode, kind in (("file", 0o6751, tarfile.REGTYPE),
                                          ("dir", 0o1750, tarfile.DIRTYPE),
                                          ("link", 0o777, tarfile.SYMTYPE)):
@@ -42,7 +42,7 @@ def check(socket, image):
                 assert entries[prefix + "link"].linkname == "file"
                 print("PASS", state, operation, flush=True)
             # A file copied on its own is archived by itself, not as part of a tree.
-            with tarfile.open(fileobj=io.BytesIO(run("cp", cid + ":/tmp/kiri-archive-modes/file", "-"))) as archive:
+            with tarfile.open(fileobj=io.BytesIO(run("cp", cid + ":/tmp/asagiri-archive-modes/file", "-"))) as archive:
                 got = [(member.name, member.mode, member.type) for member in archive]
             assert got == [("file", 0o6751, tarfile.REGTYPE)], (state, "copy-file", got)
             print("PASS", state, "copy-file", flush=True)

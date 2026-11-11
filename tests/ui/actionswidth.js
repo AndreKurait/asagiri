@@ -3,7 +3,7 @@
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const C = (id, name, img, proj, ports) => ({ Id: id, Names: ["/" + name], Image: img, State: "running", Status: "Up 1 hour", Created: Date.now() / 1000 - 60, Ports: ports || [], Labels: proj ? { "com.docker.compose.project": proj } : {} });
-kiri.on({ type: "lists", containers: [C("a", "hello-compose-backend-1", "hello-compose-backend", "hello-compose"), C("b", "hello-compose-frontend-1", "hello-compose-frontend", "hello-compose", [{ PublicPort: 8088, PrivatePort: 80 }]), C("c", "buildx_buildkit_kiri-dev-builder0", "moby/buildkit:buildx-stable-1")], images: [], volumes: [], networks: [] });
+asagiri.on({ type: "lists", containers: [C("a", "hello-compose-backend-1", "hello-compose-backend", "hello-compose"), C("b", "hello-compose-frontend-1", "hello-compose-frontend", "hello-compose", [{ PublicPort: 8088, PrivatePort: 80 }]), C("c", "buildx_buildkit_asagiri-dev-builder0", "moby/buildkit:buildx-stable-1")], images: [], volumes: [], networks: [] });
 document.body.style.width = "1600px";
 show("containers");
 t("with saved widths, the buttons stay inside Actions, on a project's row and its containers'", () => {
@@ -32,7 +32,7 @@ t("every column takes a share and resizes, as in Images; Name starts widest, and
   document.body.style.width = "1600px"; render();
 });
 t("docker build's BuildKit worker isn't listed with the containers", () => {
-  if (document.querySelector('#content tr[data-key="c"]')) throw new Error("buildx_buildkit_kiri-dev-builder0 is listed");
+  if (document.querySelector('#content tr[data-key="c"]')) throw new Error("buildx_buildkit_asagiri-dev-builder0 is listed");
   if (ui.containers.some((c) => c.Id === "c")) throw new Error("kept in the list");
   if ($("n-containers").textContent !== "2") throw new Error(`count says ${$("n-containers").textContent}`);
 });

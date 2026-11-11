@@ -1,21 +1,21 @@
-// Star Kiri is asked once: the first thing that works, after the settings
+// Star Asagiri is asked once: the first thing that works, after the settings
 // are in and only if ui.json doesn't say it was asked; Star opens the repo.
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 t("nothing before the settings are in", () => {
-  kiri.on({ type: "pulled", name: "nginx:alpine", ms: 840 });
+  asagiri.on({ type: "pulled", name: "nginx:alpine", ms: 840 });
   if (starTimer) throw new Error("asked before prefs");
 });
 t("already asked: never again", () => {
-  kiri.on({ type: "prefs", prefs: { starAsked: true } });
-  kiri.on({ type: "k8sop", op: "start", state: "done", context: "kiri" });
+  asagiri.on({ type: "prefs", prefs: { starAsked: true } });
+  asagiri.on({ type: "k8sop", op: "start", state: "done", context: "asagiri" });
   if (starTimer) throw new Error("asked twice");
 });
 t("the first success asks, once", () => {
   prefs.starAsked = false;
-  kiri.on({ type: "pulled", name: "redis:7", ms: 1240 });
+  asagiri.on({ type: "pulled", name: "redis:7", ms: 1240 });
   const first = starTimer;
-  kiri.on({ type: "share", id: 9, source: "web", state: "live", url: "https://web-x.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 9, source: "web", state: "live", url: "https://web-x.runkiri.cloud" });
   if (!first || starTimer !== first) throw new Error("not asked, or asked again");
   clearTimeout(starTimer);
   starCard("Pulled redis:7 in 1.2 s.");

@@ -3,7 +3,7 @@
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
-tmp=$(mktemp "${TMPDIR:-/tmp}/kiri-notice.XXXXXX")
+tmp=$(mktemp "${TMPDIR:-/tmp}/asagiri-notice.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 cargo about generate --all-features --workspace --locked about.hbs -o "$tmp"
 notice() {

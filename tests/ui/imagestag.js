@@ -3,7 +3,7 @@
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const nowS = Date.now() / 1000;
-kiri.on({ type: "lists", containers: [], images: [
+asagiri.on({ type: "lists", containers: [], images: [
   { Id: "sha256:" + "a".repeat(64), RepoTags: ["harbor.example.com:9090/szda/very-long-path/rustfs:arm-1.0.0-beta.8-extra-long"], Size: 1e8, Created: nowS - 60, Pulled: nowS - 30 },
   { Id: "sha256:" + "b".repeat(64), RepoTags: ["nginx:alpine"], Size: 1e7, Created: nowS - 120, Pulled: nowS - 90 },
 ], volumes: [], networks: [] });

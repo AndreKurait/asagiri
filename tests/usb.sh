@@ -1,10 +1,10 @@
 #!/bin/bash
-# USB passthrough, end to end, with no hardware and no root: `kiri usb fake`
-# attaches software USB devices through the daemon exactly as `kiri usb
+# USB passthrough, end to end, with no hardware and no root: `asagiri usb fake`
+# attaches software USB devices through the daemon exactly as `asagiri usb
 # serve` attaches a captured one, and the guest's real USB stack, cdc-acm
 # and usbhid take it from there. Usage:
 #
-#   DOCKER_CONTEXT=kiri-usb KIRI="target/dev/Kiri Usb.app/Contents/MacOS/kiri" tests/usb.sh
+#   DOCKER_CONTEXT=asagiri-usb ASAGIRI="target/dev/Asagiri Usb.app/Contents/MacOS/asagiri" tests/usb.sh
 #
 # Covers: enumeration, a 1 MiB echo through /dev/ttyACM0, opens and closes
 # (each one unlinks pending URBs), line coding, a stalled endpoint, two
@@ -15,11 +15,11 @@
 # interrupt endpoint. Exits non-zero if any check fails.
 
 set -u
-export DOCKER_CONTEXT=${DOCKER_CONTEXT:-kiri}
-K=${KIRI:-kiri}
+export DOCKER_CONTEXT=${DOCKER_CONTEXT:-asagiri}
+K=${ASAGIRI:-asagiri}
 SOCK=$(docker context inspect "$DOCKER_CONTEXT" --format '{{.Endpoints.docker.Host}}' 2>/dev/null); SOCK=${SOCK#unix://}
 [ -S "$SOCK" ] || { echo "usb: no engine socket for context $DOCKER_CONTEXT ($SOCK)"; exit 1; }
-export KIRI_SOCKET=$SOCK
+export ASAGIRI_SOCKET=$SOCK
 LOGS=$(mktemp -d)
 PASS=0 FAIL=0 FAILED=()
 PIDS=()
@@ -28,8 +28,8 @@ ok() { PASS=$((PASS + 1)); echo "  ok   $1"; }
 bad() { FAIL=$((FAIL + 1)); FAILED+=("$1"); echo "  FAIL $1${2:+: $2}"; }
 check() { local name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
 
-api() { curl -s --max-time 30 --unix-socket "$SOCK" -X "$1" "http://kiri$2"; }
-attached() { api GET /kiri/usb; }
+api() { curl -s --max-time 30 --unix-socket "$SOCK" -X "$1" "http://asagiri$2"; }
+attached() { api GET /asagiri/usb; }
 # In the VM, as root: sysfs and /dev as the guest sees them.
 vm() { docker run --rm --privileged alpine sh -c "$1" 2>&1; }
 
@@ -57,7 +57,7 @@ gone() {
   done
   return 1
 }
-detach() { api DELETE "/kiri/usb/$1" >/dev/null; }
+detach() { api DELETE "/asagiri/usb/$1" >/dev/null; }
 cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; wait 2>/dev/null; }
 trap cleanup EXIT
 
@@ -86,13 +86,13 @@ export K SOCK LOGS DOCKER_CONTEXT
 export -f api attached vm acm_count wait_acm echo_through
 
 echo "== USB passthrough on $DOCKER_CONTEXT"
-api POST /kiri/wake >/dev/null
+api POST /asagiri/wake >/dev/null
 for loc in $(attached | grep -o '"Location":"[^"]*"' | cut -d'"' -f4); do detach "$loc"; done
 
 echo "-- a serial device"
 check "serial attaches" fake t-serial serial
 check "it enumerates as a CDC ACM tty" wait_acm 1
-check "with its own descriptors" bash -c "vm 'cat /sys/bus/usb/devices/*/product' | grep -q 'Kiri test serial'"
+check "with its own descriptors" bash -c "vm 'cat /sys/bus/usb/devices/*/product' | grep -q 'Asagiri test serial'"
 check "1 MiB echoes back unchanged" echo_through /dev/ttyACM0 1048576
 check "64 KiB echoes back again" echo_through /dev/ttyACM0 65536
 opens=$(docker run --rm --device /dev/ttyACM0 alpine sh -c '
@@ -141,14 +141,14 @@ for i in $(seq 8); do gone "t-port$i"; done
 check "and every port frees again" wait_acm 0
 
 echo "-- the VM"
-api POST /kiri/sleep >/dev/null
+api POST /asagiri/sleep >/dev/null
 check "attaching wakes a sleeping VM" fake t-wake serial
 check "and the device works" bash -c "wait_acm 1 && echo_through /dev/ttyACM0 4096"
-api POST /kiri/stop >/dev/null
-check "stopping Kiri ends the device's session" gone t-wake
+api POST /asagiri/stop >/dev/null
+check "stopping Asagiri ends the device's session" gone t-wake
 perl -e 'alarm 30; exec @ARGV' "$K" usb fake serial --location t-stopped >"$LOGS/t-stopped.log" 2>&1
-check "attaching while Kiri is stopped is refused" grep -q "Kiri did not take the device" "$LOGS/t-stopped.log"
-api POST /kiri/wake >/dev/null
+check "attaching while Asagiri is stopped is refused" grep -q "Asagiri did not take the device" "$LOGS/t-stopped.log"
+api POST /asagiri/wake >/dev/null
 if [ -n "${IDLE_SECS:-}" ]; then
   fake t-idle serial; wait_acm 1
   sleep $((IDLE_SECS * 2 + 2))
@@ -157,13 +157,13 @@ if [ -n "${IDLE_SECS:-}" ]; then
 fi
 
 echo "-- bad requests"
-check "a bad location is refused" bash -c "api POST '/kiri/usb?location=../x&speed=2' | grep -q 'location'"
-check "a bad speed is refused" bash -c "api POST '/kiri/usb?location=x&speed=9' | grep -q 'speed'"
-check "detaching nothing says so" bash -c "api DELETE /kiri/usb/nothing-here | grep -q 'no USB device'"
+check "a bad location is refused" bash -c "api POST '/asagiri/usb?location=../x&speed=2' | grep -q 'location'"
+check "a bad speed is refused" bash -c "api POST '/asagiri/usb?location=x&speed=9' | grep -q 'speed'"
+check "detaching nothing says so" bash -c "api DELETE /asagiri/usb/nothing-here | grep -q 'no USB device'"
 python3 - "$SOCK" <<'EOF' >"$LOGS/junk.log" 2>&1
 import socket, sys, time
 s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
-s.sendall(b"POST /kiri/usb?location=t-junk&name=junk&speed=2&devid=1 HTTP/1.1\r\nHost: kiri\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\n")
+s.sendall(b"POST /asagiri/usb?location=t-junk&name=junk&speed=2&devid=1 HTTP/1.1\r\nHost: asagiri\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\n")
 head = b""
 while b"\r\n\r\n" not in head:  # the reply may come in pieces
     part = s.recv(4096)
@@ -184,7 +184,7 @@ echo "-- a mouse (interrupt IN)"
 check "mouse attaches" fake t-mouse mouse --reports 100000
 ev=
 for _ in $(seq 50); do
-  ev=$(vm 'for d in /sys/class/input/event*; do grep -q "Kiri test mouse" $d/device/name 2>/dev/null && basename $d; done' | head -1)
+  ev=$(vm 'for d in /sys/class/input/event*; do grep -q "Asagiri test mouse" $d/device/name 2>/dev/null && basename $d; done' | head -1)
   [ -n "$ev" ] && break
   sleep 0.2
 done

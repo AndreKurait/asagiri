@@ -24,7 +24,7 @@ t("hidden at first, with a toggle in the status bar and the strip", () => {
 t("the first open asks for the shells, then starts the default one", () => {
   document.querySelector("#statusbar [data-htterm]").click();
   ok(terms("shells").length === 1, "didn't ask for shells");
-  kiri.on({ type: "term", ev: "shells", default: "/bin/zsh", shells: [{ id: "/bin/zsh", label: "zsh", group: "" }, { id: "/bin/bash", label: "bash", group: "" }, { id: "wsl:Ubuntu", label: "WSL · Ubuntu", group: "WSL" }] });
+  asagiri.on({ type: "term", ev: "shells", default: "/bin/zsh", shells: [{ id: "/bin/zsh", label: "zsh", group: "" }, { id: "/bin/bash", label: "bash", group: "" }, { id: "wsl:Ubuntu", label: "WSL · Ubuntu", group: "WSL" }] });
   ok(!drawer.hidden, "drawer still hidden");
   const open = terms("open");
   ok(open.length === 1 && open[0].value.shell === "/bin/zsh", "open: " + JSON.stringify(open));
@@ -89,7 +89,7 @@ t("each split pane has its own ×", () => {
 });
 t("a paste of several lines asks first", () => {
   const p = ht.panes.get(ht.focus), before = terms("input").length;
-  kiri.on({ type: "term", ev: "paste", id: p.id, text: "echo a\necho b\n" });
+  asagiri.on({ type: "term", ev: "paste", id: p.id, text: "echo a\necho b\n" });
   const ask = p.el.querySelector(".htask");
   ok(ask && /Paste 2 lines/.test(ask.textContent), "no question");
   ok(terms("input").length === before, "pasted before asking");
@@ -98,7 +98,7 @@ t("a paste of several lines asks first", () => {
 });
 t("one line pastes straight in", () => {
   const p = ht.panes.get(ht.focus);
-  kiri.on({ type: "term", ev: "paste", id: p.id, text: "docker ps" });
+  asagiri.on({ type: "term", ev: "paste", id: p.id, text: "docker ps" });
   ok(!p.el.querySelector(".htask") && decode(terms("input").pop().value) === "docker ps", "single line");
 });
 t("text size: its own, from the keys and the window's ⌘+ while focused", () => {
@@ -107,10 +107,10 @@ t("text size: its own, from the keys and the window's ⌘+ while focused", () =>
   ok(htFs() === fs + 1, "key: " + htFs());
   ht.panes.get(ht.focus).term.focus();
   const scale = prefs.scale;
-  kiri.on({ type: "textsize", step: 1 });
+  asagiri.on({ type: "textsize", step: 1 });
   ok(htFs() === fs + 2 && prefs.scale === scale, "menu step went to the window");
   ok(sent.some((s) => s.type === "setpref" && s.name === "termFs"), "not saved");
-  kiri.on({ type: "textsize", step: 0 });
+  asagiri.on({ type: "textsize", step: 0 });
   ok(htFs() === 12, "reset");
 });
 t("find opens from its key", () => {
@@ -122,22 +122,22 @@ t("find opens from its key", () => {
 t("closing a pane ends its shell", () => {
   const id = ht.focus;
   if (OSK.close) key(ht.panes.get(id).term.textarea, OSK.close);
-  else { ht.panes.get(id).term.focus(); kiri.on({ type: "closekey" }); }
+  else { ht.panes.get(id).term.focus(); asagiri.on({ type: "closekey" }); }
   ok(terms("close").some((s) => s.id === id), "no close sent");
   ok(panes().length === 2, `${panes().length} panes`);
 });
 t("⌘W away from the terminal closes the window", () => {
   document.activeElement?.blur();
-  kiri.on({ type: "closekey" });
+  asagiri.on({ type: "closekey" });
   ok(sent.some((s) => s.type === "closewindow"), "no closewindow");
 });
 t("a shell that exits closes its pane; one that can't start says why", () => {
   const id = ht.focus;
-  kiri.on({ type: "term", ev: "exit", id, code: 0 });
+  asagiri.on({ type: "term", ev: "exit", id, code: 0 });
   ok(panes().length === 1 && !ht.panes.has(id), "pane stayed");
   ok(!terms("close").some((s) => s.id === id), "closed an ended shell again");
   const left = ht.focus;
-  kiri.on({ type: "term", ev: "exit", id: left, error: "No such file" });
+  asagiri.on({ type: "term", ev: "exit", id: left, error: "No such file" });
   ok(ht.panes.has(left) && ht.panes.get(left).exited, "a failed start vanished");
 });
 t("hiding keeps the shells running", () => {
@@ -155,7 +155,7 @@ t("maximise fills the window, and restores", () => {
 });
 t("output reaches the screen", () => {
   window.liveId = [...ht.panes.values()].find((p) => !p.exited).id;
-  kiri.on({ type: "term", ev: "data", id: liveId, b64: b64("hello from the shell") });
+  asagiri.on({ type: "term", ev: "data", id: liveId, b64: b64("hello from the shell") });
 });
 setTimeout(() => {
   t("output reaches the screen (drawn)", () => {

@@ -1,5 +1,5 @@
-// Draws the disk image's Finder background (xtask's DMG step, scripts/dmg-settings.py): Kiri's warm chalk with a dark
-// mustard arrow from the app (left, x 160) to the Applications alias (right, x 480) and "Drag Kiri to Applications" in
+// Draws the disk image's Finder background (xtask's DMG step, scripts/dmg-settings.py): Asagiri's warm chalk with a dark
+// mustard arrow from the app (left, x 160) to the Applications alias (right, x 480) and "Drag Asagiri to Applications" in
 // ink. Light because Finder draws the icon labels in black on a background picture, whatever the appearance. Writes
 // <out>.png (1x) and <out>@2x.png; dmgbuild joins them into one HiDPI TIFF. 640x440pt for a window whose content area
 // is about 400pt tall: Finder's title bar height differs between macOS versions, and the extra rows cover the gap.
@@ -42,7 +42,7 @@ func draw(scale: Int, to path: String) {
 
   // The instruction, below the icon labels, in ink (#0F1419).
   let para = NSMutableParagraphStyle(); para.alignment = .center
-  let text = NSAttributedString(string: "Drag Kiri to Applications", attributes: [
+  let text = NSAttributedString(string: "Drag Asagiri to Applications", attributes: [
     .font: NSFont.systemFont(ofSize: 17, weight: .medium),
     .foregroundColor: NSColor(srgbRed: 15 / 255, green: 20 / 255, blue: 25 / 255, alpha: 1),
     .paragraphStyle: para,

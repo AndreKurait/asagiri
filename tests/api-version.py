@@ -28,7 +28,7 @@ def check(path):
             connection.close()
 
     # A client older than 1.24 expects an error as plain text. Docker 29 answers
-    # it so; Docker 28 and Kiri answer every client in JSON.
+    # it so; Docker 28 and Asagiri answer every client in JSON.
     def message(version, data):
         if tuple(int(number or 0) for number in version.split(".")) < (1, 24) and not data.startswith(b"{"):
             return data.decode().rstrip("\n")
@@ -38,7 +38,7 @@ def check(path):
     status, version = request("/version")
     assert status == 200, (status, version)
     version = json.loads(version)
-    # Docker 28 and Kiri start at 1.24, Docker 29 at 1.40.
+    # Docker 28 and Asagiri start at 1.24, Docker 29 at 1.40.
     oldest, newest = version["MinAPIVersion"], version["ApiVersion"]
     older = "1.%d" % (int(oldest.split(".")[1]) - 1)
     too_old = "client version %s is too old. Minimum supported API version is " + oldest + ", please upgrade your client to a newer version"

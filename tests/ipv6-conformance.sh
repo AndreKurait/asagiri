@@ -2,11 +2,11 @@
 # IPv6 conformance: the IPv6 behaviour of a Docker engine, checked with
 # nothing but the docker CLI, case by case against what Docker documents and
 # what moby's own integration tests assert (each case names its source).
-# Runs against any engine - Kiri on a Mac, in WSL2 or on a Linux host, or
+# Runs against any engine - Asagiri on a Mac, in WSL2 or on a Linux host, or
 # Docker itself as the reference - through DOCKER_HOST or DOCKER_CONTEXT:
 #
 #   tests/ipv6-conformance.sh                               # current context
-#   DOCKER_CONTEXT=kiri-dev tests/ipv6-conformance.sh
+#   DOCKER_CONTEXT=asagiri-dev tests/ipv6-conformance.sh
 #   DOCKER_HOST=tcp://127.0.0.1:2375 tests/ipv6-conformance.sh
 #   DOCKER=docker.exe tests/ipv6-conformance.sh             # WSL, Windows' CLI
 #
@@ -19,7 +19,7 @@
 # Prints PASS, FAIL or SKIP per case with its source, then a summary; exits 1
 # if any case failed. SKIP is for what the engine's host cannot have (no
 # IPv6 uplink, no Compose), never for a wrong answer. Everything it makes is
-# labelled kiri.ipv6-conformance=<run> and removed at the end, even on ^C;
+# labelled asagiri.ipv6-conformance=<run> and removed at the end, even on ^C;
 # nothing else on the engine is touched.
 #
 # Options (environment):
@@ -42,7 +42,7 @@ elif [ -n "${DOCKER_CONTEXT:-}" ]; then D+=(--context "$DOCKER_CONTEXT"); fi
 d() { "${D[@]}" "$@"; }
 
 RUN=v6c$$
-LABEL=kiri.ipv6-conformance=$RUN
+LABEL=asagiri.ipv6-conformance=$RUN
 N=$RUN                                   # name prefix for everything made here
 PB=${V6C_PORT_BASE:-18640}
 IMG=alpine:3.21

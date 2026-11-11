@@ -1,27 +1,27 @@
 #!/bin/sh
-# kiri / kiri-lite .deb: before the files go. Stops the engine (containers it
-# ran stop with it) and withdraws Kiri's docker CLI from PATH.
+# asagiri / asagiri-lite .deb: before the files go. Stops the engine (containers it
+# ran stop with it) and withdraws Asagiri's docker CLI from PATH.
 set -e
-# Removing Kiri stops everything it runs: the engine (above, which stops its
-# containers), and any window or kiri command still open from this package
-# (`kiri share`, `kiri ui`), first asked to quit, then made to.
+# Removing Asagiri stops everything it runs: the engine (above, which stops its
+# containers), and any window or asagiri command still open from this package
+# (`asagiri share`, `asagiri ui`), first asked to quit, then made to.
 stop_everything() {
   for sig in TERM KILL; do
-    pkill -"$sig" -f '^/usr/lib/kiri/kiri-window( |$)' 2>/dev/null || true
-    pkill -"$sig" -f '^(/usr)?/bin/kiri( |$)' 2>/dev/null || true
+    pkill -"$sig" -f '^/usr/lib/asagiri/asagiri-window( |$)' 2>/dev/null || true
+    pkill -"$sig" -f '^(/usr)?/bin/asagiri( |$)' 2>/dev/null || true
     [ "$sig" = KILL ] || sleep 1
   done
 }
 case "$1" in
   remove|deconfigure)
     if [ -d /run/systemd/system ]; then
-      systemctl disable --now kiri.service || true
+      systemctl disable --now asagiri.service || true
     fi
     stop_everything
-    if [ -x /usr/libexec/kiri/docker ]; then
-      update-alternatives --remove docker /usr/libexec/kiri/docker || true
+    if [ -x /usr/libexec/asagiri/docker ]; then
+      update-alternatives --remove docker /usr/libexec/asagiri/docker || true
       for p in docker-compose docker-buildx; do
-        update-alternatives --remove "$p" "/usr/libexec/kiri/cli-plugins/$p" || true
+        update-alternatives --remove "$p" "/usr/libexec/asagiri/cli-plugins/$p" || true
       done
     fi
     ;;

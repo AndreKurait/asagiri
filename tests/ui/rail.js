@@ -9,7 +9,7 @@ t("the button folds it, and the icons say their names", () => {
   if (!railOn()) throw new Error("not folded");
   const b = document.querySelector('nav button[data-view="images"]');
   if (b.title !== "Images" || getComputedStyle(b.querySelector(".lbl")).display !== "none") throw new Error("label shown or no title");
-  if (localStorage.getItem("kiri.rail") !== "1") throw new Error("not remembered");
+  if (localStorage.getItem("asagiri.rail") !== "1") throw new Error("not remembered");
   if (!/Show the sidebar/.test($("rail-toggle").title) || $("rail-toggle").getAttribute("aria-pressed") !== "false") throw new Error($("rail-toggle").title);
 });
 t("views still open from the rail", () => {
@@ -27,6 +27,6 @@ t("the shortcut leaves typing alone", () => {
   i.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: !WIN, ctrlKey: WIN, bubbles: true }));
   i.remove();
   if (railOn()) throw new Error("folded while typing");
-  try { localStorage.removeItem("kiri.rail"); } catch {}
+  try { localStorage.removeItem("asagiri.rail"); } catch {}
 });
 report(R);

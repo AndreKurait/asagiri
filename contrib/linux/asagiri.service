@@ -1,0 +1,29 @@
+# Asagiri on a Linux host: containers on this machine's kernel, no VM.
+# Install: cargo xtask linux, copy target/linux/release/{asagiri,asagiri-init} to
+# /usr/local/bin, then:  cp asagiri.service /etc/systemd/system/ &&
+#   groupadd -f asagiri && systemctl enable --now asagiri
+# Users in the `asagiri` group:  docker context create asagiri --docker host=unix:///run/asagiri/docker.sock
+# Membership of the `asagiri` group is root-equivalent (a member can mount any
+# path into a container as root), exactly like the `docker` group.
+[Unit]
+Description=Asagiri container engine
+Documentation=https://kiri.canestack.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/asagiri daemon
+Environment=ASAGIRI_SOCKET=/run/asagiri/docker.sock
+Environment=ASAGIRI_SOCKET_GROUP=asagiri
+Environment=HOME=/var/lib/asagiri-daemon
+# The daemon creates the cgroups its containers run in.
+Delegate=yes
+KillMode=mixed
+Restart=on-failure
+RuntimeDirectory=asagiri
+# 0755: members of asagiri reach the socket (itself 0660 root:asagiri) through it.
+RuntimeDirectoryMode=0755
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

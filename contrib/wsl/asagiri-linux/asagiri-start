@@ -1,0 +1,17 @@
+#!/bin/sh
+# Starts Asagiri's engine after setup or when asagiri-win wakes the distro.
+# The daemon serves its unix socket; asagiri-win carries the Windows docker CLI
+# to it over `asagiri bridge`.
+export HOME=/var/lib/asagiri-daemon
+mkdir -p "$HOME" /var/log
+pgrep -f '/usr/local/bin/asagiri daemon' >/dev/null 2>&1 && exit 0
+rm -f "$HOME/.asagiri/run/docker.sock"
+ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock" nohup /usr/local/bin/asagiri daemon >>/var/log/asagiri.log 2>&1 &
+i=0
+while [ "$i" -lt 50 ]; do
+  [ -S "$HOME/.asagiri/run/docker.sock" ] && exit 0
+  sleep 0.1
+  i=$((i + 1))
+done
+echo "asagiri daemon did not create its socket; see /var/log/asagiri.log" >&2
+exit 1

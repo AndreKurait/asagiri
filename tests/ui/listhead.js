@@ -4,8 +4,8 @@
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m + ": got " + JSON.stringify(a) + " want " + JSON.stringify(b)); };
-const C = (id, name, state, code) => ({ Id: id, Names: ["/" + name], Image: "kiri-test/x:1", State: state, Status: state === "running" ? "Up 1 hour" : `Exited (${code})`, Created: Date.now() / 1000 - 600, Ports: [], Labels: {} });
-kiri.on({ type: "lists", containers: [C("r1", "web", "running"), C("r2", "api", "running"), C("s1", "done", "exited", 0), C("f1", "bad_one", "exited", 1), C("f2", "bad_two", "exited", 2), C("f3", "worse", "exited", 3)],
+const C = (id, name, state, code) => ({ Id: id, Names: ["/" + name], Image: "asagiri-test/x:1", State: state, Status: state === "running" ? "Up 1 hour" : `Exited (${code})`, Created: Date.now() / 1000 - 600, Ports: [], Labels: {} });
+asagiri.on({ type: "lists", containers: [C("r1", "web", "running"), C("r2", "api", "running"), C("s1", "done", "exited", 0), C("f1", "bad_one", "exited", 1), C("f2", "bad_two", "exited", 2), C("f3", "worse", "exited", 3)],
   images: [{ Id: "sha256:aaa111", RepoTags: ["nginx:alpine"], Size: 5e7, Created: 1, Pulled: Date.now() / 1000 - 60 }, { Id: "sha256:bbb222", RepoTags: ["<none>:<none>"], Size: 4e8, Created: 1 }], volumes: [], networks: [] });
 show("containers");
 const tabs = () => [...document.querySelectorAll("#ltabs .ltab")].map((b) => b.textContent.replace(/\s+/g, " ").trim());
@@ -256,7 +256,7 @@ t("an untagged image's removal is by its ID, says nothing of its own, and the to
   ui.batches.find((b) => b.view === "images").items.forEach((x) => LISTS.images.remove(x));
   eq(sent.filter((m) => m.type === "rmi").map((m) => m.name), ["bbb222"], "rmi");
   const before = document.querySelectorAll(".toast.removed").length;
-  kiri.on({ type: "removed", name: "bbb222", deleted: true });
+  asagiri.on({ type: "removed", name: "bbb222", deleted: true });
   eq(document.querySelectorAll(".toast.removed").length, before, "no toast per image");
   ui.images = ui.images.filter((i) => i.Id !== "sha256:bbb222"); render();
   const t = [...document.querySelectorAll(".toast.removed")].pop();

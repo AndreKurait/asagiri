@@ -16,14 +16,14 @@ t("the page is in Chinese", () => {
   if (!/[一-鿿]/.test(document.querySelector("nav [data-view=containers]").textContent)) throw new Error("the sidebar isn't");
 });
 for (const v of ["containers", "images", "volumes", "networks", "builds", "share"]) { show(v); check(`the ${v} view`); }
-// The USB view, with its beta note, a device in Kiri and one on the Mac (the
+// The USB view, with its beta note, a device in Asagiri and one on the Mac (the
 // note under the list is the host's, worded in the window's language there).
 show("usb");
-kiri.on({ type: "usb", can: "attach", devices: [
-  { key: "a", name: "CP2102N", id: "10c4:ea60", speed: "full", state: "kiri", kind: "serial" },
+asagiri.on({ type: "usb", can: "attach", devices: [
+  { key: "a", name: "CP2102N", id: "10c4:ea60", speed: "full", state: "asagiri", kind: "serial" },
   { key: "b", name: "SONOFF ZBDongle-E", id: "1a86:55d4", speed: "full", state: "host", kind: "radio" }] });
 check("the USB view");
-kiri.on({ type: "usb", devices: [] }); check("the USB view with nothing plugged in");
+asagiri.on({ type: "usb", devices: [] }); check("the USB view with nothing plugged in");
 ui.images.push({ Id: "sha256:" + "ab".repeat(32), RepoTags: ["nginx:alpine"], Size: 5e7, Created: Date.now() / 1000 - 86400 });
 show("images"); openImage("nginx:alpine"); check("an image's page");
 show("settings");
@@ -32,11 +32,11 @@ for (const id of [...document.querySelectorAll("[data-stab]")].map((b) => b.data
   check(`Settings → ${id}`);
 }
 t("a dev build's empty list names its own context, in Chinese", () => {
-  kiri.on({ type: "status", dev: true, ours: "kiri-lang" });
-  kiri.on({ type: "lists", containers: [], images: [], volumes: [], networks: [] });
+  asagiri.on({ type: "status", dev: true, ours: "asagiri-lang" });
+  asagiri.on({ type: "lists", containers: [], images: [], volumes: [], networks: [] });
   show("containers");
   const p = document.querySelector("#content .empty p, #content p")?.innerHTML || "";
-  if (!/kiri-lang/.test(p) || !/[\u4e00-\u9fff]/.test(p)) throw new Error("it says " + p);
+  if (!/asagiri-lang/.test(p) || !/[\u4e00-\u9fff]/.test(p)) throw new Error("it says " + p);
 });
 t("English again from Settings, without a reload", () => {
   show("settings");

@@ -3,8 +3,8 @@
 // under the 180 px tab list, its sliders and words squeezed into it.
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
-kiri.on({ type: "importsources", sources: [] });
-kiri.on({ type: "resources", cpus: 24, memory_mib: 65536, running_cpus: 24, running_memory_mib: 65536, awake: false, max_cpus: 32, max_memory_mib: 130048, overridden: false });
+asagiri.on({ type: "importsources", sources: [] });
+asagiri.on({ type: "resources", cpus: 24, memory_mib: 65536, running_cpus: 24, running_memory_mib: 65536, awake: false, max_cpus: 32, max_memory_mib: 130048, overridden: false });
 show("settings");
 for (const id of [...document.querySelectorAll("[data-stab]")].map((b) => b.dataset.stab)) {
   t(`Settings → ${id}: every pane beside the tabs`, () => {

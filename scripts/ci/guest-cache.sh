@@ -8,16 +8,16 @@
 #   scripts/ci/guest-cache.sh [arm64|x86_64]
 set -eu
 arch=${1:-arm64}
-cache="${KIRI_CI_CACHE:-$HOME/Library/Caches/kiri-ci}"
+cache="${ASAGIRI_CI_CACHE:-$HOME/Library/Caches/asagiri-ci}"
 mkdir -p "$cache" guest/out
 
 case "$arch" in
   arm64) kfile=Image kout=guest/out extra="" ;;
-  x86_64) kfile=bzImage kout=guest/out/x86_64 extra=guest/kernel/kiri-x86_64.config ;;
+  x86_64) kfile=bzImage kout=guest/out/x86_64 extra=guest/kernel/asagiri-x86_64.config ;;
   *) echo "arch is arm64 or x86_64, not $arch" >&2; exit 2 ;;
 esac
 mkdir -p "$kout"
-kernel_key=$(cat guest/kernel/build.sh guest/kernel/kiri.config $extra guest/kernel/patches/*.patch 2>/dev/null | shasum -a 256 | cut -c1-16)
+kernel_key=$(cat guest/kernel/build.sh guest/kernel/asagiri.config $extra guest/kernel/patches/*.patch 2>/dev/null | shasum -a 256 | cut -c1-16)
 if [ -f "$cache/$kfile-$kernel_key" ]; then
   echo "kernel: cached ($kfile, $kernel_key)"
 else

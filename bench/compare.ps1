@@ -1,15 +1,15 @@
 # Times the hot paths of an engine from the Windows docker CLI: container
-# start, exec, and 200 MB each way. Run it against Kiri's pipe and against
+# start, exec, and 200 MB each way. Run it against Asagiri's pipe and against
 # Docker Desktop's, back to back, and compare.
 #
-#   bench\compare.ps1 -Engine npipe:////./pipe/kiri -Label kiri
+#   bench\compare.ps1 -Engine npipe:////./pipe/asagiri -Label asagiri
 #   bench\compare.ps1 -Engine npipe:////./pipe/docker_engine -Label desktop
 #
 # Medians of 20 for the latencies. The "in" figure only means something if
 # every byte arrived; the count the container saw is printed next to it.
 param(
-  [string]$Engine = "npipe:////./pipe/kiri",
-  [string]$Label = "kiri",
+  [string]$Engine = "npipe:////./pipe/asagiri",
+  [string]$Label = "asagiri",
   [string]$Docker = "docker"
 )
 $env:DOCKER_HOST = $Engine
@@ -22,7 +22,7 @@ $name = "bench-$PID"
 & $Docker run -d --name $name alpine sleep 300 2>$null | Out-Null
 $t = @(); 1..20 | ForEach-Object { $sw = [Diagnostics.Stopwatch]::StartNew(); & $Docker exec $name true 2>$null | Out-Null; $t += $sw.ElapsedMilliseconds }
 $exec = median $t; $execMin = ($t | Measure-Object -Minimum).Minimum
-$big = Join-Path $env:TEMP "kiri-bench-200mb.bin"
+$big = Join-Path $env:TEMP "asagiri-bench-200mb.bin"
 if (-not (Test-Path $big) -or (Get-Item $big).Length -ne 200000000) { [IO.File]::WriteAllBytes($big, (New-Object byte[] 200000000)) }
 # cmd does the redirection: PowerShell's own pipeline is far slower than either engine.
 $sw = [Diagnostics.Stopwatch]::StartNew(); cmd /c "`"$Docker`" run --rm alpine sh -c `"head -c 200000000 /dev/zero`" > NUL"; $out = $sw.ElapsedMilliseconds

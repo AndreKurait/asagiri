@@ -42,7 +42,7 @@ def check(path, image):
             connection.close()
 
     suffix = uuid.uuid4().hex
-    tag = "kiri-empty-status-" + suffix
+    tag = "asagiri-empty-status-" + suffix
     cleanup = []
 
     def remove(target, what):
