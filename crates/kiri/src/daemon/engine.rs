@@ -2953,8 +2953,11 @@ impl Engine {
             return self.remove(&id, force, with_volumes);
         }
         let removed = st.containers.remove(&id);
-        let code = removed.as_ref().map_or(0, |c| c.exit_code);
-        note_removed(&mut st, &id, code);
+        // A container that removed itself when it exited has its code noted
+        // already: a second note, without one, would have a wait report 0.
+        if let Some(c) = &removed {
+            note_removed(&mut st, &id, c.exit_code);
+        }
         st.execs.retain(|_, e| e.container_id != id);
         drop(st);
         if let Some(c) = &removed {
