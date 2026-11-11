@@ -2589,6 +2589,9 @@ impl Engine {
         if !self.wait_started(&id) {
             return Ok(());
         }
+        // A start accepted since the mark above took it away again, and the
+        // restart policy would bring back what this stop is about to end.
+        self.mark_stopped(&id);
         self.emit_container("kill", &id, &[("signal", (libc::SIGTERM).to_string())]);
         let sig = self.lock().containers.get(&id).and_then(|c| c.spec.stop_signal).unwrap_or(libc::SIGTERM as u32);
         self.vm()?.kill(&id, sig)?;
