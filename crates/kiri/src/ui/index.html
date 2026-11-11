@@ -566,7 +566,7 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
 .logbar .field { width: 240px; }
 .toggle { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: var(--fs); cursor: pointer; }
 .console { background: #0A0E12; border: 1px solid var(--line); border-radius: 10px; font: var(--fs-log)/1.5 var(--mono-font); color: #D9DEE4;
-           height: calc(100vh - 260px); min-height: 220px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+           height: calc(100vh - 260px); min-height: 220px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; cursor: text; }
 .console .err { color: #FF8C8C; }
 /* Each log line's number in a gutter; a wrapped line's rest stays clear of it.
    The numbers are generated content, so copying the log leaves them out. */

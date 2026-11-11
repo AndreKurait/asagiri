@@ -653,6 +653,9 @@ pub struct Engine {
     /// Serialises writes of `containers.json`.
     saving: Mutex<()>,
     me: OnceLock<Weak<Engine>>,
+    /// Containers whose restart policy would have started them when the
+    /// daemon came up, held because Kiri was stopped: Start starts them.
+    held_restarts: Mutex<Vec<String>>,
     /// Memory ceiling and the balloon's current target, in bytes. The
     /// ceiling is read again at each boot, so Settings applies on restart.
     ceiling: std::sync::atomic::AtomicU64,
@@ -756,6 +759,7 @@ impl Engine {
             records,
             saving: Mutex::new(()),
             me: OnceLock::new(),
+            held_restarts: Mutex::new(Vec::new()),
             ceiling: std::sync::atomic::AtomicU64::new(ceiling),
             cpus: std::sync::atomic::AtomicUsize::new(vm_cpus()),
             memory_target: Mutex::new(ceiling),
@@ -1081,6 +1085,18 @@ impl Engine {
         if let Some(f) = stopped_marker() {
             let _ = std::fs::remove_file(f);
         }
+        // What the daemon would have restarted when it came up, had Kiri
+        // not been stopped then. Off this thread: the caller boots the VM.
+        let held = std::mem::take(&mut *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()));
+        if let (false, Some(me)) = (held.is_empty(), self.me.get().and_then(Weak::upgrade)) {
+            std::thread::spawn(move || {
+                for id in held {
+                    if let Err(e) = me.start_inner(&id, false) {
+                        crate::diag::warn!("container did not restart", id = &id[..12], error = format!("{e:?}"));
+                    }
+                }
+            });
+        }
     }
 
     pub fn is_stopped(&self) -> bool {
@@ -1208,8 +1224,17 @@ impl Engine {
             // starts asleep (Ready · Sleeping) and the first request boots
             // the VM in about 0.1 s. Every boot tells the guest which
             // stopped containers to keep (vm()).
-            if !restart.is_empty() {
-                self.vm()?;
+            if self.is_stopped() {
+                // Stopped (the window's Stop, kept across restarts): the
+                // daemon still comes up, so Start has something to talk to
+                // and launchd has nothing to start again and again.
+                *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()) = std::mem::take(&mut restart);
+            } else if !restart.is_empty() && self.vm().is_err() {
+                // vm() has said why. The daemon stays up: the next request
+                // tries the VM again, and exiting would only have launchd
+                // start a daemon that fails the same way every 10 s.
+                crate::diag::warn!("containers were not restarted: the VM did not boot", containers = restart.len());
+                restart.clear();
             }
         }
         for id in restart {
