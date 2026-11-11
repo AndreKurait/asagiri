@@ -31,6 +31,8 @@ const IFLA_INFO_KIND: u16 = 1;
 const IFLA_INFO_DATA: u16 = 2;
 const VETH_INFO_PEER: u16 = 1;
 const IFLA_MACVLAN_MODE: u16 = 1;
+const IFLA_IPVLAN_MODE: u16 = 1;
+const IFLA_IPVLAN_FLAGS: u16 = 2;
 const IFA_ADDRESS: u16 = 1;
 const IFA_LOCAL: u16 = 2;
 const RTA_DST: u16 = 1;
@@ -243,9 +245,9 @@ pub fn create_veth(nl: &mut Netlink, host: &str, bridge_index: i32, netns: &std:
     nl.request(&mut [m])
 }
 
-/// Creates dummy link `name`: what a macvlan network without a parent
-/// makes its containers' interfaces on, as Docker does. It carries nothing
-/// itself; the macvlan links on it reach each other. One that is there
+/// Creates dummy link `name`: what a macvlan or ipvlan network without a
+/// parent makes its containers' interfaces on, as Docker does. It carries
+/// nothing itself; the links on it reach each other. One that is there
 /// already is fine.
 pub fn create_dummy(nl: &mut Netlink, name: &str) -> io::Result<()> {
     let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
@@ -271,6 +273,21 @@ fn new_macvlan(parent: i32, netns: u32, mtu: u32, name: &str, mac: Option<[u8; 6
     }
     m.nest(IFLA_LINKINFO).attr_str(IFLA_INFO_KIND, "macvlan");
     m.nest(IFLA_INFO_DATA).attr_u32(IFLA_MACVLAN_MODE, mode).end().end();
+    m
+}
+
+/// Creates ipvlan link `name` on `parent`, straight inside `netns`. `mode`
+/// and `flags` are the kernel's `IPVLAN_MODE_*` and `IPVLAN_F_*`. Its MAC
+/// is its parent's: every ipvlan link on one parent has the same.
+pub fn create_ipvlan(nl: &mut Netlink, parent: i32, netns: &std::fs::File, mtu: u32, name: &str, mode: u16, flags: u16) -> io::Result<()> {
+    nl.request(&mut [new_ipvlan(parent, netns.as_raw_fd() as u32, mtu, name, mode, flags)])
+}
+
+fn new_ipvlan(parent: i32, netns: u32, mtu: u32, name: &str, mode: u16, flags: u16) -> Msg {
+    let mut m = Msg::new(RTM_NEWLINK, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    m.raw(&ifinfo(0, 0, 0)).attr_str(IFLA_IFNAME, name).attr_u32(IFLA_LINK, parent as u32).attr_u32(IFLA_NET_NS_FD, netns).attr_u32(IFLA_MTU, mtu);
+    m.nest(IFLA_LINKINFO).attr_str(IFLA_INFO_KIND, "ipvlan");
+    m.nest(IFLA_INFO_DATA).attr(IFLA_IPVLAN_MODE, &mode.to_ne_bytes()).attr(IFLA_IPVLAN_FLAGS, &flags.to_ne_bytes()).end().end();
     m
 }
 
@@ -1001,6 +1018,21 @@ mod tests {
         let info = attrs(get(&a, IFLA_LINKINFO));
         assert_eq!(get(&info, IFLA_INFO_KIND), b"macvlan\0");
         assert_eq!(get(&attrs(get(&info, IFLA_INFO_DATA)), IFLA_MACVLAN_MODE), 4u32.to_ne_bytes());
+    }
+
+    #[test]
+    fn an_ipvlan_link_names_its_parent_its_namespace_its_mode_and_its_flags() {
+        let m = new_ipvlan(7, 9, 1500, "eth1", 1, 2);
+        let a = attrs(&m.buf[32..]); // nlmsghdr, ifinfomsg
+        assert_eq!(get(&a, IFLA_IFNAME), b"eth1\0");
+        assert_eq!(get(&a, IFLA_LINK), 7u32.to_ne_bytes());
+        assert_eq!(get(&a, IFLA_NET_NS_FD), 9u32.to_ne_bytes());
+        assert!(!a.iter().any(|(ty, _)| *ty == IFLA_ADDRESS), "its MAC is its parent's");
+        let info = attrs(get(&a, IFLA_LINKINFO));
+        assert_eq!(get(&info, IFLA_INFO_KIND), b"ipvlan\0");
+        let data = attrs(get(&info, IFLA_INFO_DATA));
+        assert_eq!(get(&data, IFLA_IPVLAN_MODE), 1u16.to_ne_bytes());
+        assert_eq!(get(&data, IFLA_IPVLAN_FLAGS), 2u16.to_ne_bytes());
     }
 
     /// A rule's expressions: (name, its NFTA_EXPR_DATA attributes).

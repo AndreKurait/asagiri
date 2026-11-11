@@ -355,6 +355,8 @@ $D rm -f fixed linked >/dev/null
 $D network rm ipamnet ipamnet4 >/dev/null
 # Macvlan networks without a parent: containers reach each other and nothing else.
 code network-macvlan 0 python3 "$(dirname "$0")/network-macvlan.py" "$SOCK" alpine
+# Ipvlan networks, the same way.
+code network-ipvlan 0 python3 "$(dirname "$0")/network-ipvlan.py" "$SOCK" alpine
 
 section "IPv6 networks"
 # --ipv6 without a subnet: a /64 from the engine's ULA pool, beside IPv4.

@@ -571,11 +571,11 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         // the embedded DNS with its first user network.
                         let late = procs.get(&pid).and_then(|p| p.run.late_dns.as_ref());
                         let owner = late.map_or(n.ip, |l| l.ip);
-                        // A macvlan network has no gateway address to answer on.
+                        // A macvlan or ipvlan network has no gateway address to answer on.
                         let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug).and_then(|link| {
-                            let served = if plug.no_ipv4 || plug.macvlan.is_some() { Ok(()) } else { dns.serve(n.bridge, n.gateway) }
+                            let served = if plug.no_ipv4 || plug.own_link() { Ok(()) } else { dns.serve(n.bridge, n.gateway) }
                                 .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)));
-                            // Nothing outside the container names a macvlan
+                            // Nothing outside the container names such a
                             // link for the next try to clear away.
                             if let (Err(_), Some(m)) = (&served, &link) {
                                 let _ = net::unplug(m);

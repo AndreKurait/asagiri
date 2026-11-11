@@ -22,16 +22,16 @@ use serde::{Deserialize, Serialize};
 pub struct Network {
     pub id: String,
     pub name: String,
-    /// `bridge`, `macvlan`, `host` or `null`.
+    /// `bridge`, `macvlan`, `ipvlan`, `host` or `null`.
     pub driver: String,
     /// The device in the guest its containers are plugged into: a bridge,
-    /// or the link a macvlan network's interfaces are made on (empty for
-    /// host and none).
+    /// or the link a macvlan or ipvlan network's interfaces are made on
+    /// (empty for host and none).
     pub bridge: String,
     pub subnet: [u8; 4],
     pub prefix: u8,
-    /// All zeros on a macvlan network that was given none: it has no
-    /// gateway of its own, and its first address goes to a container.
+    /// All zeros on a macvlan or ipvlan network that was given none: it has
+    /// no gateway of its own, and its first address goes to a container.
     pub gateway: [u8; 4],
     pub created_ns: u64,
     #[serde(default)]
@@ -171,21 +171,44 @@ impl Network {
     }
 
     /// The MTU its options ask for, if they do; see [`mtu_option`].
-    /// A macvlan network has the MTU of the link it is made on.
+    /// A macvlan or ipvlan network has the MTU of the link it is made on.
     pub fn mtu(&self) -> Option<u32> {
-        mtu_option(&self.options, self.v6.is_some()).ok().flatten().filter(|_| self.driver != "macvlan")
+        mtu_option(&self.options, self.v6.is_some()).ok().flatten().filter(|_| !self.own_link())
     }
 
     /// Whether its containers may reach each other over it; see [`icc_option`].
     /// A stored value that is not a boolean means on (see `Networks::load`).
     pub fn icc(&self) -> bool {
-        self.driver == "macvlan" || icc_option(&self.options).unwrap_or(true)
+        self.own_link() || icc_option(&self.options).unwrap_or(true)
     }
 
     /// A macvlan network's `-o macvlan_mode` (`bridge` when not given);
     /// `None` on any other network.
     pub fn macvlan_mode(&self) -> Option<&str> {
         (self.driver == "macvlan").then(|| self.options.get("macvlan_mode").and_then(|m| m.as_str()).unwrap_or("bridge"))
+    }
+
+    /// An ipvlan network's `-o ipvlan_mode` and `-o ipvlan_flag` (`l2` and
+    /// `bridge` when not given); `None` on any other network.
+    pub fn ipvlan(&self) -> Option<(&str, &str)> {
+        let option = |k: &str, default: &'static str| self.options.get(k).and_then(|m| m.as_str()).unwrap_or(default);
+        (self.driver == "ipvlan").then(|| (option("ipvlan_mode", "l2"), option("ipvlan_flag", "bridge")))
+    }
+
+    /// Docker's refusal of a MAC address on an ipvlan network: a link there
+    /// has its parent's MAC and takes no other.
+    pub fn check_mac(&self, mac: &str) -> Result<(), String> {
+        if self.driver == "ipvlan" && !mac.is_empty() {
+            return Err("ipvlan interfaces do not support custom mac address assignment".into());
+        }
+        Ok(())
+    }
+
+    /// A macvlan or ipvlan network: its containers have links of their own
+    /// on a link of the network's, and reach each other and nothing else.
+    /// No gateway, no default route, no published ports.
+    pub fn own_link(&self) -> bool {
+        matches!(self.driver.as_str(), "macvlan" | "ipvlan")
     }
 
     /// Docker's `"172.17.0.0/16"`.
@@ -367,6 +390,8 @@ pub struct Settings {
     /// `Driver: macvlan`: containers share a link of the network's own and
     /// reach each other, and nothing else, over it.
     pub macvlan: bool,
+    /// `Driver: ipvlan`: the same, with ipvlan links.
+    pub ipvlan: bool,
     pub internal: bool,
     pub attachable: bool,
     pub options: serde_json::Value,
@@ -420,23 +445,45 @@ pub fn icc_option(options: &serde_json::Value) -> Result<bool, String> {
     }
 }
 
-/// A macvlan network's `--opt`s, checked: the mode in Docker's words.
-/// `parent` is refused: it would put the containers on a network of the
-/// machine's, where Kiri's own interface there is all that can be reached.
-fn check_macvlan(options: &serde_json::Value) -> Result<(), String> {
-    // Docker takes no option that is not a string.
-    let option = |k: &str| match options.get(k) {
+/// One of a network's `--opt`s; empty when it was not given. Docker takes
+/// no option that is not a string.
+fn option<'a>(options: &'a serde_json::Value, k: &str) -> Result<&'a str, String> {
+    match options.get(k) {
         None => Ok(""),
         Some(v) => v.as_str().ok_or_else(|| format!("invalid network option {k}: {v} is not a string")),
-    };
-    match option("macvlan_mode")? {
+    }
+}
+
+/// `parent` is refused: it would put the containers on a network of the
+/// machine's, where Kiri's own interface there is all that can be reached.
+fn no_parent(options: &serde_json::Value, driver: &str) -> Result<(), String> {
+    match option(options, "parent")? {
+        "" => Ok(()),
+        p => Err(format!("Kiri's {driver} networks have no parent interface (-o parent={p}): they connect containers to each other only")),
+    }
+}
+
+/// A macvlan network's `--opt`s, checked: the mode in Docker's words.
+fn check_macvlan(options: &serde_json::Value) -> Result<(), String> {
+    match option(options, "macvlan_mode")? {
         "" | "bridge" | "private" | "vepa" | "passthru" => {}
         m => return Err(format!("requested macvlan mode '{m}' is not valid, 'bridge' mode is the macvlan driver default")),
     }
-    match option("parent")? {
-        "" => Ok(()),
-        p => Err(format!("Kiri's macvlan networks have no parent interface (-o parent={p}): they connect containers to each other only")),
+    no_parent(options, "macvlan")
+}
+
+/// An ipvlan network's `--opt`s, checked: the mode and the flag in Docker's
+/// words.
+fn check_ipvlan(options: &serde_json::Value) -> Result<(), String> {
+    match option(options, "ipvlan_mode")? {
+        "" | "l2" | "l3" | "l3s" => {}
+        m => return Err(format!("requested ipvlan mode '{m}' is not valid, 'l2' mode is the ipvlan driver default")),
     }
+    match option(options, "ipvlan_flag")? {
+        "" | "bridge" | "private" | "vepa" => {}
+        f => return Err(format!("requested ipvlan flag '{f}' is not valid, 'bridge' is the ipvlan driver default")),
+    }
+    no_parent(options, "ipvlan")
 }
 
 /// One IPv6 `IPAM.Config` entry, checked.
@@ -704,6 +751,10 @@ impl Networks {
             mtu_option(&s.options, s.ipv6)?;
             icc_option(&s.options)?;
         }
+        if s.ipvlan {
+            check_ipvlan(&s.options)?;
+        }
+        let own_link = s.macvlan || s.ipvlan;
         let taken: Vec<([u8; 4], u8)> = self.list.iter().filter(|n| !n.bridge.is_empty()).map(|n| (n.subnet, n.prefix)).collect();
         let (subnet, gateway) = match &s.ipam {
             Some(ipam) => {
@@ -711,15 +762,15 @@ impl Networks {
                     return Err("invalid pool request: Pool overlaps with other one on this address space".into());
                 }
                 // Docker's default gateway: the subnet's first address. A
-                // macvlan network has one only when it is asked for.
-                let first = if s.macvlan { [0; 4] } else { (u32::from_be_bytes(ipam.subnet) + 1).to_be_bytes() };
+                // macvlan or ipvlan network has one only when it is asked for.
+                let first = if own_link { [0; 4] } else { (u32::from_be_bytes(ipam.subnet) + 1).to_be_bytes() };
                 ((ipam.subnet, ipam.prefix), ipam.gateway.unwrap_or(first))
             }
             None => {
                 let subnet = free_subnet(&taken, false).ok_or("no free subnet left")?;
                 let mut gateway = subnet.0;
                 gateway[3] = 1;
-                (subnet, if s.macvlan { [0; 4] } else { gateway })
+                (subnet, if own_link { [0; 4] } else { gateway })
             }
         };
         let v6 = if s.ipv6 {
@@ -736,7 +787,7 @@ impl Networks {
                     (s, p, false)
                 }
             };
-            let first = if s.macvlan { [0; 16] } else { (u128::from_be_bytes(subnet) + 1).to_be_bytes() };
+            let first = if own_link { [0; 16] } else { (u128::from_be_bytes(subnet) + 1).to_be_bytes() };
             Some(V6 {
                 subnet,
                 prefix,
@@ -752,9 +803,13 @@ impl Networks {
             }
             None
         };
-        // A macvlan network's link is named apart from the bridges, so a
-        // name is never taken up again as the other kind.
-        let (driver, device) = if s.macvlan { ("macvlan", "kirim") } else { ("bridge", "kiri") };
+        // A macvlan or ipvlan network's link is named apart from the
+        // bridges, so a name is never taken up again as another kind.
+        let (driver, device) = match (s.macvlan, s.ipvlan) {
+            (true, _) => ("macvlan", "kirim"),
+            (false, true) => ("ipvlan", "kirii"),
+            (false, false) => ("bridge", "kiri"),
+        };
         let index = (1..).find(|i| !self.list.iter().any(|n| n.bridge == format!("{device}{i}"))).expect("unbounded");
         let n = Network {
             id: super::engine::random_hex(32),
@@ -1008,6 +1063,46 @@ mod tests {
         assert!(n.create("e", macvlan(serde_json::json!({"macvlan_mode": 7}), None)).unwrap_err().contains("not a string"));
         // On a bridge network they are options like any other.
         assert!(n.create("f", Settings { options: serde_json::json!({"macvlan_mode": "bogus", "parent": "eth0"}), ..Default::default() }).is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_ipvlan_network_has_its_own_link_its_mode_and_its_flag() {
+        let (mut n, dir) = nets();
+        let ipvlan = |options: serde_json::Value| Settings { ipvlan: true, options, ..Default::default() };
+        let a = n.create("a", ipvlan(serde_json::json!({}))).unwrap();
+        assert_eq!((a.driver.as_str(), a.bridge.as_str(), a.gateway, a.ipvlan(), a.macvlan_mode()), ("ipvlan", "kirii1", [0; 4], Some(("l2", "bridge")), None));
+        assert!(a.own_link());
+        // The subnet's first address is a container's, as with Docker.
+        assert_eq!(n.allocate_avoiding("a", &[]), Some((u32::from_be_bytes(a.subnet) + 1).to_be_bytes()));
+        // Bridge and macvlan networks take their names from their own numbers.
+        let b = n.create("b", Settings::default()).unwrap();
+        assert_eq!((b.bridge.as_str(), b.ipvlan(), b.own_link()), ("kiri1", None, false));
+        let m = n.create("m", Settings { macvlan: true, ..Default::default() }).unwrap();
+        assert_eq!((m.bridge.as_str(), m.ipvlan(), m.own_link()), ("kirim1", None, true));
+        let c = n.create("c", ipvlan(serde_json::json!({"ipvlan_mode": "l3", "ipvlan_flag": "private"}))).unwrap();
+        assert_eq!((c.bridge.as_str(), c.ipvlan()), ("kirii2", Some(("l3", "private"))));
+        // A MAC address is refused on ipvlan alone.
+        assert_eq!(c.check_mac("02:42:0a:05:00:09").unwrap_err(), "ipvlan interfaces do not support custom mac address assignment");
+        assert!(c.check_mac("").is_ok() && b.check_mac("02:42:0a:05:00:09").is_ok() && m.check_mac("02:42:0a:05:00:09").is_ok());
+        // IPv6 the same way.
+        let six = n.create("six", Settings { ipvlan: true, ..v6(None) }).unwrap();
+        assert_eq!(six.v6.unwrap().gateway, [0; 16]);
+        // The mode and the flag are checked in Docker's words; a parent is Kiri's to refuse.
+        assert_eq!(
+            n.create("d", ipvlan(serde_json::json!({"ipvlan_mode": "bogus"}))).unwrap_err(),
+            "requested ipvlan mode 'bogus' is not valid, 'l2' mode is the ipvlan driver default"
+        );
+        assert_eq!(
+            n.create("d", ipvlan(serde_json::json!({"ipvlan_flag": "bogus"}))).unwrap_err(),
+            "requested ipvlan flag 'bogus' is not valid, 'bridge' is the ipvlan driver default"
+        );
+        assert!(n.create("e", ipvlan(serde_json::json!({"parent": "eth0"}))).unwrap_err().contains("Kiri's ipvlan networks have no parent interface"));
+        assert!(n.create("e", ipvlan(serde_json::json!({"ipvlan_mode": 7}))).unwrap_err().contains("not a string"));
+        assert!(n.create("e", ipvlan(serde_json::json!({"ipvlan_flag": false}))).unwrap_err().contains("not a string"));
+        // A macvlan network's options are not an ipvlan network's to check, nor the other way.
+        assert!(n.create("f", ipvlan(serde_json::json!({"macvlan_mode": "bogus"}))).is_ok());
+        assert!(n.create("g", Settings { macvlan: true, options: serde_json::json!({"ipvlan_mode": "bogus"}), ..Default::default() }).is_ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 
