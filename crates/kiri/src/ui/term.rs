@@ -386,10 +386,15 @@ mod tests {
         let typed = |s: &str| handle("input", "t1", &Value::String(termwire::b64(s.as_bytes())), record);
         // A terminal of the size asked for, Kiri's tools on the PATH, and
         // the TERM programs expect.
-        typed("stty size; echo \"T=$TERM\"; test -t 0 && echo IS-A-TTY; echo DONE$((40+2))\n");
-        let (out, _) = output_until(&rx, "t1", "DONE42");
+        // Wait for the prompt as well as the output: macOS bash restores
+        // readline's terminal settings after a command, which can otherwise
+        // race the resize below. Split the prompt so echoed input cannot
+        // satisfy the wait.
+        typed("PS1='__term_''ready__> '; stty size; echo \"T=$TERM\"; test -t 0 && echo IS-A-TTY; echo DONE$((40+2))\n");
+        let (out, _) = output_until(&rx, "t1", "__term_ready__> ");
         assert!(out.contains("17 91"), "{out}");
         assert!(out.contains("T=xterm-256color") && out.contains("IS-A-TTY"), "{out}");
+        assert!(out.contains("DONE42"), "{out}");
 
         handle("resize", "t1", &serde_json::json!({"cols": 120, "rows": 30}), record);
         typed("stty size; echo AGAIN$((1+1))\n");
