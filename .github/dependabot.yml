@@ -6,6 +6,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A release is taken a week after it comes out, not the day it does, so
+    # one that turns out to be bad has time to be noticed and pulled.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

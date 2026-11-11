@@ -2,6 +2,8 @@
 allow = [
   "0BSD",
   "Apache-2.0",
+  # target-lexicon, which the GTK crates' build scripts use.
+  "Apache-2.0 WITH LLVM-exception",
   "BSD-3-Clause",
   "CDLA-Permissive-2.0",
   "ISC",
@@ -9,4 +11,12 @@ allow = [
   "Unicode-3.0",
   "Unlicense",
   "Zlib",
+]
+
+[advisories]
+ignore = [
+  # proc-macro-error is unmaintained, with no fixed version. It comes in
+  # through glib-macros (the GTK 3 window on Linux) and runs only at build
+  # time, on our own source.
+  { id = "RUSTSEC-2024-0370", reason = "build-time only, through glib-macros; no upgrade exists" },
 ]
