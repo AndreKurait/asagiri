@@ -2931,13 +2931,23 @@ impl Engine {
                 st = self.changed.wait_timeout(st, Duration::from_secs(5)).unwrap_or_else(|e| e.into_inner()).0;
             }
         }
-        self.emit_container("destroy", &id, &[]);
         let mut st = self.lock();
+        // The look above is not this one: a start accepted in between has the
+        // container running, and taking its record away now would leave the
+        // guest with a process nothing knows about. Start over, as for a
+        // container that was running all along.
+        if st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+            drop(st);
+            return self.remove(key, force, with_volumes);
+        }
         let removed = st.containers.remove(&id);
         let code = removed.as_ref().map_or(0, |c| c.exit_code);
         note_removed(&mut st, &id, code);
         st.execs.retain(|_, e| e.container_id != id);
         drop(st);
+        if let Some(c) = &removed {
+            self.emit_container_with("destroy", &id, &c.spec.image, container_attrs(c), &[]);
+        }
         self.changed.notify_all();
         let anon = removed.as_ref().map(|c| c.spec.anon_volumes.clone()).unwrap_or_default();
         if let Some(c) = &removed {
