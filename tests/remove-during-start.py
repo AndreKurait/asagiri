@@ -12,6 +12,9 @@ AT_ONCE = 4
 # How much later than the start the removal is sent, in steps: the two have
 # to meet inside the engine, and where that is differs from run to run.
 STEP = 0.00001
+FORCED_ROUNDS = 10
+# Every request is answered sooner than this, in seconds.
+SOON = 10
 
 
 class Connection(http.client.HTTPConnection):
@@ -47,35 +50,42 @@ def check(path, image):
         owned.append(created["Id"])
         return created["Id"]
 
+    def together(number, removal, expected):
+        """Four created containers, each started and removed at once: the ids and the answers."""
+        ids = [create() for _ in range(AT_ONCE)]
+        answers = {}
+        failures = []
+        gate = threading.Barrier(2 * AT_ONCE)
+
+        def send(key, delay, method, target, expected):
+            try:
+                gate.wait()
+                time.sleep(delay)
+                began = time.monotonic()
+                answers[key] = request(method, target, expected)[0]
+                assert time.monotonic() - began < SOON, (key[1], "took", time.monotonic() - began)
+            except Exception as error:
+                failures.append(error)
+
+        threads = []
+        for index, cid in enumerate(ids):
+            delay = (number % 20) * STEP + index * STEP / 4
+            # A start that finds the container removed, or being removed: 404 or 409.
+            threads.append(threading.Thread(target=send, args=((cid, "start"), 0, "POST", "/containers/" + cid + "/start", (204, 404, 409))))
+            threads.append(threading.Thread(target=send, args=((cid, "remove"), delay, "DELETE", "/containers/" + cid + removal, expected)))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        if failures:
+            raise failures[0]
+        return ids, answers
+
     try:
         removed = started = 0
         for number in range(ROUNDS):
-            ids = [create() for _ in range(AT_ONCE)]
-            answers = {}
-            failures = []
-            gate = threading.Barrier(2 * AT_ONCE)
-
-            def send(key, delay, method, target, expected):
-                try:
-                    gate.wait()
-                    time.sleep(delay)
-                    answers[key] = request(method, target, expected)[0]
-                except Exception as error:
-                    failures.append(error)
-
-            threads = []
-            for index, cid in enumerate(ids):
-                delay = (number % 20) * STEP + index * STEP / 4
-                # A start that finds the container removed, or being removed: 404 or 409.
-                threads.append(threading.Thread(target=send, args=((cid, "start"), 0, "POST", "/containers/" + cid + "/start", (204, 404, 409))))
-                # A removal that finds the container running: 409.
-                threads.append(threading.Thread(target=send, args=((cid, "remove"), delay, "DELETE", "/containers/" + cid, (204, 409))))
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-            if failures:
-                raise failures[0]
+            # A removal that finds the container running: 409.
+            ids, answers = together(number, "", (204, 409))
             for cid in ids:
                 pair = (answers[(cid, "start")], answers[(cid, "remove")])
                 status, inspected = request("GET", "/containers/" + cid + "/json", (200, 404))
@@ -89,6 +99,13 @@ def check(path, image):
                     started += 1
                     request("DELETE", "/containers/" + cid + "?force=true", (204,))
         print("PASS %d containers started and removed at once: %d started, %d removed, none both" % (ROUNDS * AT_ONCE, started, removed), flush=True)
+
+        # A forced removal is never refused: started or not, the container is gone when it answers.
+        for number in range(FORCED_ROUNDS):
+            ids, answers = together(number, "?force=true", (204,))
+            for cid in ids:
+                request("GET", "/containers/" + cid + "/json", (404,))
+        print("PASS %d containers started and removed by force at once: all gone" % (FORCED_ROUNDS * AT_ONCE), flush=True)
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
