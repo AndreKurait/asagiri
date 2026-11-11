@@ -18,18 +18,19 @@ class Connection(http.client.HTTPConnection):
 
 
 # What a shell needs to start under either engine and run the probes below.
+# x86-64 musl can use fork/vfork where glibc and arm64 use clone.
 # chmod and its variants are left out on purpose.
 ALLOWED = """
 accept accept4 access arch_prctl bind brk capget capset chdir chown clock_getres clock_gettime clock_nanosleep
 clone clone3 close close_range connect dup dup2 dup3 epoll_create1 epoll_ctl epoll_pwait epoll_wait eventfd2
-execve execveat exit exit_group faccessat faccessat2 fchdir fchown fchownat fcntl fstat fstatfs fsync futex
+execve execveat exit exit_group faccessat faccessat2 fchdir fchown fchownat fcntl fork fstat fstatfs fsync futex
 getcwd getdents64 getegid geteuid getgid getgroups getpgid getpgrp getpid getppid getrandom getrlimit
 getsockname getsockopt gettid gettimeofday getuid ioctl kill lseek lstat madvise membarrier mkdir mkdirat mmap
 mprotect mremap munmap nanosleep newfstatat open openat pipe pipe2 poll ppoll prctl pread64 prlimit64 pselect6
 read readlink readlinkat readv restart_syscall rseq rt_sigaction rt_sigprocmask rt_sigreturn rt_sigsuspend
 rt_sigtimedwait sched_getaffinity sched_yield select set_robust_list set_tid_address setgid setgroups
 setitimer setpgid setresgid setresuid setsid setuid sigaltstack socket stat statfs statx sysinfo tgkill tkill
-umask uname unlink unlinkat utimensat wait4 waitid write writev
+umask uname unlink unlinkat utimensat vfork wait4 waitid write writev
 """.split()
 
 # chmod is `chmod(path, mode)` or `fchmodat(dirfd, path, mode)` by architecture.
