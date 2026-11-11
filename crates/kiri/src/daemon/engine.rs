@@ -2644,9 +2644,21 @@ impl Engine {
             }
             self.mark_stopped(&id);
             self.vm()?.kill(&id, libc::SIGKILL as u32)?;
+            // The guest drops a kill for a process it does not have yet, as
+            // when the start was accepted a moment ago: send it again for as
+            // long as the container runs.
+            const AGAIN: Duration = Duration::from_millis(200);
+            let mut sent = std::time::Instant::now();
             let mut st = self.lock();
             while st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
-                st = self.changed.wait_timeout(st, Duration::from_secs(5)).unwrap_or_else(|e| e.into_inner()).0;
+                if sent.elapsed() >= AGAIN {
+                    drop(st);
+                    self.vm()?.kill(&id, libc::SIGKILL as u32)?;
+                    sent = std::time::Instant::now();
+                    st = self.lock();
+                    continue;
+                }
+                st = self.changed.wait_timeout(st, AGAIN).unwrap_or_else(|e| e.into_inner()).0;
             }
         }
         let mut st = self.lock();
