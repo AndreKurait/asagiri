@@ -1,10 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256" role="img" aria-labelledby="t">
   <title id="t">Asagiri</title>
-  <mask id="kmonowhite-m" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
-    <g transform="translate(6 0) skewX(-10)"><g fill="#fff"><rect x="22" y="12" width="34" height="40" rx="10"/></g><g fill="#000"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/><rect x="10" y="20.5" width="60" height="2"/></g></g>
-  </mask>
-  <g fill="#F6F2EA">
-    <rect width="64" height="64" mask="url(#kmonowhite-m)"/>
-    <rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/>
-  </g>
+  <clipPath id="amonowhite-c"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#amonowhite-c)" fill="#F3F1F7"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="#F3F1F7"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g>
 </svg>

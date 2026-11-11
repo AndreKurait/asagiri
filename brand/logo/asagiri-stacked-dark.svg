@@ -1,22 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 164" width="480" height="656" role="img" aria-labelledby="t">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 191.6" width="760" height="766.4" role="img" aria-labelledby="t">
   <title id="t">Asagiri</title>
-  <g transform="translate(8.8 0) scale(1.6)"><g transform="translate(6 0) skewX(-10)">
-    <clipPath id="kdark-clip"><rect x="22" y="12" width="34" height="40" rx="10"/></clipPath>
-    <g fill="#E0B420"><rect x="22" y="12" width="34" height="40" rx="10"/></g>
-    <g clip-path="url(#kdark-clip)" fill="#F2CF5B"><rect x="10" y="0" width="60" height="21.5"/></g>
-    <g fill="#0F1419"><ellipse cx="41.5" cy="29" rx="3.1" ry="3.6"/><ellipse cx="50.5" cy="29" rx="3.1" ry="3.6"/></g>
-  </g>
-  <g fill="#F6F2EA"><rect x="5" y="21.5" width="13" height="5" rx="2.5"/><rect x="1" y="32" width="15" height="5" rx="2.5"/><rect x="7" y="42.5" width="7" height="5" rx="2.5"/></g></g>
-  <g transform="translate(13.5 104)"><g fill="none" stroke="#F6F2EA" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4.5 14.5V51.5"/>
-    <path d="M29 30.5L8 46"/>
-    <path d="M16.5 40.5L29.5 51.5"/>
-    <path d="M45 30.5V51.5"/>
-    <path d="M61 51.5V41C61 34 66 30.5 74 30.5"/>
-    <path d="M88.5 30.5V51.5"/>
-  </g>
-  <g fill="#E0B420">
-    <rect x="40.5" y="10.5" width="9" height="9" rx="2.4" transform="rotate(-10 45 15)"/>
-    <rect x="84" y="10.5" width="9" height="9" rx="2.4" transform="rotate(-10 88.5 15)"/>
-  </g></g>
+  <g transform="translate(34.2 0) scale(1.9)"><clipPath id="adark-c"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#adark-c)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="#F3F1F7"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g></g>
+  <g transform="translate(6 123.6)"><g fill="none" stroke="#F3F1F7" stroke-width="6.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="41" r="10.5"/><path d="M25.5 30.5V51.5"/><path d="M53.0 35C50.5 31.5 47.5 30.5 46.0 30.5C41.5 30.5 39.5 33 39.5 35.8C39.5 39.5 42.5 40.4 46.3 41C50.0 41.6 53.3 42.6 53.3 46.2C53.3 49.2 50.7 51.5 46.3 51.5C43.3 51.5 40.7 50.4 38.8 47.6"/><circle cx="76.5" cy="41" r="10.5"/><path d="M87.0 30.5V51.5"/><circle cx="110.5" cy="41" r="10.5"/><path d="M121.0 30.5V54.5C121.0 62.5 112.5 65 103.5 61"/><path d="M134 30.5V51.5"/><path d="M147 30.5V51.5"/><path d="M147 41C147 34 152 30.5 159.5 30.5"/><path d="M172.5 30.5V51.5"/></g>
+  <g fill="#F2684A"><circle cx="134" cy="16.5" r="4.6"/><circle cx="172.5" cy="16.5" r="4.6"/></g></g>
 </svg>

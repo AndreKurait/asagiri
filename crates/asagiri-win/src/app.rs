@@ -59,7 +59,7 @@ pub fn in_setup() -> bool {
 fn page_html() -> String {
     if SETUP.load(Ordering::SeqCst) { crate::assemble::words(SETUP_PAGE, crate::engine::prefs()["lang"].as_str()) } else { crate::assemble::page(PAGE, crate::engine::prefs()["lang"].as_str()) }
 }
-/// Asagiri's icon cropped to its artwork for Windows (brand/windows-icons.ps1),
+/// Asagiri's icon cropped to its artwork for Windows (brand/render.py),
 /// by size: the Mac's has Apple's margin and looks small in the taskbar.
 const ICONS: [(i32, &[u8]); 8] = [
     (16, include_bytes!("../../../brand/icon/windows/asagiri-16.png")),
