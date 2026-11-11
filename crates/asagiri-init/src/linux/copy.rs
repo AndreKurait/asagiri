@@ -414,11 +414,17 @@ fn is_opaque(path: &std::path::Path) -> bool {
     n == 1 && v[0] == b'y'
 }
 
+/// The marker's path in the writable layer.
+fn at_marker(rel: &std::path::Path) -> bool {
+    rel.as_os_str().as_encoded_bytes() == container::MARKER.to_bytes()
+}
+
 /// The marker as the agent made it at start: not a change the container
 /// made, so Docker shows it in neither `docker diff` nor a committed layer.
-/// Once the container has written to it, it is a change like any other.
+/// Once the container has written to it, or changed its mode or owner, it
+/// is a change like any other.
 fn is_marker(rel: &std::path::Path, m: &fs::Metadata) -> bool {
-    rel.as_os_str().as_encoded_bytes() == container::MARKER.to_bytes() && m.is_file() && m.len() == 0
+    at_marker(rel) && m.is_file() && m.len() == 0 && m.mode() & 0o7777 == 0o755 && m.uid() == 0 && m.gid() == 0
 }
 
 /// `docker diff` and `docker commit`, from the writable layer.
@@ -450,6 +456,20 @@ fn layer_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Res
         sys::check(libc::chroot(c.as_ptr()) as _, "chroot")?;
         sys::check(libc::chdir(c"/".as_ptr()) as _, "chdir")?;
     }
+    let in_lower = |rel: &std::path::Path| {
+        for l in &lowers {
+            let Some(rel) = rel.to_str() else { continue };
+            let Ok(fd) = super::fsview::open_in(l.as_raw_fd(), rel, libc::O_PATH | libc::O_NOFOLLOW) else { continue };
+            // SAFETY: fstat into a zeroed stat on a descriptor we own.
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } != 0 {
+                continue;
+            }
+            let whiteout = st.st_mode & libc::S_IFMT == libc::S_IFCHR && st.st_rdev == 0;
+            return !whiteout;
+        }
+        false
+    };
     let upper = std::path::PathBuf::from("/");
     // Every path in the writable layer, parents first.
     let mut entries: Vec<(std::path::PathBuf, fs::Metadata)> = Vec::new();
@@ -462,7 +482,9 @@ fn layer_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Res
         for e in names.into_iter().rev() {
             let r = rel.join(e.file_name());
             let Ok(m) = fs::symlink_metadata(e.path()) else { continue };
-            if is_marker(&r, &m) {
+            // An image's own file at the marker's path is the image's, and
+            // one that replaces it is a change.
+            if is_marker(&r, &m) && !in_lower(&r) {
                 continue;
             }
             if m.is_dir() {
@@ -474,25 +496,13 @@ fn layer_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Res
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     done(conn)?;
     if spec.op == copy_op::DIFF {
-        let in_lower = |rel: &std::path::Path| {
-            for l in &lowers {
-                let Some(rel) = rel.to_str() else { continue };
-                let Ok(fd) = super::fsview::open_in(l.as_raw_fd(), rel, libc::O_PATH | libc::O_NOFOLLOW) else { continue };
-                // SAFETY: fstat into a zeroed stat on a descriptor we own.
-                let mut st: libc::stat = unsafe { std::mem::zeroed() };
-                if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } != 0 {
-                    continue;
-                }
-                let whiteout = st.st_mode & libc::S_IFMT == libc::S_IFCHR && st.st_rdev == 0;
-                return !whiteout;
-            }
-            false
-        };
         let mut w = BufWriter::new(&mut *conn);
         for (rel, m) in &entries {
             let kind = if is_whiteout(m) {
                 'D'
-            } else if in_lower(rel) {
+            } else if in_lower(rel) || at_marker(rel) {
+                // Docker has the marker in a layer below the writable one, so
+                // one the container has changed is a change, not an addition.
                 'C'
             } else {
                 'A'
@@ -697,6 +707,27 @@ mod tests {
         assert_eq!(got, names);
     }
 
+    /// The marker is skipped only as the agent made it: empty, 0755 and
+    /// root's. A changed mode or content is the container's change.
+    #[test]
+    fn a_changed_marker_is_not_the_engines() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("asagiri-diff-marker-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let file = dir.join(".dockerenv");
+        let name = std::path::Path::new(".dockerenv");
+        fs::write(&file, b"").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        let m = fs::symlink_metadata(&file).unwrap();
+        assert_eq!(is_marker(name, &m), m.uid() == 0 && m.gid() == 0);
+        assert!(!is_marker(std::path::Path::new("etc/.dockerenv"), &m));
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(!is_marker(name, &fs::symlink_metadata(&file).unwrap()));
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&file, b"x").unwrap();
+        assert!(!is_marker(name, &fs::symlink_metadata(&file).unwrap()));
+        fs::remove_dir_all(&dir).unwrap();
+    }
     #[test]
     fn chunks_end_at_the_empty_chunk_and_leave_the_rest() {
         let wire = [&3u32.to_le_bytes()[..], b"abc", &2u32.to_le_bytes(), b"de", &0u32.to_le_bytes(), b"after"].concat();

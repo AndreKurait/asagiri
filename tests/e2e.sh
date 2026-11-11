@@ -135,6 +135,10 @@ t container-marker-readonly-nonroot "marker-ok" $D run --rm --read-only -u 1000 
 t container-marker-restart "marker-ok" bash -c "$D run --name e2e-marker alpine sh -c 'test -f /.dockerenv && test ! -s /.dockerenv && echo marker-ok' >/dev/null && $D start -a e2e-marker; $D rm -f e2e-marker >/dev/null"
 # An image with a link there starts, and nothing is made where the link points.
 t container-marker-link "link-ok" bash -c "$D run --name e2e-marker alpine sh -c 'rm /.dockerenv && ln -s /outside/marker /.dockerenv' && $D commit e2e-marker asagiri-test/marker-link >/dev/null && $D run --rm asagiri-test/marker-link sh -c 'test ! -e /outside && echo link-ok'; $D rm -f e2e-marker >/dev/null; $D rmi asagiri-test/marker-link >/dev/null"
+# A marker the container has changed is its change: diff shows it, and commit
+# keeps it over what the image had at that path.
+t container-marker-changed "C /.dockerenv" bash -c "$D run --name e2e-marker alpine chmod 600 /.dockerenv && $D diff e2e-marker; $D rm -f e2e-marker >/dev/null"
+t container-marker-replaced "a file" bash -c "$D run --name e2e-marker alpine sh -c 'rm /.dockerenv && ln -s /etc/hostname /.dockerenv' && $D commit e2e-marker asagiri-test/marker-link >/dev/null && $D run --name e2e-marker2 asagiri-test/marker-link sh -c 'rm /.dockerenv && : > /.dockerenv && chmod 755 /.dockerenv' && $D commit e2e-marker2 asagiri-test/marker-file >/dev/null && $D run --rm asagiri-test/marker-file sh -c 'if [ -L /.dockerenv ]; then echo a link; else echo a file; fi'; $D rm -f e2e-marker e2e-marker2 >/dev/null; $D rmi asagiri-test/marker-link asagiri-test/marker-file >/dev/null"
 t proc "PID" $D run --rm alpine ps
 t dev-null "ok" $D run --rm alpine sh -c 'echo x > /dev/null && echo ok'
 t dev-null-nonroot "ok" $D run --rm -u 1000 alpine sh -c 'echo x > /dev/null && head -c 1 /dev/urandom >/dev/null && echo ok'
