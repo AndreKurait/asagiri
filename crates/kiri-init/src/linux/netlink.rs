@@ -438,8 +438,6 @@ const NFNL_MSG_BATCH_END: u16 = 0x11;
 const NFT_MSG_NEWTABLE: u16 = 0;
 /// Fails with ENOENT when there is no such table.
 const NFT_MSG_DELTABLE: u16 = 2;
-/// Like DELTABLE, but no error when there is no such table (Linux 6.3+).
-const NFT_MSG_DESTROYTABLE: u16 = 26;
 const NFT_MSG_NEWCHAIN: u16 = 3;
 const NFT_MSG_NEWRULE: u16 = 6;
 
@@ -456,57 +454,30 @@ fn batch(msgs: Vec<Msg>) -> Vec<Msg> {
     out
 }
 
-/// Whether this kernel knows NFT_MSG_DESTROYTABLE (Linux 6.3+), found once
-/// by destroying a table that need not exist. Before 6.3 (Ubuntu 22.04,
-/// WSL2's 5.15 kernel) the message is unknown, and a batch with an unknown
-/// message is refused whole: Kiri's table was never made, so containers on
-/// a bridge reached the gateway and nothing beyond it (#44).
-fn has_destroytable() -> bool {
-    static HAS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *HAS.get_or_init(|| {
-        let probe = || -> io::Result<()> {
-            let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
-            let mut destroy = nft(NFT_MSG_DESTROYTABLE, NLM_F_ACK);
-            destroy.attr_str(1, "kiri-probe");
-            nl.request(&mut batch(vec![destroy]))
-        };
-        match probe() {
-            Ok(()) => true,
-            Err(e) => {
-                eprintln!("kiri-init: no NFT_MSG_DESTROYTABLE in this kernel ({e}); the nftables table is removed and made again in two steps");
-                false
-            }
-        }
-    })
-}
-
 /// Replaces Kiri's table of `family` with `body` (its NEWTABLE and all that
-/// goes in it; nothing, to remove it). One batch where the kernel can
-/// destroy a table that may not exist, so a refused `body` keeps the old
-/// table; elsewhere the old table goes first on its own, and a refused
-/// `body` leaves none.
+/// goes in it; nothing, to remove it), in one batch: a refused `body` keeps
+/// the old table, and there is no moment without one.
+///
+/// The old table is made first if it is not there, then deleted, so the
+/// delete never fails for a missing table. NFT_MSG_DESTROYTABLE would say
+/// the same in one message, but kernels before 6.3 (Ubuntu 22.04, WSL2's
+/// 5.15) do not know it and refuse the whole batch: Kiri's table was never
+/// made there, so containers on a bridge reached the gateway and nothing
+/// beyond it (#44).
 fn replace_table(family: u8, body: Vec<Msg>) -> io::Result<()> {
     let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
-    if has_destroytable() {
-        let mut destroy = nft_in(family, NFT_MSG_DESTROYTABLE, NLM_F_ACK);
-        destroy.attr_str(1, "kiri");
-        let mut msgs = vec![destroy];
-        msgs.extend(body);
-        return nl.request(&mut batch(msgs));
-    }
+    nl.request(&mut batch(replacing(family, body)))
+}
+
+/// `body` after the two messages that clear the old table away.
+fn replacing(family: u8, body: Vec<Msg>) -> Vec<Msg> {
+    let mut old = nft_in(family, NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
+    old.attr_str(1, "kiri"); // NFTA_TABLE_NAME
     let mut del = nft_in(family, NFT_MSG_DELTABLE, NLM_F_ACK);
     del.attr_str(1, "kiri");
-    match nl.request(&mut batch(vec![del])) {
-        Ok(()) => {}
-        Err(e) if e.raw_os_error() == Some(libc::ENOENT) => {}
-        Err(e) => return Err(e),
-    }
-    if body.is_empty() {
-        return Ok(());
-    }
-    // A fresh socket: nothing of the refused batch is left to read on it.
-    let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
-    nl.request(&mut batch(body))
+    let mut msgs = vec![old, del];
+    msgs.extend(body);
+    msgs
 }
 
 fn nfgen(family: u8, res_id: u16) -> [u8; 4] {
@@ -1050,6 +1021,28 @@ mod tests {
             assert_eq!(m.buf[16..20], nfgen(libc::AF_UNSPEC as u8, NFNL_SUBSYS_NFTABLES));
         }
         assert_eq!(ty(&b[1]), (NFNL_SUBSYS_NFTABLES << 8) | NFT_MSG_NEWTABLE);
+    }
+
+    /// The old table is cleared with messages every kernel knows, ahead of
+    /// the new one and in its family, so one batch does for all of them.
+    #[test]
+    fn a_table_is_replaced_by_making_then_deleting_the_old_one() {
+        let ty = |m: &Msg| u16::from_ne_bytes([m.buf[4], m.buf[5]]) & 0xff;
+        let flags = |m: &Msg| u16::from_ne_bytes([m.buf[6], m.buf[7]]);
+        for family in [libc::NFPROTO_IPV4 as u8, libc::NFPROTO_IPV6 as u8] {
+            let mut table = nft_in(family, NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
+            table.attr_str(1, "kiri");
+            let msgs = replacing(family, vec![table]);
+            assert_eq!(msgs.iter().map(ty).collect::<Vec<_>>(), [NFT_MSG_NEWTABLE, NFT_MSG_DELTABLE, NFT_MSG_NEWTABLE]);
+            // Made if missing, and never refused for being there already (no NLM_F_EXCL, 0x200).
+            assert_eq!(flags(&msgs[0]) & (NLM_F_CREATE | 0x200), NLM_F_CREATE);
+            for m in &msgs {
+                assert_eq!(m.buf[16], family);
+                assert_eq!(get(&attrs(&m.buf[20..]), 1), b"kiri\0");
+            }
+        }
+        // Removing the table is the same two messages and nothing after.
+        assert_eq!(replacing(libc::NFPROTO_IPV4 as u8, Vec::new()).len(), 2);
     }
 
     #[test]
