@@ -22,9 +22,11 @@ The pipeline builds Linux packages and static engines on native x86_64 and
 arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
 x86_64 and arm64 installers and ZIP bundles. It runs release-version unit
 tests, Linux live tests, Linux package installation/removal, app signature and
-DMG verification, and x86_64 MSI installation/removal without starting WSL.
-Windows Arm packages are cross-built. Native VM and WSL runtime checks remain
-separate; see the platform limits in the release notes.
+DMG verification, and MSI installation/removal on x86_64 and Arm Windows
+runners without starting WSL. Windows Arm packages are cross-built and then
+installed on a GitHub-hosted Windows Arm runner. Installer logs are retained
+for both architectures. Native VM and WSL runtime checks remain separate;
+see the platform limits in the release notes.
 
 Publication is the last step: require the complete asset set, validate feed
 versions and hashes, write `SHA256SUMS` and `release-manifest.json`, attest the

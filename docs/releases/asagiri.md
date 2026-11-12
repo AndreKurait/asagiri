@@ -15,9 +15,9 @@ Choose the download for your system:
   run native x86_64 containers; the optional QEMU emulator is not bundled.
 - **Windows:** the MSI for x86_64 or arm64. Windows packages are **not
   Authenticode signed**. A ZIP of the same bundle is also available.
-  WSL2 is required to run containers. CI tests x86_64 MSI installation and
-  removal; the arm64 MSI is cross-built and has not been installed on
-  native Windows Arm hardware.
+  WSL2 is required to run containers. CI tests MSI installation and removal
+  on both x86_64 and Arm Windows runners without starting WSL. The arm64
+  MSI is cross-built and then checked on Windows Arm.
 
 Versions containing `-dev.` are automatic prereleases for testing. They
 are published only after the source commit's platform, UI, security, speed,
