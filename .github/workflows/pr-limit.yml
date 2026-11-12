@@ -23,7 +23,7 @@ concurrency:
 jobs:
   limit:
     name: limit
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
       # GitHub also requires contents:write for the GraphQL draft/ready
