@@ -425,10 +425,8 @@ pub const EMULATOR_TAG: &str = "qemu";
 ///
 /// Looked for in `ASAGIRI_QEMU_DIR`, then `Resources/qemu` in the app, then
 /// `guest/out/qemu` in a checkout.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 pub fn emulator_dir() -> Option<PathBuf> {
-    if !cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        return None;
-    }
     if let Some(d) = std::env::var_os("ASAGIRI_QEMU_DIR") {
         return Some(PathBuf::from(d)).filter(|d| d.join("qemu-aarch64").is_file());
     }
@@ -438,6 +436,11 @@ pub fn emulator_dir() -> Option<PathBuf> {
         .filter(|d| d.join("qemu-aarch64").is_file());
     let guest = guest_dir();
     bundled.or_else(|| guest.parent().map(|d| d.join("qemu")).filter(|d| d.join("qemu-aarch64").is_file()))
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+pub fn emulator_dir() -> Option<PathBuf> {
+    None
 }
 
 /// Whether this process runs under Rosetta (`sysctl.proc_translated`).
