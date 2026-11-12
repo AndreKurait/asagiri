@@ -566,8 +566,10 @@ fn import_config(req: &Request) -> Result<(Option<String>, Value), Error> {
     let name = if repo.is_empty() {
         None
     } else {
-        let tag = req.query("tag").filter(|t| !t.is_empty()).unwrap_or("latest");
-        let reference = Reference::parse(&format!("{repo}:{tag}")).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
+        // The Docker CLI puts repo:tag in `repo`; direct API callers can
+        // instead supply a separate `tag`.
+        let tagged = req.query("tag").filter(|t| !t.is_empty()).map_or_else(|| repo.to_owned(), |tag| format!("{repo}:{tag}"));
+        let reference = Reference::parse(&tagged).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
         if reference.is_digest() {
             return Err(Error::BadRequest("an imported image needs a tag, not a digest".into()));
         }
@@ -3499,6 +3501,8 @@ mod network_option_tests {
         assert_eq!(config["history"][0]["comment"], "snapshot");
         let req = Request::internal("POST", "/images/create", &[], Vec::new());
         assert!(import_config(&req).unwrap().0.is_none());
+        let req = Request::internal("POST", "/images/create", &[("repo", "example/rootfs:cli")], Vec::new());
+        assert_eq!(import_config(&req).unwrap().0.as_deref(), Some("example/rootfs:cli"));
     }
 
     #[test]
