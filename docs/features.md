@@ -41,7 +41,7 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Storage**: named and anonymous volumes, bind mounts of Mac paths
   (virtiofs), `--tmpfs`, `--mount`, `volume` commands
 - **Images**: `pull` (with `docker login` credentials), `push`, `tag`,
-  `save`, `load`, `import` (tar/gzip root filesystems, from a file, stdin or an
+  `save`, `load`, [`import`](docker-import.md) (tar/gzip root filesystems, from a file, stdin or an
   HTTP(S) URL), `history`, `search`, `image prune`, `system df`;
   **amd64 images run through Rosetta** on Apple silicon; on Intel,
   **arm64 images run through qemu**. `--platform` is honoured. Docker Hub
