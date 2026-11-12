@@ -624,7 +624,7 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
             import_archive(engine, name, config, http::Body::new(req, r))
         } else {
             let mut response = crate::tools::agent().get(source).call().map_err(|e| Error::BadRequest(format!("could not download the root filesystem: {e}")))?;
-            import_archive(engine, name, config, response.body_mut().reader())
+            import_archive(engine, name, config, response.body_mut().as_reader())
         }
     })();
     match imported {
