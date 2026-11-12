@@ -4,6 +4,13 @@ This release includes the Asagiri identity and artwork, the container app,
 Docker import, registry mirrors, and the reviewed upstream changes recorded
 in `UPSTREAM.md`.
 
+The full upstream PR audit also brings automatic guest recovery for running
+`always` and `unless-stopped` containers, with bounded backoff and manual-stop
+cancellation. Old VM resources and exit accounting finish before replacement.
+Registry-backed Buildx tags resolve the requested platform while locally
+created tags remain available. Private Linux tests exercise real agent crashes,
+restart counts, retained files, and local and cross-platform Buildx builds.
+
 Choose the download for your system:
 
 - **Linux:** `.deb` or `.rpm` for amd64/x86_64 or arm64/aarch64. `asagiri`

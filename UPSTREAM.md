@@ -7,6 +7,10 @@ The rename does not change the authorship of inherited code.
 Upstream `main` was fetched on **2026-11-12** at
 `4645536f68d4bf2f5e708bd8339a9f71f844c43a`. Its complete history is merged,
 including the nine commits after the initial `a649319` integration.
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **133** public PRs
+as of that review: 75 merged, 36 closed without merging, and 22 open. Every
+merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
+port, equivalence, supersession, or hold recorded with its reviewed head.
 
 ## Integration policy
 
@@ -66,7 +70,8 @@ fix is preserved in the performance runner's flavor-dependent socket setting.
 | --- | --- |
 | #53: `ca8a6e5`, `99ea574`, `968cf67` | Bounded guest console recording, rotation failure handling, and documentation. The key-redaction latch also follows delimiters across reads and beyond an omitted line's cap. |
 | #119: `a0b8d90`, `79ee480`, `4ac9cdd` | Registry mirrors, translated settings, Windows setup continuation, and neutral examples. Origin credentials are kept off mirror manifests and blobs; refreshing settings preserves active Buildx execs. Windows setup treats pull failures separately from container execution failures. |
-| #116: `783de87` | Intel macOS arm64 emulation. The emulator share is read-only, the platform exception is limited to Linux arm64, and QEMU's license and source information accompany the bundle. |
+| #54 through `508ba7e` | Automatic recovery for running `always`/`unless-stopped` containers, backoff, cancellation and confirmed VM retirement. Asagiri also waits for old-reader exit accounting, cancels and joins Linux listener threads, and preserves stop/remove responses and startup exit codes. Private Linux tests crash the agent and verify persisted recovery without API-triggered boots. |
+| #116: `783de87`, `ba7fd94` | Intel macOS arm64 emulation and registry-owned remote tags. The emulator share is read-only and the platform exception is limited to Linux arm64. Asagiri records local tag provenance so local `FROM` tags in the same repository still work; OCI export checks the requested architecture's ELF. QEMU is excluded from release bundles until its complete corresponding-source bundle is ready. |
 | #131: `11f698a` | A container's own changes to `/.dockerenv` remain visible in diff and commit. |
 | #142 reviewed stop/sleep follow-up | Stop waits for the run it was asked to stop; sleep attempts every container before returning its first error. |
 
@@ -94,6 +99,12 @@ gets best-effort 1 MiB read-ahead. Other filesystems keep their settings.
 The measurement helper and reproduction notes are included; upstream's
 Mac throughput measurements have not been repeated on Asagiri.
 
+The full open-and-closed review also covers #193 (`8d6368b`), already
+represented by Asagiri's broader #163 implementation. The live test retains
+IPv4/IPv6 defaults, restart behavior and failover without duplicate routes,
+and now verifies that two internal networks have no default route before or
+after a restart.
+
 ## Issue follow-up
 
 | Issue | Work and verification scope |
@@ -102,7 +113,7 @@ Mac throughput measurements have not been repeated on Asagiri.
 | #83 | `tests/buildx-bootstrap.py` runs six fresh initial bootstraps, records a failure before trying recovery, and builds, loads, and runs an image through the managed builder. A bounded passing run does not prove the intermittent reset cannot recur. |
 | #93 | #61 is included: accepting a client obtains a live bridge, and losing a bridge that completed its handshake queues an engine start and logs the attempt. Windows suspend/resume still needs a Windows runtime test. |
 | #48 | Linux tests cover bind-mount inotify, default and custom seccomp, Buildx, and container persistence after restarting the daemon. These do not verify macOS updater/launchd behavior or host notifications through Virtualization.framework virtiofs. |
-| #50 | Guest console retention is included. The reported macOS guest-kernel crash and recovery under its original load remain unverified. |
+| #50 | Guest console retention and #54 recovery are included. Private Linux agent-crash tests cover automatic recovery, policies, counters and writable layers. The reported macOS guest-kernel crash and recovery under its original load remain unverified. |
 | #168 | WebView2 suspend/unload behavior remains unverified and unchanged. |
 | #73, #74 | Browser control of a real engine and an MCP server are not implemented. The website demo uses sample data in memory. |
 
@@ -110,13 +121,16 @@ Mac throughput measurements have not been repeated on Asagiri.
 
 | Upstream work | Reason |
 | --- | --- |
-| #54 | The earlier review found two deadlocks. The latest `508ba7e` head contains further recovery and retirement changes; the full branch remains held for a fresh concurrency review and macOS recovery validation. |
-| #89 | Incomplete wiring, a protocol change, and unresolved correctness findings. It needs a complete implementation and compatibility review before integration. |
-| #116, commit `ba7fd94` | Kept separate from the initial emulation implementation pending review and platform validation. |
+| #89 | Missing accept-loop/local-export integration, unbounded request buffering, premature or absent stream termination, and an active-session counter leak on error. Keep the working docker-container Buildx path until a complete implementation passes compatibility tests. |
+| #55 UI prototype | Its image metadata is already preserved by Asagiri's full-config inspect. The UI forces an extra dialog, guesses one port, reuses colliding default names and predates localization; existing rename/port editors and Docker create options remain available. |
+| #69 `daemon.json` prototype | Its translations are superseded by #95 and mirrors by #119. The additional insecure-registry/concurrency configuration surface and HTTP behavior need a dedicated design and runtime review. |
 
 Intel macOS emulation and Windows WebView2 lifecycle behavior need their
 respective hardware and operating systems for runtime verification. A passing
 cross-platform compile is not evidence that those runtime paths were exercised.
+The real macOS VM recovery test remains opt-in; synthetic unit tests never boot
+a VM, and the automated crash regression runs only in the disposable Linux
+test engine.
 Historical Kiri release notes and benchmark results remain explicitly labelled
 as upstream material; they are not Asagiri releases or Asagiri measurements.
 
