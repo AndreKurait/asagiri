@@ -54,6 +54,12 @@ pub struct Image {
     /// that digest must find the image by it.
     #[serde(default)]
     pub index_digest: Option<String>,
+    /// This name was made locally, even if another tag in its repository
+    /// has a registry digest. A pull or push of this exact name clears it.
+    /// Old records lack tag provenance; leave their registry tags to the
+    /// registry rather than hiding other platforms behind one local image.
+    #[serde(default)]
+    pub local_tag: bool,
     pub config_digest: String,
     pub layers: Vec<Layer>,
     /// Compressed size of all layers, which is what `docker images` reports too.
@@ -92,6 +98,9 @@ impl Image {
     /// belong to its repository: in another one it has none until a push.
     pub fn tagged(&self, name: String) -> Image {
         let mut i = Image { name, ..self.clone() };
+        if i.name != self.name {
+            i.local_tag = true;
+        }
         if i.repo() != self.repo() {
             i.digest = self.config_digest.clone();
             i.index_digest = None;
@@ -225,6 +234,9 @@ impl Store {
         let mut images = self.images()?;
         let Some(repo) = images.iter().find(|i| i.name == name && i.config_digest == config_digest).map(|i| i.repo().to_owned()) else { return Ok(()) };
         for i in images.iter_mut().filter(|i| i.config_digest == config_digest && i.repo() == repo) {
+            // Publishing one tag does not publish the other local names.
+            // Preserve that distinction independently of RepoDigests.
+            i.local_tag = i.name != name && (i.local_tag || i.repo_digest().is_none());
             i.digest = digest.to_owned();
             i.index_digest = None;
         }
@@ -380,6 +392,7 @@ mod tests {
             name: "malicious:latest".into(),
             digest: "sha256:manifest".into(),
             index_digest: None,
+            local_tag: false,
             config_digest: path.clone(),
             layers: vec![Layer { digest: path, size: 12, media_type: "application/vnd.oci.image.layer.v1.tar".into() }],
             size: 12,
@@ -404,6 +417,7 @@ mod tests {
             name: format!("kindest/node@{index}"),
             digest: manifest.clone(),
             index_digest: Some(index.clone()),
+            local_tag: false,
             config_digest: format!("sha256:{}", "3".repeat(64)),
             layers: Vec::new(),
             size: 0,
@@ -431,6 +445,7 @@ mod tests {
             name: name.into(),
             digest: d(config),
             index_digest: index,
+            local_tag: true,
             config_digest: d(config),
             layers: Vec::new(),
             size: 0,
@@ -446,7 +461,7 @@ mod tests {
         store.put_image(image("localhost:5001/built:1", "1", None)).unwrap();
         // Pulled: alpine's index. Tagged in its repository it keeps that; in
         // another it has none there, rather than a digest that one lacks.
-        let pulled = Image { digest: d("8"), ..image("alpine:latest", "2", Some(d("9"))) };
+        let pulled = Image { digest: d("8"), local_tag: false, ..image("alpine:latest", "2", Some(d("9"))) };
         assert_eq!(pulled.tagged("alpine:old".into()).repo_digest(), Some(format!("alpine@{}", d("9"))));
         store.put_image(pulled.tagged("localhost:5000/tagged:1".into())).unwrap();
         store.put_image(image("localhost:5000/other:1", "3", None)).unwrap();
@@ -461,6 +476,8 @@ mod tests {
         assert_eq!(repo_digest("localhost:5000/built:1"), Some(format!("localhost:5000/built@{}", d("a"))));
         // Pushing one tag gives the repository's other tags of it the digest; elsewhere it has none.
         assert_eq!(repo_digest("localhost:5000/built:latest"), Some(format!("localhost:5000/built@{}", d("a"))));
+        assert!(!store.find("localhost:5000/built:1").unwrap().unwrap().local_tag);
+        assert!(store.find("localhost:5000/built:latest").unwrap().unwrap().local_tag);
         assert_eq!(repo_digest("localhost:5001/built:1"), None);
         assert_eq!(repo_digest("localhost:5000/tagged:1"), Some(format!("localhost:5000/tagged@{}", d("b"))));
         assert_eq!(repo_digest("localhost:5000/other:1"), None);
@@ -475,6 +492,7 @@ mod tests {
             name: name.into(),
             digest: String::new(),
             index_digest: None,
+            local_tag: false,
             config_digest: String::new(),
             layers: Vec::new(),
             size: 0,

@@ -281,13 +281,11 @@ fn parse(path: &str, token: &str) -> Option<(String, String, bool, String)> {
     (!repo.is_empty() && !reference.is_empty() && !reference.contains('/')).then(|| (registry.to_owned(), repo.to_owned(), kind, reference.to_owned()))
 }
 
-/// Whether the mirror answers for `i` under its tag. It does for an image no
-/// registry has (built, loaded, committed: its digest is its config's), which
-/// is the one thing a build cannot get anywhere else. An image a registry
-/// published is left to that registry, which knows every platform of the tag;
-/// answering with the one platform Asagiri pulled would hide the rest.
+/// Local names stay available even when another tag of the same image has
+/// a registry digest. Tags pulled or pushed under this exact name go to
+/// the registry, which knows all their platforms and their current value.
 fn serve_tag(i: &Image) -> bool {
-    i.repo_digest().is_none()
+    i.local_tag || i.repo_digest().is_none()
 }
 
 fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
@@ -341,13 +339,34 @@ mod tests {
     #[test]
     fn a_tag_a_registry_published_is_left_to_it() {
         // Pulled: its digest is its manifest's, so a registry has it.
-        let pulled = Image { name: "alpine:3.20".into(), digest: "sha256:manifest".into(), ..made_here() };
+        let pulled = Image { name: "alpine:3.20".into(), digest: "sha256:manifest".into(), local_tag: false, ..made_here() };
         assert!(!serve_tag(&pulled));
         // Built or loaded here: nothing else can serve it, platform or not.
         assert!(serve_tag(&made_here()));
         // Tagged into another repository (docker tag alpine:3.20 mybase:dev):
         // that name is not in any registry, so the mirror answers for it.
         assert!(serve_tag(&Image { name: "mybase:dev".into(), ..made_here() }));
+    }
+
+    #[test]
+    fn a_local_tag_in_the_pulled_repository_is_still_available() {
+        let pulled = Image { name: "alpine:3.20".into(), digest: "sha256:manifest".into(), local_tag: false, ..made_here() };
+        let local = pulled.tagged("alpine:my-local-base".into());
+        assert_eq!(local.repo_digest(), pulled.repo_digest());
+        assert!(serve_tag(&local), "repository digests do not mean this local tag was published");
+        assert!(!serve_tag(&pulled.tagged(pulled.name.clone())));
+    }
+
+    #[test]
+    fn old_image_records_do_not_shadow_registry_platforms() {
+        let mut stored = serde_json::to_value(made_here()).unwrap();
+        stored.as_object_mut().unwrap().remove("local_tag");
+        stored["digest"] = json!("sha256:registry-manifest");
+        let pulled: Image = serde_json::from_value(stored.clone()).unwrap();
+        assert!(!serve_tag(&pulled));
+        stored["digest"] = stored["config_digest"].clone();
+        let local: Image = serde_json::from_value(stored).unwrap();
+        assert!(serve_tag(&local));
     }
 
     /// An image built here: no registry has it.
@@ -357,6 +376,7 @@ mod tests {
             name: "myapp:dev".into(),
             digest: config_digest.clone(),
             index_digest: None,
+            local_tag: true,
             config_digest,
             layers: Vec::new(),
             size: 0,

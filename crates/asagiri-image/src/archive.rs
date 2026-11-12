@@ -205,6 +205,7 @@ pub fn from_config(name: String, config_digest: &str, config: &Value, layers: Ve
         // Loaded images have no registry manifest; the config names them.
         digest: config_digest.to_owned(),
         index_digest: None,
+        local_tag: true,
         config_digest: config_digest.to_owned(),
         size: layers.iter().map(|l| l.size).sum(),
         layers,

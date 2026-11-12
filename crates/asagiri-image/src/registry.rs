@@ -757,6 +757,7 @@ impl Client {
             name: name.short(),
             digest: digest.clone(),
             index_digest: index_digest.clone(),
+            local_tag: false,
             config_digest: config.digest.clone(),
             size: layers.iter().map(|l| l.size).sum(),
             layers,

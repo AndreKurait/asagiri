@@ -3487,6 +3487,7 @@ mod image_lookup_tests {
             name: name.into(),
             digest: ARM64.into(),
             index_digest: index.map(str::to_owned),
+            local_tag: false,
             config_digest: format!("sha256:{}", "c".repeat(64)),
             layers: Vec::new(),
             size: 0,
