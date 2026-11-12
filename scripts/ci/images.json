@@ -1,0 +1,56 @@
+{
+  "rust": {
+    "image": "rust:1.99.1-alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383",
+    "config": {
+      "amd64": "sha256:40abe462ed26e555a0f7b7955254c583389f419045e7204f77ef75434fda4151",
+      "arm64": "sha256:7a01cbf903e1ed14014bd087f2969bfdfa4bb5a46336ca44144834b1043a5343"
+    },
+    "env": "ASAGIRI_CI_RUST_IMAGE",
+    "groups": ["ci", "release"]
+  },
+  "live": {
+    "image": "docker:28.0.4-cli@sha256:2bccc79fc5fed23d876bf244fa5fbe78c54bf6b6145a9483604306fd797237d5",
+    "config": {
+      "amd64": "sha256:6cf7b1ff4c923776ce776529a8b25cc898e9866de6cf439c745b63bf74946a05",
+      "arm64": "sha256:14ecb7d011e3f164d55b47c303dfd72f04e96b5e4d7032bda574104fdc15f67e"
+    },
+    "env": "ASAGIRI_CI_LIVE_IMAGE",
+    "groups": ["ci", "release"]
+  },
+  "perf": {
+    "image": "alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab",
+    "config": {
+      "amd64": "sha256:e50d940e9d2c4d81e5b3506b2ed87bfc7e91267b36ff016eb4b4cb21c39a3331",
+      "arm64": "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee"
+    },
+    "env": "ASAGIRI_CI_PERF_IMAGE",
+    "groups": ["ci", "release"]
+  },
+  "guest": {
+    "image": "debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6",
+    "config": {
+      "amd64": "sha256:51e269e6af18ae477f7880a0820f34863e34366c621d93b0dd939260ea62e59b",
+      "arm64": "sha256:fed135679c98b17d66a68b7569f030c17cb6a27b5186073abc2bc045da1d2e9b"
+    },
+    "env": "ASAGIRI_CI_GUEST_IMAGE",
+    "groups": ["release"]
+  },
+  "deb": {
+    "image": "ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5",
+    "config": {
+      "amd64": "sha256:7da97f743f397971f35dd21cd2d19a7da070a150e0cfa3eda559e71891ec7533",
+      "arm64": "sha256:50ec654248113cf5966e8fcbde7acd5a49a943c9ee9d92512f3a20b6be54b5d7"
+    },
+    "env": "ASAGIRI_CI_DEB_IMAGE",
+    "groups": ["release"]
+  },
+  "rpm": {
+    "image": "fedora:41@sha256:f1a3fab47bcb3c3ddf3135d5ee7ba8b7b25f2e809a47440936212a3a50957f3d",
+    "config": {
+      "amd64": "sha256:60f7514ed71e29f666342b10a07e34a87df64cd272e217449ea567fa1d5b9e3a",
+      "arm64": "sha256:92361f1ed466e3b8f00ed733aa4720622cd41ebc238497c62e7dd79e9acbf021"
+    },
+    "env": "ASAGIRI_CI_RPM_IMAGE",
+    "groups": ["release"]
+  }
+}

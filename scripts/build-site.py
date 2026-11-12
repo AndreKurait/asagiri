@@ -6,8 +6,10 @@ app, with site/demo/fixture.js supplying clearly labelled sample data.
 """
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,6 +45,8 @@ def main():
             shutil.copy2(path, assets / path.name)
     (out / "demo/window.html").write_text(demo_page())
     (out / ".nojekyll").write_text("")
+    commit = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
+    (out / "deployment.json").write_text(json.dumps({"commit": commit}) + "\n")
     print(f"Built website and interactive demo: {out}")
 
 

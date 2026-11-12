@@ -52,6 +52,8 @@ jobs:
             'packaging/linux/deb/postinst' 'packaging/linux/deb/postrm' 'packaging/linux/deb/prerm' \
             'packaging/linux/docker-wrapper' 'contrib/wsl/asagiri-linux/asagiri-start' \
             | xargs -0 shellcheck --severity=error
+      - name: Check CI cache recovery and integrity
+        run: python3 tests/ci-container-cache.py
 
   zizmor:
     name: zizmor (workflow audit)

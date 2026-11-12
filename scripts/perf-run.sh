@@ -36,7 +36,7 @@ for e in base head; do
     -v "asagiri-perf-$e-lib:/var/lib/$engine" -v "asagiri-perf-$e-store:/root/.local/share/$engine" \
     -v "$bin:/opt/engine:ro" -v "$WORK/$e-run:/bench" \
     -e "$socket_var=/bench/docker.sock" \
-    alpine:3.21 "/opt/engine/$engine" daemon >/dev/null
+    "${ASAGIRI_CI_PERF_IMAGE:-alpine:3.21}" "/opt/engine/$engine" daemon >/dev/null
 done
 pid() { docker inspect -f '{{.State.Pid}}' "asagiri-perf-$1"; }
 for e in base head; do

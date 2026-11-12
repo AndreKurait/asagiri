@@ -15,7 +15,7 @@ dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri \
-  docker:28.0.4-cli sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
+  "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
 trap 'docker rm -fv "$name" >/dev/null 2>&1' EXIT INT TERM
 
 i=0

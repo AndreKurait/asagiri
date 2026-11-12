@@ -1,0 +1,35 @@
+name: Verified container image cache
+description: Cache public base images and verify their pinned content IDs before use
+inputs:
+  group:
+    description: ci or release
+    default: ci
+  source-directory:
+    description: Checkout containing the image manifest and cache helper
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Restore container downloads
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/container-images/${{ inputs.group }}
+        key: docker-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.group }}-${{ hashFiles(format('{0}/scripts/ci/images.json', inputs.source-directory)) }}
+    - name: Verify cached images or pull by digest
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source-directory }}
+        GROUP: ${{ inputs.group }}
+      run: python3 "$SOURCE/scripts/ci/container-cache.py" --group "$GROUP" --cache "$RUNNER_TEMP/container-images/$GROUP" --github-env "$GITHUB_ENV"
+    - name: Save verified downloads from main
+      if: >-
+        steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/container-images/${{ inputs.group }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

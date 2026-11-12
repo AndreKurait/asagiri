@@ -85,16 +85,25 @@ class Browser:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="check the demo and layouts without rewriting images")
-    check = parser.parse_args().check
+    parser.add_argument("--base-url", help="check an already deployed site (including its project path)")
+    args = parser.parse_args()
+    check = args.check
+    if args.base_url and not check:
+        parser.error("--base-url requires --check")
     if not check:
         from PIL import Image
-    subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
+    if not args.base_url:
+        subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
     if not check:
         IMAGES.mkdir(exist_ok=True)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(ROOT / "target/site")))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    origin = f"http://127.0.0.1:{server.server_port}"
+    server = None
+    if args.base_url:
+        origin = args.base_url.rstrip("/")
+    else:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(ROOT / "target/site")))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        origin = f"http://127.0.0.1:{server.server_port}"
     with tempfile.TemporaryDirectory(prefix="asagiri-demo-chrome-") as profile:
         process = subprocess.Popen([
             CHROME, "--headless=new", "--disable-gpu", "--no-first-run",
@@ -197,8 +206,9 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-            server.shutdown()
-            server.server_close()
+            if server:
+                server.shutdown()
+                server.server_close()
     if not check:
         subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
 
