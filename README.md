@@ -19,6 +19,7 @@ The screenshot and browser demo use sample data in the real app UI.
 
 - Familiar Docker tools, with a small engine and a native desktop app.
 - Containers, images, volumes, networks, logs, terminals, and resource controls.
+- A window and setup in 16 languages, including right-to-left Arabic.
 - A Linux VM on macOS, WSL 2 on Windows, and native containers on Linux.
 - Container names for local development, plus Kubernetes and Linux machines.
 - An interface in 15 languages, with the same core features on all three platforms.

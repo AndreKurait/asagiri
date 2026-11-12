@@ -15,6 +15,7 @@ const runsSent = () => sent.filter((m) => m.type === "run");
 // The engine answers Run's look at the start script with `vars`.
 const pressRun = (tag, vars = []) => {
   sent.length = 0;
+  runOf(tag).scrollIntoView();
   runOf(tag).click();
   if (sent.some((m) => m.type === "needs")) asagiri.on({ type: "needs", image: tag, id: ui.images.find((i) => i.RepoTags.includes(tag))?.Id, vars });
 };
@@ -124,6 +125,7 @@ t("the first stop for a variable is enough: Run asks from then on", () => {
 });
 t("any other image: Run reads its start script first, and asks for what it exits without", () => {
   sent.length = 0;
+  runOf("asagiri-test/needs-password:1").scrollIntoView();
   runOf("asagiri-test/needs-password:1").click();
   if (!sent.some((m) => m.type === "needs" && m.name === "asagiri-test/needs-password:1")) throw new Error("didn't look: " + JSON.stringify(sent));
   if (runsSent().length || !runOf("asagiri-test/needs-password:1").classList.contains("rolling")) throw new Error("ran, or no spinner while looking");
