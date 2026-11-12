@@ -7,7 +7,7 @@ runImage("nginx:alpine");
 t("starting shows the spinner, not a check", () => {
   if (!/rolling/.test(runNow()) || /Started/.test(runNow())) throw new Error(runNow());
 });
-kiri.on({ type: "ran", name: "nginx:alpine" });
+asagiri.on({ type: "ran", name: "nginx:alpine" });
 t("once up, it's the play button again", () => {
   if (/rolling|Started/.test(runNow()) || !/aria-label="Run"/.test(runNow())) throw new Error(runNow());
 });

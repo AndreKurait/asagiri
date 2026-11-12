@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Asagiri is an independent, open-source Docker-compatible engine for macOS, Linux, and Windows. Meet your containers in a new light.">
+  <meta name="theme-color" content="#161b33">
+  <meta property="og:title" content="Asagiri · A clear start for your containers">
+  <meta property="og:description" content="A Docker-compatible engine. A native app. An independent project, built in the open.">
+  <meta property="og:image" content="https://andrekurait.github.io/asagiri/assets/social-card.png">
+  <title>Asagiri · A clear start for your containers</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="page">
+    <header>
+      <a class="identity" href="./" aria-label="Asagiri home"><img src="assets/asagiri-horizontal-light.svg" alt="Asagiri" width="156" height="40"></a>
+      <nav aria-label="Main navigation"><a href="#engine">The engine</a><a href="demo/">Try the demo <span aria-hidden="true">↗</span></a><a class="source-link" href="https://github.com/AndreKurait/asagiri">Source code <span aria-hidden="true">↗</span></a></nav>
+    </header>
+    <main id="main">
+      <section class="hero" aria-labelledby="headline">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="live-dot"></span> OPEN SOURCE. A NEW MORNING.</p>
+          <h1 id="headline">A clear start<br>for your<br><em>containers.</em></h1>
+          <p class="intro">Your Docker workflow, with room to breathe. Asagiri brings a container engine and a native app together on macOS, Linux, and Windows.</p>
+          <div class="actions"><a class="button primary" href="#build">Build from source <span aria-hidden="true">↗</span></a><a class="button text" href="demo/">Explore the app <span aria-hidden="true">→</span></a></div>
+          <p class="availability">Under active development · Apache 2.0 · No binary releases yet</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="sun"><span></span></div>
+          <div class="mist mist-one"></div><div class="mist mist-two"></div><div class="mist mist-three"></div>
+          <div class="terminal-card"><div class="terminal-title"><span>TERMINAL</span><span>asagiri / local</span></div><code><span class="prompt">$</span> docker context use asagiri<br><span class="terminal-muted">Current context is now "asagiri"</span><br><br><span class="prompt">$</span> docker run --rm alpine echo hello<br><span class="terminal-answer">hello</span><br><span class="prompt">$</span> <span class="cursor"></span></code></div>
+          <span class="art-caption">朝霧 / MORNING MIST</span>
+        </div>
+      </section>
+      <div class="platforms"><span>ONE ENGINE. THREE PLATFORMS.</span><div>macOS <small>Apple Silicon &amp; Intel</small></div><div>Linux <small>arm64 &amp; x86_64</small></div><div>Windows <small>WSL2</small></div></div>
+      <section class="app-section" aria-labelledby="app-title">
+        <div class="section-top"><div><p class="eyebrow">THE VIEW FROM HERE</p><h2 id="app-title">Everything running.<br>Nothing in your way.</h2></div><p>See containers, images, volumes, and networks in one place. Open logs, inspect a service, or step into its terminal.</p></div>
+        <a class="app-preview" href="demo/" aria-label="Open the interactive Asagiri app demo"><img src="assets/asagiri-window.png" width="1440" height="940" alt="Asagiri's indigo and coral interface showing a sample development stack of containers" loading="lazy"><span class="preview-link">Explore the interactive demo <span aria-hidden="true">↗</span></span></a>
+        <p class="caption">The real app interface with sample data. The browser demo does not run containers.</p>
+      </section>
+      <section id="engine" class="engine-section" aria-labelledby="engine-title">
+        <p class="eyebrow">FAMILIAR TOOLS. A FRESH FOUNDATION.</p><h2 id="engine-title">Keep your workflow.<br>Meet your engine.</h2>
+        <div class="features">
+          <article><span class="feature-number">01 / WORKFLOW</span><h3>Speak Docker.</h3><p>Use the Docker CLI, Compose, and BuildKit with a Docker-compatible API. Your terminal belongs in the workflow.</p><code>docker compose up -d</code></article>
+          <article><span class="feature-number">02 / VISIBILITY</span><h3>Stay close to your work.</h3><p>A native app puts container logs, terminals, files, and resource controls beside the things you run.</p><a href="demo/?view=images">Take a look inside <span aria-hidden="true">↗</span></a></article>
+          <article><span class="feature-number">03 / OWNERSHIP</span><h3>Built in the open.</h3><p>Read the source, follow the changes, and build it yourself. Sharing and update feeds need your explicit configuration.</p><a href="https://github.com/AndreKurait/asagiri/blob/main/UPSTREAM.md">Read the upstream record <span aria-hidden="true">↗</span></a></article>
+        </div>
+      </section>
+      <section id="build" class="build-section" aria-labelledby="build-title">
+        <div><p class="eyebrow">START WITH THE SOURCE</p><h2 id="build-title">Make it<br>your morning.</h2><p>Asagiri is a young project. There are no published binary releases yet. Build the current source with Rust and your platform's development tools.</p><a href="https://github.com/AndreKurait/asagiri/blob/main/CONTRIBUTING.md">Development guide <span aria-hidden="true">↗</span></a></div>
+        <div class="build-card">
+          <div class="build-tabs" role="tablist" aria-label="Build platform"><button id="tab-macos" role="tab" aria-selected="true" aria-controls="build-command" data-platform="macos">macOS</button><button id="tab-linux" role="tab" aria-selected="false" aria-controls="build-command" tabindex="-1" data-platform="linux">Linux</button><button id="tab-windows" role="tab" aria-selected="false" aria-controls="build-command" tabindex="-1" data-platform="windows">Windows</button></div>
+          <pre id="build-command" role="tabpanel" aria-labelledby="tab-macos" tabindex="0"><code>git clone https://github.com/AndreKurait/asagiri.git
+cd asagiri
+cargo xtask app-dev</code></pre>
+          <div class="build-foot"><span id="build-hint">Requires Rust and Xcode command line tools.</span><button id="copy-command" aria-label="Copy build commands">Copy <span aria-hidden="true">↗</span></button></div><span id="copy-status" role="status" class="sr-only"></span>
+        </div>
+      </section>
+      <section class="lineage"><img src="assets/asagiri-mark-light.svg" width="74" height="74" alt=""><div><p class="eyebrow">SHARED ROOTS. OUR OWN HORIZON.</p><h2>朝霧 means morning mist.</h2><p>Asagiri is an independent fork of <a href="https://github.com/libracoder/kiri">Kiri</a>. We preserve its Apache 2.0 license and contributors' attribution, bring forward reviewed upstream work, and develop under our own name. Asagiri is not affiliated with or endorsed by Kiri or Canestack.</p></div></section>
+    </main>
+    <footer><span>Asagiri <span lang="ja">朝霧</span> · Made for a fresh start.</span><nav aria-label="Footer"><a href="https://github.com/AndreKurait/asagiri">GitHub ↗</a><a href="https://github.com/AndreKurait/asagiri/blob/main/SECURITY.md">Security</a><a href="https://github.com/AndreKurait/asagiri/blob/main/LICENSE">Apache 2.0</a></nav><span class="footer-note">No analytics. No hosted sharing service.</span></footer>
+  </div>
+</body>
+</html>

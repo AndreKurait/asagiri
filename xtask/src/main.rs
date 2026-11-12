@@ -1,36 +1,36 @@
-//! Build tasks for Kiri. Run with `cargo xtask <task>`.
+//! Build tasks for Asagiri. Run with `cargo xtask <task>`.
 //!
-//!   guest    build kiri-init for the guest and pack guest/out/initramfs.cpio
+//!   guest    build asagiri-init for the guest and pack guest/out/initramfs.cpio
 //!   kernel   build the guest kernel into guest/out/Image (needs a Docker engine)
 //!   disk     make the empty data disk template guest/out/data.img (needs a Docker engine)
-//!   host     build the `kiri` binary and sign it with the virtualization entitlement
-//!   app      host + target/Kiri.app: the guest, the icon and a bundled docker CLI,
+//!   host     build the `asagiri` binary and sign it with the virtualization entitlement
+//!   app      host + target/Asagiri.app: the guest, the icon and a bundled docker CLI,
 //!            Compose and buildx
-//!   app-dev  app + target/dev/Kiri Dev.app: the same app as a second Kiri, with
-//!            its own engine, containers and settings (crates/kiri/src/flavor.rs)
+//!   app-dev  app + target/dev/Asagiri Dev.app: the same app as a second Asagiri, with
+//!            its own engine, containers and settings (crates/asagiri/src/flavor.rs)
 //!            and a DEV band on its icon; never notarized. `app-dev builds`
-//!            makes Kiri Builds.app instead: one more, for one feature
-//!   release  app + target/Kiri-<version>-arm64.tar.gz and its update feed
+//!            makes Asagiri Builds.app instead: one more, for one feature
+//!   release  app + target/Asagiri-<version>-arm64.tar.gz and its update feed
 //!            (latest-mac-arm64.json)
-//!   linux    `kiri` and `kiri-init` for a Linux host, in target/linux/release
-//!            (built in a Linux container: needs a Docker engine, Kiri works)
-//!   windows  target/kiri-windows-x86_64: the x86-64 Linux engine for WSL2,
-//!            kiri-win.exe, the docker CLI, Compose and buildx, and the
-//!            scripts (contrib/windows: kiri.ps1, setup-tools.ps1, kiri-admin.ps1)
-//!   windows-dev  the same bundle with a debug kiri-win.exe for development
-//!   msi      windows + target/Kiri-<version>-x86_64.msi, the per-user installer
-//!            (installer/windows/kiri.wxs; needs the wix dotnet tool)
-//!   msi-pack the MSI from the bundle already in target/kiri-windows-x86_64
+//!   linux    `asagiri` and `asagiri-init` for a Linux host, in target/linux/release
+//!            (built in a Linux container: needs a Docker engine, Asagiri works)
+//!   windows  target/asagiri-windows-x86_64: the x86-64 Linux engine for WSL2,
+//!            asagiri-win.exe, the docker CLI, Compose and buildx, and the
+//!            scripts (contrib/windows: asagiri.ps1, setup-tools.ps1, asagiri-admin.ps1)
+//!   windows-dev  the same bundle with a debug asagiri-win.exe for development
+//!   msi      windows + target/Asagiri-<version>-x86_64.msi, the per-user installer
+//!            (installer/windows/asagiri.wxs; needs the wix dotnet tool)
+//!   msi-pack the MSI from the bundle already in target/asagiri-windows-x86_64
 //!            The four Windows tasks take `--arch arm64` for Windows on Arm:
-//!            target/kiri-windows-aarch64 and Kiri-<version>-arm64.msi
+//!            target/asagiri-windows-aarch64 and Asagiri-<version>-arm64.msi
 //!   docker-win-arm64  only the arm64 docker.exe, built from docker/cli's
 //!            source (Docker publishes none), checked against its pin
 //!   all      guest + host
 //!
 //! `--arch x86_64` (or `intel`) makes guest, kernel, host, app, app-lite,
-//! dmg, release and pack build Kiri for Intel Macs instead: an x86-64 guest
+//! dmg, release and pack build Asagiri for Intel Macs instead: an x86-64 guest
 //! in guest/out/x86_64, the host binary for x86_64-apple-darwin, and
-//! target/intel/Kiri.app with Intel builds of the docker CLI, Compose and
+//! target/intel/Asagiri.app with Intel builds of the docker CLI, Compose and
 //! buildx; its DMG, tarball and feed carry `-x86_64` in their names
 //! (latest-mac-x86_64.json), as Apple silicon's carry `-arm64`.
 
@@ -39,7 +39,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// Which Mac a build is for. Kiri ships one app per architecture rather
+/// Which Mac a build is for. Asagiri ships one app per architecture rather
 /// than a universal one: the bundled docker CLI, Compose and buildx are most
 /// of the download, and a universal app would carry both builds of each.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -70,7 +70,7 @@ impl Arch {
         }
     }
 
-    /// The kernel file in guest/out and in the app (crates/kiri/src/guest.rs).
+    /// The kernel file in guest/out and in the app (crates/asagiri/src/guest.rs).
     fn kernel(self) -> &'static str {
         match self {
             Arch::Arm64 => "Image",
@@ -92,7 +92,7 @@ impl Arch {
     /// architecture (so `cargo run` and the Apple Silicon build stay as they
     /// were), target/<triple>/release when cross-built.
     fn host_bin(self, root: &Path) -> PathBuf {
-        if self.native() { root.join("target/release/kiri") } else { root.join("target").join(self.host_target()).join("release/kiri") }
+        if self.native() { root.join("target/release/asagiri") } else { root.join("target").join(self.host_target()).join("release/asagiri") }
     }
 
     fn native(self) -> bool {
@@ -110,10 +110,10 @@ impl Arch {
     /// The app's folder under target/.
     fn app_dir(self, lite: bool) -> &'static str {
         match (self, lite) {
-            (Arch::Arm64, false) => "target/Kiri.app",
-            (Arch::Arm64, true) => "target/lite/Kiri.app",
-            (Arch::X86_64, false) => "target/intel/Kiri.app",
-            (Arch::X86_64, true) => "target/intel/lite/Kiri.app",
+            (Arch::Arm64, false) => "target/Asagiri.app",
+            (Arch::Arm64, true) => "target/lite/Asagiri.app",
+            (Arch::X86_64, false) => "target/intel/Asagiri.app",
+            (Arch::X86_64, true) => "target/intel/lite/Asagiri.app",
         }
     }
 
@@ -131,6 +131,7 @@ fn main() -> ExitCode {
     let arch = Arch::from_args();
     let result = match task.as_str() {
         "guest" => guest(&root, arch),
+        "qemu" => qemu(&root, arch),
         "kernel" => kernel(&root, arch),
         "disk" => disk(&root),
         "host" => host(&root, arch),
@@ -147,7 +148,7 @@ fn main() -> ExitCode {
         "docker-win-arm64" => docker_cli_arm64(&root.join("target/cli-cache")).map(|p| println!("{}", p.display())),
         "app" => app(&root, arch, false).map(drop),
         "app-lite" => app(&root, arch, true).map(drop),
-        // `app-dev builds`: Kiri Builds.app, a Kiri Dev of its own for one feature.
+        // `app-dev builds`: Asagiri Builds.app, a Asagiri Dev of its own for one feature.
         "app-dev" => match std::env::args().nth(2) {
             Some(f) if f.is_empty() || !f.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) || f == "dev" => {
                 eprintln!("a feature name is lower-case letters and digits, not `dev`");
@@ -164,7 +165,7 @@ fn main() -> ExitCode {
         "pack" => release(&root, &root.join(arch.app_dir(false)), arch),
         "all" => guest(&root, arch).and_then(|()| host(&root, arch)),
         _ => {
-            eprintln!("usage: cargo xtask <guest|kernel|disk|host|linux|windows|windows-dev|msi|msi-pack|docker-win-arm64|app|app-lite|app-dev|release|sign|pack|all> [--arch arm64]");
+            eprintln!("usage: cargo xtask <guest|qemu|kernel|disk|host|linux|windows|windows-dev|msi|msi-pack|docker-win-arm64|app|app-lite|app-dev|release|sign|pack|all> [--arch arm64]");
             return ExitCode::FAILURE;
         }
     };
@@ -187,14 +188,14 @@ fn run(cmd: &mut Command) -> io::Result<()> {
 
 fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     let target = arch.guest_target();
-    // kiri-init is pure Rust: rust-lld links it against Rust's own musl, as
+    // asagiri-init is pure Rust: rust-lld links it against Rust's own musl, as
     // .cargo/config.toml does for arm64. Set here, not there, so the Linux
     // and Windows engine builds (which link C) keep their own linker.
     run(Command::new(env!("CARGO"))
         .current_dir(root)
         .env("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
-        .args(["build", "--release", "-p", "kiri-init", "--target", target]))?;
-    let init = fs::read(root.join("target").join(target).join("release/kiri-init"))?;
+        .args(["build", "--release", "-p", "asagiri-init", "--target", target]))?;
+    let init = fs::read(root.join("target").join(target).join("release/asagiri-init"))?;
 
     // Uncompressed on purpose: it is small, and the kernel skips decompression.
     let mut cpio = Cpio::default();
@@ -210,15 +211,37 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     Ok(())
 }
 
-/// The arm64 kernel builds in the cached tree in the `kiri-kbuild` volume;
-/// the x86-64 one in its own, `kiri-kbuild-x86_64`, since both build in the
+/// The arm64 emulator an Intel Mac's guest needs: `guest/out/qemu/qemu-aarch64`
+/// from there on, which `xtask app` bundles as `Resources/qemu`. Static, so
+/// the guest needs nothing else. Apple silicon runs arm64 natively, so this
+/// does nothing there.
+fn qemu(root: &Path, arch: Arch) -> io::Result<()> {
+    if arch != Arch::X86_64 {
+        println!("arm64 is native on Apple silicon: no emulator needed");
+        return Ok(());
+    }
+    let (v, sum) = cli_pins::QEMU_AARCH64;
+    let cache = root.join("target/qemu-cache/x86_64");
+    let download = fetch(&cache, &format!("qemu-aarch64-{v}"), &cli_pins::qemu_aarch64_url(v))?;
+    verify(&download, sum)?;
+    let out = root.join("guest/out/qemu");
+    fs::create_dir_all(&out)?;
+    let bin = out.join("qemu-aarch64");
+    fs::copy(&download, &bin)?;
+    run(Command::new("chmod").arg("755").arg(&bin))?;
+    println!("{} ({} KiB)", bin.display(), fs::metadata(&bin)?.len() / 1024);
+    Ok(())
+}
+
+/// The arm64 kernel builds in the cached tree in the `asagiri-kbuild` volume;
+/// the x86-64 one in its own, `asagiri-kbuild-x86_64`, since both build in the
 /// source tree. On Apple Silicon the x86-64 kernel is cross-compiled.
 fn kernel(root: &Path, arch: Arch) -> io::Result<()> {
     let src = root.join("guest/kernel");
     let out = arch.guest_out(root)?;
     let (karch, cache) = match arch {
-        Arch::Arm64 => ("KARCH=arm64", "kiri-kbuild:/build"),
-        Arch::X86_64 => ("KARCH=x86_64", "kiri-kbuild-x86_64:/build"),
+        Arch::Arm64 => ("KARCH=arm64", "asagiri-kbuild:/build"),
+        Arch::X86_64 => ("KARCH=x86_64", "asagiri-kbuild-x86_64:/build"),
     };
     run(Command::new("docker").args([
         "run",
@@ -255,7 +278,7 @@ fn disk(root: &Path) -> io::Result<()> {
         "-c",
         "set -e; apt-get update -qq >/dev/null && apt-get install -y -qq e2fsprogs >/dev/null; \
          rm -f /out/data.img; truncate -s 64G /out/data.img; \
-         mkfs.ext4 -q -F -m 0 -L kiri-data -E lazy_itable_init=1,lazy_journal_init=1 /out/data.img",
+         mkfs.ext4 -q -F -m 0 -L asagiri-data -E lazy_itable_init=1,lazy_journal_init=1 /out/data.img",
     ]))?;
     let meta = fs::metadata(out.join("data.img"))?;
     println!("{} ({} GiB sparse)", out.join("data.img").display(), meta.len() >> 30);
@@ -264,7 +287,7 @@ fn disk(root: &Path) -> io::Result<()> {
 
 fn host(root: &Path, arch: Arch) -> io::Result<()> {
     let mut build = Command::new(env!("CARGO"));
-    build.current_dir(root).args(["build", "--release", "-p", "kiri"]);
+    build.current_dir(root).args(["build", "--release", "-p", "asagiri"]);
     if !arch.native() {
         build.args(["--target", arch.host_target()]);
     }
@@ -273,7 +296,7 @@ fn host(root: &Path, arch: Arch) -> io::Result<()> {
     if cfg!(target_os = "macos") {
         // Virtualization.framework refuses to start a VM without this entitlement.
         run(Command::new("codesign").args(["--force", "--sign", "-", "--entitlements"])
-            .arg(root.join("crates/kiri/kiri.entitlements"))
+            .arg(root.join("crates/asagiri/asagiri.entitlements"))
             .arg(&bin))?;
     }
     println!("{} ({} KiB)", bin.display(), fs::metadata(&bin)?.len() / 1024);
@@ -290,7 +313,7 @@ fn linux(root: &Path) -> io::Result<()> {
 }
 
 fn linux_build(root: &Path, amd64: bool) -> io::Result<()> {
-    let (platform, out, cache) = if amd64 { ("linux/amd64", "linux-x86_64", "kiri-cargo-amd64") } else { ("linux/arm64", "linux", "kiri-cargo") };
+    let (platform, out, cache) = if amd64 { ("linux/amd64", "linux-x86_64", "asagiri-cargo-amd64") } else { ("linux/arm64", "linux", "asagiri-cargo") };
     run(Command::new("docker").args(["run", "--rm", "--platform", platform, "-v"]).arg(format!("{}:/src", root.display())).args([
         "-v",
         &format!("{cache}:/usr/local/cargo/registry"),
@@ -304,9 +327,9 @@ fn linux_build(root: &Path, amd64: bool) -> io::Result<()> {
         "rust:1-alpine",
         "sh",
         "-c",
-        "apk add -q musl-dev && cargo build --release -p kiri -p kiri-init",
+        "apk add -q musl-dev && cargo build --release -p asagiri -p asagiri-init",
     ]))?;
-    for b in ["kiri", "kiri-init"] {
+    for b in ["asagiri", "asagiri-init"] {
         let p = root.join("target").join(out).join("release").join(b);
         println!("{} ({} KiB)", p.display(), fs::metadata(&p)?.len() / 1024);
     }
@@ -332,12 +355,12 @@ impl WinArch {
         }
     }
 
-    /// The machine this xtask runs on, which builds kiri-win without --target.
+    /// The machine this xtask runs on, which builds asagiri-win without --target.
     fn host() -> WinArch {
         if cfg!(target_arch = "aarch64") { WinArch::Arm64 } else { WinArch::X64 }
     }
 
-    /// The Linux engine's architecture: target/kiri-windows-<this>, the musl
+    /// The Linux engine's architecture: target/asagiri-windows-<this>, the musl
     /// target and Alpine's name for it.
     fn linux(self) -> &'static str {
         match self {
@@ -346,7 +369,7 @@ impl WinArch {
         }
     }
 
-    /// The MSI's name, as Windows says it (Kiri-<version>-arm64.msi).
+    /// The MSI's name, as Windows says it (Asagiri-<version>-arm64.msi).
     fn msi(self) -> &'static str {
         match self {
             WinArch::X64 => "x86_64",
@@ -369,7 +392,7 @@ impl WinArch {
         }
     }
 
-    /// The update feed kiri-win of this architecture reads (crates/kiri-win/src/update.rs).
+    /// The update feed asagiri-win of this architecture reads (crates/asagiri-win/src/update.rs).
     fn feed(self) -> &'static str {
         match self {
             WinArch::X64 => "latest-windows-x86_64.json",
@@ -378,14 +401,14 @@ impl WinArch {
     }
 }
 
-/// The Windows bundle, in target/kiri-windows-x86_64 (or -aarch64): what
-/// contrib/windows/kiri.ps1 installs. On Windows the Linux half is built
+/// The Windows bundle, in target/asagiri-windows-x86_64 (or -aarch64): what
+/// contrib/windows/asagiri.ps1 installs. On Windows the Linux half is built
 /// with cargo in WSL (the default distro, with Rust installed); elsewhere
-/// as `linux --arch amd64` is, and kiri-win.exe needs the
+/// as `linux --arch amd64` is, and asagiri-win.exe needs the
 /// x86_64-pc-windows-gnu target and MinGW.
 fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
-    // The static (musl) engine, which runs in Kiri Linux and in Ubuntu, and
-    // Kiri Linux itself (scripts/kiri-linux.sh), built in WSL: on Windows,
+    // The static (musl) engine, which runs in Asagiri Linux and in Ubuntu, and
+    // Asagiri Linux itself (scripts/asagiri-linux.sh), built in WSL: on Windows,
     // the default distro, with Rust installed. zig cross-compiles, so
     // either architecture builds in either WSL.
     let linux = root.join(format!("target/linux-{}-musl", arch.linux()));
@@ -399,15 +422,15 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
     };
     let (src, out_dir) = (wsl(root)?, wsl(&linux)?);
     run(Command::new("wsl.exe").args(["--", "bash", &format!("{src}/scripts/windows-engine.sh"), &src, &out_dir, arch.linux()]))?;
-    run(Command::new("wsl.exe").args(["--", "sh", &format!("{src}/scripts/kiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/kiri-linux.tar.gz"), arch.linux()]))?;
-    // Assemble the bundle first: the engine, Kiri Linux, the docker CLI,
-    // Compose and buildx (pinned, checked, as Kiri.app bundles them) and the
-    // install scripts. kiri-win is built last, with the SHA-256 of each of
+    run(Command::new("wsl.exe").args(["--", "sh", &format!("{src}/scripts/asagiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/asagiri-linux.tar.gz"), arch.linux()]))?;
+    // Assemble the bundle first: the engine, Asagiri Linux, the docker CLI,
+    // Compose and buildx (pinned, checked, as Asagiri.app bundles them) and the
+    // install scripts. asagiri-win is built last, with the SHA-256 of each of
     // these embedded, so setup can refuse a bundle file that was tampered
     // with in the unzipped folder.
-    let out = root.join(format!("target/kiri-windows-{}", arch.linux()));
+    let out = root.join(format!("target/asagiri-windows-{}", arch.linux()));
     fs::create_dir_all(out.join("bin/cli-plugins"))?;
-    for b in ["kiri", "kiri-init", "kiri-linux.tar.gz"] {
+    for b in ["asagiri", "asagiri-init", "asagiri-linux.tar.gz"] {
         fs::copy(linux.join(b), out.join(b))?;
     }
     let cache = root.join("target/cli-cache");
@@ -436,31 +459,31 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
         fs::copy(&buildx, out.join("bin/cli-plugins/docker-buildx.exe"))?;
     }
     fs::copy(root.join("contrib/wsl/install.sh"), out.join("install.sh"))?;
-    // The PowerShell scripts kiri-win runs, from their files beside it with
-    // -File: kiri.ps1 (update, uninstall), setup-tools.ps1 (setup's tools
-    // step) and kiri-admin.ps1 (the elevated steps: WSL, the DNS rule). Never
-    // script text inside kiri-win.exe, which Defender's heuristics take for
-    // a dropper (crates/kiri-win/src/win.rs).
-    for s in ["kiri.ps1", "setup-tools.ps1", "kiri-admin.ps1"] {
+    // The PowerShell scripts asagiri-win runs, from their files beside it with
+    // -File: asagiri.ps1 (update, uninstall), setup-tools.ps1 (setup's tools
+    // step) and asagiri-admin.ps1 (the elevated steps: WSL, the DNS rule). Never
+    // script text inside asagiri-win.exe, which Defender's heuristics take for
+    // a dropper (crates/asagiri-win/src/win.rs).
+    for s in ["asagiri.ps1", "setup-tools.ps1", "asagiri-admin.ps1"] {
         fs::copy(root.join("contrib/windows").join(s), out.join(s))?;
     }
     fs::copy(root.join("LICENSE"), out.join("LICENSE"))?;
     fs::copy(root.join("NOTICE"), out.join("NOTICE"))?;
-    // bin\kiri.exe, the `kiri` command: Share on Windows itself, docker's
-    // commands through docker.exe, the engine's own by the `kiri` in WSL
-    // (crates/kiri/src/wsl.rs). Built before kiri-win, so its hash goes in
+    // bin\asagiri.exe, the `asagiri` command: Share on Windows itself, docker's
+    // commands through docker.exe, the engine's own by the `asagiri` in WSL
+    // (crates/asagiri/src/wsl.rs). Built before asagiri-win, so its hash goes in
     // the manifest too.
-    fs::copy(windows_exe(root, debug, arch, "kiri", None)?, out.join("bin/kiri.exe"))?;
+    fs::copy(windows_exe(root, debug, arch, "asagiri", None)?, out.join("bin/asagiri.exe"))?;
 
-    // `name=sha256;…` for every file setup uses or kiri-win runs, embedded in kiri-win.exe.
-    let hashed = ["kiri", "kiri-init", "kiri-linux.tar.gz", "install.sh", "kiri.ps1", "setup-tools.ps1", "kiri-admin.ps1", "bin/docker.exe", "bin/kiri.exe", "bin/cli-plugins/docker-compose.exe", "bin/cli-plugins/docker-buildx.exe"];
+    // `name=sha256;…` for every file setup uses or asagiri-win runs, embedded in asagiri-win.exe.
+    let hashed = ["asagiri", "asagiri-init", "asagiri-linux.tar.gz", "install.sh", "asagiri.ps1", "setup-tools.ps1", "asagiri-admin.ps1", "bin/docker.exe", "bin/asagiri.exe", "bin/cli-plugins/docker-compose.exe", "bin/cli-plugins/docker-buildx.exe"];
     let mut manifest = Vec::new();
     for f in hashed {
         manifest.push(format!("{f}={}", sha256(&out.join(f))?));
     }
     let manifest = manifest.join(";");
-    let exe = windows_exe(root, debug, arch, "kiri-win", Some(&manifest))?;
-    fs::copy(&exe, out.join("kiri-win.exe"))?;
+    let exe = windows_exe(root, debug, arch, "asagiri-win", Some(&manifest))?;
+    fs::copy(&exe, out.join("asagiri-win.exe"))?;
     println!("{}", out.display());
     Ok(())
 }
@@ -568,29 +591,29 @@ fn dir_size(dir: &Path) -> io::Result<u64> {
     Ok(total)
 }
 
-/// target/Kiri-<version>-x86_64.msi (or -arm64.msi): the per-user Windows
-/// installer (installer/windows/kiri.wxs) around the bundle in
-/// target/kiri-windows-x86_64 (or -aarch64). Both share one UpgradeCode, so
-/// either replaces the other (kiri.wxs says why); each has its own feed.
+/// target/Asagiri-<version>-x86_64.msi (or -arm64.msi): the per-user Windows
+/// installer (installer/windows/asagiri.wxs) around the bundle in
+/// target/asagiri-windows-x86_64 (or -aarch64). Both share one UpgradeCode, so
+/// either replaces the other (asagiri.wxs says why); each has its own feed.
 /// Needs WiX 5 (`dotnet tool install -g wix`, with the UI and Util
 /// extensions: `wix extension add -g WixToolset.UI.wixext/5.0.2`,
 /// `WixToolset.Util.wixext/5.0.2`).
-/// Builds `package` (kiri-win, or kiri for bin\kiri.exe) for Windows on
+/// Builds `package` (asagiri-win, or asagiri for bin\asagiri.exe) for Windows on
 /// `arch` and returns its exe: natively on Windows, or the x86-64 one with
 /// MinGW elsewhere. `manifest` is the bundle's hashes, embedded in a
-/// release kiri-win.exe.
+/// release asagiri-win.exe.
 fn windows_exe(root: &Path, debug: bool, arch: WinArch, package: &str, manifest: Option<&str>) -> io::Result<PathBuf> {
     let mut build = Command::new(env!("CARGO"));
     build.current_dir(root).args(["build", "-p", package, "--bin", package]);
     if let Some(m) = manifest.filter(|_| !debug) {
-        build.env("KIRI_BUNDLE_SHA256", m);
+        build.env("ASAGIRI_BUNDLE_SHA256", m);
     }
     if !debug {
         build.arg("--release");
     }
     let mut dir = root.join("target");
     if cfg!(windows) {
-        // The other architecture's kiri-win (arm64 from an x64 PC, or the
+        // The other architecture's asagiri-win (arm64 from an x64 PC, or the
         // reverse) needs its rustup target and Visual Studio's MSVC build
         // tools for it ("MSVC ... ARM64 build tools").
         if arch != WinArch::host() {
@@ -598,7 +621,7 @@ fn windows_exe(root: &Path, debug: bool, arch: WinArch, package: &str, manifest:
             dir = dir.join(arch.msvc());
         }
     } else if arch == WinArch::Arm64 {
-        return Err(io::Error::other("the arm64 kiri-win.exe is built on Windows (or checked from here with cargo xwin)"));
+        return Err(io::Error::other("the arm64 asagiri-win.exe is built on Windows (or checked from here with cargo xwin)"));
     } else {
         build.args(["--target", "x86_64-pc-windows-gnu"]);
         dir = dir.join("x86_64-pc-windows-gnu");
@@ -608,12 +631,12 @@ fn windows_exe(root: &Path, debug: bool, arch: WinArch, package: &str, manifest:
 }
 
 fn msi(root: &Path, arch: WinArch) -> io::Result<()> {
-    let bundle = root.join(format!("target/kiri-windows-{}", arch.linux()));
-    if !bundle.join("kiri-win.exe").is_file() {
+    let bundle = root.join(format!("target/asagiri-windows-{}", arch.linux()));
+    if !bundle.join("asagiri-win.exe").is_file() {
         return Err(io::Error::other(format!("no bundle in {}: run cargo xtask windows (or msi) first", bundle.display())));
     }
     let version = env!("CARGO_PKG_VERSION");
-    let name = format!("Kiri-{version}-{}.msi", arch.msi());
+    let name = format!("Asagiri-{version}-{}.msi", arch.msi());
     let out = root.join("target").join(&name);
     // The dialog art (brand/installer/windows, committed) gets this build's
     // version stamped onto a copy in target/wix-assets, with System.Drawing
@@ -649,12 +672,12 @@ fn msi(root: &Path, arch: WinArch) -> io::Result<()> {
     if drawn {
         wix.arg("-d").arg(format!("Assets={}", assets.display()));
     }
-    run(wix.args(["-loc", "kiri.wxl", "-o"]).arg(&out).arg("kiri.wxs"))?;
-    // The update feed entry kiri-win reads (crates/kiri-win/src/update.rs),
+    run(wix.args(["-loc", "asagiri.wxl", "-o"]).arg(&out).arg("asagiri.wxs"))?;
+    // The update feed entry asagiri-win reads (crates/asagiri-win/src/update.rs),
     // as `release` writes the Mac's.
     let size = fs::metadata(&out)?.len();
     let sum = sha256(&out)?;
-    let base = std::env::var("KIRI_RELEASE_BASE").unwrap_or_else(|_| "https://download.runkiri.com".to_owned());
+    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| format!("https://github.com/AndreKurait/asagiri/releases/download/v{version}"));
     let extra = feed_notes()?;
     let feed = format!("{{\"version\":\"{version}\",\"url\":\"{base}/{name}\",\"sha256\":\"{sum}\",\"size\":{size}{extra}}}\n");
     let feed_path = root.join("target").join(arch.feed());
@@ -663,10 +686,10 @@ fn msi(root: &Path, arch: WinArch) -> io::Result<()> {
     Ok(())
 }
 
-/// The docker CLI tools bundled into Kiri.app, pinned.
+/// The docker CLI tools bundled into Asagiri.app, pinned.
 /// SHA-256s from the releases (GitHub's asset digests; the docker tarball
 /// as download.docker.com served it), checked before anything is bundled.
-#[path = "../../crates/kiri/src/cli_pins.rs"]
+#[path = "../../crates/asagiri/src/cli_pins.rs"]
 mod cli_pins;
 use cli_pins::{WIN_ARM64_BUILDX, WIN_ARM64_COMPOSE, WIN_ARM64_DOCKER_SRC, WIN_BUILDX, WIN_COMPOSE, WIN_DOCKER_CLI};
 
@@ -703,9 +726,9 @@ fn verify(file: &Path, want: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// target/Kiri.app, signed with the virtualization entitlement. `lite`:
-/// target/lite/Kiri.app, without the docker CLI, Compose and buildx, which
-/// Kiri Lite downloads on first launch (src/tools.rs).
+/// target/Asagiri.app, signed with the virtualization entitlement. `lite`:
+/// target/lite/Asagiri.app, without the docker CLI, Compose and buildx, which
+/// Asagiri Lite downloads on first launch (src/tools.rs).
 fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     host(root, arch)?;
     let version = env!("CARGO_PKG_VERSION");
@@ -721,7 +744,7 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     if !lite {
         fs::create_dir_all(res.join("bin/cli-plugins"))?;
     }
-    fs::copy(arch.host_bin(root), macos.join("kiri"))?;
+    fs::copy(arch.host_bin(root), macos.join("asagiri"))?;
     // In Resources, not loose in Contents: codesign refuses a file there
     // ("code object is not signed at all ... In subcomponent: Contents/LICENSE").
     fs::copy(root.join("LICENSE"), res.join("LICENSE"))?;
@@ -731,9 +754,23 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     for f in [arch.kernel(), "initramfs.cpio"] {
         fs::copy(out.join(f), res.join("guest").join(f))?;
     }
+    // The Intel guest's arm64 emulator (`xtask qemu`): shared into the VM, so
+    // arm64 images run on Intel Macs, which have no Rosetta for Linux.
+    if arch == Arch::X86_64 {
+        let bin = root.join("guest/out/qemu/qemu-aarch64");
+        if bin.is_file() {
+            fs::create_dir_all(res.join("qemu"))?;
+            fs::copy(&bin, res.join("qemu/qemu-aarch64"))?;
+            for file in ["COPYING", "README.md"] {
+                fs::copy(root.join("packaging/qemu").join(file), res.join("qemu").join(file))?;
+            }
+        } else {
+            eprintln!("xtask app: no guest/out/qemu/qemu-aarch64: run `cargo xtask qemu` to run arm64 images");
+        }
+    }
     // The disk template is 64 GiB sparse. Packed as a sparse tarball it is a
     // few hundred KB, and zips, notarization and downloads never see the
-    // 64 GiB; Kiri unpacks it on first boot.
+    // 64 GiB; Asagiri unpacks it on first boot.
     run(Command::new("tar").args(["-cSzf"]).arg(res.join("guest/data.img.tgz")).arg("-C").arg(Arch::Arm64.guest_out(root)?).arg("data.img"))?;
 
     if !lite {
@@ -758,16 +795,16 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     }
 
     // The icon, from the brand PNGs.
-    let iconset = root.join("target/Kiri.iconset");
+    let iconset = root.join("target/Asagiri.iconset");
     let _ = fs::remove_dir_all(&iconset);
     fs::create_dir_all(&iconset)?;
     let png = root.join("brand/icon/png");
     for (size, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
         let px = size * scale;
         let name = if scale == 1 { format!("icon_{size}x{size}.png") } else { format!("icon_{size}x{size}@2x.png") };
-        fs::copy(png.join(format!("kiri-app-icon-{px}.png")), iconset.join(name))?;
+        fs::copy(png.join(format!("asagiri-app-icon-{px}.png")), iconset.join(name))?;
     }
-    run(Command::new("iconutil").args(["-c", "icns", "-o"]).arg(res.join("Kiri.icns")).arg(&iconset))?;
+    run(Command::new("iconutil").args(["-c", "icns", "-o"]).arg(res.join("Asagiri.icns")).arg(&iconset))?;
     fs::remove_dir_all(&iconset)?;
 
     fs::write(
@@ -777,23 +814,23 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Kiri</string>
-  <key>CFBundleDisplayName</key><string>Kiri</string>
-  <key>CFBundleIdentifier</key><string>dev.kiri.app</string>
-  <key>CFBundleExecutable</key><string>kiri</string>
-  <key>CFBundleIconFile</key><string>Kiri</string>
+  <key>CFBundleName</key><string>Asagiri</string>
+  <key>CFBundleDisplayName</key><string>Asagiri</string>
+  <key>CFBundleIdentifier</key><string>dev.asagiri.app</string>
+  <key>CFBundleExecutable</key><string>asagiri</string>
+  <key>CFBundleIconFile</key><string>Asagiri</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>{plain}</string>
   <key>CFBundleVersion</key><string>{plain}</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSLocalNetworkUsageDescription</key><string>Kiri lets containers reach devices and services on your network, and serves the ports they publish.</string>
-  <key>NSDesktopFolderUsageDescription</key><string>Kiri shares this folder with containers you mount it into.</string>
-  <key>NSDocumentsFolderUsageDescription</key><string>Kiri shares this folder with containers you mount it into.</string>
-  <key>NSDownloadsFolderUsageDescription</key><string>Kiri saves files you download from containers here, and shares the folder with containers you mount it into.</string>
-  <key>NSRemovableVolumesUsageDescription</key><string>Kiri shares this drive with containers you mount it into.</string>
-  <key>NSNetworkVolumesUsageDescription</key><string>Kiri shares this network drive with containers you mount it into.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Asagiri lets containers reach devices and services on your network, and serves the ports they publish.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>Asagiri shares this folder with containers you mount it into.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Asagiri shares this folder with containers you mount it into.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Asagiri saves files you download from containers here, and shares the folder with containers you mount it into.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>Asagiri shares this drive with containers you mount it into.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>Asagiri shares this network drive with containers you mount it into.</string>
 </dict>
 </plist>
 "#
@@ -805,16 +842,16 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     Ok(app)
 }
 
-/// target/dev/Kiri Dev.app, from the app just built: its own name and
-/// bundle identifier, which make the binary Kiri Dev, and the icon with a
+/// target/dev/Asagiri Dev.app, from the app just built: its own name and
+/// bundle identifier, which make the binary Asagiri Dev, and the icon with a
 /// DEV band. Signed again without the hardened runtime or a timestamp: it
 /// is never notarized, and the timestamp asks Apple's server on every build.
-/// With a feature, `builds`: target/dev/Kiri Builds.app, `dev.kiri.app.builds`,
-/// a BUILDS band, and its own engine beside Kiri's and Kiri Dev's.
+/// With a feature, `builds`: target/dev/Asagiri Builds.app, `dev.asagiri.app.builds`,
+/// a BUILDS band, and its own engine beside Asagiri's and Asagiri Dev's.
 fn app_dev(root: &Path, built: &Path, feature: Option<&str>) -> io::Result<()> {
     let (name, id, band, state) = match feature {
-        None => ("Kiri Dev".to_owned(), "dev.kiri.app.dev".to_owned(), "DEV".to_owned(), "kiri-dev".to_owned()),
-        Some(f) => (format!("Kiri {}{}", f[..1].to_ascii_uppercase(), &f[1..]), format!("dev.kiri.app.{f}"), f.to_ascii_uppercase(), format!("kiri-{f}")),
+        None => ("Asagiri Dev".to_owned(), "dev.asagiri.app.dev".to_owned(), "DEV".to_owned(), "asagiri-dev".to_owned()),
+        Some(f) => (format!("Asagiri {}{}", f[..1].to_ascii_uppercase(), &f[1..]), format!("dev.asagiri.app.{f}"), f.to_ascii_uppercase(), format!("asagiri-{f}")),
     };
     let dir = root.join("target/dev");
     let app = dir.join(format!("{name}.app"));
@@ -823,14 +860,14 @@ fn app_dev(root: &Path, built: &Path, feature: Option<&str>) -> io::Result<()> {
     run(Command::new("ditto").arg(built).arg(&app))?;
     let contents = app.join("Contents");
     let plist = fs::read_to_string(contents.join("Info.plist"))?
-        .replace("<key>CFBundleName</key><string>Kiri</string>", &format!("<key>CFBundleName</key><string>{name}</string>"))
-        .replace("<key>CFBundleDisplayName</key><string>Kiri</string>", &format!("<key>CFBundleDisplayName</key><string>{name}</string>"))
-        .replace("<string>dev.kiri.app</string>", &format!("<string>{id}</string>"));
+        .replace("<key>CFBundleName</key><string>Asagiri</string>", &format!("<key>CFBundleName</key><string>{name}</string>"))
+        .replace("<key>CFBundleDisplayName</key><string>Asagiri</string>", &format!("<key>CFBundleDisplayName</key><string>{name}</string>"))
+        .replace("<string>dev.asagiri.app</string>", &format!("<string>{id}</string>"));
     fs::write(contents.join("Info.plist"), plist)?;
 
-    let png = root.join("target/kiri-dev-icon.png");
-    run(Command::new("swift").arg(root.join("xtask/dev-icon.swift")).arg(root.join("brand/icon/png/kiri-app-icon-1024.png")).arg(&png).arg(&band))?;
-    let iconset = root.join("target/KiriDev.iconset");
+    let png = root.join("target/asagiri-dev-icon.png");
+    run(Command::new("swift").arg(root.join("xtask/dev-icon.swift")).arg(root.join("brand/icon/png/asagiri-app-icon-1024.png")).arg(&png).arg(&band))?;
+    let iconset = root.join("target/AsagiriDev.iconset");
     let _ = fs::remove_dir_all(&iconset);
     fs::create_dir_all(&iconset)?;
     for (size, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
@@ -838,12 +875,12 @@ fn app_dev(root: &Path, built: &Path, feature: Option<&str>) -> io::Result<()> {
         let px = (size * scale).to_string();
         run(Command::new("sips").args(["-z", &px, &px]).arg(&png).arg("--out").arg(iconset.join(name)).stdout(std::process::Stdio::null()))?;
     }
-    run(Command::new("iconutil").args(["-c", "icns", "-o"]).arg(contents.join("Resources/Kiri.icns")).arg(&iconset))?;
+    run(Command::new("iconutil").args(["-c", "icns", "-o"]).arg(contents.join("Resources/Asagiri.icns")).arg(&iconset))?;
     fs::remove_dir_all(&iconset)?;
 
     let identity = signing_identity();
-    let entitlements = root.join("crates/kiri/kiri.entitlements");
-    for target in [contents.join("MacOS/kiri"), app.clone()] {
+    let entitlements = root.join("crates/asagiri/asagiri.entitlements");
+    for target in [contents.join("MacOS/asagiri"), app.clone()] {
         run(Command::new("codesign").args(["--force", "--sign", &identity, "--entitlements"]).arg(&entitlements).arg(target))?;
     }
     run(Command::new("codesign").args(["--verify", "--deep", "--strict"]).arg(&app))?;
@@ -851,10 +888,10 @@ fn app_dev(root: &Path, built: &Path, feature: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-/// `KIRI_SIGN_IDENTITY`, else the keychain's Developer ID Application
+/// `ASAGIRI_SIGN_IDENTITY`, else the keychain's Developer ID Application
 /// identity, else ad hoc ("-"), which runs only on this Mac.
 fn signing_identity() -> String {
-    if let Ok(id) = std::env::var("KIRI_SIGN_IDENTITY") {
+    if let Ok(id) = std::env::var("ASAGIRI_SIGN_IDENTITY") {
         return id;
     }
     let out = Command::new("security").args(["find-identity", "-v", "-p", "codesigning"]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
@@ -877,20 +914,20 @@ fn sign(identity: &str, entitlements: Option<&Path>) -> Command {
     c
 }
 
-/// target/Kiri-<version>-arm64.dmg (-x86_64 for Intel): the app and an Applications shortcut, signed,
+/// target/Asagiri-<version>-arm64.dmg (-x86_64 for Intel): the app and an Applications shortcut, signed,
 /// then notarized by Apple in one submission, with the ticket stapled to the
-/// DMG and the app so Gatekeeper opens both offline. `KIRI_NOTARY_PROFILE`
+/// DMG and the app so Gatekeeper opens both offline. `ASAGIRI_NOTARY_PROFILE`
 /// names credentials stored with `xcrun notarytool store-credentials`;
 /// unset or empty (as CI sets it when not notarizing) skips this.
 /// The drag-to-install disk image: a fixed
-/// Finder window with Kiri on the left, Applications on the right and an
+/// Finder window with Asagiri on the left, Applications on the right and an
 /// arrow between them (scripts/dmg-background.swift draws it,
 /// scripts/dmg-settings.py places the icons). dmgbuild writes the window's
 /// .DS_Store directly, with no Finder or AppleScript; it is installed,
 /// pinned, in a throwaway virtualenv under target/. Signed, not notarized.
 /// Signs an app `app` built (here, or on a Mac without the Developer ID
 /// identity, such as the Intel CI Mac), and notarizes it if
-/// KIRI_NOTARY_PROFILE names a profile.
+/// ASAGIRI_NOTARY_PROFILE names a profile.
 fn sign_app(root: &Path, app: &Path, arch: Arch, lite: bool) -> io::Result<()> {
     let (macos, res) = (app.join("Contents/MacOS"), app.join("Contents/Resources"));
     // Inside out: the helper binaries first, then the app with the
@@ -901,11 +938,11 @@ fn sign_app(root: &Path, app: &Path, arch: Arch, lite: bool) -> io::Result<()> {
             run(sign(&identity, None).arg(res.join(f)))?;
         }
     }
-    run(sign(&identity, Some(&root.join("crates/kiri/kiri.entitlements"))).arg(macos.join("kiri")))?;
-    run(sign(&identity, Some(&root.join("crates/kiri/kiri.entitlements"))).arg(app))?;
+    run(sign(&identity, Some(&root.join("crates/asagiri/asagiri.entitlements"))).arg(macos.join("asagiri")))?;
+    run(sign(&identity, Some(&root.join("crates/asagiri/asagiri.entitlements"))).arg(app))?;
     run(Command::new("codesign").args(["--verify", "--deep", "--strict"]).arg(app))?;
     println!("signed: {}", if identity == "-" { "ad hoc (no Developer ID identity found)" } else { identity.as_str() });
-    if let Some(profile) = std::env::var("KIRI_NOTARY_PROFILE").ok().filter(|p| !p.is_empty()) {
+    if let Some(profile) = std::env::var("ASAGIRI_NOTARY_PROFILE").ok().filter(|p| !p.is_empty()) {
         notarize(root, app, &profile, arch, lite)?;
     }
     Ok(())
@@ -924,7 +961,7 @@ fn dmg(root: &Path, app: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     let bg = root.join("target/dmg-background");
     fs::create_dir_all(&bg)?;
     run(Command::new("swift").arg(root.join("scripts/dmg-background.swift")).arg(bg.join("background")))?;
-    let dmg = root.join(format!("target/Kiri-{}{version}{}.dmg", if lite { "Lite-" } else { "" }, arch.suffix()));
+    let dmg = root.join(format!("target/Asagiri-{}{version}{}.dmg", if lite { "Lite-" } else { "" }, arch.suffix()));
     let _ = fs::remove_file(&dmg);
     run(Command::new(&dmgbuild)
         .arg("-s")
@@ -934,10 +971,10 @@ fn dmg(root: &Path, app: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
         .arg("-D")
         .arg(format!("background={}", bg.join("background.png").display()))
         .arg(match (lite, arch) {
-            (false, Arch::Arm64) => "Kiri",
-            (true, Arch::Arm64) => "Kiri Lite",
-            (false, Arch::X86_64) => "Kiri for Intel",
-            (true, Arch::X86_64) => "Kiri Lite for Intel",
+            (false, Arch::Arm64) => "Asagiri",
+            (true, Arch::Arm64) => "Asagiri Lite",
+            (false, Arch::X86_64) => "Asagiri for Intel",
+            (true, Arch::X86_64) => "Asagiri Lite for Intel",
         })
         .arg(&dmg))?;
     run(sign(&signing_identity(), None).arg(&dmg))?;
@@ -970,32 +1007,32 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// What's new, for a feed (Mac's and Windows'): KIRI_RELEASE_NOTES names a
+/// What's new, for a feed (Mac's and Windows'): ASAGIRI_RELEASE_NOTES names a
 /// Markdown file ("## New", "- a line") shown in the window's What's new;
-/// KIRI_RELEASE_NOTES_URL a runkiri.com page. Empty when neither is set.
+/// ASAGIRI_RELEASE_NOTES_URL a andrekurait.github.io/asagiri page. Empty when neither is set.
 fn feed_notes() -> io::Result<String> {
     let mut extra = String::new();
-    if let Ok(path) = std::env::var("KIRI_RELEASE_NOTES") {
+    if let Ok(path) = std::env::var("ASAGIRI_RELEASE_NOTES") {
         extra += &format!(",\"notes\":\"{}\"", json_escape(&fs::read_to_string(&path)?));
     }
-    if let Ok(url) = std::env::var("KIRI_RELEASE_NOTES_URL") {
+    if let Ok(url) = std::env::var("ASAGIRI_RELEASE_NOTES_URL") {
         extra += &format!(",\"notes_url\":\"{}\"", json_escape(&url));
     }
     Ok(extra)
 }
 
-/// target/Kiri-<version>-arm64.tar.gz (sparse-aware, so the disk template
+/// target/Asagiri-<version>-arm64.tar.gz (sparse-aware, so the disk template
 /// stays small) and target/latest-mac-arm64.json, the feed that Mac's app
-/// reads (crates/kiri/src/update.rs); for Intel, -x86_64 in both.
+/// reads (crates/asagiri/src/update.rs); for Intel, -x86_64 in both.
 fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let suffix = arch.suffix();
-    let tarball = root.join(format!("target/Kiri-{version}{suffix}.tar.gz"));
-    run(Command::new("tar").args(["-cSzf"]).arg(&tarball).arg("-C").arg(app.parent().unwrap_or(root)).arg("Kiri.app"))?;
+    let tarball = root.join(format!("target/Asagiri-{version}{suffix}.tar.gz"));
+    run(Command::new("tar").args(["-cSzf"]).arg(&tarball).arg("-C").arg(app.parent().unwrap_or(root)).arg("Asagiri.app"))?;
     let sum = sha256(&tarball)?;
-    let base = std::env::var("KIRI_RELEASE_BASE").unwrap_or_else(|_| "https://download.runkiri.com".to_owned());
+    let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| format!("https://github.com/AndreKurait/asagiri/releases/download/v{version}"));
     let extra = feed_notes()?;
-    let feed = format!("{{\"version\":\"{version}\",\"url\":\"{base}/Kiri-{version}{suffix}.tar.gz\",\"sha256\":\"{sum}\"{extra}}}\n");
+    let feed = format!("{{\"version\":\"{version}\",\"url\":\"{base}/Asagiri-{version}{suffix}.tar.gz\",\"sha256\":\"{sum}\"{extra}}}\n");
     let feed_path = root.join(format!("target/latest-mac{suffix}.json"));
     fs::write(&feed_path, &feed)?;
     println!("{} ({} KiB)\n{}", tarball.display(), fs::metadata(&tarball)?.len() / 1024, feed_path.display());

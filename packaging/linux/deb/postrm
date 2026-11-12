@@ -1,13 +1,13 @@
 #!/bin/sh
-# kiri.deb: after the files are gone. Images, containers and volumes stay in
-# /var/lib/kiri and /var/lib/kiri-daemon unless the package is purged.
+# asagiri.deb: after the files are gone. Images, containers and volumes stay in
+# /var/lib/asagiri and /var/lib/asagiri-daemon unless the package is purged.
 set -e
 case "$1" in
   remove)
     [ -d /run/systemd/system ] && systemctl daemon-reload || true
-    # NetworkManager forgets kiri.conf now rather than at the next boot.
+    # NetworkManager forgets asagiri.conf now rather than at the next boot.
     nmcli general reload conf >/dev/null 2>&1 || true
-    echo "Kiri is removed; its images, containers and volumes stay in /var/lib/kiri (apt purge kiri deletes them)"
+    echo "Asagiri is removed; its images, containers and volumes stay in /var/lib/asagiri (apt purge asagiri deletes them)"
     ;;
   purge)
     # Anything still mounted under the data directory (a container's rootfs
@@ -15,10 +15,10 @@ case "$1" in
     # first, deepest first, so rm does not reach through a mount into the
     # live filesystem it came from; --one-file-system is the second guard.
     if command -v findmnt >/dev/null; then
-      findmnt -lrno TARGET 2>/dev/null | grep -E "^/var/lib/kiri(/|$)" | tac | xargs -r -n1 umount 2>/dev/null || true
+      findmnt -lrno TARGET 2>/dev/null | grep -E "^/var/lib/asagiri(/|$)" | tac | xargs -r -n1 umount 2>/dev/null || true
     fi
-    rm -rf --one-file-system /var/lib/kiri /var/lib/kiri-daemon /run/kiri
-    getent group kiri >/dev/null && groupdel kiri || true
+    rm -rf --one-file-system /var/lib/asagiri /var/lib/asagiri-daemon /run/asagiri
+    getent group asagiri >/dev/null && groupdel asagiri || true
     ;;
 esac
 exit 0

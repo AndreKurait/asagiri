@@ -69,7 +69,7 @@ def check(path, image):
         output = "/tmp/icc-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
                       {"Cmd": ["sh", "-c", "{ " + command + "; } > " + output + " 2>&1"]}, (201,))["Id"]
-        # Docker answers 200; Kiri answers 204 today.
+        # Docker answers 200; Asagiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:

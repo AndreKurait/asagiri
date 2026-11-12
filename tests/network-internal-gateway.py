@@ -71,7 +71,7 @@ def check(path, image):
         target = "/tmp/gateway-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
                       {"Cmd": ["sh", "-c", "(" + command + ") > " + target + " 2>&1"]}, (201,))["Id"]
-        # Docker answers 200; Kiri answers 204 today.
+        # Docker answers 200; Asagiri answers 204 today.
         request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
         deadline = time.monotonic() + 20
         while True:
@@ -138,7 +138,7 @@ def check(path, image):
         # Joined to an internal network as well: that endpoint shows none,
         # the first keeps its own, and the way out stays where it was.
         before = gateways(endpoints(cid)[routed])
-        # Docker answers 200; Kiri answers 204 today.
+        # Docker answers 200; Asagiri answers 204 today.
         request("POST", "/networks/" + closed6 + "/connect", {"Container": cid}, (200, 204))
         both = endpoints(cid)
         assert gateways(both[closed6]) == ("", "") and both[closed6]["IPAddress"] and both[closed6]["GlobalIPv6Address"], both

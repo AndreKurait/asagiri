@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs Kiri's speed check (scripts/perf.py) for two Linux builds: main's and
+# Runs Asagiri's speed check (scripts/perf.py) for two Linux builds: main's and
 # a change's. Each engine runs in its own privileged container on this
 # machine's Docker, with its socket in WORK, and the check talks to both.
 #
@@ -17,8 +17,8 @@ SUDO=; [ "$(id -u)" = 0 ] || SUDO=sudo
 mkdir -p "$WORK"; WORK=$(cd "$WORK" && pwd)
 
 stop() {
-  docker rm -f kiri-perf-base kiri-perf-head >/dev/null 2>&1 || true
-  docker volume rm kiri-perf-base-lib kiri-perf-base-store kiri-perf-head-lib kiri-perf-head-store >/dev/null 2>&1 || true
+  docker rm -f asagiri-perf-base asagiri-perf-head >/dev/null 2>&1 || true
+  docker volume rm asagiri-perf-base-lib asagiri-perf-base-store asagiri-perf-head-lib asagiri-perf-head-store >/dev/null 2>&1 || true
 }
 trap stop EXIT
 stop
@@ -32,16 +32,16 @@ for e in base head; do
   $SUDO rm -rf "$WORK/$e-run"; mkdir -p "$WORK/$e-run"
   # The socket is named, so both engines listen where the check looks even
   # when the two builds differ in where they would put it.
-  docker run -d --name kiri-perf-$e --privileged --tmpfs /run \
-    -v "kiri-perf-$e-lib:/var/lib/$engine" -v "kiri-perf-$e-store:/root/.local/share/$engine" \
+  docker run -d --name asagiri-perf-$e --privileged --tmpfs /run \
+    -v "asagiri-perf-$e-lib:/var/lib/$engine" -v "asagiri-perf-$e-store:/root/.local/share/$engine" \
     -v "$bin:/opt/engine:ro" -v "$WORK/$e-run:/bench" \
     -e "$socket_var=/bench/docker.sock" \
     alpine:3.21 "/opt/engine/$engine" daemon >/dev/null
 done
-pid() { docker inspect -f '{{.State.Pid}}' kiri-perf-$1; }
+pid() { docker inspect -f '{{.State.Pid}}' "asagiri-perf-$1"; }
 for e in base head; do
   i=0; while [ ! -S "$WORK/$e-run/docker.sock" ]; do
-    i=$((i + 1)); [ $i -gt 120 ] && { docker logs kiri-perf-$e 2>&1 | tail -20; echo "the $e engine made no socket"; exit 2; }
+    i=$((i + 1)); [ $i -gt 120 ] && { docker logs asagiri-perf-$e 2>&1 | tail -20; echo "the $e engine made no socket"; exit 2; }
     sleep 0.5
   done
 done

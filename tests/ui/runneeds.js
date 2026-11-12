@@ -5,8 +5,8 @@ const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const nowS = Date.now() / 1000;
 const imgRow = (tag, i) => ({ Id: "sha256:" + String(i).repeat(64), RepoTags: [tag], Size: 1e8, Created: nowS - 3600 * i });
-const RUN_TAGS = ["postgres:17", "mysql:latest", "opensearchproject/opensearch:3.3.0", "nginx:alpine", "mcr.microsoft.com/mssql/server:2022-latest", "acme/api:1", "kiri-test/needs-password:1", "acme/two:1"];
-const imgLists = (containers) => kiri.on({ type: "lists", containers, images: RUN_TAGS.map((tag, i) => imgRow(tag, i + 1)), volumes: [], networks: [] });
+const RUN_TAGS = ["postgres:17", "mysql:latest", "opensearchproject/opensearch:3.3.0", "nginx:alpine", "mcr.microsoft.com/mssql/server:2022-latest", "acme/api:1", "asagiri-test/needs-password:1", "acme/two:1"];
+const imgLists = (containers) => asagiri.on({ type: "lists", containers, images: RUN_TAGS.map((tag, i) => imgRow(tag, i + 1)), volumes: [], networks: [] });
 imgLists([]);
 show("images");
 const runOf = (tag) => document.querySelector(`[data-run="${CSS.escape(tag)}"]`);
@@ -15,8 +15,9 @@ const runsSent = () => sent.filter((m) => m.type === "run");
 // The engine answers Run's look at the start script with `vars`.
 const pressRun = (tag, vars = []) => {
   sent.length = 0;
+  runOf(tag).scrollIntoView();
   runOf(tag).click();
-  if (sent.some((m) => m.type === "needs")) kiri.on({ type: "needs", image: tag, id: ui.images.find((i) => i.RepoTags.includes(tag))?.Id, vars });
+  if (sent.some((m) => m.type === "needs")) asagiri.on({ type: "needs", image: tag, id: ui.images.find((i) => i.RepoTags.includes(tag))?.Id, vars });
 };
 
 t("Run and a list refresh change the row in place, not the table", () => {
@@ -31,7 +32,7 @@ t("an image that needs nothing starts straight away", () => {
   pressRun("nginx:alpine");
   if (needPop()) throw new Error("popover for nginx");
   if (runsSent().length !== 1 || runsSent()[0].value.length) throw new Error(JSON.stringify(runsSent()));
-  kiri.on({ type: "ran", name: "nginx:alpine", error: false });
+  asagiri.on({ type: "ran", name: "nginx:alpine", error: false });
 });
 t("postgres: a popover on its Run button, with a password made", () => {
   pressRun("postgres:17");
@@ -57,11 +58,11 @@ t("Run sends the password and the extra setting, then the popover goes", () => {
   needPop().querySelector("[data-needgo]").click();
   if (JSON.stringify(runsSent()[0]?.value) !== JSON.stringify([`POSTGRES_PASSWORD=${v}`, "POSTGRES_DB=shop"])) throw new Error(JSON.stringify(runsSent()));
   if (!/Starting…/.test(needPop()?.textContent)) throw new Error("not busy");
-  kiri.on({ type: "ran", name: "postgres:17", error: false });
+  asagiri.on({ type: "ran", name: "postgres:17", error: false });
   if (needPop()) throw new Error("popover stayed");
 });
 t("once it runs, Run is Stop with how long it's been up, which opens it", () => {
-  kiri.on({ type: "notice", kind: "ok", text: "Started brave_hopper", open: "pg1", image: "postgres:17" });
+  asagiri.on({ type: "notice", kind: "ok", text: "Started brave_hopper", open: "pg1", image: "postgres:17" });
   imgLists([{ Id: "pg1", Names: ["/brave_hopper"], Image: "postgres:17", State: "running", Status: "Up 1 second", Created: nowS, Ports: [], Labels: {} }]);
   runSay("pg1"); // still up a few seconds later
   const stop = document.querySelector('[data-c="stop"][data-id="pg1"]');
@@ -82,7 +83,7 @@ t("mysql: a random root password is one choice", () => {
   needPop().querySelector('[name=need-way][value=random]').click();
   needPop().querySelector("[data-needgo]").click();
   if (JSON.stringify(runsSent()[0]?.value) !== JSON.stringify(["MYSQL_RANDOM_ROOT_PASSWORD=yes"])) throw new Error(JSON.stringify(runsSent()));
-  kiri.on({ type: "ran", name: "mysql:latest", error: false });
+  asagiri.on({ type: "ran", name: "mysql:latest", error: false });
 });
 t("opensearch: a weak password can't run; security off can", () => {
   pressRun("opensearchproject/opensearch:3.3.0");
@@ -94,7 +95,7 @@ t("opensearch: a weak password can't run; security off can", () => {
   needPop().querySelector("[data-needgo]").click();
   const v = runsSent()[0]?.value || [];
   if (!v.includes("DISABLE_SECURITY_PLUGIN=true") || !v.includes("discovery.type=single-node") || v.some((e) => e.startsWith("OPENSEARCH_INITIAL"))) throw new Error(JSON.stringify(v));
-  kiri.on({ type: "ran", name: "opensearchproject/opensearch:3.3.0", error: false });
+  asagiri.on({ type: "ran", name: "opensearchproject/opensearch:3.3.0", error: false });
 });
 t("SQL Server: Run waits for the licence", () => {
   pressRun("mcr.microsoft.com/mssql/server:2022-latest");
@@ -111,33 +112,34 @@ t("an image whose container stopped for a variable asks for it next time", () =>
   pressRun("acme/api:1");
   if (!/acme\/api:1 needs a password to start/.test(needPop()?.textContent) || !/API_TOKEN wasn't set/.test(needPop().textContent)) throw new Error(needPop()?.textContent);
   needClose();
-  try { localStorage.removeItem("kiri.needs"); } catch {}
+  try { localStorage.removeItem("asagiri.needs"); } catch {}
 });
 t("the first stop for a variable is enough: Run asks from then on", () => {
   ui.containers.push({ Id: "learn1", Names: ["/crisp_test"], Image: "acme/api:1", State: "exited" });
-  kiri.on({ type: "lastlogs", id: "learn1", lines: ["Error: APP_PASSWORD is not specified.", "       You must specify APP_PASSWORD to start this app."] });
+  asagiri.on({ type: "lastlogs", id: "learn1", lines: ["Error: APP_PASSWORD is not specified.", "       You must specify APP_PASSWORD to start this app."] });
   ui.containers = ui.containers.filter((x) => x.Id !== "learn1");
   pressRun("acme/api:1");
   if (!/APP_PASSWORD wasn't set/.test(needPop()?.textContent || "")) throw new Error(needPop()?.textContent || "no popover; it ran");
   needClose();
-  try { localStorage.removeItem("kiri.needs"); } catch {}
+  try { localStorage.removeItem("asagiri.needs"); } catch {}
 });
 t("any other image: Run reads its start script first, and asks for what it exits without", () => {
   sent.length = 0;
-  runOf("kiri-test/needs-password:1").click();
-  if (!sent.some((m) => m.type === "needs" && m.name === "kiri-test/needs-password:1")) throw new Error("didn't look: " + JSON.stringify(sent));
-  if (runsSent().length || !runOf("kiri-test/needs-password:1").classList.contains("rolling")) throw new Error("ran, or no spinner while looking");
-  kiri.on({ type: "needs", image: "kiri-test/needs-password:1", id: ui.images.find((i) => i.RepoTags.includes("kiri-test/needs-password:1")).Id, vars: [{ name: "APP_PASSWORD", alts: [], instead: [], why: "APP_PASSWORD is not specified." }] });
+  runOf("asagiri-test/needs-password:1").scrollIntoView();
+  runOf("asagiri-test/needs-password:1").click();
+  if (!sent.some((m) => m.type === "needs" && m.name === "asagiri-test/needs-password:1")) throw new Error("didn't look: " + JSON.stringify(sent));
+  if (runsSent().length || !runOf("asagiri-test/needs-password:1").classList.contains("rolling")) throw new Error("ran, or no spinner while looking");
+  asagiri.on({ type: "needs", image: "asagiri-test/needs-password:1", id: ui.images.find((i) => i.RepoTags.includes("asagiri-test/needs-password:1")).Id, vars: [{ name: "APP_PASSWORD", alts: [], instead: [], why: "APP_PASSWORD is not specified." }] });
   const pop = needPop();
   if (!pop || !/needs a password/.test(pop.textContent) || !/APP_PASSWORD is not specified/.test(pop.textContent)) throw new Error(pop?.textContent || "no popover");
   pop.querySelector("[data-needgo]").click();
   if (runsSent().length !== 1 || !/^APP_PASSWORD=.{8,}/.test(runsSent()[0].value[0])) throw new Error(JSON.stringify(runsSent()));
-  kiri.on({ type: "ran", name: "kiri-test/needs-password:1", error: false });
+  asagiri.on({ type: "ran", name: "asagiri-test/needs-password:1", error: false });
   needClose(true);
 });
 t("it looks once per image build", () => {
   sent.length = 0;
-  runOf("kiri-test/needs-password:1").click();
+  runOf("asagiri-test/needs-password:1").click();
   if (sent.some((m) => m.type === "needs") || !needPop()) throw new Error("looked again, or no popover");
   needClose();
 });
@@ -151,7 +153,7 @@ t("two variables: both fields, Run waits for both", () => {
   needClose();
 });
 t("the container Run looks with never shows in Containers", () => {
-  kiri.on({ type: "lists", containers: [{ Id: "probe1", Names: ["/x"], Image: "acme/two:1", State: "created", Labels: { "io.kiri.probe": "1" } }], images: RUN_TAGS.map((tag, i) => imgRow(tag, i + 1)), volumes: [], networks: [] });
+  asagiri.on({ type: "lists", containers: [{ Id: "probe1", Names: ["/x"], Image: "acme/two:1", State: "created", Labels: { "io.asagiri.probe": "1" } }], images: RUN_TAGS.map((tag, i) => imgRow(tag, i + 1)), volumes: [], networks: [] });
   if (ui.containers.length) throw new Error("listed");
 });
 report(R);

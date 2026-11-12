@@ -1,6 +1,6 @@
 #!/bin/bash
 # The Linux half of the Windows bundle (cargo xtask windows runs this in
-# WSL): static kiri and kiri-init (musl), so the same binaries run in Kiri
+# WSL): static asagiri and asagiri-init (musl), so the same binaries run in Asagiri
 # Linux (Alpine) and in Ubuntu. x86_64 for x86-64 PCs, aarch64 for Windows
 # on Arm, from either kind of WSL. ring's C code is compiled by zig cc,
 # from a Python venv in ~/.cache, so the distro needs nothing installed.
@@ -11,7 +11,7 @@ case "$arch" in x86_64|aarch64) ;; *) echo "arch is x86_64 or aarch64, not $arch
 target=$arch-unknown-linux-musl
 # rustup's usual install; the rust image has cargo on PATH already.
 if [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi
-venv=$HOME/.cache/kiri-zig
+venv=$HOME/.cache/asagiri-zig
 # A venv whose install failed has python but no zig: made again.
 if ! "$venv/bin/python" -c 'import ziglang' 2>/dev/null; then
   rm -rf "$venv"
@@ -45,10 +45,10 @@ fi
 # Built in the distro's own disk (the checkout may be on /mnt/c, which is
 # slow), one target dir per checkout: CI runners on one machine each have
 # their own, and build at the same time.
-tdir=$HOME/.cache/kiri-musl-target/$(printf %s "$PWD" | sha256sum | cut -c1-12)
+tdir=$HOME/.cache/asagiri-musl-target/$(printf %s "$PWD" | sha256sum | cut -c1-12)
 # Builds from before had one shared dir: the first checkout to come along
 # takes it, rather than building from nothing.
-old=$HOME/.cache/kiri-musl-target
+old=$HOME/.cache/asagiri-musl-target
 if [ ! -d "$tdir" ] && [ -d "$old/release" -o -d "$old/x86_64-unknown-linux-musl" -o -d "$old/aarch64-unknown-linux-musl" ]; then
   take=$old/.take.$$
   mkdir -p "$take"
@@ -56,6 +56,6 @@ if [ ! -d "$tdir" ] && [ -d "$old/release" -o -d "$old/x86_64-unknown-linux-musl
   mv "$take" "$tdir"
 fi
 env "CC_${target//-/_}=$cc" "${link[@]}" CARGO_TARGET_DIR="$tdir" \
-  cargo build --release -p kiri -p kiri-init --target "$target"
+  cargo build --release -p asagiri -p asagiri-init --target "$target"
 mkdir -p "$out"
-install -m 755 "$tdir/$target/release/kiri" "$tdir/$target/release/kiri-init" "$out/"
+install -m 755 "$tdir/$target/release/asagiri" "$tdir/$target/release/asagiri-init" "$out/"

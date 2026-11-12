@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centers (Ubuntu's App Center, GNOME Software, KDE Discover)
+     read to list Asagiri as an app: without it, the launcher works but no store
+     shows Asagiri. packaging/linux/build.sh fills in @VERSION@ and @DATE@. -->
+<component type="desktop-application">
+  <id>dev.asagiri.Asagiri</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>Asagiri</name>
+  <summary>Run and share containers</summary>
+  <description>
+    <p>
+      Asagiri is a tiny, fast container runtime that speaks the Docker Engine API,
+      so the docker command, Compose and buildx work with it as they are.
+    </p>
+    <ul>
+      <li>See and manage your containers, images, volumes and networks</li>
+      <li>Build images and follow the build as it runs</li>
+      <li>Share a container or a local port on the internet with one link</li>
+      <li>Run a small Kubernetes cluster</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">asagiri.desktop</launchable>
+  <icon type="stock">asagiri</icon>
+  <url type="homepage">https://andrekurait.github.io/asagiri/</url>
+  <developer id="dev.asagiri">
+    <name>Asagiri</name>
+  </developer>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <keywords>
+    <keyword>docker</keyword>
+    <keyword>containers</keyword>
+    <keyword>kubernetes</keyword>
+  </keywords>
+  <provides>
+    <binary>asagiri</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@">
+      <url type="details">https://github.com/AndreKurait/asagiri/releases</url>
+    </release>
+  </releases>
+</component>

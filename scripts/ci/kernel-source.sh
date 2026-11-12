@@ -18,13 +18,13 @@ cd "$tmp/linux-$kver"
 for patch in "$root"/guest/kernel/patches/*.patch; do
   patch -p1 -s < "$patch"
 done
-mkdir kiri
-cp "$root/guest/kernel/build.sh" "$root/guest/kernel/kiri.config" "$root/guest/kernel/kiri-x86_64.config" kiri/
-cp -R "$root/guest/kernel/patches" kiri/
+mkdir asagiri
+cp "$root/guest/kernel/build.sh" "$root/guest/kernel/asagiri.config" "$root/guest/kernel/asagiri-x86_64.config" asagiri/
+cp -R "$root/guest/kernel/patches" asagiri/
 printf '%s\n' \
-  "Kiri guest kernel corresponding source" \
+  "Asagiri guest kernel corresponding source" \
   "Upstream: https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$kver.tar.xz" \
-  "All patches in kiri/patches have already been applied to this tree." \
-  "Build with kiri/build.sh as described in the Kiri repository." > kiri/SOURCE
+  "All patches in asagiri/patches have already been applied to this tree." \
+  "Build with asagiri/build.sh as described in the Asagiri repository." > asagiri/SOURCE
 mkdir -p "$(dirname "$out")"
 XZ_OPT=${XZ_OPT:--T0} tar -cJf "$out" -C "$tmp" "linux-$kver"

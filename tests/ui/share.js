@@ -1,5 +1,5 @@
 // The Share column in the container list: each state, and what pressing it does.
-kiri.on({ type: "status", version: "0.1.4", dev: true, app: "Kiri Dev", ours: "kiri-dev", context: "kiri-dev" });
+asagiri.on({ type: "status", version: "0.1.4", dev: true, app: "Asagiri Dev", ours: "asagiri-dev", context: "asagiri-dev" });
 show("containers");
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
@@ -37,7 +37,7 @@ t("Share asks to share that container", () => {
 });
 t("a failed link shakes, says why, and tries again when pressed", () => {
   sh.starting.delete("postgres");
-  kiri.on({ type: "share", id: 77, source: "postgres", state: "ended", reason: "The plan allows 3 links at once", error: true });
+  asagiri.on({ type: "share", id: 77, source: "postgres", state: "ended", reason: "The plan allows 3 links at once", error: true });
   eq(cell("postgres").textContent.trim(), "Couldn't share", "text");
   eq(cell("postgres").querySelector(".shc").classList.contains("shake"), true, "shakes when it first shows");
   render();
@@ -49,7 +49,7 @@ t("a failed link shakes, says why, and tries again when pressed", () => {
 });
 t("a failure shows for 3 seconds, then Share again", () => {
   sh.starting.delete("postgres");
-  kiri.on({ type: "share", id: 78, source: "postgres", state: "ended", reason: "No network", error: true });
+  asagiri.on({ type: "share", id: 78, source: "postgres", state: "ended", reason: "No network", error: true });
   eq(cell("postgres").textContent.trim(), "Couldn't share", "at first");
   sh.items.get(78).failedAt = Date.now() - 3100; render();
   eq(cell("postgres").textContent.trim(), "Share", "after 3 s");
@@ -84,18 +84,18 @@ t("pause stops the tunnel, resume replaces it, and it counts once", () => {
   sent.length = 0;
   document.querySelector('[data-shpause="1"]').click();
   eq(sent.filter((x) => x.type === "unshare").map((x) => x.id), ["1"], "asks the app to stop link 1");
-  kiri.on({ type: "share", id: 1, state: "ended" });
+  asagiri.on({ type: "share", id: 1, state: "ended" });
   eq(sh.items.get(1).state, "paused", "kept as paused");
   eq(shLive().length, before - 1, "paused isn't counted");
   const order = () => [...document.querySelectorAll(".sh-list [data-shrow]")].map((r) => r.querySelector("b").textContent);
   const before2 = order(), kept = [...document.querySelectorAll(".sh-list [data-shrow]")].filter((r) => r.dataset.shrow !== "1");
   document.querySelector('[data-shresume="1"]').click();
   eq(sent.filter((x) => x.type === "share").map((x) => x.name), ["web"], "shares web again");
-  kiri.on({ type: "share", id: 90, source: "web", target: "web (localhost:8080)", state: "connecting" });
+  asagiri.on({ type: "share", id: 90, source: "web", target: "web (localhost:8080)", state: "connecting" });
   const spin = document.querySelector('[data-shrow="90"] .sh-acts .rolling');
   eq(!!spin && spin.disabled, true, "a spinner where Resume was");
   eq(getComputedStyle(spin).borderTopColor, "rgba(0, 0, 0, 0)", "the spinner has no box");
-  kiri.on({ type: "share", id: 90, state: "live", url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 90, state: "live", url: "https://web-k3x9.share.example.org" });
   eq(!!document.querySelector('[data-shrow="90"] [data-shpause="90"]'), true, "Pause once live");
   eq(order(), before2, "web keeps its place in the list");
   eq(kept.every((r) => r.isConnected), true, "the other rows weren't redrawn");
@@ -124,7 +124,7 @@ t("Copy in the dialog shows a Copied bubble above it, and the button stays as it
   show("containers");
 });
 t("a link that ended with an error can be shared again", () => {
-  kiri.on({ type: "share", id: 91, source: "web", target: "web", state: "ended", reason: "that name is already in use by another of your tunnels", error: true, url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 91, source: "web", target: "web", state: "ended", reason: "that name is already in use by another of your tunnels", error: true, url: "https://web-k3x9.share.example.org" });
   show("share");
   const row = document.querySelector('.sh-row[data-shrow="91"]');
   eq(row.classList.contains("bad"), true, "reads as failed");
@@ -159,17 +159,17 @@ t("a running container with no published port gets yellow Share, publishes what 
   sent.length = 0; b.click();
   eq(sent.filter((x) => x.type === "listening").map((x) => x.id), ["b1"], "asks what it listens on");
   eq(cell("gallerybox").textContent.trim(), "Sharing…", "spinner at once");
-  kiri.on({ type: "listening", id: "b1", name: "", ports: [{ container_port: 4567, host_port: 4567 }], offer: false });
+  asagiri.on({ type: "listening", id: "b1", name: "", ports: [{ container_port: 4567, host_port: 4567 }], offer: false });
   eq(sent.filter((x) => x.type === "ports").map((x) => [x.id, x.ports[0].container_port, x.ports[0].host_port]), [["b1", 4567, 4567]], "publishes it");
   eq(sent.filter((x) => x.type === "share").length, 0, "not shared before the port is up");
-  kiri.on({ type: "lists", containers: [...ui.containers.filter((c) => c.Id !== "b1"), { ...box, Ports: [{ PublicPort: 4567, PrivatePort: 4567, Type: "tcp" }] }], images: [], volumes: [], networks: [] });
+  asagiri.on({ type: "lists", containers: [...ui.containers.filter((c) => c.Id !== "b1"), { ...box, Ports: [{ PublicPort: 4567, PrivatePort: 4567, Type: "tcp" }] }], images: [], volumes: [], networks: [] });
   eq(sent.filter((x) => x.type === "share").map((x) => x.name), ["gallerybox"], "then shares");
 });
 t("one that listens on nothing says so", () => {
   const quiet = { Id: "b2", Names: ["/quiet"], Image: "alpine", State: "running", Status: "Up 1 min", Created: Date.now() / 1000 - 60, Ports: [], Labels: {} };
   ui.containers.push(quiet); show("containers");
   sent.length = 0; cell("quiet").querySelector("button.shc").click();
-  kiri.on({ type: "listening", id: "b2", name: "", ports: [], offer: false });
+  asagiri.on({ type: "listening", id: "b2", name: "", ports: [], offer: false });
   eq(cell("quiet").textContent.trim(), "Share", "back to Share");
   eq(sent.filter((x) => x.type === "ports").length, 0, "nothing published");
 });
@@ -180,9 +180,9 @@ t("Disconnect says Disconnecting… at once, and a late event can't bring Share 
   eq(sent.filter((x) => x.type === "unshare").map((x) => x.id), [String(it.id)], "sent once");
   eq(cell("web").textContent.trim(), "Disconnecting…", "at once");
   eq(!!cell("web").querySelector("button"), false, "nothing to press");
-  kiri.on({ type: "share", id: it.id, source: "web", state: "live" }); render();
+  asagiri.on({ type: "share", id: it.id, source: "web", state: "live" }); render();
   eq(cell("web").textContent.trim(), "Disconnecting…", "still, after a late live");
-  kiri.on({ type: "share", id: it.id, source: "web", state: "ended" }); render();
+  asagiri.on({ type: "share", id: it.id, source: "web", state: "ended" }); render();
   eq(cell("web").textContent.trim(), "Share", "Share once it has closed");
 });
 t("a redraw waits while the mouse button is down, so the click lands", () => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kiri's speed check: main against a pull request, on the same machine.
+"""Asagiri's speed check: main against a pull request, on the same machine.
 
 Two Linux engines run side by side, one built from main and one from the
 pull request, each in its own privileged container (see .github/workflows/
@@ -123,7 +123,7 @@ def summary(xs):
 def syscalls_per_run(e, runs):
     """System calls the daemon (every thread, and what it starts) makes for
     one container, from strace's count over `runs` of them."""
-    out = f"/tmp/kiri-strace-{e.pid}.txt"
+    out = f"/tmp/asagiri-strace-{e.pid}.txt"
     st = subprocess.Popen(["strace", "-f", "-c", "-o", out, "-p", str(e.pid)], stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     for _ in range(runs):

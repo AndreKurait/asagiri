@@ -1,5 +1,5 @@
-// Draws the disk image's Finder background (xtask's DMG step, scripts/dmg-settings.py): Kiri's warm chalk with a dark
-// mustard arrow from the app (left, x 160) to the Applications alias (right, x 480) and "Drag Kiri to Applications" in
+// Draws the disk image's Finder background (xtask's DMG step, scripts/dmg-settings.py): Asagiri's pale mist with a dawn
+// coral arrow from the app (left, x 160) to the Applications alias (right, x 480) and "Drag Asagiri to Applications" in
 // ink. Light because Finder draws the icon labels in black on a background picture, whatever the appearance. Writes
 // <out>.png (1x) and <out>@2x.png; dmgbuild joins them into one HiDPI TIFF. 640x440pt for a window whose content area
 // is about 400pt tall: Finder's title bar height differs between macOS versions, and the extra rows cover the gap.
@@ -23,14 +23,14 @@ func draw(scale: Int, to path: String) {
   let ctx = NSGraphicsContext.current!.cgContext
   ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
 
-  // Chalk (#F6F2EA), a touch warmer towards the bottom.
-  let grad = CGGradient(colorsSpace: sRGB, colors: [c(246, 242, 234), c(238, 231, 216)] as CFArray, locations: [0, 1])!
+  // Mist (#F3F1F7), fading into a soft dawn.
+  let grad = CGGradient(colorsSpace: sRGB, colors: [c(243, 241, 247), c(246, 221, 215)] as CFArray, locations: [0, 1])!
   ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: H), end: CGPoint(x: 0, y: 0), options: [])
 
-  // The arrow, left to right, between the icons (they are 128pt wide), in dark mustard (#A88300).
+  // The arrow, left to right, between the icons (they are 128pt wide), in coral (#C64A32).
   let y = top(iconY)
   let x0 = appX + 92, x1 = appsX - 92
-  ctx.setStrokeColor(c(168, 131, 0, 0.95))
+  ctx.setStrokeColor(c(198, 74, 50, 0.95))
   ctx.setLineWidth(5)
   ctx.setLineCap(.round)
   ctx.setLineJoin(.round)
@@ -40,11 +40,11 @@ func draw(scale: Int, to path: String) {
   ctx.move(to: CGPoint(x: x1 - 16, y: y + 16)); ctx.addLine(to: CGPoint(x: x1, y: y)); ctx.addLine(to: CGPoint(x: x1 - 16, y: y - 16))
   ctx.strokePath()
 
-  // The instruction, below the icon labels, in ink (#0F1419).
+  // The instruction, below the icon labels, in ink (#161B33).
   let para = NSMutableParagraphStyle(); para.alignment = .center
-  let text = NSAttributedString(string: "Drag Kiri to Applications", attributes: [
+  let text = NSAttributedString(string: "Drag Asagiri to Applications", attributes: [
     .font: NSFont.systemFont(ofSize: 17, weight: .medium),
-    .foregroundColor: NSColor(srgbRed: 15 / 255, green: 20 / 255, blue: 25 / 255, alpha: 1),
+    .foregroundColor: NSColor(srgbRed: 22 / 255, green: 27 / 255, blue: 51 / 255, alpha: 1),
     .paragraphStyle: para,
   ])
   text.draw(in: CGRect(x: 0, y: top(345), width: W, height: 26))

@@ -2,7 +2,7 @@
 # (core.autocrlf would make install.sh fail under sh).
 *.sh text eol=lf
 # Files that run inside WSL or Linux, whatever their extension.
-contrib/wsl/kiri-linux/* text eol=lf
+contrib/wsl/asagiri-linux/* text eol=lf
 contrib/linux/* text eol=lf
 # Linux packaging: maintainer scripts, unit, spec and wrapper, whatever their name.
 packaging/linux/** text eol=lf

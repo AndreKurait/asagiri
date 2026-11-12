@@ -1,30 +1,30 @@
 #!/bin/bash
-# End-to-end tests: drives a running `kiri daemon` through the real docker
-# CLI (context `kiri`) and checks every result. Usage:
+# End-to-end tests: drives a running `asagiri daemon` through the real docker
+# CLI (context `asagiri`) and checks every result. Usage:
 #
-#   tests/e2e.sh            # functional tests (DOCKER_CONTEXT=kiri-dev for another Kiri)
+#   tests/e2e.sh            # functional tests (DOCKER_CONTEXT=asagiri-dev for another Asagiri)
 #   SOAK=500 tests/e2e.sh   # plus a leak soak of 500 container runs
 #
 # Exits non-zero if any check fails.
 
 set -u
-export DOCKER_CONTEXT=${DOCKER_CONTEXT:-kiri}
+export DOCKER_CONTEXT=${DOCKER_CONTEXT:-asagiri}
 D=docker
 PASS=0
 FAIL=0
 SKIP=0
 FAILED=()
-# The Kiri under test. A second Kiri (context kiri-dev, kiri-rc...) has its
-# own Finder folder (~/Kiri Dev) and no *.kiri.localhost routers: there is
-# one pair of ports 80 and 443 on a Mac, and the installed Kiri has them.
-FEATURE=${DOCKER_CONTEXT#kiri}; FEATURE=${FEATURE#-}
-# The engine under test's socket. Every `kiri` command (machines, k8s) and
-# every direct API call goes there, never to another Kiri on this Mac: once,
-# the Kubernetes checks ran on the installed Kiri and deleted its cluster.
+# The Asagiri under test. A second Asagiri (context asagiri-dev, asagiri-rc...) has its
+# own Finder folder (~/Asagiri Dev) and no *.asagiri.localhost routers: there is
+# one pair of ports 80 and 443 on a Mac, and the installed Asagiri has them.
+FEATURE=${DOCKER_CONTEXT#asagiri}; FEATURE=${FEATURE#-}
+# The engine under test's socket. Every `asagiri` command (machines, k8s) and
+# every direct API call goes there, never to another Asagiri on this Mac: once,
+# the Kubernetes checks ran on the installed Asagiri and deleted its cluster.
 SOCK=$(docker context inspect "$DOCKER_CONTEXT" --format '{{.Endpoints.docker.Host}}' 2>/dev/null); SOCK=${SOCK#unix://}
 [ -S "$SOCK" ] || { echo "e2e: no engine socket for context $DOCKER_CONTEXT ($SOCK)"; exit 1; }
-export KIRI_SOCKET=$SOCK
-if [ -z "$FEATURE" ]; then KF="$HOME/Kiri"; else KF="$HOME/Kiri $(printf %s "${FEATURE:0:1}" | tr a-z A-Z)${FEATURE:1}"; fi
+export ASAGIRI_SOCKET=$SOCK
+if [ -z "$FEATURE" ]; then KF="$HOME/Asagiri"; else KF="$HOME/Asagiri $(printf %s "${FEATURE:0:1}" | tr a-z A-Z)${FEATURE:1}"; fi
 KFQ=$(printf %q "$KF")
 
 # t NAME EXPECTED COMMAND... : passes when the command's output (stdout+stderr,
@@ -77,9 +77,9 @@ cleanup
 
 section "engine"
 code api-version-range 0 python3 "$(dirname "$0")/api-version.py" "$SOCK"
-t version-server "Kiri" $D version
+t version-server "Asagiri" $D version
 t version-api "1.47" $D version --format '{{.Server.APIVersion}}'
-t info-os "Kiri" $D info --format '{{.OperatingSystem}}'
+t info-os "Asagiri" $D info --format '{{.OperatingSystem}}'
 t info-cgroup "2" $D info --format '{{.CgroupVersion}}'
 
 section "images"
@@ -89,9 +89,10 @@ t pull-tag "3.21" $D pull alpine:3.21
 t images-list "alpine" $D images
 t image-inspect-arch "arm64" $D image inspect -f '{{.Architecture}}' alpine
 t image-inspect-cmd "/bin/sh" $D image inspect -f '{{.Config.Cmd}}' alpine
-code pull-missing 1 $D pull kiri-does-not-exist/nope:none
+code pull-missing 1 $D pull asagiri-does-not-exist/nope:none
 t rmi "Untagged" $D rmi alpine:3.21
 code rmi-missing 1 $D rmi alpine:3.21
+code image-import 0 python3 "$(dirname "$0")/image-import.py" "$SOCK" alpine
 
 section "run: output and exit codes"
 code empty-response-status 0 python3 "$(dirname "$0")/empty-response-status.py" "$SOCK" alpine
@@ -134,7 +135,11 @@ t container-marker-readonly-nonroot "marker-ok" $D run --rm --read-only -u 1000 
 # The second start finds the marker the first one made.
 t container-marker-restart "marker-ok" bash -c "$D run --name e2e-marker alpine sh -c 'test -f /.dockerenv && test ! -s /.dockerenv && echo marker-ok' >/dev/null && $D start -a e2e-marker; $D rm -f e2e-marker >/dev/null"
 # An image with a link there starts, and nothing is made where the link points.
-t container-marker-link "link-ok" bash -c "$D run --name e2e-marker alpine sh -c 'rm /.dockerenv && ln -s /outside/marker /.dockerenv' && $D commit e2e-marker kiri-test/marker-link >/dev/null && $D run --rm kiri-test/marker-link sh -c 'test ! -e /outside && echo link-ok'; $D rm -f e2e-marker >/dev/null; $D rmi kiri-test/marker-link >/dev/null"
+t container-marker-link "link-ok" bash -c "$D run --name e2e-marker alpine sh -c 'rm /.dockerenv && ln -s /outside/marker /.dockerenv' && $D commit e2e-marker asagiri-test/marker-link >/dev/null && $D run --rm asagiri-test/marker-link sh -c 'test ! -e /outside && echo link-ok'; $D rm -f e2e-marker >/dev/null; $D rmi asagiri-test/marker-link >/dev/null"
+# A marker the container has changed is its change: diff shows it, and commit
+# keeps it over what the image had at that path.
+t container-marker-changed "C /.dockerenv" bash -c "$D run --name e2e-marker alpine chmod 600 /.dockerenv && $D diff e2e-marker; $D rm -f e2e-marker >/dev/null"
+t container-marker-replaced "a file" bash -c "$D run --name e2e-marker alpine sh -c 'rm /.dockerenv && ln -s /etc/hostname /.dockerenv' && $D commit e2e-marker asagiri-test/marker-link >/dev/null && $D run --name e2e-marker2 asagiri-test/marker-link sh -c 'rm /.dockerenv && : > /.dockerenv && chmod 755 /.dockerenv' && $D commit e2e-marker2 asagiri-test/marker-file >/dev/null && $D run --rm asagiri-test/marker-file sh -c 'if [ -L /.dockerenv ]; then echo a link; else echo a file; fi'; $D rm -f e2e-marker e2e-marker2 >/dev/null; $D rmi asagiri-test/marker-link asagiri-test/marker-file >/dev/null"
 t proc "PID" $D run --rm alpine ps
 t dev-null "ok" $D run --rm alpine sh -c 'echo x > /dev/null && echo ok'
 t dev-null-nonroot "ok" $D run --rm -u 1000 alpine sh -c 'echo x > /dev/null && head -c 1 /dev/urandom >/dev/null && echo ok'
@@ -431,54 +436,54 @@ kill $HTTP_PID
 
 section "container domains"
 if [ -z "$FEATURE" ]; then
-  $D run -d --name dom nginx:alpine >/dev/null; ready http://dom.kiri.localhost
-  t domain-http "Welcome to nginx" curl -s -m 5 http://dom.kiri.localhost
-  t domain-unknown "No running container" curl -s -m 5 http://nope.kiri.localhost
+  $D run -d --name dom nginx:alpine >/dev/null; ready http://dom.asagiri.localhost
+  t domain-http "Welcome to nginx" curl -s -m 5 http://dom.asagiri.localhost
+  t domain-unknown "No running container" curl -s -m 5 http://nope.asagiri.localhost
   # A container that publishes the router's port gets it (Laravel Sail's
   # 80:80); the router takes it back once the container is gone.
   t domain-port-yield "Welcome to nginx" bash -c "$D run -d --name p80 -p 80:80 nginx:alpine >/dev/null && sleep 1 && curl -s -m 5 http://127.0.0.1/"
   $D rm -f p80 >/dev/null
-  t domain-port-back "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dom.kiri.localhost | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dom.kiri.localhost"
+  t domain-port-back "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dom.asagiri.localhost | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dom.asagiri.localhost"
   $D rm -f dom >/dev/null
 else
-  skip domain-http "only the installed Kiri serves *.kiri.localhost"
-  skip domain-unknown "only the installed Kiri serves *.kiri.localhost"
-  skip domain-port-yield "only the installed Kiri has the router on port 80"
-  skip domain-port-back "only the installed Kiri has the router on port 80"
+  skip domain-http "only the installed Asagiri serves *.asagiri.localhost"
+  skip domain-unknown "only the installed Asagiri serves *.asagiri.localhost"
+  skip domain-port-yield "only the installed Asagiri has the router on port 80"
+  skip domain-port-back "only the installed Asagiri has the router on port 80"
 fi
 
 # Settings → Domains moves the routers with no restart; a taken port
-# changes nothing. Kiri Dev has no routers until given ports, so there the
+# changes nothing. Asagiri Dev has no routers until given ports, so there the
 # move starts them, and its settings file goes afterwards.
 section "domain router ports"
-dpost() { curl -s --unix-socket "$SOCK" -X POST -H 'Content-Type: application/json' -d "$1" http://d/kiri/domains; }
-dport() { curl -s --unix-socket "$SOCK" http://d/kiri/domains | python3 -c "import json,sys; print(json.load(sys.stdin)['$1']['port'])"; }
+dpost() { curl -s --unix-socket "$SOCK" -X POST -H 'Content-Type: application/json' -d "$1" http://d/asagiri/domains; }
+dport() { curl -s --unix-socket "$SOCK" http://d/asagiri/domains | python3 -c "import json,sys; print(json.load(sys.stdin)['$1']['port'])"; }
 OLD_HTTP=$(dport http) OLD_HTTPS=$(dport https)
 $D run -d --name dmv nginx:alpine >/dev/null
 $D run -d --name dhold -p 18799:80 nginx:alpine >/dev/null
-t domain-ports-same "different ports" curl -s --unix-socket "$SOCK" -X POST -d '{"http":18780,"https":18780}' http://d/kiri/domains
-t domain-ports-zero "1 to 65535" curl -s --unix-socket "$SOCK" -X POST -d '{"http":0,"https":18743}' http://d/kiri/domains
-t domain-ports-taken "18799 is in use" curl -s --unix-socket "$SOCK" -X POST -d '{"http":18799,"https":18743}' http://d/kiri/domains
-t domain-ports-unchanged "$OLD_HTTP" bash -c "curl -s --unix-socket '$SOCK' http://d/kiri/domains | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"http\"][\"port\"])'"
-t domain-ports-move '"port":18780' curl -s --unix-socket "$SOCK" -X POST -d '{"http":18780,"https":18743}' http://d/kiri/domains
-t domain-ports-http "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.kiri.localhost:18780 | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.kiri.localhost:18780"
-t domain-ports-https "Welcome to nginx" curl -sk -m 5 https://dmv.kiri.localhost:18743
-# The old port is free afterwards: only the installed Kiri's (Kiri Dev's
-# old port 80 is the installed Kiri's own router).
+t domain-ports-same "different ports" curl -s --unix-socket "$SOCK" -X POST -d '{"http":18780,"https":18780}' http://d/asagiri/domains
+t domain-ports-zero "1 to 65535" curl -s --unix-socket "$SOCK" -X POST -d '{"http":0,"https":18743}' http://d/asagiri/domains
+t domain-ports-taken "18799 is in use" curl -s --unix-socket "$SOCK" -X POST -d '{"http":18799,"https":18743}' http://d/asagiri/domains
+t domain-ports-unchanged "$OLD_HTTP" bash -c "curl -s --unix-socket '$SOCK' http://d/asagiri/domains | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"http\"][\"port\"])'"
+t domain-ports-move '"port":18780' curl -s --unix-socket "$SOCK" -X POST -d '{"http":18780,"https":18743}' http://d/asagiri/domains
+t domain-ports-http "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.asagiri.localhost:18780 | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.asagiri.localhost:18780"
+t domain-ports-https "Welcome to nginx" curl -sk -m 5 https://dmv.asagiri.localhost:18743
+# The old port is free afterwards: only the installed Asagiri's (Asagiri Dev's
+# old port 80 is the installed Asagiri's own router).
 if [ -z "$FEATURE" ]; then
-  t domain-ports-old-free "closed" bash -c "curl -s -m 2 -o /dev/null http://dmv.kiri.localhost:$OLD_HTTP && echo open || echo closed"
+  t domain-ports-old-free "closed" bash -c "curl -s -m 2 -o /dev/null http://dmv.asagiri.localhost:$OLD_HTTP && echo open || echo closed"
 else
-  skip domain-ports-old-free "port $OLD_HTTP is the installed Kiri's"
+  skip domain-ports-old-free "port $OLD_HTTP is the installed Asagiri's"
 fi
 # A container can still take the moved port, and gives it back.
 t domain-ports-yield "Welcome to nginx" bash -c "$D run -d --name d18780 -p 18780:80 nginx:alpine >/dev/null && sleep 1 && curl -s -m 5 http://127.0.0.1:18780/"
 $D rm -f d18780 >/dev/null
-t domain-ports-back "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.kiri.localhost:18780 | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.kiri.localhost:18780"
+t domain-ports-back "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.asagiri.localhost:18780 | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.asagiri.localhost:18780"
 if [ -z "$FEATURE" ]; then
   t domain-ports-restore "\"port\":$OLD_HTTP" dpost "{\"http\":$OLD_HTTP,\"https\":$OLD_HTTPS}"
-  t domain-ports-restored "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.kiri.localhost:$OLD_HTTP | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.kiri.localhost:$OLD_HTTP"
+  t domain-ports-restored "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.asagiri.localhost:$OLD_HTTP | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.asagiri.localhost:$OLD_HTTP"
 else
-  rm -f "$HOME/.kiri-$FEATURE/domains.json"
+  rm -f "$HOME/.asagiri-$FEATURE/domains.json"
 fi
 $D rm -f dmv dhold >/dev/null
 
@@ -510,12 +515,12 @@ t bind-write "from the container" bash -c "$D run --rm -v $BIND:/data alpine sh 
 t bind-create-0200 "200 hi" bash -c "$D run --rm -v $BIND:/data alpine sh -c 'umask 577; echo hi > /data/w0200' && perl -e 'printf q(%o ), (stat shift)[2] & 07777' $BIND/w0200 && chmod u+r $BIND/w0200 && cat $BIND/w0200"
 t bind-ro "Read-only file system" $D run --rm -v "$BIND:/data:ro" alpine sh -c 'echo x > /data/nope'
 t bind-mount-flag "from the mac" $D run --rm --mount "type=bind,source=$BIND,target=/m" alpine cat /m/hello.txt
-code bind-mount-missing 125 $D run --rm --mount type=bind,source=/kiri/does/not/exist,target=/m alpine true
+code bind-mount-missing 125 $D run --rm --mount type=bind,source=/asagiri/does/not/exist,target=/m alpine true
 t bind-v-creates "made" bash -c "$D run --rm -v $BIND/new/dir:/n alpine true && [ -d $BIND/new/dir ] && echo made"
 t bind-file "from the mac" $D run --rm -v "$BIND/hello.txt:/etc/greeting" alpine cat /etc/greeting
 t vol-persist "kept" bash -c "$D run --rm -v tvol:/v alpine sh -c 'echo kept > /v/f' && $D run --rm -v tvol:/v alpine cat /v/f"
 t vol-ls "tvol" $D volume ls
-t vol-inspect "/var/lib/kiri/volumes/tvol/_data" $D volume inspect -f '{{.Mountpoint}}' tvol
+t vol-inspect "/var/lib/asagiri/volumes/tvol/_data" $D volume inspect -f '{{.Mountpoint}}' tvol
 t vol-copyup "index.html" $D run --rm -v thtml:/usr/share/nginx/html nginx:alpine ls /usr/share/nginx/html
 t vol-nocopy-empty "0" $D run --rm --mount type=volume,source=tempty,target=/usr/share/nginx/html,volume-nocopy nginx:alpine sh -c 'ls /usr/share/nginx/html | wc -l'
 # A new volume takes the image directory's owner, mode and files, as Docker
@@ -540,10 +545,10 @@ t anon-from-image "volume:/var/lib/postgresql/data" bash -c "$D run -d --name pg
 # initialise, which also answers, and then restarts.
 t postgres-works "42" bash -c "for i in \$(seq 60); do $D logs pgv 2>&1 | grep -q 'init process complete' && $D exec pgv psql -U postgres -tAc 'select 1' >/dev/null 2>&1 && break; sleep 0.5; done; $D exec pgv psql -U postgres -tAc 'select 42'"
 t rm-v-anon "gone" bash -c "n=\$($D volume ls -q | wc -l); $D rm -f -v pgv >/dev/null; m=\$($D volume ls -q | wc -l); [ \$m -lt \$n ] && echo gone"
-t rm-anon-default-kept "kept" bash -c "$D run -d --name pgk -e POSTGRES_PASSWORD=x postgres:17-alpine >/dev/null; $D inspect -f '{{range .Mounts}}{{.Name}}{{end}}' pgk > /tmp/kiri-e2e-pgk-vol; n=\$($D volume ls -q | wc -l); $D rm -f pgk >/dev/null; m=\$($D volume ls -q | wc -l); [ \$m -eq \$n ] && echo kept"
-$D volume rm "$(cat /tmp/kiri-e2e-pgk-vol 2>/dev/null)" >/dev/null 2>&1; rm -f /tmp/kiri-e2e-pgk-vol
+t rm-anon-default-kept "kept" bash -c "$D run -d --name pgk -e POSTGRES_PASSWORD=x postgres:17-alpine >/dev/null; $D inspect -f '{{range .Mounts}}{{.Name}}{{end}}' pgk > /tmp/asagiri-e2e-pgk-vol; n=\$($D volume ls -q | wc -l); $D rm -f pgk >/dev/null; m=\$($D volume ls -q | wc -l); [ \$m -eq \$n ] && echo kept"
+$D volume rm "$(cat /tmp/asagiri-e2e-pgk-vol 2>/dev/null)" >/dev/null 2>&1; rm -f /tmp/asagiri-e2e-pgk-vol
 # Prune only what this suite labels: never the user's own volumes.
-t vol-prune "prunev" bash -c "$D volume create --label kiri-e2e=1 prunev >/dev/null; $D volume prune -af --filter label=kiri-e2e=1"
+t vol-prune "prunev" bash -c "$D volume create --label asagiri-e2e=1 prunev >/dev/null; $D volume prune -af --filter label=asagiri-e2e=1"
 $D volume rm made-vol >/dev/null 2>&1
 rm -rf "$BIND"
 
@@ -598,15 +603,15 @@ services:
 volumes:
   cachedata: {}
 YAML
-mkdir -p "$CP/html" && echo "compose on kiri" > "$CP/html/index.html"
-t compose-up "Started" bash -c "cd $CP && $D compose -p kiritest up -d 2>&1"
+mkdir -p "$CP/html" && echo "compose on asagiri" > "$CP/html/index.html"
+t compose-up "Started" bash -c "cd $CP && $D compose -p asagiritest up -d 2>&1"
 ready http://localhost:18380
-t compose-port "compose on kiri" curl -s -m 5 http://localhost:18380
-t compose-dns "PONG" bash -c "cd $CP && $D compose -p kiritest exec -T web sh -c 'apk add -q redis >/dev/null 2>&1; redis-cli -h cache ping || { cat /etc/resolv.conf; nslookup cache; ip addr show eth0; }'"
-t compose-ps "running" bash -c "cd $CP && $D compose -p kiritest ps --format '{{.State}}'"
-if [ -z "$FEATURE" ]; then t compose-domain "compose on kiri" curl -s -m 5 http://web.kiritest.kiri.localhost; else skip compose-domain "only the installed Kiri serves *.kiri.localhost"; fi
-t compose-down "Removed" bash -c "cd $CP && $D compose -p kiritest down -v 2>&1"
-t compose-clean "0" bash -c "$D ps -aq --filter label=com.docker.compose.project=kiritest | wc -l | tr -d ' '"
+t compose-port "compose on asagiri" curl -s -m 5 http://localhost:18380
+t compose-dns "PONG" bash -c "cd $CP && $D compose -p asagiritest exec -T web sh -c 'apk add -q redis >/dev/null 2>&1; redis-cli -h cache ping || { cat /etc/resolv.conf; nslookup cache; ip addr show eth0; }'"
+t compose-ps "running" bash -c "cd $CP && $D compose -p asagiritest ps --format '{{.State}}'"
+if [ -z "$FEATURE" ]; then t compose-domain "compose on asagiri" curl -s -m 5 http://web.asagiritest.asagiri.localhost; else skip compose-domain "only the installed Asagiri serves *.asagiri.localhost"; fi
+t compose-down "Removed" bash -c "cd $CP && $D compose -p asagiritest down -v 2>&1"
+t compose-clean "0" bash -c "$D ps -aq --filter label=com.docker.compose.project=asagiritest | wc -l | tr -d ' '"
 t compose-bystander "bystander" $D ps --format '{{.Names}}'
 $D rm -f bystander >/dev/null
 rm -rf "$CP"
@@ -644,7 +649,7 @@ $D rm -f pv >/dev/null
 section "kernel: netfilter, tc and interfaces"
 # Every line of tests/kernel-features.sh (nftables expressions, the iptables
 # matches and targets, ipset, IPVS, tc, ss, macvlan/WireGuard/IPsec...) is
-# one check: Kiri's guest kernel builds them all in, as it loads no modules.
+# one check: Asagiri's guest kernel builds them all in, as it loads no modules.
 KFEAT=$(perl -e 'alarm 180; exec @ARGV' $D run --rm --privileged -v "$(cd "$(dirname "$0")" && pwd)/kernel-features.sh:/k.sh:ro" alpine:3.22 sh /k.sh 2>&1 | tr -d '\r')
 # One check per line; the line itself is what shows when it fails.
 for name in $(printf '%s\n' "$KFEAT" | grep -E '^[a-z0-9-]+ (ok|FAIL)' | cut -d' ' -f1); do
@@ -655,47 +660,47 @@ printf '%s\n' "$KFEAT" | grep -qE '^[a-z0-9-]+ (ok|FAIL)' || t kernel-features "
 section "images: tag, save, load"
 code encoded-api-paths 0 python3 "$(dirname "$0")/encoded-api-paths.py" "$SOCK"
 IMD=$(mktemp -d)
-t tag "kiri-test/alp:v1" bash -c "$D tag alpine kiri-test/alp:v1 && $D images --format '{{.Repository}}:{{.Tag}}'"
-t tag-same-id "same" bash -c "[ \"\$($D images -q alpine:latest)\" = \"\$($D images -q kiri-test/alp:v1)\" ] && echo same"
-t save "manifest.json" bash -c "$D save -o $IMD/a.tar kiri-test/alp:v1 && tar -tf $IMD/a.tar"
-t rmi-tag-only "Untagged" $D rmi kiri-test/alp:v1
+t tag "asagiri-test/alp:v1" bash -c "$D tag alpine asagiri-test/alp:v1 && $D images --format '{{.Repository}}:{{.Tag}}'"
+t tag-same-id "same" bash -c "[ \"\$($D images -q alpine:latest)\" = \"\$($D images -q asagiri-test/alp:v1)\" ] && echo same"
+t save "manifest.json" bash -c "$D save -o $IMD/a.tar asagiri-test/alp:v1 && tar -tf $IMD/a.tar"
+t rmi-tag-only "Untagged" $D rmi asagiri-test/alp:v1
 t alpine-still-there "alpine" $D images --format '{{.Repository}}'
-t load "Loaded image: kiri-test/alp:v1" $D load -i "$IMD/a.tar"
-t load-runs "3." $D run --rm kiri-test/alp:v1 cat /etc/alpine-release
-t load-stdin "Loaded image" bash -c "$D rmi kiri-test/alp:v1 >/dev/null; $D load < $IMD/a.tar"
+t load "Loaded image: asagiri-test/alp:v1" $D load -i "$IMD/a.tar"
+t load-runs "3." $D run --rm asagiri-test/alp:v1 cat /etc/alpine-release
+t load-stdin "Loaded image" bash -c "$D rmi asagiri-test/alp:v1 >/dev/null; $D load < $IMD/a.tar"
 code load-garbage 1 bash -c "echo nope | $D load"
-$D rmi kiri-test/alp:v1 >/dev/null 2>&1; rm -rf "$IMD"
+$D rmi asagiri-test/alp:v1 >/dev/null 2>&1; rm -rf "$IMD"
 
 section "docker build (BuildKit in the VM)"
 BD=$(mktemp -d)
-# Each Kiri's own builder: kiri-build for context kiri, kiri-dev-build for kiri-dev, and so on,
-# so builds go to the Kiri under test and not to another one on this Mac.
-BX=${KIRI_BUILDER:-$DOCKER_CONTEXT-build}
+# Each Asagiri's own builder: asagiri-build for context asagiri, asagiri-dev-build for asagiri-dev, and so on,
+# so builds go to the Asagiri under test and not to another one on this Mac.
+BX=${ASAGIRI_BUILDER:-$DOCKER_CONTEXT-build}
 docker buildx inspect "$BX" >/dev/null 2>&1 || docker buildx create --name "$BX" --driver docker-container --driver-opt default-load=true "$DOCKER_CONTEXT" >/dev/null
 printf 'FROM alpine\nRUN echo built > /built\nARG MSG=default\nRUN echo "$MSG" > /msg\nCOPY data.txt /data.txt\nCMD ["cat","/built","/msg","/data.txt"]\n' > "$BD/Dockerfile"
 echo "from context" > "$BD/data.txt"
-t build "importing to docker" bash -c "cd $BD && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --build-arg MSG=hello -t kiri-test/built . 2>&1"
-t build-runs "from context" $D run --rm kiri-test/built
-t build-arg "hello" $D run --rm kiri-test/built
-t build-cached "CACHED" bash -c "cd $BD && BUILDX_BUILDER=$BX $D build --progress plain --build-arg MSG=hello -t kiri-test/built . 2>&1"
-t build-network "curl" bash -c "cd $BD && printf 'FROM alpine\nRUN apk add --no-cache curl\n' > Dockerfile.net && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build -f Dockerfile.net -t kiri-test/net . >/dev/null 2>&1 && $D run --rm kiri-test/net curl --version"
-# Build steps keep Kiri's resolver (and with it the Mac's): no 8.8.8.8.
+t build "importing to docker" bash -c "cd $BD && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --build-arg MSG=hello -t asagiri-test/built . 2>&1"
+t build-runs "from context" $D run --rm asagiri-test/built
+t build-arg "hello" $D run --rm asagiri-test/built
+t build-cached "CACHED" bash -c "cd $BD && BUILDX_BUILDER=$BX $D build --progress plain --build-arg MSG=hello -t asagiri-test/built . 2>&1"
+t build-network "curl" bash -c "cd $BD && printf 'FROM alpine\nRUN apk add --no-cache curl\n' > Dockerfile.net && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build -f Dockerfile.net -t asagiri-test/net . >/dev/null 2>&1 && $D run --rm asagiri-test/net curl --version"
+# Build steps keep Asagiri's resolver (and with it the Mac's): no 8.8.8.8.
 t build-resolvconf "nameserver 172.17.0.1" bash -c "cd $BD && printf 'FROM alpine\nRUN cat /etc/resolv.conf\n' > Dockerfile.dns && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.dns . 2>&1"
 code build-no-public-resolver 1 bash -c "cd $BD && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.dns . 2>&1 | grep -q 'nameserver 8.8.8.8'"
 t build-dns "Address" bash -c "cd $BD && printf 'FROM alpine\nRUN nslookup example.com\n' > Dockerfile.lookup && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.lookup . 2>&1"
 t build-fails "exit code: 3" bash -c "cd $BD && printf 'FROM alpine\nRUN exit 3\n' > Dockerfile.bad && BUILDX_BUILDER=$BX $D build -f Dockerfile.bad . 2>&1"
-$D rmi kiri-test/built kiri-test/net >/dev/null 2>&1; rm -rf "$BD"
+$D rmi asagiri-test/built asagiri-test/net >/dev/null 2>&1; rm -rf "$BD"
 
 section "registry: login, push, pull"
 REG=$(mktemp -d); export DOCKER_CONFIG_SAVED=${DOCKER_CONFIG:-}
 # A throwaway client config: no keychain, nothing of the user's touched.
 mkdir -p "$REG/cfg"; echo '{"auths":{}}' > "$REG/cfg/config.json"; ln -s ~/.docker/cli-plugins "$REG/cfg/cli-plugins"; ln -s ~/.docker/contexts "$REG/cfg/contexts"
-$D run --rm httpd:2.4-alpine htpasswd -Bbn kiriuser kiripass > "$REG/htpasswd" 2>/dev/null
-$D run -d --name reg -p 5055:5000 -v "$REG:/auth" -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=kiri -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd registry:2 >/dev/null
+$D run --rm httpd:2.4-alpine htpasswd -Bbn asagiriuser asagiripass > "$REG/htpasswd" 2>/dev/null
+$D run -d --name reg -p 5055:5000 -v "$REG:/auth" -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=asagiri -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd registry:2 >/dev/null
 ready http://localhost:5055/v2/
 R="env DOCKER_CONFIG=$REG/cfg $D"
-t login-wrong "incorrect username or password" bash -c "echo nope | $R login localhost:5055 -u kiriuser --password-stdin 2>&1"
-t login "Login Succeeded" bash -c "echo kiripass | $R login localhost:5055 -u kiriuser --password-stdin 2>&1"
+t login-wrong "incorrect username or password" bash -c "echo nope | $R login localhost:5055 -u asagiriuser --password-stdin 2>&1"
+t login "Login Succeeded" bash -c "echo asagiripass | $R login localhost:5055 -u asagiriuser --password-stdin 2>&1"
 t push "digest: sha256:" bash -c "$R tag alpine localhost:5055/team/alp:1 && $R push localhost:5055/team/alp:1 2>&1"
 t push-again "already exists" bash -c "$R push localhost:5055/team/alp:1 2>&1"
 # Deploy tools pin to the RepoDigest after a push: it must be the manifest the
@@ -749,8 +754,8 @@ t export-has-change "added" bash -c "$D export ren2 | tar -t | grep -x added"
 # neither the diff nor a committed layer.
 t diff-no-marker "marker lines: 0" bash -c "echo marker lines: \$($D diff ren2 | grep -c dockerenv)"
 t export-has-marker ".dockerenv" bash -c "$D export ren2 | tar -t | grep -Fx .dockerenv"
-t commit "sha256:" $D commit -c 'CMD ["cat","/added"]' -c 'ENV KIRI=1' ren2 kiri-test/committed:1
-t commit-no-marker "clean" bash -c "$D save kiri-test/committed:1 | python3 -c 'import io, sys, tarfile
+t commit "sha256:" $D commit -c 'CMD ["cat","/added"]' -c 'ENV ASAGIRI=1' ren2 asagiri-test/committed:1
+t commit-no-marker "clean" bash -c "$D save asagiri-test/committed:1 | python3 -c 'import io, sys, tarfile
 names = []
 image = tarfile.open(fileobj=io.BytesIO(sys.stdin.buffer.read()))
 for blob in filter(tarfile.TarInfo.isfile, image):
@@ -759,13 +764,13 @@ for blob in filter(tarfile.TarInfo.isfile, image):
     except tarfile.TarError:
         pass
 print(\"clean\" if \"added\" in names and not {\".dockerenv\", \"./.dockerenv\"} & set(names) else names)'"
-t commit-runs "hi" $D run --rm kiri-test/committed:1
-t commit-env "KIRI=1" $D run --rm kiri-test/committed:1 env
-t commit-whiteout "gone" bash -c "$D run --rm kiri-test/committed:1 sh -c 'test -e /etc/motd || echo gone'"
-t history "docker commit" $D history kiri-test/committed:1
-t history-base "<missing>" $D history kiri-test/committed:1
-t commit-stopped "sha256:" bash -c "$D stop -t 1 ren2 >/dev/null && $D commit ren2 kiri-test/committed:2"
-$D rm -f ren2 >/dev/null; $D rmi kiri-test/committed:1 kiri-test/committed:2 >/dev/null 2>&1
+t commit-runs "hi" $D run --rm asagiri-test/committed:1
+t commit-env "ASAGIRI=1" $D run --rm asagiri-test/committed:1 env
+t commit-whiteout "gone" bash -c "$D run --rm asagiri-test/committed:1 sh -c 'test -e /etc/motd || echo gone'"
+t history "docker commit" $D history asagiri-test/committed:1
+t history-base "<missing>" $D history asagiri-test/committed:1
+t commit-stopped "sha256:" bash -c "$D stop -t 1 ren2 >/dev/null && $D commit ren2 asagiri-test/committed:2"
+$D rm -f ren2 >/dev/null; $D rmi asagiri-test/committed:1 asagiri-test/committed:2 >/dev/null 2>&1
 
 section "network connect and disconnect"
 code network-endpoint-metadata 0 python3 "$(dirname "$0")/network-endpoint-metadata.py" "$SOCK" alpine
@@ -782,7 +787,7 @@ t connect-survives-restart "eth1" bash -c "$D restart -t 1 multi >/dev/null && $
 code connect-twice 1 $D network connect nb multi
 t disconnect "no-eth1" bash -c "$D network disconnect nb multi && ($D exec multi ip -o link | grep -q eth1 && echo still || echo no-eth1)"
 t disconnect-dns-gone "bad address" $D run --rm --network nb alpine wget -qO- -T 2 http://web2
-t compose-multi-net "PONG" bash -c "d=\$(mktemp -d); printf 'services:\n  db:\n    image: redis:7-alpine\n    networks: [back]\n  app:\n    image: redis:7-alpine\n    command: sh -c \"sleep 1; redis-cli -h db ping; sleep 30\"\n    networks: [front, back]\nnetworks:\n  front: {}\n  back: {}\n' > \$d/compose.yaml; cd \$d && $D compose -p kirinet up -d >/dev/null 2>&1; sleep 3; $D compose -p kirinet logs app; $D compose -p kirinet down >/dev/null 2>&1; rm -rf \$d"
+t compose-multi-net "PONG" bash -c "d=\$(mktemp -d); printf 'services:\n  db:\n    image: redis:7-alpine\n    networks: [back]\n  app:\n    image: redis:7-alpine\n    command: sh -c \"sleep 1; redis-cli -h db ping; sleep 30\"\n    networks: [front, back]\nnetworks:\n  front: {}\n  back: {}\n' > \$d/compose.yaml; cd \$d && $D compose -p asagirinet up -d >/dev/null 2>&1; sleep 3; $D compose -p asagirinet logs app; $D compose -p asagirinet down >/dev/null 2>&1; rm -rf \$d"
 $D rm -f multi >/dev/null; $D network rm na nb >/dev/null
 code network-connect-dns 0 python3 "$(dirname "$0")/network-connect-dns.py" "$SOCK" alpine
 code network-late-default-route 0 python3 "$(dirname "$0")/network-late-default-route.py" "$SOCK" alpine
@@ -795,14 +800,14 @@ t events-since "die" bash -c "$D events --since 30s --until=-1s --filter contain
 t events-type "destroy" bash -c "$D rm evt >/dev/null; $D events --since 30s --until=-1s --filter type=container --filter event=destroy --format '{{.Action}}'"
 t events-json "timeNano" bash -c "$D events --since 30s --until=-1s --format '{{json .}}' | head -1"
 # Prune only what this suite labels: never the user's stopped containers.
-t container-prune "Total reclaimed space" bash -c "$D create --name prunable --label kiri-e2e=1 alpine >/dev/null; $D container prune -f --filter label=kiri-e2e=1"
+t container-prune "Total reclaimed space" bash -c "$D create --name prunable --label asagiri-e2e=1 alpine >/dev/null; $D container prune -f --filter label=asagiri-e2e=1"
 code pruned-gone 1 $D inspect prunable
 t system-df "Images" $D system df
 t system-df-v "VOLUME NAME" $D system df -v
 # Real sizes, measured on the engine's disk: a volume and a container that
 # each hold 20 MiB (it once reported every volume as unknown, every
 # container as 0 and images at their download size).
-t system-df-sizes "SIZES-OK" bash -c "$D rm -f e2e-dfc >/dev/null 2>&1; $D volume rm e2e-dfv >/dev/null 2>&1; $D run --rm -v e2e-dfv:/d alpine sh -c 'head -c 20971520 /dev/urandom > /d/f' && $D run --name e2e-dfc alpine sh -c 'head -c 20971520 /dev/urandom > /f' && curl -s --unix-socket $(printf %q "$SOCK") http://kiri/system/df | python3 -c 'import json,sys; d=json.load(sys.stdin); v=[x[\"UsageData\"][\"Size\"] for x in d[\"Volumes\"] if x[\"Name\"]==\"e2e-dfv\"]; c=[x[\"SizeRw\"] for x in d[\"Containers\"] if \"/e2e-dfc\" in x[\"Names\"]]; i=[x for x in d[\"Images\"] if x[\"Size\"]<=0]; print(\"SIZES-OK\" if v and v[0]>=20971520 and c and c[0]>=20971520 and not i and d[\"LayersSize\"]>0 else (v, c, len(i)))'; $D rm -f e2e-dfc >/dev/null; $D volume rm e2e-dfv >/dev/null"
+t system-df-sizes "SIZES-OK" bash -c "$D rm -f e2e-dfc >/dev/null 2>&1; $D volume rm e2e-dfv >/dev/null 2>&1; $D run --rm -v e2e-dfv:/d alpine sh -c 'head -c 20971520 /dev/urandom > /d/f' && $D run --name e2e-dfc alpine sh -c 'head -c 20971520 /dev/urandom > /f' && curl -s --unix-socket $(printf %q "$SOCK") http://asagiri/system/df | python3 -c 'import json,sys; d=json.load(sys.stdin); v=[x[\"UsageData\"][\"Size\"] for x in d[\"Volumes\"] if x[\"Name\"]==\"e2e-dfv\"]; c=[x[\"SizeRw\"] for x in d[\"Containers\"] if \"/e2e-dfc\" in x[\"Names\"]]; i=[x for x in d[\"Images\"] if x[\"Size\"]<=0]; print(\"SIZES-OK\" if v and v[0]>=20971520 and c and c[0]>=20971520 and not i and d[\"LayersSize\"]>0 else (v, c, len(i)))'; $D rm -f e2e-dfc >/dev/null; $D volume rm e2e-dfv >/dev/null"
 t search "alpine" $D search alpine --limit 3
 t search-official "[OK]" $D search --filter is-official=true alpine --limit 3
 
@@ -855,11 +860,11 @@ t shm-default "64.0M" $D run --rm alpine df -h /dev/shm
 t no-new-privs "NoNewPrivs:	1" $D run --rm --security-opt no-new-privileges alpine grep NoNewPrivs /proc/self/status
 
 section "UDP ports"
-$D run -d --name dns -p 15354:53/udp -p 15354:53/tcp alpine sh -c 'apk add -q dnsmasq >/dev/null 2>&1; dnsmasq -k --address=/kiri.test/10.9.8.7' >/dev/null
-for _ in $(seq 40); do dig +short +time=1 +tries=1 @127.0.0.1 -p 15354 kiri.test 2>/dev/null | grep -q 10.9.8.7 && break; sleep 0.3; done
-t udp-dns "10.9.8.7" dig +short +time=2 +tries=1 @127.0.0.1 -p 15354 kiri.test
-t udp-dns-tcp-same-port "10.9.8.7" dig +short +tcp +time=2 @127.0.0.1 -p 15354 kiri.test
-t udp-many "20" bash -c "n=0; for i in \$(seq 20); do dig +short +time=2 +tries=1 @127.0.0.1 -p 15354 kiri.test | grep -q 10.9.8.7 && n=\$((n+1)); done; echo \$n"
+$D run -d --name dns -p 15354:53/udp -p 15354:53/tcp alpine sh -c 'apk add -q dnsmasq >/dev/null 2>&1; dnsmasq -k --address=/asagiri.test/10.9.8.7' >/dev/null
+for _ in $(seq 40); do dig +short +time=1 +tries=1 @127.0.0.1 -p 15354 asagiri.test 2>/dev/null | grep -q 10.9.8.7 && break; sleep 0.3; done
+t udp-dns "10.9.8.7" dig +short +time=2 +tries=1 @127.0.0.1 -p 15354 asagiri.test
+t udp-dns-tcp-same-port "10.9.8.7" dig +short +tcp +time=2 @127.0.0.1 -p 15354 asagiri.test
+t udp-many "20" bash -c "n=0; for i in \$(seq 20); do dig +short +time=2 +tries=1 @127.0.0.1 -p 15354 asagiri.test | grep -q 10.9.8.7 && n=\$((n+1)); done; echo \$n"
 t udp-port-listed "53/udp -> 0.0.0.0:15354" $D port dns
 t udp-inspect "53/udp" $D inspect -f '{{json .NetworkSettings.Ports}}' dns
 $D rm -f dns >/dev/null
@@ -867,38 +872,38 @@ code udp-port-free-after 0 bash -c "python3 -c 'import socket; s=socket.socket(s
 
 section "Linux machines"
 # Absolute: machine-cwd runs it from another folder.
-KIRI=${KIRI:-$(cd "$(dirname "$0")/.." && pwd)/target/release/kiri}
+ASAGIRI=${ASAGIRI:-$(cd "$(dirname "$0")/.." && pwd)/target/release/asagiri}
 # The binary as one shell word, for commands passed to bash -c (app paths have spaces).
-KQ=$(printf %q "$KIRI")
-t machine-create "is running" "$KIRI" machine create e2e-m --distro alpine
-t machine-list "e2e-m" "$KIRI" machine list
+KQ=$(printf %q "$ASAGIRI")
+t machine-create "is running" "$ASAGIRI" machine create e2e-m --distro alpine
+t machine-list "e2e-m" "$ASAGIRI" machine list
 t machine-user "$(whoami) $(id -u)" bash -c "$KQ machine shell e2e-m -- sh -c 'echo \$(whoami) \$(id -u)' < /dev/null"
 # Machines see the Mac's home folder, not /private/tmp, so these use a folder under it.
-MD=$(mktemp -d "$HOME/.kiri-e2e-machine.XXXXXX"); touch "$MD/kiri-e2e-marker"
-t machine-mac-files "kiri-e2e-marker" bash -c "$KQ machine shell e2e-m -- ls $MD < /dev/null"
+MD=$(mktemp -d "$HOME/.asagiri-e2e-machine.XXXXXX"); touch "$MD/asagiri-e2e-marker"
+t machine-mac-files "asagiri-e2e-marker" bash -c "$KQ machine shell e2e-m -- ls $MD < /dev/null"
 t machine-cwd "$MD" bash -c "cd $MD && $KQ machine shell e2e-m -- pwd < /dev/null"
 rm -rf "$MD"
 t machine-hostname "e2e-m" bash -c "$KQ machine shell e2e-m -- hostname < /dev/null"
 t machine-sudo "root" bash -c "for i in \$(seq 30); do out=\$($KQ machine shell e2e-m -- sudo -n whoami < /dev/null 2>/dev/null); [ \"\$out\" = root ] && break; sleep 1; done; echo \$out"
 t machine-stop "Exited" bash -c "$KQ machine stop e2e-m && $KQ machine list"
 t machine-start "Up" bash -c "$KQ machine start e2e-m && $KQ machine list"
-t machine-delete "deleted" "$KIRI" machine delete e2e-m
-code machine-bad-name 1 "$KIRI" machine create 'bad_name!'
+t machine-delete "deleted" "$ASAGIRI" machine delete e2e-m
+code machine-bad-name 1 "$ASAGIRI" machine create 'bad_name!'
 t stop-signal "got USR1" bash -c "$D run -d --name sig --stop-signal USR1 alpine sh -c 'trap \"echo got USR1; exit 0\" USR1; while :; do sleep 0.1; done' >/dev/null; sleep 0.5; $D stop -t 5 sig >/dev/null; $D logs sig; $D rm -f sig >/dev/null"
 t stop-signal-inspect "exited (0)" bash -c "$D run -d --name sig2 --stop-signal SIGRTMIN+3 alpine sh -c 'trap \"exit 0\" 37; while :; do sleep 0.1; done' >/dev/null; sleep 0.5; $D stop -t 5 sig2 >/dev/null; $D ps -a --filter name=sig2 --format '{{.Status}}' | tr A-Z a-z | cut -c1-10; $D rm -f sig2 >/dev/null"
 if [ "${SLOW:-0}" = 1 ]; then
   t machine-systemd "running" bash -c "$KQ machine create e2e-sd --distro ubuntu --systemd >/dev/null; for i in \$(seq 60); do st=\$($KQ machine shell e2e-sd -- systemctl is-system-running < /dev/null 2>/dev/null); case \"\$st\" in running|degraded) break;; esac; sleep 3; done; echo \$st"
   t machine-systemd-stop "Exited" bash -c "$KQ machine stop e2e-sd && $KQ machine list | grep e2e-sd"
-  "$KIRI" machine delete e2e-sd >/dev/null
+  "$ASAGIRI" machine delete e2e-sd >/dev/null
 fi
 
 if [ "${K8S:-0}" = 1 ]; then
   section "Kubernetes (K8S=1)"
   KH=$(mktemp -d); mkdir -p "$KH/.kube"
-  KK="env HOME=$KH KIRI_SOCKET=$SOCK $KQ k8s"
+  KK="env HOME=$KH ASAGIRI_SOCKET=$SOCK $KQ k8s"
   t k8s-start "is ready" bash -c "$KK start"
-  # The context `kiri k8s start` wrote: named after the Kiri build, not always `kiri`.
-  KCTX=$(env HOME="$KH" kubectl config get-contexts -o name 2>/dev/null | head -1); KCTX=${KCTX:-kiri}
+  # The context `asagiri k8s start` wrote: named after the Asagiri build, not always `asagiri`.
+  KCTX=$(env HOME="$KH" kubectl config get-contexts -o name 2>/dev/null | head -1); KCTX=${KCTX:-asagiri}
   t k8s-node "Ready" env HOME="$KH" kubectl --context $KCTX get nodes
   t k8s-deploy "successfully rolled out" bash -c "env HOME=$KH kubectl --context $KCTX create deployment web --image=nginx:alpine >/dev/null && env HOME=$KH kubectl --context $KCTX rollout status deploy/web --timeout=120s"
   # CoreDNS may still be starting: ask a few times, as a client would.
@@ -908,24 +913,24 @@ if [ "${K8S:-0}" = 1 ]; then
   t k8s-stop "exited" bash -c "$KK stop >/dev/null && $KK status"
   t k8s-resume "is ready" bash -c "$KK start"
   t k8s-delete "deleted" bash -c "$KK delete"
-  t k8s-context-gone "0" bash -c "env HOME=$KH kubectl config get-contexts -o name | grep -c kiri"
+  t k8s-context-gone "0" bash -c "env HOME=$KH kubectl config get-contexts -o name | grep -c asagiri"
   rm -rf "$KH"
 fi
 
 section "errors"
 t bad-image-name "invalid" $D run --rm 'UPPER/case' true
-code no-such-image-pull 125 $D run --rm kiri-test/no-such-image:none true
+code no-such-image-pull 125 $D run --rm asagiri-test/no-such-image:none true
 
 cleanup
 
 if [ "${SOAK:-0}" -gt 0 ]; then
   section "soak: $SOAK containers, checking for leaks"
-  DPID=$(pgrep -f 'release/kiri daemon' | head -1)
+  DPID=$(pgrep -f 'release/asagiri daemon' | head -1)
   fp() { footprint "$DPID" 2>/dev/null | sed -n 's/.*Footprint: \([0-9.]* [KMG]*B\).*/\1/p' | head -1; }
   fds() { lsof -p "$DPID" 2>/dev/null | wc -l | tr -d ' '; }
-  guest() { $D run --rm --network host alpine sh -c 'echo "$(ls /var/lib/kiri/containers 2>/dev/null | wc -l) $(ls -d /sys/fs/cgroup/kiri/*/ 2>/dev/null | wc -l) $(ip -o link | grep -c " kv") $(ls /run/kiri 2>/dev/null | wc -l) $(awk "/MemTotal/{t=\$2} /MemAvailable/{a=\$2} END{print t-a}" /proc/meminfo)"' 2>/dev/null; }
+  guest() { $D run --rm --network host alpine sh -c 'echo "$(ls /var/lib/asagiri/containers 2>/dev/null | wc -l) $(ls -d /sys/fs/cgroup/asagiri/*/ 2>/dev/null | wc -l) $(ip -o link | grep -c " kv") $(ls /run/asagiri 2>/dev/null | wc -l) $(awk "/MemTotal/{t=\$2} /MemAvailable/{a=\$2} END{print t-a}" /proc/meminfo)"' 2>/dev/null; }
   # The balloon's pages count as used inside the guest; take them out.
-  ballooned() { curl -s --unix-socket "$SOCK" http://d/info | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d["KiriMemoryCeiling"] - d["KiriMemoryTarget"]) // 1024)'; }
+  ballooned() { curl -s --unix-socket "$SOCK" http://d/info | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d["AsagiriMemoryCeiling"] - d["AsagiriMemoryTarget"]) // 1024)'; }
   # Warm up, then take the baseline.
   for i in $(seq 20); do $D run --rm alpine true >/dev/null 2>&1; done
   read -r c0 g0 v0 r0 m0 <<<"$(guest)"; m0=$((m0 - $(ballooned)))

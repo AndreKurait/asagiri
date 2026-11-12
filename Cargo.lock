@@ -742,7 +742,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri"
+name = "asagiri"
 version = "0.0.0"
 dependencies = [
  "block2",
@@ -750,10 +750,10 @@ dependencies = [
  "flate2",
  "gtk",
  "javascriptcore-rs",
- "kiri-image",
- "kiri-proto",
- "kiri-share-proto",
- "kiri-vmm",
+ "asagiri-image",
+ "asagiri-proto",
+ "asagiri-share-proto",
+ "asagiri-vmm",
  "libc",
  "objc2",
  "objc2-app-kit",
@@ -774,7 +774,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-image"
+name = "asagiri-image"
 version = "0.0.0"
 dependencies = [
  "serde",
@@ -785,11 +785,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-init"
+name = "asagiri-init"
 version = "0.0.0"
 dependencies = [
  "flate2",
- "kiri-proto",
+ "asagiri-proto",
  "libc",
  "ruzstd",
  "serde_json",
@@ -797,11 +797,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-proto"
+name = "asagiri-proto"
 version = "0.0.0"
 
 [[package]]
-name = "kiri-share-proto"
+name = "asagiri-share-proto"
 version = "0.0.0"
 dependencies = [
  "hmac",
@@ -809,7 +809,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-vmm"
+name = "asagiri-vmm"
 version = "0.0.0"
 dependencies = [
  "block2",
@@ -821,11 +821,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-win"
+name = "asagiri-win"
 version = "0.0.0"
 dependencies = [
  "embed-resource",
- "kiri-share-proto",
+ "asagiri-share-proto",
  "libc",
  "rustls",
  "serde",

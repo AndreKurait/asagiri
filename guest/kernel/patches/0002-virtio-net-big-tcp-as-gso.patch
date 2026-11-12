@@ -19,14 +19,14 @@
  	skb_set_hash(skb, virtio_net_hash_value(hdr_hash), rss_hash_type);
  }
 +
-+/* Kiri: Virtualization.framework's NAT hands the guest TCP packets of up to
++/* Asagiri: Virtualization.framework's NAT hands the guest TCP packets of up to
 + * 64 KiB, coalesced from the Mac's segments, with DF clear and no segment
 + * size. Delivered locally that is fine; forwarded to a container (published
 + * ports) each one was cut into MTU-size IP fragments for the container to
 + * reassemble. Describe them as GRO would have built them, a TCP packet of
 + * MTU-size segments, so forwarding passes them on whole.
 + */
-+static void virtnet_kiri_big_tcp(struct net_device *dev, struct sk_buff *skb)
++static void virtnet_asagiri_big_tcp(struct net_device *dev, struct sk_buff *skb)
 +{
 +	const struct iphdr *iph;
 +	const struct tcphdr *th;
@@ -61,7 +61,7 @@
  
  	skb_record_rx_queue(skb, vq2rxq(rq->vq));
  	skb->protocol = eth_type_trans(skb, dev);
-+	virtnet_kiri_big_tcp(dev, skb);
++	virtnet_asagiri_big_tcp(dev, skb);
  	pr_debug("Receiving skb proto 0x%04x len %i type %i\n",
  		 ntohs(skb->protocol), skb->len, skb->pkt_type);
  

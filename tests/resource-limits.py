@@ -103,7 +103,7 @@ def check(path, image):
                         {"CpuPeriod": 1}, {"CpusetCpus": "3-1"},
                         {"NanoCpus": 1000000000, "CpuQuota": 10000}):
             # Docker reports some merged-limit failures from runc as 500;
-            # Kiri can reject the same combination before contacting the guest.
+            # Asagiri can reject the same combination before contacting the guest.
             error = update(cid, invalid, (400, 500))
             assert error["message"], error
             assert inspect(cid) == before, invalid

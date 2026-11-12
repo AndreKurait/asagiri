@@ -82,7 +82,7 @@ def check(path, image):
                 print("PASS", state, source, flush=True)
             # Docker rebases "." to this new destination name. Every child
             # must keep "./" for that rebase to include it in the directory.
-            with tempfile.TemporaryDirectory(prefix="kiri-archive-contents-") as destination:
+            with tempfile.TemporaryDirectory(prefix="asagiri-archive-contents-") as destination:
                 copied = Path(destination) / "new-directory"
                 run("cp", cid + ":/tmp/" + DIRECTORY + "/.", str(copied))
                 assert (copied / "file").read_bytes() == b"content"

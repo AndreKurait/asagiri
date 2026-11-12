@@ -1,13 +1,13 @@
 // Out of memory: the flat red notice, and each place that says memory is why.
-kiri.on({ type: "status", version: "0.1.4", dev: true, app: "Kiri Dev", ours: "kiri-dev", context: "kiri-dev" });
+asagiri.on({ type: "status", version: "0.1.4", dev: true, app: "Asagiri Dev", ours: "asagiri-dev", context: "asagiri-dev" });
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m + ": got " + JSON.stringify(a) + " want " + JSON.stringify(b)); };
 const text = (el) => el?.textContent.replace(/\s+/g, " ").trim() || "";
-const vm = (used, stall, kills) => kiri.on({ type: "vm", awake: true, used_mib: used, target_mib: 1024, ceiling_mib: 1024, running: 3, cpus: 1, cpu_pct: 4, stall_pct: stall, oom_kills: kills });
-const list = (extra) => kiri.on({ type: "lists", containers: [...ui.containers.filter((c) => c.Id !== "g1"), ...extra], images: ui.images, volumes: ui.volumes, networks: ui.networks });
+const vm = (used, stall, kills) => asagiri.on({ type: "vm", awake: true, used_mib: used, target_mib: 1024, ceiling_mib: 1024, running: 3, cpus: 1, cpu_pct: 4, stall_pct: stall, oom_kills: kills });
+const list = (extra) => asagiri.on({ type: "lists", containers: [...ui.containers.filter((c) => c.Id !== "g1"), ...extra], images: ui.images, volumes: ui.volumes, networks: ui.networks });
 const STOPPED = Math.floor(Date.now() / 1000) - 30;
-const grafana = (oom) => ({ Id: "g1", Names: ["/grafana"], Image: "grafana/grafana", State: oom === null ? "running" : "exited", Status: "", KiriExitCode: 137, KiriOOMKilled: !!oom, KiriFinishedAt: STOPPED, Ports: [], Labels: {} });
+const grafana = (oom) => ({ Id: "g1", Names: ["/grafana"], Image: "grafana/grafana", State: oom === null ? "running" : "exited", Status: "", AsagiriExitCode: 137, AsagiriOOMKilled: !!oom, AsagiriFinishedAt: STOPPED, Ports: [], Labels: {} });
 show("containers");
 t("plenty of memory: the status bar is grey and nothing is said", () => {
   vm(400, 0, 0);

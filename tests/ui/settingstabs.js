@@ -2,7 +2,7 @@
 // from (no OrbStack or Docker Desktop, or an engine that can't import yet).
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
-kiri.on({ type: "importsources", sources: [] });
+asagiri.on({ type: "importsources", sources: [] });
 show("settings");
 for (const id of [...document.querySelectorAll("[data-stab]")].map((b) => b.dataset.stab)) {
   t(`Settings → ${id} opens`, () => {

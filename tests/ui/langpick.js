@@ -1,4 +1,4 @@
-// The first start's language step: fifteen tiles, each in its own language, the
+// The first start's language step: sixteen tiles, each in its own language, the
 // system's marked; a tile switches the whole window at once and is saved
 // ("system" for the system's own); Continue (or Escape) saves that it was
 // asked, and the welcome that arrived meanwhile waits until then.
@@ -11,21 +11,21 @@ const welcomeOpen = () => !!document.querySelector('[aria-labelledby="welcome-ti
 const saved = (name) => sent.filter((m) => m.type === "setpref" && m.name === name).at(-1)?.value;
 const rail = () => document.querySelector("nav [data-view=containers] .lbl").textContent;
 
-kiri.on({ type: "langpick" });
-t("a langpick event opens the language step with fifteen tiles", () => {
+asagiri.on({ type: "langpick" });
+t("a langpick event opens the language step with sixteen tiles", () => {
   if (!dlg()) throw new Error("no dialog");
   const ids = tilesNow().map((b) => b.dataset.lang).join(" ");
-  if (ids !== "en id de es fr it pl pt-BR vi tr ru ja ko zh-Hans zh-Hant") throw new Error("tiles: " + ids);
+  if (ids !== "en id de es fr it pl pt-BR vi tr ru ar ja ko zh-Hans zh-Hant") throw new Error("tiles: " + ids);
 });
-t("five across, three down", () => {
+t("four across, four down", () => {
   const tops = new Set(tilesNow().map((b) => Math.round(b.getBoundingClientRect().top)));
   const lefts = new Set(tilesNow().map((b) => Math.round(b.getBoundingClientRect().left)));
-  if (lefts.size !== 5 || tops.size !== 3) throw new Error(`${lefts.size} columns, ${tops.size} rows`);
+  if (lefts.size !== 4 || tops.size !== 4) throw new Error(`${lefts.size} columns, ${tops.size} rows`);
 });
 t("each tile is in its own language, with its own Hello", () => {
   if (pickTile("de").getAttribute("lang") !== "de" || !pickTile("de").textContent.includes("Deutsch") || !pickTile("de").textContent.includes("Hallo")) throw new Error(pickTile("de").textContent);
   if (!pickTile("zh-Hans").textContent.includes("简体中文") || !pickTile("zh-Hans").textContent.includes("你好")) throw new Error(pickTile("zh-Hans").textContent);
-  for (const [id, name, hello] of [["ja", "日本語", "こんにちは"], ["ko", "한국어", "안녕하세요"], ["zh-Hant", "繁體中文", "你好"], ["ru", "Русский", "Привет"], ["vi", "Tiếng Việt", "Xin chào"], ["id", "Bahasa Indonesia", "Halo"]])
+  for (const [id, name, hello] of [["ja", "日本語", "こんにちは"], ["ko", "한국어", "안녕하세요"], ["zh-Hant", "繁體中文", "你好"], ["ru", "Русский", "Привет"], ["ar", "العربية", "مرحبًا"], ["vi", "Tiếng Việt", "Xin chào"], ["id", "Bahasa Indonesia", "Halo"]])
     if (pickTile(id).getAttribute("lang") !== id || !pickTile(id).textContent.includes(name) || !pickTile(id).textContent.includes(hello)) throw new Error(pickTile(id).textContent);
 });
 t("the system's language is marked and picked", () => {
@@ -35,7 +35,7 @@ t("the system's language is marked and picked", () => {
   if (pickTile("en").getAttribute("aria-checked") !== "true" || tilesNow().filter((b) => b.getAttribute("aria-checked") === "true").length !== 1) throw new Error("not the one picked");
 });
 
-kiri.on({ type: "welcome" });
+asagiri.on({ type: "welcome" });
 t("a welcome that arrives meanwhile waits behind it", () => {
   if (welcomeOpen()) throw new Error("the welcome opened over the language step");
   if (!dlg()) throw new Error("the language step went away");
@@ -97,10 +97,10 @@ document.querySelector('[aria-labelledby="welcome-title"]')?.closest(".scrim")?.
 
 // A French system: its tile is the one marked, and the step opens in French.
 // Escape keeps that, as Continue does.
-window.KIRI_LANG.os = ["fr-CA", "en-US"];
+window.ASAGIRI_LANG.os = ["fr-CA", "en-US"];
 setPref("lang", "system");
 sent.length = 0;
-kiri.on({ type: "langpick" });
+asagiri.on({ type: "langpick" });
 t("a French system's tile is the one marked, and the step reads French", () => {
   const marked = tilesNow().filter((b) => b.querySelector(".sys")).map((b) => b.dataset.lang);
   if (marked.join() !== "fr") throw new Error("marked: " + marked);
@@ -113,6 +113,6 @@ t("Escape closes it as Continue does, keeping the language", () => {
   if (saved("langAsked") !== true) throw new Error("langAsked is " + saved("langAsked"));
   if (saved("lang") !== undefined || document.documentElement.lang !== "fr") throw new Error(`saved ${saved("lang")}, lang ${document.documentElement.lang}`);
 });
-window.KIRI_LANG.os = ["en-US"];
+window.ASAGIRI_LANG.os = ["en-US"];
 setPref("lang", "system");
 report(R);

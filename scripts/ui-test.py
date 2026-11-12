@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the window's page tests (tests/ui/*.js) in headless Chrome.
 
-Each test file runs in the real page (crates/kiri/src/ui/index.html, with its
+Each test file runs in the real page (crates/asagiri/src/ui/index.html, with its
 icons) after tests/ui/fixture.js, and calls report() with lines that start
 with PASS or FAIL. Exits non-zero if any test fails or a page errors.
 
@@ -11,7 +11,7 @@ import html, json, os, re, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHROME = os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-UI = os.path.join(ROOT, "crates/kiri/src/ui")
+UI = os.path.join(ROOT, "crates/asagiri/src/ui")
 
 
 def strings():
@@ -30,17 +30,17 @@ def opening(pick, packed):
 
 def host(packed):
     """The host's half of langwords, after the fixture's recorder: it answers as
-    lang.rs's words_js does, calling kiriWords with that language's words, at
+    lang.rs's words_js does, calling asagiriWords with that language's words, at
     once (a real host answers a moment later). hostHold = true keeps the answers
     until hostFlush(), for a test of the moment in between."""
     words = {t: w for t, w in packed.items() if t != "en"}
     return (f"const HOST_WORDS = {json.dumps(words, ensure_ascii=False)};\n"
             "let hostHold = false; const hostHeld = [];\n"
             "const hostFlush = () => hostHeld.splice(0).forEach((f) => f());\n"
-            "{ const post = window.webkit.messageHandlers.kiri.postMessage;\n"
-            "  window.webkit.messageHandlers.kiri.postMessage = (m) => { post(m); const o = JSON.parse(m);\n"
+            "{ const post = window.webkit.messageHandlers.asagiri.postMessage;\n"
+            "  window.webkit.messageHandlers.asagiri.postMessage = (m) => { post(m); const o = JSON.parse(m);\n"
             "    if (o.cmd !== \"langwords\" || !HOST_WORDS[o.name]) return;\n"
-            "    const answer = () => window.kiriWords && kiriWords({ [o.name]: HOST_WORDS[o.name] });\n"
+            "    const answer = () => window.asagiriWords && asagiriWords({ [o.name]: HOST_WORDS[o.name] });\n"
             "    if (hostHold) hostHeld.push(answer); else answer(); }; }\n")
 
 
@@ -61,10 +61,10 @@ def page(test, os_name=None):
     index = (open(os.path.join(UI, "index.html")).read().replace("/*ICONS*/", open(os.path.join(UI, "icons.js")).read(), 1)
              .replace("/*XTERM_CSS*/", xterm("xterm.css"), 1)
              .replace("/*XTERM_JS*/", "".join(xterm(f) + "\n" for f in ["xterm.js", "addon-fit.js", "addon-search.js", "addon-web-links.js"]), 1)
-             .replace("/*LANG*/", f"window.KIRI_LANG = {json.dumps({'os': ['en-US'], 'pick': pick})};", 1)
+             .replace("/*LANG*/", f"window.ASAGIRI_LANG = {json.dumps({'os': ['en-US'], 'pick': pick})};", 1)
              .replace("/*STRINGS*/{}", json.dumps(opening(pick, packed), ensure_ascii=False), 1))
     if os_name and os_name != "macos":
-        index = index.replace("<head>", f'<head><script>window.KIRI_OS = "{os_name}";</script>', 1)
+        index = index.replace("<head>", f'<head><script>window.ASAGIRI_OS = "{os_name}";</script>', 1)
     fixture = open(os.path.join(ROOT, "tests/ui/fixture.js")).read()
     report = 'const report = (lines) => document.body.insertAdjacentHTML("beforeend", `<pre id="results">${lines.join("\\n")}</pre>`);'
     catch = '<script>window.onerror = (m, u, l) => document.body.insertAdjacentHTML("beforeend", `<pre id="results">FAIL page error: ${m} (line ${l})</pre>`);</script>'
@@ -78,8 +78,11 @@ def run(test, os_name=None):
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as f:
         f.write(page(test, os_name))
     try:
-        dom = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--virtual-time-budget=3000", "--dump-dom", f"file://{f.name}"],
-                             capture_output=True, text=True, timeout=120).stdout
+        with tempfile.TemporaryDirectory(prefix="asagiri-ui-chrome-") as profile:
+            dom = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--no-first-run",
+                                  "--no-default-browser-check", f"--user-data-dir={profile}",
+                                  "--virtual-time-budget=3000", "--dump-dom", f"file://{f.name}"],
+                                 capture_output=True, text=True, timeout=120).stdout
     finally:
         os.unlink(f.name)
     found = re.findall(r'<pre id="results">(.*?)</pre>', dom, re.S)

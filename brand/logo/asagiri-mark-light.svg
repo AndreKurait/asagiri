@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">Asagiri</title>
+  <clipPath id="alight-c"><rect x="0" y="0" width="64" height="29.5"/><rect x="0" y="39" width="64" height="4"/></clipPath>
+  <g clip-path="url(#alight-c)" fill="#F2684A"><circle cx="32" cy="33" r="20"/></g>
+  <g fill="#161B33"><rect x="3" y="31.5" width="41" height="5.5" rx="2.75"/><rect x="19" y="45" width="42" height="5.5" rx="2.75"/><rect x="9" y="54.5" width="30" height="5.5" rx="2.75"/></g>
+</svg>

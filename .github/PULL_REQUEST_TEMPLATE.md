@@ -19,7 +19,7 @@ Tested on: <!-- macOS / Windows / Linux, and which version -->
 
 ## How you found it
 
-- [ ] I use Kiri and ran into this myself
+- [ ] I use Asagiri and ran into this myself
 - [ ] I found it by reading the code or comparing with Docker
 - [ ] Someone else reported it (link the issue above)
 

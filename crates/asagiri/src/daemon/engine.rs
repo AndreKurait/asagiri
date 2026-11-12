@@ -1,0 +1,3888 @@
+//! Containers, execs and images as the daemon tracks them.
+//!
+//! Container records are saved to `containers.json` on every change (except
+//! `--rm` containers, which are gone by the time anyone could ask), so `docker
+//! ps -a` survives a daemon restart. Every state change notifies one
+//! condition variable, which is what `wait` blocks on.
+
+use std::collections::{HashMap, VecDeque};
+use std::io;
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+use asagiri_image::{Image, Store};
+use asagiri_proto::{Stream, run_flags};
+
+use super::network::Networks;
+use super::vmlink::{Event, VmLink};
+
+/// Dynamic memory: the VM boots with a ceiling, and the balloon keeps the
+/// guest at what it uses plus this much, returning the rest to macOS.
+const MEMORY_HEADROOM: u64 = 256 << 20;
+const MEMORY_FLOOR: u64 = 256 << 20;
+/// How much more the guest gets at once when it reports pressure.
+const MEMORY_GROW: u64 = 1 << 30;
+
+/// What a request that needs the VM gets while Asagiri is stopped.
+pub const STOPPED: &str = "Asagiri is stopped: press Start in the Asagiri window to run containers again";
+
+/// The file that keeps "stopped" across engine restarts.
+fn stopped_marker() -> Option<std::path::PathBuf> {
+    super::state_dir().ok().map(|d| d.join("stopped"))
+}
+
+/// The VM's memory ceiling: `ASAGIRI_MEMORY_MIB`, else Settings → Resources,
+/// else half the Mac's RAM up to 8 GiB.
+pub fn memory_ceiling() -> u64 {
+    if let Some(mib) = std::env::var("ASAGIRI_MEMORY_MIB").ok().and_then(|v| v.parse::<u64>().ok()) {
+        return mib << 20;
+    }
+    if let Some(mib) = resources()["memory_mib"].as_u64() {
+        return (mib << 20).clamp(1 << 30, physical_memory());
+    }
+    (physical_memory() / 2).clamp(2 << 30, 8 << 30)
+}
+
+/// The VM's CPUs: `ASAGIRI_CPUS`, else Settings → Resources, else 2.
+pub fn vm_cpus() -> usize {
+    let max = max_cpus();
+    std::env::var("ASAGIRI_CPUS").ok().and_then(|v| v.parse().ok()).or_else(|| resources()["cpus"].as_u64().map(|c| c as usize)).unwrap_or(2).clamp(1, max)
+}
+
+/// The Mac's CPUs, the most the VM can have.
+pub fn max_cpus() -> usize {
+    std::thread::available_parallelism().map_or(2, std::num::NonZero::get)
+}
+
+/// What Settings → Resources saved, read at each boot: `{"cpus", "memory_mib"}`.
+pub fn resources_path() -> Option<std::path::PathBuf> {
+    super::state_dir().ok().map(|d| d.join("vm.json"))
+}
+
+pub fn resources() -> serde_json::Value {
+    resources_path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(serde_json::Value::Null)
+}
+
+pub fn physical_memory_bytes() -> u64 {
+    physical_memory()
+}
+
+#[cfg(target_os = "macos")]
+fn physical_memory() -> u64 {
+    let mut ram: u64 = 0;
+    let mut len = std::mem::size_of::<u64>();
+    // SAFETY: sysctlbyname writes a u64 into `ram`.
+    unsafe { libc::sysctlbyname(c"hw.memsize".as_ptr(), (&mut ram as *mut u64).cast(), &mut len, std::ptr::null_mut(), 0) };
+    ram
+}
+
+/// This process's resident memory, in bytes: on a Linux host the daemon runs
+/// beside its containers, so it counts in what Asagiri holds.
+#[cfg(not(target_os = "macos"))]
+fn self_rss() -> u64 {
+    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+    let pages: u64 = statm.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+    // SAFETY: sysconf takes no pointers.
+    pages * unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(0) as u64
+}
+
+#[cfg(target_os = "macos")]
+fn self_rss() -> u64 {
+    0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn physical_memory() -> u64 {
+    let info = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    info.lines().find_map(|l| l.strip_prefix("MemTotal:")).and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok()).map_or(4 << 30, |k| k << 10)
+}
+
+/// Docker's restart backoff: 100 ms doubling, capped at one minute.
+const RESTART_BASE: Duration = Duration::from_millis(100);
+const RESTART_CAP: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    Created,
+    Running,
+    Exited,
+}
+
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Created => "created",
+            Status::Running => "running",
+            Status::Exited => "exited",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestartPolicy {
+    /// `no`, `always`, `unless-stopped` or `on-failure`.
+    pub name: String,
+    pub max_retries: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Spec {
+    pub image: String,
+    pub image_id: String,
+    pub entrypoint: Vec<String>,
+    pub cmd: Vec<String>,
+    pub env: Vec<String>,
+    pub cwd: String,
+    pub user: String,
+    pub auto_remove: bool,
+    pub network_mode: String,
+    pub labels: serde_json::Value,
+    #[serde(default)]
+    pub tty: bool,
+    #[serde(default)]
+    pub open_stdin: bool,
+    /// Before this was kept, stdin was closed whenever an attached client's
+    /// input ended: a record without it loads as set, and still does that.
+    #[serde(default = "enabled")]
+    pub stdin_once: bool,
+    #[serde(default)]
+    pub restart: RestartPolicy,
+    /// Initial terminal size (rows, cols), from `HostConfig.ConsoleSize`.
+    #[serde(default)]
+    pub console_size: Option<(u16, u16)>,
+    /// Extra names on its network (`--network-alias`, Compose service names).
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    /// `--add-host` lines for /etc/hosts, already as `ip name`.
+    #[serde(default)]
+    pub extra_hosts: Vec<String>,
+    /// `-p` bindings.
+    #[serde(default)]
+    pub ports: Vec<super::ports::Binding>,
+    /// TCP ports the image (or `--expose`) declares; picks the domain's port.
+    #[serde(default)]
+    pub exposed: Vec<u16>,
+    /// Bind mounts as the guest takes them: `source\ttarget\tflags`, where
+    /// `source` is a path inside the VM.
+    #[serde(default)]
+    pub mounts: Vec<String>,
+    /// For `inspect`: Docker's `Mounts` entries.
+    #[serde(default)]
+    pub mount_info: Vec<serde_json::Value>,
+    /// Named volumes it uses (kept while it exists), and the anonymous ones
+    /// created for it (deleted with it on `--rm` or `rm -v`).
+    #[serde(default)]
+    pub volumes: Vec<String>,
+    #[serde(default)]
+    pub anon_volumes: Vec<String>,
+    /// `--privileged`.
+    #[serde(default)]
+    pub privileged: bool,
+    /// `--memory`, `--cpus`, `--cpu-shares`, `--pids-limit`; `docker update` changes them.
+    #[serde(default)]
+    pub limits: Limits,
+    /// `--cap-add` / `--cap-drop` applied to Docker's default set, one bit
+    /// per capability; 0 means the default set.
+    #[serde(default)]
+    pub caps: u64,
+    /// `--cap-add`/`--cap-drop` as given, for inspect.
+    #[serde(default)]
+    pub cap_add: Vec<String>,
+    #[serde(default)]
+    pub cap_drop: Vec<String>,
+    /// `--security-opt` entries as given.
+    #[serde(default)]
+    pub security_opt: Vec<String>,
+    /// `--read-only`.
+    #[serde(default)]
+    pub readonly_rootfs: bool,
+    /// `--hostname`; empty means the short container id, as Docker does.
+    #[serde(default)]
+    pub hostname: String,
+    /// `--stop-signal` (image STOPSIGNAL); SIGTERM if not set.
+    #[serde(default)]
+    pub stop_signal: Option<u32>,
+    /// `--stop-timeout`, seconds (-1: wait for ever); the stop request's own wins.
+    #[serde(default)]
+    pub stop_timeout: Option<i64>,
+    /// `Config.Healthcheck` merged over the image's, as inspect shows it.
+    #[serde(default)]
+    pub healthcheck: Option<super::health::Healthcheck>,
+    /// `Config.Shell` (or the image's SHELL) for `CMD-SHELL` healthchecks.
+    #[serde(default)]
+    pub shell: Vec<String>,
+    /// `--init` (`HostConfig.Init`): a small init as PID 1 that forwards
+    /// signals and reaps zombies.
+    #[serde(default)]
+    pub init: Option<bool>,
+    /// Networks beyond `network_mode` (`docker network connect`, Compose):
+    /// name and aliases on it.
+    #[serde(default)]
+    pub extra_networks: Vec<ExtraNetwork>,
+    /// `--log-driver` / `--log-opt`; containers from before it have the default.
+    #[serde(default)]
+    pub log_config: super::logfile::LogConfig,
+    /// `--ip` / Compose `ipv4_address` on `network_mode`; empty for any.
+    #[serde(default)]
+    pub ipv4_address: String,
+    /// `--ip6` / Compose `ipv6_address` on `network_mode`; empty for any.
+    #[serde(default)]
+    pub ipv6_address: String,
+    /// `--mac-address` on `network_mode`; empty for the kernel's choice.
+    #[serde(default)]
+    pub mac_address: String,
+    /// `--dns`, `--dns-search`, `--dns-option`.
+    #[serde(default)]
+    pub dns: Vec<String>,
+    #[serde(default)]
+    pub dns_search: Vec<String>,
+    #[serde(default)]
+    pub dns_options: Vec<String>,
+    /// `--domainname`.
+    #[serde(default)]
+    pub domainname: String,
+    /// `--link` / Compose `links`: /etc/hosts entries for these containers.
+    #[serde(default)]
+    pub links: Vec<Link>,
+    /// HostConfig's Ulimits, Sysctls, Devices, DeviceCgroupRules and
+    /// GroupAdd as given; see [`super::hostopts`].
+    #[serde(default)]
+    pub host_opts: serde_json::Value,
+}
+
+/// One `--link name:alias`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Link {
+    /// The linked container's id, and its name when the link was made.
+    pub id: String,
+    pub name: String,
+    pub alias: String,
+}
+
+/// cgroup limits as saved with a container; see [`asagiri_proto::Limits`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Limits {
+    pub memory_max: u64,
+    pub cpu_quota: u64,
+    pub cpu_period: u32,
+    pub cpu_weight: u32,
+    pub pids_max: u32,
+    #[serde(default)]
+    pub shm_size: u64,
+    #[serde(default)]
+    pub memory_swap: i64,
+    #[serde(default)]
+    pub memory_reservation: u64,
+    #[serde(default)]
+    pub cpuset_cpus: String,
+    #[serde(default)]
+    pub cpuset_mems: String,
+    /// `NanoCpus` and `CpuShares` as given, so inspect returns what create
+    /// was sent. Containers saved before these existed have the quota,
+    /// period and weight they stood for instead.
+    #[serde(default)]
+    pub nano_cpus: u64,
+    #[serde(default)]
+    pub cpu_shares: u64,
+}
+
+impl Limits {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.memory_swap > 0 && (self.memory_max == 0 || (self.memory_swap as u64) < self.memory_max) {
+            return Err(Error::BadRequest("MemorySwap requires Memory and must be at least Memory".into()));
+        }
+        Ok(())
+    }
+
+    pub fn wire(&self) -> asagiri_proto::Limits<'_> {
+        // `--cpus 1.5` is 150 ms of CPU time every 100 ms; an explicit quota
+        // replaces it, as in the runtime spec dockerd builds.
+        let cpu_quota = if self.cpu_quota > 0 { self.cpu_quota } else { (u128::from(self.nano_cpus) * 100_000 / 1_000_000_000) as u64 };
+        asagiri_proto::Limits {
+            memory_max: self.memory_max,
+            cpu_quota,
+            cpu_period: self.cpu_period,
+            cpu_weight: self.cpu_weight,
+            pids_max: self.pids_max,
+            shm_size: self.shm_size,
+            memory_swap: self.memory_swap,
+            memory_reservation: self.memory_reservation,
+            cpuset_cpus: &self.cpuset_cpus,
+            cpuset_mems: &self.cpuset_mems,
+        }
+    }
+}
+
+fn enabled() -> bool {
+    true
+}
+
+impl Spec {
+    /// The guest's `opts` lines for a start or an exec. `net_host`: it runs
+    /// in the VM's (or host's) network namespace.
+    pub fn guest_opts(&self, net_host: bool) -> Result<Vec<String>, Error> {
+        let mut lines = super::hostopts::guest_lines(&self.host_opts, net_host).map_err(Error::BadRequest)?;
+        lines.extend(seccomp_lines(&self.security_opt)?);
+        Ok(lines)
+    }
+
+    /// Whether `--sysctl net.ipv6.conf.{all,default,<ifname>}.disable_ipv6=1`
+    /// turns IPv6 off on `ifname`: then it gets no IPv6 address (and no AAAA
+    /// record), as with Docker.
+    pub fn ipv6_disabled(&self, ifname: &str) -> bool {
+        super::hostopts::ipv6_disabled(&self.host_opts, ifname)
+    }
+
+    /// The security flags for the guest: seccomp, no-new-privileges, read-only root.
+    pub fn security_flags(&self) -> u32 {
+        let mut f = 0;
+        if seccomp_option(&self.security_opt) == Some("unconfined") {
+            f |= run_flags::NO_SECCOMP;
+        }
+        if self.security_opt.iter().any(|o| o == "no-new-privileges" || o == "no-new-privileges:true" || o == "no-new-privileges=true") {
+            f |= run_flags::NO_NEW_PRIVS;
+        }
+        if self.readonly_rootfs {
+            f |= run_flags::READONLY_ROOTFS;
+        }
+        f
+    }
+}
+
+/// The names a container answers to on a user-defined network, as Docker
+/// lists them in an endpoint's `DNSNames`: its name, the endpoint's aliases,
+/// its short id and its hostname, each once.
+pub fn endpoint_names(name: &str, aliases: &[String], id: &str, hostname: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for n in [name].into_iter().chain(aliases.iter().map(String::as_str)).chain([id.get(..12).unwrap_or(id), hostname]) {
+        if !n.is_empty() && !out.iter().any(|o| o == n) {
+            out.push(n.to_owned());
+        }
+    }
+    out
+}
+
+/// A container on a network: (id, name, ip, IPv6 ip, the MAC address it
+/// asked for, whether it is running).
+pub type Member = (String, String, Option<[u8; 4]>, Option<[u8; 16]>, String, bool);
+
+/// The seccomp security option in effect: the last one given, as with
+/// Docker. `None` is the default profile (no option, or `builtin`).
+fn seccomp_option(options: &[String]) -> Option<&str> {
+    let value = options.iter().filter_map(|o| o.strip_prefix("seccomp=").or_else(|| o.strip_prefix("seccomp:"))).next_back();
+    value.filter(|v| !v.is_empty() && *v != "builtin")
+}
+
+/// The largest profile sent to the agent; it travels in the run request,
+/// which has to stay well within one frame. Docker's own profile is 20 KiB.
+const MAX_SECCOMP_PROFILE: usize = asagiri_proto::MAX_FRAME / 4;
+
+/// A custom profile as one guest-option line, its JSON re-encoded so that it
+/// holds no newline. Checked when the container starts, like Docker: a
+/// profile that does not parse fails the start rather than run unconfined.
+pub(super) fn seccomp_lines(options: &[String]) -> Result<Vec<String>, Error> {
+    let Some(profile) = seccomp_option(options).filter(|v| *v != "unconfined") else { return Ok(Vec::new()) };
+    let invalid = |why: String| Error::Io(io::Error::other(format!("Decoding seccomp profile failed: {why}")));
+    let mut value: serde_json::Value = serde_json::from_str(profile).map_err(|e| invalid(e.to_string()))?;
+    if value.is_null() {
+        // To Docker `null` is the empty profile.
+        value = serde_json::json!({});
+    }
+    if !value.is_object() {
+        return Err(invalid("the profile must be a JSON object".into()));
+    }
+    let line = format!("seccomp\t{value}");
+    if line.len() > MAX_SECCOMP_PROFILE {
+        return Err(invalid(format!("the profile is larger than {} KiB", MAX_SECCOMP_PROFILE >> 10)));
+    }
+    Ok(vec![line])
+}
+
+#[cfg(test)]
+mod seccomp_options_tests {
+    use super::*;
+
+    fn lines(options: &[&str]) -> Result<Vec<String>, Error> {
+        seccomp_lines(&options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn the_last_seccomp_option_wins() {
+        assert!(lines(&["seccomp=[]"]).is_err());
+        assert!(lines(&["seccomp=invalid"]).is_err());
+        assert!(lines(&["seccomp=invalid", "seccomp=unconfined"]).unwrap().is_empty());
+        assert!(lines(&["seccomp=unconfined", "seccomp=invalid"]).is_err());
+        assert!(lines(&["seccomp={}", "seccomp=builtin"]).unwrap().is_empty());
+        assert!(lines(&["no-new-privileges", "label=disable"]).unwrap().is_empty());
+        assert_eq!(lines(&["seccomp: {\n\"defaultAction\": \"SCMP_ACT_ALLOW\"\n}"]).unwrap(), [r#"seccomp	{"defaultAction":"SCMP_ACT_ALLOW"}"#]);
+    }
+
+    #[test]
+    fn an_invalid_profile_fails_the_start_and_names_seccomp() {
+        let Err(Error::Io(e)) = lines(&["seccomp={\"defaultAction\":"]) else { panic!("accepted") };
+        assert!(e.to_string().starts_with("Decoding seccomp profile failed: "), "{e}");
+        let big = format!("seccomp={{\"x\":\"{}\"}}", "a".repeat(MAX_SECCOMP_PROFILE));
+        assert!(lines(&[&big]).is_err());
+    }
+
+    #[test]
+    fn a_profile_replaces_the_default_even_when_privileged() {
+        let profile = r#"seccomp={"defaultAction":"SCMP_ACT_ERRNO"}"#.to_string();
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "", "image_id": "", "entrypoint": [], "cmd": [], "env": [], "cwd": "", "user": "",
+            "auto_remove": false, "network_mode": "", "labels": {}, "security_opt": [&profile], "privileged": true,
+        })).unwrap();
+        let sent = |spec: &Spec| spec.guest_opts(false).unwrap().into_iter().filter(|l| l.starts_with("seccomp\t")).collect::<Vec<_>>();
+        assert_eq!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        assert_eq!(sent(&spec), [r#"seccomp	{"defaultAction":"SCMP_ACT_ERRNO"}"#]);
+        spec.security_opt = vec!["seccomp=unconfined".into(), profile.clone()];
+        assert_eq!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        spec.security_opt = vec![profile, "seccomp=unconfined".into()];
+        assert_ne!(spec.security_flags() & run_flags::NO_SECCOMP, 0);
+        assert!(sent(&spec).is_empty());
+        spec.security_opt = vec!["seccomp=null".into()];
+        assert_eq!(sent(&spec), ["seccomp\t{}"]);
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraNetwork {
+    pub name: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    /// A fixed address on it (`IPAMConfig.IPv4Address`); empty for any.
+    #[serde(default)]
+    pub ipv4_address: String,
+    /// A fixed IPv6 address on it (`IPAMConfig.IPv6Address`); empty for any.
+    #[serde(default)]
+    pub ipv6_address: String,
+    #[serde(default)]
+    pub mac_address: String,
+}
+
+#[derive(Debug)]
+pub struct Container {
+    pub id: String,
+    pub name: String,
+    pub spec: Spec,
+    pub layers: Vec<String>,
+    pub created: SystemTime,
+    pub status: Status,
+    pub started: Option<SystemTime>,
+    pub finished: Option<SystemTime>,
+    pub exit_code: i32,
+    /// Its last run ended with the kernel killing it for memory.
+    pub oom_killed: bool,
+    /// Its last run ended because the VM or the engine stopped under it, not
+    /// because the app exited: Docker's exit code 255, but nothing failed.
+    pub vm_stopped: bool,
+    /// Set by `stop`/`kill`: no automatic restart until started again.
+    pub stopped_by_user: bool,
+    pub restart_count: u32,
+    /// Exited, with its restart policy about to start it again.
+    restart_pending: bool,
+    /// How many times it has exited; `wait?condition=next-exit` waits for this to grow.
+    exits: u64,
+    /// Terminal size asked for before the process existed.
+    size: Option<(u16, u16)>,
+    /// Its address while running on a bridge network.
+    pub ip: Option<[u8; 4]>,
+    /// Its first process while running, as the agent's kernel numbers it
+    /// (the host's on a Linux host, the VM's otherwise); 0 when not running.
+    pub pid: u32,
+    /// Published ports while running.
+    pub forwards: Option<super::ports::Forwards>,
+    /// Frozen by `docker pause`.
+    pub paused: bool,
+    /// Addresses on `spec.extra_networks` while running, as (network, ip).
+    pub extra_ips: Vec<(String, [u8; 4])>,
+    /// The interface each of those networks is plugged in as while running,
+    /// as (network, n) for `eth{n}`. A network that leaves frees its number;
+    /// the ones that stay keep theirs.
+    extra_ifs: Vec<(String, u32)>,
+    /// IPv6 addresses while running: on `network_mode`, and on extra
+    /// networks as (network, ip). Only networks with IPv6 give one.
+    pub ip6: Option<[u8; 16]>,
+    pub extra_ip6s: Vec<(String, [u8; 16])>,
+    /// True while the guest has the process: from then on a signal has
+    /// something to reach.
+    in_guest: bool,
+    /// True once the guest has the process and the input held here until
+    /// then: `docker run -i` attaches and sends stdin before it starts the
+    /// container.
+    live: bool,
+    early_input: Vec<u8>,
+    early_close: bool,
+    /// `docker logs`: its output on disk, and who follows it.
+    log: Arc<Mutex<super::logfile::Log>>,
+    attached: Vec<Sender<(Stream, Vec<u8>)>>,
+}
+
+impl Container {
+    pub fn argv(&self) -> Vec<String> {
+        self.spec.entrypoint.iter().chain(&self.spec.cmd).cloned().collect()
+    }
+
+    pub fn short_id(&self) -> &str {
+        &self.id[..12]
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecConfig {
+    /// Initial terminal size (rows, cols).
+    pub console_size: Option<(u16, u16)>,
+    pub argv: Vec<String>,
+    pub env: Vec<String>,
+    pub cwd: String,
+    pub user: String,
+    pub tty: bool,
+    pub stdin: bool,
+    /// `exec --privileged`, or any exec in a privileged container.
+    pub privileged: bool,
+    /// Asagiri's own (the Kubernetes service watcher): no events.
+    pub internal: bool,
+}
+
+#[derive(Debug)]
+pub struct Exec {
+    pub id: String,
+    pub container_id: String,
+    pub config: ExecConfig,
+    pub running: bool,
+    pub exit_code: Option<i32>,
+    /// Its process while running; 0 otherwise.
+    pub pid: u32,
+    attached: Vec<Sender<(Stream, Vec<u8>)>>,
+}
+
+/// What `docker logs` reads: the stored part, then (with `follow`) what comes after it.
+pub struct Logs {
+    pub tty: bool,
+    pub past: super::logfile::Snapshot,
+    pub live: Option<Receiver<super::logfile::Record>>,
+}
+
+fn lock_log(l: &Mutex<super::logfile::Log>) -> MutexGuard<'_, super::logfile::Log> {
+    l.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// What `containers.json` holds for one container.
+#[derive(Serialize, Deserialize)]
+struct Saved {
+    id: String,
+    name: String,
+    spec: Spec,
+    layers: Vec<String>,
+    created_ns: u64,
+    status: Status,
+    started_ns: Option<u64>,
+    finished_ns: Option<u64>,
+    exit_code: i32,
+    #[serde(default)]
+    oom_killed: bool,
+    #[serde(default)]
+    vm_stopped: bool,
+    stopped_by_user: bool,
+    restart_count: u32,
+    #[serde(default)]
+    health: Option<super::health::Health>,
+}
+
+/// A container's healthcheck while it has one: its `State.Health`, and
+/// whether a monitor thread is probing. `epoch` changes whenever the monitor
+/// should stop, so a thread that sees a different one quits.
+#[derive(Debug, Default)]
+struct HealthRun {
+    health: super::health::Health,
+    epoch: u64,
+    monitoring: bool,
+}
+
+#[derive(Default)]
+struct State {
+    containers: HashMap<String, Container>,
+    execs: HashMap<String, Exec>,
+    /// Exit codes of recently removed containers, for `wait?condition=removed`
+    /// (that is how `docker run --rm` learns the exit status). Bounded.
+    removed: VecDeque<(String, i32)>,
+    /// `State.Health` of containers with a healthcheck, by id.
+    health: HashMap<String, HealthRun>,
+}
+
+/// Set while the daemon shuts down: exits then are not restarts.
+static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `docker stop`'s default wait, when neither the request nor the container sets one.
+pub const DEFAULT_STOP_TIMEOUT: i64 = 10;
+
+/// A stop timeout in seconds as a wait; negative means as long as it takes.
+pub fn stop_wait(secs: i64) -> Duration {
+    if secs < 0 { Duration::from_secs(365 * 86_400) } else { Duration::from_secs(secs as u64) }
+}
+
+pub struct Engine {
+    pub volumes: Mutex<super::volumes::Volumes>,
+    /// The VM, while it is awake. It sleeps (powers off, freeing all its
+    /// memory) when idle, and boots again on the next request.
+    link: Mutex<Option<Arc<VmLink>>>,
+    /// Unix seconds of the last API request; drives the idle sleep.
+    last_activity: std::sync::atomic::AtomicU64,
+    /// Set while the VM is being put to sleep, so its stop is not an error.
+    sleeping: std::sync::atomic::AtomicBool,
+    /// Stopped from the window: the VM stays off, whatever asks for it
+    /// (a build, a docker command, a share), until Start. Unlike the idle
+    /// sleep, which the next request wakes. Kept across engine restarts by
+    /// a file in the state dir (`stopped`).
+    stopped: std::sync::atomic::AtomicBool,
+    pub store: Store,
+    pub networks: Mutex<Networks>,
+    state: Mutex<State>,
+    /// Serialises read/merge/apply/persist for resource updates.
+    resource_updates: Mutex<()>,
+    changed: Condvar,
+    /// Serialises sending layers, so two creates of a new image don't send
+    /// the same layers twice.
+    layers: Mutex<()>,
+    records: PathBuf,
+    /// Serialises writes of `containers.json`.
+    saving: Mutex<()>,
+    me: OnceLock<Weak<Engine>>,
+    /// Containers whose restart policy would have started them when the
+    /// daemon came up, held because Asagiri was stopped (Start starts them) or
+    /// because the VM did not boot (`retry_held` tries it again).
+    held_restarts: Mutex<Vec<String>>,
+    /// Memory ceiling and the balloon's current target, in bytes. The
+    /// ceiling is read again at each boot, so Settings applies on restart.
+    ceiling: std::sync::atomic::AtomicU64,
+    /// CPUs the running VM has.
+    cpus: std::sync::atomic::AtomicUsize,
+    memory_target: Mutex<u64>,
+    /// What the guest last used, in bytes (0 while asleep): the balloon's
+    /// measure, without the pages the balloon itself holds.
+    memory_used: std::sync::atomic::AtomicU64,
+    /// How starved of memory the guest is: PSI "full avg10" in hundredths
+    /// of a percent (0 while asleep), and processes killed for memory since it booted.
+    memory_stall: std::sync::atomic::AtomicU64,
+    oom_kills: std::sync::atomic::AtomicU64,
+    /// How busy the VM was over the last couple of seconds, in hundredths of a
+    /// percent of all its CPUs (0 while asleep).
+    cpu_permyriad: std::sync::atomic::AtomicU32,
+    /// `docker events`: recent ones for `--since`, and who is listening.
+    events: Mutex<Events>,
+    /// Kubernetes LoadBalancer services published on the Mac's localhost:
+    /// (port, protocol) → its forward.
+    k8s_lb: Mutex<HashMap<(u16, String), super::ports::Forwards>>,
+    /// The cluster's pod and service ranges routed to the node, in which VM
+    /// (its link's address) and through which node address.
+    k8s_routes: Mutex<Option<(usize, [u8; 4])>>,
+    /// Shares of Kubernetes services and pods: the Mac port → its forward
+    /// to a cluster address. They go when the cluster does.
+    k8s_fwd: Mutex<HashMap<u16, super::ports::Forwards>>,
+}
+
+/// k3s's pod and service ranges, which `asagiri k8s` leaves at their defaults.
+pub const K8S_RANGES: [([u8; 4], u8); 2] = [([10, 42, 0, 0], 16), ([10, 43, 0, 0], 16)];
+
+/// Whether an address is in the cluster's pod or service range.
+pub fn in_k8s_ranges(ip: [u8; 4]) -> bool {
+    K8S_RANGES.iter().any(|(net, bits)| {
+        let mask = u32::MAX << (32 - *bits as u32);
+        u32::from_be_bytes(ip) & mask == u32::from_be_bytes(*net)
+    })
+}
+
+/// Events kept for `docker events --since`.
+const RECENT_EVENTS: usize = 512;
+/// Events queued for a slow listener before it starts missing some.
+const EVENT_QUEUE: usize = 256;
+
+#[derive(Default)]
+struct Events {
+    recent: VecDeque<serde_json::Value>,
+    listeners: Vec<std::sync::mpsc::SyncSender<serde_json::Value>>,
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Engine")
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    NotFound(String),
+    Conflict(String),
+    BadRequest(String),
+    Unauthorized(String),
+    Io(io::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+fn ns(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0)
+}
+
+fn from_ns(n: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_nanos(n)
+}
+
+impl Engine {
+    /// Boots the guest, loads saved containers and restarts the ones whose
+    /// restart policy says so.
+    pub fn boot(store: Store) -> io::Result<Arc<Engine>> {
+        let records = store.root().join("containers.json");
+        let ceiling = memory_ceiling();
+        let networks = Mutex::new(Networks::load(store.root())?);
+        let volumes = Mutex::new(super::volumes::Volumes::load(store.root())?);
+        let engine = Arc::new(Engine {
+            volumes,
+            link: Mutex::new(None),
+            last_activity: std::sync::atomic::AtomicU64::new(now_secs()),
+            sleeping: std::sync::atomic::AtomicBool::new(false),
+            stopped: std::sync::atomic::AtomicBool::new(stopped_marker().is_some_and(|f| f.exists())),
+            networks,
+            store,
+            state: Mutex::default(),
+            resource_updates: Mutex::new(()),
+            changed: Condvar::new(),
+            layers: Mutex::new(()),
+            records,
+            saving: Mutex::new(()),
+            me: OnceLock::new(),
+            held_restarts: Mutex::new(Vec::new()),
+            ceiling: std::sync::atomic::AtomicU64::new(ceiling),
+            cpus: std::sync::atomic::AtomicUsize::new(vm_cpus()),
+            memory_target: Mutex::new(ceiling),
+            memory_used: std::sync::atomic::AtomicU64::new(0),
+            memory_stall: std::sync::atomic::AtomicU64::new(0),
+            oom_kills: std::sync::atomic::AtomicU64::new(0),
+            cpu_permyriad: std::sync::atomic::AtomicU32::new(0),
+            events: Mutex::new(Events::default()),
+            k8s_lb: Mutex::new(HashMap::new()),
+            k8s_routes: Mutex::new(None),
+            k8s_fwd: Mutex::new(HashMap::new()),
+        });
+        let _ = engine.me.set(Arc::downgrade(&engine));
+        engine.load()?;
+        engine.start_balloon();
+        engine.start_cpu_meter();
+        engine.start_sleeper();
+        engine.start_clock();
+        engine.start_k8s_lb();
+        Ok(engine)
+    }
+
+    /// The running VM, booting it first if it is asleep (about 0.1 s).
+    pub fn vm(&self) -> io::Result<Arc<VmLink>> {
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(vm) = link.as_ref() {
+            return Ok(vm.clone());
+        }
+        if self.is_stopped() {
+            return Err(io::Error::other(STOPPED));
+        }
+        let (ceiling, cpus) = (memory_ceiling(), vm_cpus());
+        self.ceiling.store(ceiling, std::sync::atomic::Ordering::Relaxed);
+        self.cpus.store(cpus, std::sync::atomic::Ordering::Relaxed);
+        let t0 = std::time::Instant::now();
+        let guest = crate::guest::Guest::boot(&crate::guest::BootOptions {
+            data_disk: true,
+            console_log: Some(crate::diag::console::path()?),
+            memory_mib: Some(ceiling >> 20),
+            cpus: Some(cpus),
+            ..Default::default()
+        })
+        .inspect_err(|e| crate::diag::error!("VM did not boot", error = e))?;
+        let (vm, conn) = guest.into_parts();
+        let me = self.me.get().cloned().unwrap_or_default();
+        let vm = Arc::new(VmLink::new(vm, conn, move |ev| {
+            if let Some(engine) = me.upgrade() {
+                engine.on_event(ev);
+            }
+        })?);
+        // host.docker.internal: the guest dials back for each connection.
+        vm.listen(super::ports::HOST_BOUND_PORT, Box::new(super::ports::serve_host_bound))?;
+        // SSH agent forwarding, for containers that mount /run/host-services/ssh-auth.sock.
+        vm.listen(super::ports::SSH_AGENT_PORT, Box::new(super::ports::serve_ssh_agent))?;
+        // The engine's API, for containers that mount /var/run/docker.sock
+        // (a Linux host's containers mount the daemon's socket itself).
+        if cfg!(target_os = "macos") {
+            vm.listen(super::ports::ENGINE_API_PORT, Box::new(super::ports::serve_engine_api))?;
+        }
+        // Container lookups the VM's gateway resolver fails, asked of the
+        // Mac's own (VM only: a Linux host's agent asks the host's itself).
+        if cfg!(target_os = "macos") {
+            vm.listen(asagiri_proto::DNS_RELAY_PORT, Box::new(super::dns::serve_relay))?;
+        }
+        // Everything else on the guest's disk belongs to containers that are gone.
+        let keep: Vec<String> = self.lock().containers.keys().cloned().collect();
+        vm.retain(&keep)?;
+        // And every unpacked layer no image or container uses. Skipped if
+        // the image list can't be read, rather than deleting everything.
+        match self.store.images() {
+            Ok(images) => {
+                let mut layers: std::collections::BTreeSet<String> = images.iter().flat_map(|i| i.layers.iter().map(|l| l.digest.clone())).collect();
+                layers.extend(self.lock().containers.values().flat_map(|c| c.layers.iter().cloned()));
+                vm.retain_layers(&layers.into_iter().collect::<Vec<_>>())?;
+            }
+            Err(e) => crate::diag::warn!("kept every unpacked layer: images unreadable", error = e),
+        }
+        *self.memory_target.lock().unwrap_or_else(|e| e.into_inner()) = ceiling;
+        self.sleeping.store(false, std::sync::atomic::Ordering::SeqCst);
+        *link = Some(vm.clone());
+        crate::diag::info!("VM booted", ms = t0.elapsed().as_millis(), cpus = cpus, memory_mib = ceiling >> 20);
+        Ok(vm)
+    }
+
+    /// The VM if it is awake; never boots it.
+    fn awake(&self) -> Option<Arc<VmLink>> {
+        self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn touch(&self) {
+        self.last_activity.store(now_secs(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Powers the VM off after `ASAGIRI_IDLE_SECS` (default 60; 0 = never)
+    /// with no running containers or execs and no API requests. A VM that
+    /// boots in a tenth of a second can afford to sleep, and sleeping is the
+    /// one thing that gives all its memory back to macOS: Apple's balloon
+    /// device takes pages from the guest but does not release them.
+    /// Runs a command in a running container and collects its output.
+    pub fn exec_capture(&self, key: &str, argv: &[&str]) -> Result<(i32, String), Error> {
+        let config = ExecConfig {
+            console_size: None,
+            argv: argv.iter().map(|a| (*a).to_owned()).collect(),
+            env: Vec::new(),
+            cwd: "/".into(),
+            user: String::new(),
+            tty: false,
+            stdin: false,
+            privileged: false,
+            internal: true,
+        };
+        let id = self.exec_create(key, config)?;
+        let (_, rx) = self.exec_start(&id)?;
+        let mut out = Vec::new();
+        for (_, data) in rx {
+            out.extend_from_slice(&data);
+        }
+        let code = self.with_exec(&id, |e| e.exit_code.unwrap_or(-1)).unwrap_or(-1);
+        self.lock().execs.remove(&id);
+        Ok((code, String::from_utf8_lossy(&out).into_owned()))
+    }
+
+    /// `asagiri k8s`: every LoadBalancer service gets its port on the Mac's
+    /// localhost, as OrbStack and Docker Desktop do. k3s's service load
+    /// balancer already serves the port on the node, so a forward to the
+    /// node container is all it takes. Checked every few seconds while the
+    /// cluster runs; forwards go when services or the cluster do.
+    fn start_k8s_lb(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        // `asagiri k8s set --lan on` puts them on every interface; a change rebinds them.
+        let mut bound_on = String::new();
+        let _ = std::thread::Builder::new().name("asagiri-k8s-lb".into()).spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(3));
+            let Some(engine) = me.upgrade() else { return };
+            let node = engine.lock().containers.values().find(|c| c.status == Status::Running && c.spec.labels.get("dev.asagiri.k8s").is_some()).map(|c| (c.id.clone(), c.ip));
+            let Some((id, Some(ip))) = node else {
+                engine.k8s_lb.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                engine.k8s_fwd.lock().unwrap_or_else(|e| e.into_inner()).clear();
+                if let Some((_, via)) = engine.k8s_routes.lock().unwrap_or_else(|e| e.into_inner()).take()
+                    && let Some(vm) = engine.awake()
+                {
+                    for (net, bits) in K8S_RANGES {
+                        let _ = vm.route(net, bits, via, false);
+                    }
+                }
+                continue;
+            };
+            engine.route_k8s(ip);
+            let query = r#"jsonpath={range .items[?(@.spec.type=="LoadBalancer")]}{range .spec.ports[*]}{.port}/{.protocol} {end}{end}"#;
+            let Ok((0, out)) = engine.exec_capture(&id, &["timeout", "-s", "KILL", "20", "kubectl", "get", "svc", "-A", "-o", query]) else { continue };
+            let wanted: Vec<(u16, String)> = out
+                .split_whitespace()
+                .filter_map(|p| {
+                    let (port, proto) = p.split_once('/')?;
+                    Some((port.parse().ok()?, proto.to_ascii_lowercase()))
+                })
+                .collect();
+            let Some(vm) = engine.awake() else { continue };
+            let host_ip = if crate::k8s::config().lan { "0.0.0.0" } else { "127.0.0.1" };
+            let mut lb = engine.k8s_lb.lock().unwrap_or_else(|e| e.into_inner());
+            if bound_on != host_ip {
+                lb.clear();
+                bound_on = host_ip.to_owned();
+            }
+            lb.retain(|k, _| wanted.contains(k));
+            for (port, proto) in wanted {
+                if lb.contains_key(&(port, proto.clone())) {
+                    continue;
+                }
+                let b = super::ports::Binding { container_port: port, proto: proto.clone(), host_ip: host_ip.into(), host_port: port };
+                match super::ports::start(vm.clone(), &format!("lb-{port}-{proto}"), &[b], ip) {
+                    Ok(fw) => {
+                        crate::diag::info!("Kubernetes service published", at = format!("{host_ip}:{port}/{proto}"));
+                        lb.insert((port, proto), fw);
+                    }
+                    Err(e) => crate::diag::warn!("Kubernetes service port not published", port = format!("{port}/{proto}"), error = e),
+                }
+            }
+        });
+    }
+
+    /// Routes the cluster's pod and service ranges to the node, so the
+    /// relay can reach a ClusterIP or a pod as it reaches a container: the
+    /// node's kube-proxy takes it from there. Again after the VM wakes (a new
+    /// VM has none) or the node's address changes.
+    fn route_k8s(&self, node: [u8; 4]) {
+        let Some(vm) = self.awake() else { return };
+        let key = (Arc::as_ptr(&vm) as usize, node);
+        let mut routes = self.k8s_routes.lock().unwrap_or_else(|e| e.into_inner());
+        if *routes == Some(key) {
+            return;
+        }
+        match K8S_RANGES.iter().try_for_each(|(net, bits)| vm.route(*net, *bits, node, true)) {
+            Ok(()) => *routes = Some(key),
+            // An older guest can't; shares of services just can't connect.
+            Err(e) => {
+                if routes.is_none() {
+                    crate::diag::warn!("Kubernetes ranges not routed; sharing a service needs a newer guest", error = e);
+                }
+                *routes = Some((0, node));
+            }
+        }
+    }
+
+    /// Asagiri's own: a port on the Mac's loopback that reaches `ip:port` in
+    /// the cluster (a service's ClusterIP or a pod), for sharing it.
+    pub fn k8s_forward(&self, ip: [u8; 4], port: u16) -> Result<u16, Error> {
+        if !in_k8s_ranges(ip) || port == 0 {
+            return Err(Error::BadRequest("not an address in the Kubernetes cluster".into()));
+        }
+        let node = self.lock().containers.values().find(|c| c.status == Status::Running && c.spec.labels.get("dev.asagiri.k8s").is_some()).and_then(|c| c.ip);
+        let Some(node) = node else { return Err(Error::Conflict("Kubernetes isn't running".into())) };
+        self.route_k8s(node);
+        let vm = self.vm()?;
+        let b = super::ports::Binding { container_port: port, proto: "tcp".into(), host_ip: "127.0.0.1".into(), host_port: 0 };
+        let fw = super::ports::start(vm, &format!("k8s-share-{port}"), &[b], ip)?;
+        let mac = fw.bound.first().map(|(_, _, p)| *p).unwrap_or(0);
+        crate::diag::info!("Kubernetes address forwarded for sharing", to = format!("{}:{port}", std::net::Ipv4Addr::from(ip)), at = format!("127.0.0.1:{mac}"));
+        self.k8s_fwd.lock().unwrap_or_else(|e| e.into_inner()).insert(mac, fw);
+        Ok(mac)
+    }
+
+    /// Closes a forward `k8s_forward` opened.
+    pub fn k8s_unforward(&self, mac: u16) {
+        self.k8s_fwd.lock().unwrap_or_else(|e| e.into_inner()).remove(&mac);
+    }
+
+    fn start_sleeper(self: &Arc<Self>) {
+        let idle: u64 = std::env::var("ASAGIRI_IDLE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+        if idle == 0 {
+            return;
+        }
+        let builder_idle: u64 = std::env::var("ASAGIRI_BUILDER_IDLE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+        let me = Arc::downgrade(self);
+        let _ = std::thread::Builder::new().name("asagiri-sleeper".into()).spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(5));
+            let Some(engine) = me.upgrade() else { return };
+            let quiet_for = now_secs().saturating_sub(engine.last_activity.load(std::sync::atomic::Ordering::Relaxed));
+            // BuildKit containers (buildx's docker-container driver) run until
+            // paused, which keeps the VM's state without using CPU. Between
+            // builds they are paused; the next build resumes them.
+            let idle_builders: Vec<String> = {
+                let st = engine.lock();
+                let building = st.execs.values().any(|e| e.running);
+                let running: Vec<&Container> = st.containers.values().filter(|c| c.status == Status::Running).collect();
+                if !building && quiet_for >= builder_idle && !running.is_empty() && running.iter().all(|c| is_builder(c)) {
+                    running.iter().filter(|c| !c.paused).map(|c| c.id.clone()).collect()
+                } else {
+                    Vec::new()
+                }
+            };
+            for id in &idle_builders {
+                if engine.pause_idle_builder(id).is_ok() {
+                    crate::diag::info!("paused an idle BuildKit container; the next build resumes it", id = &id[..12]);
+                }
+            }
+            // A paused BuildKit container is no reason to stay awake.
+            let (busy, parked) = {
+                let st = engine.lock();
+                let parked: Vec<String> = st.containers.values().filter(|c| c.status == Status::Running && c.paused && is_builder(c)).map(|c| c.id.clone()).collect();
+                let busy = st.containers.values().any(|c| c.status == Status::Running && !(c.paused && is_builder(c))) || st.execs.values().any(|e| e.running) || usb_attached();
+                (busy, parked)
+            };
+            let quiet = quiet_for >= idle;
+            if busy || !quiet {
+                continue;
+            }
+            // Paused, they would keep the VM up for good: stopped before it
+            // sleeps, as they were before pausing; the next build starts them.
+            for id in &parked {
+                if let Err(e) = engine.stop(id, Duration::from_secs(10)) {
+                    crate::diag::warn!("paused BuildKit container did not stop", id = &id[..12], error = format!("{e:?}"));
+                }
+            }
+            if engine.sleep_if_idle() {
+                crate::diag::info!("VM asleep: idle; the next request wakes it", idle_s = idle);
+            }
+        });
+    }
+
+    /// Powers the VM off if nothing runs in it. True if it went to sleep.
+    fn sleep_if_idle(&self) -> bool {
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        // Check under the lock: a request may have woken it.
+        let idle = !self.lock().containers.values().any(|c| c.status == Status::Running) && !usb_attached();
+        // Not `link.take().filter(..)`: that takes the VM first and drops it
+        // when busy, which powers it off under whatever just started.
+        if !idle {
+            return false;
+        }
+        let Some(vm) = link.take() else { return false };
+        self.sleeping.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.memory_used.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.memory_stall.store(0, std::sync::atomic::Ordering::Relaxed);
+        vm.shutdown();
+        // Let the guest flush its disk and power off before the VM is dropped.
+        if !vm.wait_stopped(Duration::from_secs(10)) {
+            crate::diag::warn!("the VM did not power off in 10 s; stopped it");
+        }
+        // Dropping the last reference stops the VM and frees the data disk
+        // before anyone may boot a new one (they wait on `link`).
+        drop(vm);
+        true
+    }
+
+    /// The window's Stop: Asagiri off until Start. Marked stopped first, so
+    /// nothing that comes in meanwhile boots it again; then every container
+    /// stops and the VM powers off.
+    pub fn stop_all(&self) -> Result<(), Error> {
+        self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(f) = stopped_marker() {
+            let _ = std::fs::write(f, b"");
+        }
+        crate::diag::info!("Asagiri stopped: the VM stays off until Start");
+        self.sleep_now()
+    }
+
+    /// Start: no longer stopped (the VM boots on the next request, or now
+    /// for `/asagiri/wake`).
+    pub fn unstop(&self) {
+        if self.stopped.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            crate::diag::info!("Asagiri started");
+        }
+        if let Some(f) = stopped_marker() {
+            let _ = std::fs::remove_file(f);
+        }
+        // What the daemon would have restarted when it came up, had Asagiri
+        // not been stopped then. Off this thread: the caller boots the VM.
+        if let Some(me) = self.me.get().and_then(Weak::upgrade) {
+            std::thread::spawn(move || me.start_held());
+        }
+    }
+
+    /// Starts the containers held since the daemon came up. Whoever calls
+    /// first takes them: Start, or `retry_held` once the VM boots.
+    fn start_held(&self) {
+        let held = std::mem::take(&mut *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()));
+        for id in held {
+            if let Err(e) = self.start_inner(&id, false) {
+                crate::diag::warn!("container did not restart", id = &id[..12], error = format!("{e:?}"));
+            }
+        }
+    }
+
+    /// The VM did not boot when the daemon came up, and containers wait for
+    /// it. Tries again after 10 s, then twice as long each time, up to every
+    /// 5 minutes: what launchd and systemd did by starting a daemon that
+    /// exited, without the exits. Ends when the containers have started, when
+    /// Start took them, or when Asagiri is stopped (then Start starts them).
+    fn retry_held(&self) {
+        let Some(me) = self.me.get().and_then(Weak::upgrade) else { return };
+        std::thread::spawn(move || {
+            let mut delay = Duration::from_secs(10);
+            loop {
+                std::thread::sleep(delay);
+                let none = me.held_restarts.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+                if none || me.is_stopped() || SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                if me.vm().is_ok() {
+                    return me.start_held();
+                }
+                delay = (delay * 2).min(Duration::from_secs(300));
+            }
+        });
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Stop every container, then let the VM sleep (it wakes on the next
+    /// request). The window's Stop is stop_all; restarting the engine is this.
+    pub fn sleep_now(&self) -> Result<(), Error> {
+        let running = self.each(|c| (c.status == Status::Running).then(|| c.id.clone()));
+        // One container that does not stop must not keep the others running.
+        let mut failed = None;
+        for id in running {
+            if let Err(e) = self.stop(&id, self.stop_timeout(&id)) {
+                failed.get_or_insert(e);
+            }
+        }
+        // Passed-through USB devices go back to the Mac, as containers stop.
+        detach_usb();
+        if self.sleep_if_idle() {
+            crate::diag::info!("VM stopped on request");
+        }
+        failed.map_or(Ok(()), Err)
+    }
+
+    fn ceiling(&self) -> u64 {
+        self.ceiling.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// CPUs the VM has (or will boot with).
+    pub fn cpus(&self) -> usize {
+        self.cpus.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// CPUs a container can be given: this machine's on Linux, where
+    /// containers run on its kernel, and the VM's elsewhere.
+    pub fn container_cpus(&self) -> usize {
+        if cfg!(target_os = "linux") { max_cpus() } else { self.cpus() }
+    }
+
+    /// Whether the VM is running right now.
+    pub fn is_awake(&self) -> bool {
+        self.awake().is_some()
+    }
+
+    pub(super) fn lock_resource_updates(&self) -> MutexGuard<'_, ()> {
+        self.resource_updates.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Restores saved containers. Ones that were running when the daemon
+    /// stopped are recorded as exited, as Docker does without live restore.
+    fn load(&self) -> io::Result<()> {
+        let saved: Vec<Saved> = match std::fs::read(&self.records) {
+            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
+                crate::diag::error!("ignoring unreadable container records", file = self.records.display(), error = e);
+                Vec::new()
+            }),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        let now = SystemTime::now();
+        let mut restart = Vec::new();
+        {
+            let mut st = self.lock();
+            for s in saved {
+                let was_running = s.status == Status::Running;
+                let c = Container {
+                    id: s.id.clone(),
+                    name: s.name,
+                    layers: s.layers,
+                    created: from_ns(s.created_ns),
+                    status: if was_running { Status::Exited } else { s.status },
+                    started: s.started_ns.map(from_ns),
+                    finished: if was_running { Some(now) } else { s.finished_ns.map(from_ns) },
+                    exit_code: if was_running { 255 } else { s.exit_code },
+                    oom_killed: !was_running && s.oom_killed,
+                    vm_stopped: was_running || s.vm_stopped,
+                    stopped_by_user: s.stopped_by_user,
+                    restart_count: s.restart_count,
+                    restart_pending: false,
+                    exits: 0,
+                    size: None,
+                ip: None,
+                pid: 0,
+                forwards: None,
+                in_guest: false,
+                live: false,
+                early_input: Vec::new(),
+                early_close: false,
+                paused: false,
+                extra_ips: Vec::new(),
+                extra_ifs: Vec::new(),
+                ip6: None,
+                extra_ip6s: Vec::new(),
+                    log: Arc::new(Mutex::new(super::logfile::Log::new(super::logfile::dir(self.store.root(), &s.id), &s.spec.log_config))),
+                    attached: Vec::new(),
+                    spec: s.spec,
+                };
+                if let Some(mut health) = s.health {
+                    // Its monitor stopped with the daemon; Docker reports that as unhealthy.
+                    if was_running {
+                        health.status = super::health::UNHEALTHY.into();
+                    }
+                    st.health.insert(c.id.clone(), HealthRun { health, epoch: 0, monitoring: false });
+                }
+                let policy = c.spec.restart.name.as_str();
+                if (policy == "always" || (policy == "unless-stopped" && !c.stopped_by_user)) && !c.spec.auto_remove {
+                    restart.push(c.id.clone());
+                }
+                st.containers.insert(s.id, c);
+            }
+            // Logs of containers that are gone (`--rm` ones are never saved).
+            if let Ok(dirs) = std::fs::read_dir(self.store.root().join("containers")) {
+                for d in dirs.flatten() {
+                    if !d.file_name().to_str().is_some_and(|n| st.containers.contains_key(n)) {
+                        let _ = std::fs::remove_dir_all(d.path());
+                    }
+                }
+            }
+            // Containers that join another's network or link to others start
+            // after those, as Docker orders them.
+            restart.sort_by_key(|id| st.containers.get(id).is_some_and(|c| c.spec.network_mode.starts_with("container:") || !c.spec.links.is_empty()));
+            drop(st);
+            // Boot now only when containers restart; otherwise the engine
+            // starts asleep (Ready · Sleeping) and the first request boots
+            // the VM in about 0.1 s. Every boot tells the guest which
+            // stopped containers to keep (vm()).
+            if self.is_stopped() {
+                // Stopped (the window's Stop, kept across restarts): the
+                // daemon still comes up, so Start has something to talk to
+                // and launchd has nothing to start again and again.
+                *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()) = std::mem::take(&mut restart);
+            } else if !restart.is_empty() && self.vm().is_err() {
+                // vm() has said why. The daemon stays up, since exiting only
+                // had launchd start one that failed the same way every 10 s;
+                // the containers wait and the VM is tried again (retry_held).
+                crate::diag::warn!("the VM did not boot: the containers that restart wait while it is tried again", containers = restart.len());
+                *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()) = std::mem::take(&mut restart);
+                self.retry_held();
+            }
+        }
+        for id in restart {
+            if let Err(e) = self.start_inner(&id, false) {
+                crate::diag::warn!("container did not restart", id = &id[..12], error = format!("{e:?}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes `containers.json`. `--rm` containers are left out.
+    fn save(&self) {
+        let json = {
+            let st = self.lock();
+            let saved: Vec<Saved> = st
+                .containers
+                .values()
+                .filter(|c| !c.spec.auto_remove)
+                .map(|c| Saved {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    spec: c.spec.clone(),
+                    layers: c.layers.clone(),
+                    created_ns: ns(c.created),
+                    status: c.status,
+                    started_ns: c.started.map(ns),
+                    finished_ns: c.finished.map(ns),
+                    exit_code: c.exit_code,
+                    oom_killed: c.oom_killed,
+                    vm_stopped: c.vm_stopped,
+                    stopped_by_user: c.stopped_by_user,
+                    restart_count: c.restart_count,
+                    health: st.health.get(&c.id).map(|h| h.health.clone()),
+                })
+                .collect();
+            serde_json::to_vec(&saved)
+        };
+        let Ok(json) = json else { return };
+        let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = self.records.with_extension("json.tmp");
+        if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.records)) {
+            crate::diag::error!("saving containers failed", error = e);
+        }
+    }
+
+    fn on_event(&self, ev: Event<'_>) {
+        match ev {
+            Event::Output { id, stream, data } => {
+                let mut st = self.lock();
+                if let Some(c) = st.containers.get_mut(id) {
+                    c.attached.retain(|tx| tx.send((stream, data.to_vec())).is_ok());
+                    // Written outside the engine's lock; holding the log's
+                    // keeps the order `docker logs -f` sees.
+                    let log = c.log.clone();
+                    let mut log = lock_log(&log);
+                    drop(st);
+                    log.append(stream, ns(SystemTime::now()), data);
+                } else if let Some(e) = st.execs.get_mut(id) {
+                    e.attached.retain(|tx| tx.send((stream, data.to_vec())).is_ok());
+                }
+            }
+            Event::Exited { id, code, oom } => {
+                let mut st = self.lock();
+                if let Some(e) = st.execs.get_mut(id) {
+                    e.running = false;
+                    e.exit_code = Some(code);
+                    e.pid = 0;
+                    e.attached.clear();
+                    let (container, exec_id, internal) = (e.container_id.clone(), e.id.clone(), e.config.internal);
+                    drop(st);
+                    self.changed.notify_all();
+                    if !internal {
+                        self.emit_container("exec_die", &container, &[("execID", exec_id), ("exitCode", code.to_string())]);
+                    }
+                    return;
+                }
+                let mut restart_in = None;
+                let mut persist = false;
+                let mut closed_ports = None;
+                let actor = st.containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c)));
+                // Docker stops a container's healthcheck when it exits.
+                if let Some(h) = st.health.get_mut(id) {
+                    close_monitor(h);
+                }
+                let remove = match st.containers.get_mut(id) {
+                    Some(c) => {
+                        c.status = Status::Exited;
+                        c.exit_code = code;
+                        c.pid = 0;
+                        c.oom_killed = oom;
+                        // Stopped by the daemon's shutdown, not by the app.
+                        c.vm_stopped = SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst);
+                        if oom {
+                            crate::diag::warn!("container killed for memory", name = c.name.clone(), exit_code = code);
+                        }
+                        c.exits += 1;
+                        c.in_guest = false;
+                        c.live = false;
+                        if let Some(ip) = c.ip.take() {
+                            self.release_ip(&c.spec.network_mode, ip);
+                        }
+                        for (net, ip) in std::mem::take(&mut c.extra_ips) {
+                            self.release_ip(&net, ip);
+                        }
+                        c.extra_ifs.clear();
+                        self.release_ip6s(c);
+                        c.paused = false;
+                        closed_ports = c.forwards.take();
+                        c.finished = Some(SystemTime::now());
+                        // Dropping the senders ends every attach stream.
+                        c.attached.clear();
+                        lock_log(&c.log).end_follow();
+                        persist = !c.spec.auto_remove;
+                        let p = &c.spec.restart;
+                        let wants = match p.name.as_str() {
+                            "always" | "unless-stopped" => !c.stopped_by_user,
+                            "on-failure" => code != 0 && !c.stopped_by_user && (p.max_retries == 0 || c.restart_count < p.max_retries),
+                            _ => false,
+                        };
+                        if wants && !c.spec.auto_remove && !SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst) {
+                            let backoff = RESTART_BASE.saturating_mul(1 << c.restart_count.min(10)).min(RESTART_CAP);
+                            c.restart_count += 1;
+                            c.restart_pending = true;
+                            restart_in = Some(backoff);
+                        }
+                        c.spec.auto_remove
+                    }
+                    None => false,
+                };
+                let mut anon = Vec::new();
+                let mut removed_log = None;
+                if remove {
+                    if let Some(c) = st.containers.remove(id) {
+                        anon = c.spec.anon_volumes;
+                        removed_log = Some(c.log);
+                    }
+                    note_removed(&mut st, id, code);
+                }
+                drop(st);
+                if let Some((image, attrs)) = actor {
+                    self.emit_container_with("die", id, &image, attrs.clone(), &[("exitCode", code.to_string())]);
+                    if remove {
+                        self.emit_container_with("destroy", id, &image, attrs, &[]);
+                    }
+                }
+                // Closing listeners joins their threads: never under the lock.
+                drop(closed_ports);
+                if let Some(log) = removed_log {
+                    lock_log(&log).remove();
+                }
+                // `--rm` takes the container's anonymous volumes with it.
+                for v in anon {
+                    self.delete_volume_data(&v);
+                }
+                self.changed.notify_all();
+                if persist {
+                    self.save();
+                }
+                if let (Some(delay), Some(me)) = (restart_in, self.me.get().and_then(Weak::upgrade)) {
+                    let id = id.to_owned();
+                    let _ = std::thread::Builder::new().name("asagiri-restart".into()).spawn(move || {
+                        std::thread::sleep(delay);
+                        // Only if nobody stopped or removed it in the meantime.
+                        let still_wanted = me.lock().containers.get_mut(&id).is_some_and(|c| {
+                            c.restart_pending = false;
+                            c.status == Status::Exited && !c.stopped_by_user
+                        });
+                        if still_wanted {
+                            if let Err(e) = me.start_inner(&id, false) {
+                                crate::diag::warn!("container did not restart", id = &id[..12], error = format!("{e:?}"));
+                            }
+                        }
+                    });
+                }
+            }
+            Event::Pressure => self.grow_memory(),
+            Event::Lost => {
+                let mut st = self.lock();
+                let mut closed = Vec::new();
+                for c in st.containers.values_mut() {
+                    closed.extend(c.forwards.take());
+                    if let Some(ip) = c.ip.take() {
+                        self.release_ip(&c.spec.network_mode, ip);
+                    }
+                    for (net, ip) in std::mem::take(&mut c.extra_ips) {
+                        self.release_ip(&net, ip);
+                    }
+                    c.extra_ifs.clear();
+                    self.release_ip6s(c);
+                    c.paused = false;
+                    c.pid = 0;
+                    if c.status == Status::Running {
+                        c.status = Status::Exited;
+                        c.exits += 1;
+                        c.exit_code = 255;
+                        c.vm_stopped = true;
+                        c.finished = Some(SystemTime::now());
+                        c.attached.clear();
+                        lock_log(&c.log).end_follow();
+                    }
+                }
+                for e in st.execs.values_mut() {
+                    e.running = false;
+                    e.attached.clear();
+                }
+                for h in st.health.values_mut() {
+                    close_monitor(h);
+                }
+                drop(st);
+                drop(closed);
+                self.changed.notify_all();
+                if !self.sleeping.load(std::sync::atomic::Ordering::SeqCst) {
+                    self.save();
+                    crate::diag::error!("the VM stopped unexpectedly; the next request boots a new one", console = crate::diag::console::path().map(|p| p.display().to_string()).unwrap_or_default());
+                    // A crashed VM: forget it, so the next request boots a fresh one.
+                    if let Ok(mut link) = self.link.try_lock() {
+                        *link = None;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every second: read what the guest holds and, on the Mac, give it that
+    /// plus headroom through the balloon, the rest back to macOS. Pressure
+    /// events grow it at once in between. On a Linux host there is no
+    /// balloon and nothing to give back: the reading is all, and it takes in
+    /// this process too, which runs beside the containers there.
+    fn start_balloon(self: &Arc<Self>) {
+        if std::env::var_os("ASAGIRI_NO_BALLOON").is_some() {
+            return;
+        }
+        let me = Arc::downgrade(self);
+        let _ = std::thread::Builder::new().name("asagiri-balloon".into()).spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let Some(engine) = me.upgrade() else { return };
+                let Some(vm) = engine.awake() else { continue };
+                let Ok(stats) = vm.stats() else { continue };
+                let mut target = engine.memory_target.lock().unwrap_or_else(|e| e.into_inner());
+                let ceiling = engine.ceiling();
+                let used = if stats.mem_used_kib > 0 {
+                    // The agent's count: anonymous, shared and kernel memory
+                    // from the cgroup, which neither the page cache nor the
+                    // balloon's own pages get into.
+                    stats.mem_used_kib * 1024 + if cfg!(target_os = "macos") { 0 } else { self_rss() }
+                } else {
+                    // An agent from before that count: MemTotal minus
+                    // MemAvailable, with the balloon taken back out. Apple's
+                    // balloon offers deflate-on-OOM, so Linux counts its pages
+                    // as used rather than shrinking MemTotal. The balloon is
+                    // guessed at ceiling - target, which it only is once the
+                    // guest has inflated that far: short of that, the guess
+                    // exceeds the use and the result sits at zero.
+                    let apparent = (stats.mem_total_kib.saturating_sub(stats.mem_available_kib)) * 1024;
+                    apparent.saturating_sub(ceiling - *target)
+                };
+                engine.memory_used.store(used, std::sync::atomic::Ordering::Relaxed);
+                engine.memory_stall.store(stats.mem_stall, std::sync::atomic::Ordering::Relaxed);
+                engine.oom_kills.store(stats.oom_kills, std::sync::atomic::Ordering::Relaxed);
+                if !cfg!(target_os = "macos") {
+                    continue;
+                }
+                let want = (used + MEMORY_HEADROOM).clamp(MEMORY_FLOOR, ceiling);
+                // Shrink in steps (so the guest's caches go gradually), grow at once.
+                let next = if want < *target { want.max(target.saturating_sub(256 << 20)) } else { want };
+                if next.abs_diff(*target) >= 64 << 20 {
+                    *target = next;
+                    vm.set_memory_target(next);
+                }
+            }
+        });
+    }
+
+    fn grow_memory(&self) {
+        let mut target = self.memory_target.lock().unwrap_or_else(|e| e.into_inner());
+        let next = (*target + MEMORY_GROW).min(self.ceiling());
+        if next != *target {
+            *target = next;
+            if let Some(vm) = self.awake() {
+                vm.set_memory_target(next);
+            }
+        }
+    }
+
+    /// (ceiling, current target) in bytes. On a Linux host there is no VM
+    /// of Asagiri's to bound: both are the machine's memory (in WSL, the memory
+    /// .wslconfig gives it), so the window shows use against what is there.
+    pub fn memory(&self) -> (u64, u64) {
+        if cfg!(target_os = "macos") {
+            (self.ceiling(), *self.memory_target.lock().unwrap_or_else(|e| e.into_inner()))
+        } else {
+            let ram = physical_memory();
+            (ram, ram)
+        }
+    }
+
+    /// What Asagiri's Linux holds now, in bytes; 0 while asleep.
+    pub fn memory_used(&self) -> u64 {
+        self.memory_used.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The share of the last 10 s the guest spent stalled on memory, in
+    /// percent, and the processes it has killed for memory since it booted.
+    pub fn memory_trouble(&self) -> (f64, u64) {
+        let stall = self.memory_stall.load(std::sync::atomic::Ordering::Relaxed) as f64 / 100.0;
+        (stall, self.oom_kills.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// How busy the VM is, in percent of all its CPUs; 0 while asleep.
+    pub fn cpu_percent(&self) -> f64 {
+        f64::from(self.cpu_permyriad.load(std::sync::atomic::Ordering::Relaxed)) / 100.0
+    }
+
+    /// Keeps the VM's clock on the Mac's. The guest is told the time at
+    /// boot, but its clock stops while the Mac sleeps, so after each sleep it
+    /// fell further behind: an hour behind after a few nights, and apt
+    /// refused Debian's signatures as made in the future. Sent again within
+    /// a few seconds of a wake (the wall clock moved on further than the
+    /// monotonic one, which stops in sleep too), and once a minute anyway;
+    /// the agent only steps its clock when it is off.
+    fn start_clock(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let _ = std::thread::Builder::new().name("asagiri-clock".into()).spawn(move || {
+            let (mut wall, mut mono) = (SystemTime::now(), std::time::Instant::now());
+            let mut sent = std::time::Instant::now();
+            loop {
+                std::thread::sleep(Duration::from_secs(5));
+                let Some(engine) = me.upgrade() else { return };
+                let (w, m) = (SystemTime::now(), std::time::Instant::now());
+                let slept = w.duration_since(wall).unwrap_or_default().saturating_sub(m.duration_since(mono)) > Duration::from_secs(2);
+                (wall, mono) = (w, m);
+                if !slept && sent.elapsed() < Duration::from_secs(60) {
+                    continue;
+                }
+                if let Some(vm) = engine.awake()
+                    && vm.set_time().is_ok()
+                {
+                    sent = m;
+                }
+            }
+        });
+    }
+
+    /// Reads the VM's CPU time every two seconds, for `cpu_percent`.
+    fn start_cpu_meter(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let _ = std::thread::Builder::new().name("asagiri-cpu".into()).spawn(move || {
+            let mut last: Option<(u64, std::time::Instant)> = None;
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let Some(engine) = me.upgrade() else { return };
+                let now = engine.awake().and_then(|_| super::vmcpu::cpu_ns()).map(|ns| (ns, std::time::Instant::now()));
+                let permyriad = match (last, now) {
+                    (Some((a, t0)), Some((b, t1))) if b >= a => {
+                        let wall = t1.duration_since(t0).as_nanos() as f64 * engine.cpus().max(1) as f64;
+                        ((b - a) as f64 / wall * 10000.0).round().clamp(0.0, 10000.0) as u32
+                    }
+                    _ => 0,
+                };
+                engine.cpu_permyriad.store(permyriad, std::sync::atomic::Ordering::Relaxed);
+                last = now;
+            }
+        });
+    }
+
+    /// Finds an image by the name a client used.
+    pub fn image(&self, name: &str) -> io::Result<Option<Image>> {
+        Ok(image_named(self.store.images()?, name))
+    }
+
+    /// Sends the guest every layer of these (digest, media type) it doesn't
+    /// have unpacked, from the blob store.
+    fn ensure_layers<'a>(&self, layers: impl Iterator<Item = (&'a str, &'a str)>) -> io::Result<()> {
+        let _one_at_a_time = self.layers.lock().unwrap_or_else(|e| e.into_inner());
+        for (digest, media_type) in layers {
+            if !self.vm()?.has_layer(digest)? {
+                self.vm()?.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A container's layers back in the guest before it runs again: the
+    /// guest deletes an unpacked layer at boot when it isn't whole (an unpack
+    /// cut short, or one from before layers were marked whole), and a
+    /// container created before that would otherwise fail to start with
+    /// "layer ... is not unpacked". The media type comes from any image with
+    /// the layer; a layer no image has any more can't be sent again.
+    fn restore_layers(&self, layers: &[String]) -> Result<(), Error> {
+        let vm = self.vm()?;
+        let mut missing = Vec::new();
+        for digest in layers {
+            if !vm.has_layer(digest)? {
+                missing.push(digest);
+            }
+        }
+        // The usual case: nothing to send, and no need to read the image index.
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let images = self.store.images()?;
+        let mut wanted = Vec::with_capacity(missing.len());
+        for digest in missing {
+            let Some(l) = images.iter().flat_map(|i| &i.layers).find(|l| &l.digest == digest) else {
+                return Err(Error::Conflict(format!("layer {digest} is gone from the engine and no image has it any more: remove this container and create it again")));
+            };
+            wanted.push((l.digest.as_str(), l.media_type.as_str()));
+        }
+        Ok(self.ensure_layers(wanted.into_iter())?)
+    }
+
+    /// Records a container and makes sure its layers are in the guest, so
+    /// `start` has nothing left to do but run it.
+    pub fn create(&self, name: Option<String>, spec: Spec, image: &Image) -> Result<String, Error> {
+        self.ensure_layers(image.layers.iter().map(|l| (l.digest.as_str(), l.media_type.as_str())))?;
+        let id = random_hex(32);
+        let persist = !spec.auto_remove;
+        let (log_dir, log_config) = (super::logfile::dir(self.store.root(), &id), spec.log_config.clone());
+        let mut st = self.lock();
+        let name = match name.filter(|n| !n.is_empty()) {
+            Some(n) => {
+                let n = n.trim_start_matches('/').to_owned();
+                if !valid_container_name(&n) {
+                    return Err(Error::BadRequest(format!("Invalid container name ({n}), only [a-zA-Z0-9][a-zA-Z0-9_.-] are allowed")));
+                }
+                if st.containers.values().any(|c| c.name == n) {
+                    return Err(Error::Conflict(format!(
+                        "Conflict. The container name \"/{n}\" is already in use. You have to remove (or rename) that container to be able to reuse that name."
+                    )));
+                }
+                n
+            }
+            None => loop {
+                let n = super::names::random();
+                if !st.containers.values().any(|c| c.name == n) {
+                    break n;
+                }
+            },
+        };
+        st.containers.insert(
+            id.clone(),
+            Container {
+                id: id.clone(),
+                name,
+                layers: image.layers.iter().rev().map(|l| l.digest.clone()).collect(),
+                spec,
+                created: SystemTime::now(),
+                status: Status::Created,
+                started: None,
+                finished: None,
+                exit_code: 0,
+                oom_killed: false,
+                vm_stopped: false,
+                stopped_by_user: false,
+                restart_count: 0,
+                restart_pending: false,
+                exits: 0,
+                size: None,
+                ip: None,
+                pid: 0,
+                forwards: None,
+                in_guest: false,
+                live: false,
+                early_input: Vec::new(),
+                early_close: false,
+                paused: false,
+                extra_ips: Vec::new(),
+                extra_ifs: Vec::new(),
+                ip6: None,
+                extra_ip6s: Vec::new(),
+                log: Arc::new(Mutex::new(super::logfile::Log::new(log_dir, &log_config))),
+                attached: Vec::new(),
+            },
+        );
+        drop(st);
+        if persist {
+            self.save();
+        }
+        self.emit_container("create", &id, &[]);
+        Ok(id)
+    }
+
+    /// Resolves an id, an id prefix or a name to the full id.
+    pub fn resolve(&self, key: &str) -> Result<String, Error> {
+        let st = self.lock();
+        resolve(&st, key)
+    }
+
+    /// `docker start`: also clears a previous `stop`, as Docker does.
+    pub fn start(&self, key: &str) -> Result<(), Error> {
+        self.start_inner(key, true)
+    }
+
+    fn start_inner(&self, key: &str, by_user: bool) -> Result<(), Error> {
+        let (id, layers, argv, spec, size) = {
+            let mut st = self.lock();
+            let id = resolve(&st, key)?;
+            let c = st.containers.get_mut(&id).expect("resolved");
+            match c.status {
+                Status::Running => return Ok(()),
+                Status::Exited if c.spec.auto_remove => return Err(Error::Conflict("container is being removed".into())),
+                _ => {}
+            }
+            let argv = c.argv();
+            if argv.is_empty() {
+                return Err(Error::BadRequest("no command specified".into()));
+            }
+            c.status = Status::Running;
+            c.restart_pending = false;
+            c.started = Some(SystemTime::now());
+            c.finished = None;
+            c.oom_killed = false;
+            c.vm_stopped = false;
+            // Not until the guest has the process, however the last run ended.
+            c.in_guest = false;
+            c.live = false;
+            // `docker run --rm` without -d: its client is reading the output
+            // and the log goes with the container, so it stays in memory.
+            if c.spec.auto_remove && !c.attached.is_empty() {
+                lock_log(&c.log).keep_in_memory();
+            }
+            if by_user {
+                c.stopped_by_user = false;
+                c.restart_count = 0;
+            }
+            (id, c.layers.clone(), argv, c.spec.clone(), c.size.or(c.spec.console_size))
+        };
+        let mut hostname = if spec.hostname.is_empty() { id[..12].to_owned() } else { spec.hostname.clone() };
+        let mut domainname = spec.domainname.clone();
+        // `--network container:<id>`: that container's namespace, hostname
+        // and /etc files, as with Docker.
+        let mut joined_mode = None;
+        let joined = match spec.network_mode.strip_prefix("container:") {
+            Some(target) => match self.network_container(&id, target) {
+                Ok((target, h, d, mode)) => {
+                    (hostname, domainname) = (h, d);
+                    joined_mode = Some(mode);
+                    Some(target)
+                }
+                Err(e) => {
+                    self.fail_start(&id, &spec, &e);
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
+        let mut flags = 0;
+        let net = self.lock_networks().find(&spec.network_mode).cloned();
+        if let Some(Err(e)) = net.as_ref().map(|n| n.check_mac(&spec.mac_address)) {
+            self.fail_start(&id, &spec, &e);
+            return Err(Error::Io(io::Error::other(e)));
+        }
+        let links = match net.as_ref().map(|n| self.link_hosts(&id, &spec, n)).transpose() {
+            Ok(l) => l.unwrap_or_default(),
+            Err(e) => {
+                self.fail_start(&id, &spec, &e);
+                return Err(e);
+            }
+        };
+        let mut dns_names: Vec<String> = Vec::new();
+        let mut net6_opts: Vec<String> = Vec::new();
+        let (bridge, ip, prefix, gateway) = match net.as_ref().map(|n| n.driver.as_str()) {
+            Some("host") => {
+                flags |= run_flags::NET_HOST;
+                (String::new(), [0; 4], 0, [0; 4])
+            }
+            Some("bridge" | "macvlan" | "ipvlan") => {
+                let n = net.as_ref().expect("matched");
+                let ip = match super::network::parse_ip(&spec.ipv4_address) {
+                    Some(want) => self.lock_networks().reserve(&n.name, want).map(|()| want).map_err(Error::Conflict),
+                    None => {
+                        let avoid = self.wanted_addresses(&n.name);
+                        self.lock_networks().allocate_avoiding(&n.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", n.name)))
+                    }
+                };
+                let ip = match ip {
+                    Ok(ip) => ip,
+                    Err(e) => {
+                        self.fail_start(&id, &spec, &e);
+                        return Err(e);
+                    }
+                };
+                let ip6 = if spec.ipv6_disabled("eth0") { Ok(None) } else { self.allocate_ip6(n, &spec.ipv6_address) };
+                match ip6 {
+                    Ok(ip6) => {
+                        if let Some(c) = self.lock().containers.get_mut(&id) {
+                            c.ip6 = ip6;
+                        }
+                        if let (Some(a), Some(v)) = (ip6, &n.v6) {
+                            net6_opts.push(format!("{}={}/{}", asagiri_proto::net_opts::IP6, super::network::ip6_str(a), v.prefix));
+                            net6_opts.push(format!("{}={}", asagiri_proto::net_opts::GW6, super::network::ip6_str(v.gateway)));
+                        }
+                        if n.internal {
+                            net6_opts.push(format!("{}=1", asagiri_proto::net_opts::INTERNAL));
+                        }
+                        if n.no_ipv4 {
+                            net6_opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
+                        }
+                        if let Some(mtu) = n.mtu() {
+                            net6_opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
+                        }
+                        if !n.icc() {
+                            net6_opts.push(format!("{}=1", asagiri_proto::net_opts::NO_ICC));
+                        }
+                        if let Some(mode) = n.macvlan_mode() {
+                            net6_opts.push(format!("{}={mode}", asagiri_proto::net_opts::MACVLAN));
+                        }
+                        if let Some((mode, flag)) = n.ipvlan() {
+                            net6_opts.push(format!("{}={mode}", asagiri_proto::net_opts::IPVLAN));
+                            net6_opts.push(format!("{}={flag}", asagiri_proto::net_opts::IPVLAN_FLAG));
+                        }
+                    }
+                    Err(e) => {
+                        self.lock_networks().release(&n.name, ip);
+                        self.fail_start(&id, &spec, &e);
+                        return Err(e);
+                    }
+                }
+                // User-defined networks resolve container names, as Docker's do;
+                // the default bridge does not.
+                if !n.builtin() {
+                    flags |= run_flags::DNS_GATEWAY;
+                    let name = self.lock().containers.get(&id).map(|c| c.name.clone()).unwrap_or_default();
+                    dns_names = endpoint_names(&name, &spec.aliases, &id, &hostname);
+                }
+                (n.bridge.clone(), ip, n.prefix, n.gateway)
+            }
+            Some(_) => {
+                flags |= run_flags::NET_NONE;
+                (String::new(), [0; 4], 0, [0; 4])
+            }
+            None if joined.is_some() => (String::new(), [0; 4], 0, [0; 4]),
+            None => {
+                let e = Error::NotFound(format!("network {} not found", spec.network_mode));
+                self.fail_start(&id, &spec, &e);
+                return Err(e);
+            }
+        };
+        if ip != [0; 4] {
+            if let Some(c) = self.lock().containers.get_mut(&id) {
+                c.ip = Some(ip);
+            }
+        }
+        // A restarted container keeps its writable layer, so only --rm deletes it.
+        if spec.auto_remove {
+            flags |= run_flags::REMOVE;
+        }
+        if spec.tty {
+            flags |= run_flags::TTY;
+        }
+        if spec.open_stdin {
+            flags |= run_flags::STDIN;
+        }
+        if spec.privileged {
+            flags |= run_flags::PRIVILEGED;
+        }
+        if spec.init == Some(true) {
+            flags |= run_flags::INIT;
+        }
+        flags |= spec.security_flags();
+        // Every container can reach the Mac, as with Docker Desktop and OrbStack.
+        let mut hosts = vec![
+            format!("{}\thost.docker.internal host.asagiri.internal", super::ports::HOST_ADDR),
+            format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR),
+        ];
+        hosts.extend(spec.extra_hosts.iter().cloned());
+        hosts.extend(links);
+        let mut opts = net_opts(&spec, joined.as_deref(), &domainname);
+        opts.extend(net6_opts);
+        let net_args = asagiri_proto::Net { bridge: &bridge, ip, prefix, gateway, extra_hosts: &hosts, dns_names: &dns_names, opts: &opts };
+        // Joining a host-network container is the host's namespace too: its
+        // net.* sysctls would change the whole VM (or Linux host).
+        let joined_host = joined_mode.is_some_and(|m| self.lock_networks().find(&m).is_some_and(|n| n.driver == "host"));
+        let host_opts = match spec.guest_opts(flags & run_flags::NET_HOST != 0 || joined_host) {
+            Ok(o) => o,
+            Err(e) => {
+                self.fail_start(&id, &spec, &e);
+                return Err(e);
+            }
+        };
+        let vm = match self.vm() {
+            Ok(vm) => vm,
+            Err(e) => {
+                self.fail_start(&id, &spec, &e);
+                return Err(Error::Io(e));
+            }
+        };
+        if let Err(e) = self.restore_layers(&layers) {
+            self.fail_start(&id, &spec, &e);
+            return Err(e);
+        }
+        match vm.run(&id, &layers, &argv, &spec.env, &spec.cwd, &spec.user, &hostname, flags, net_args, &spec.mounts, &spec.limits.wire(), spec.caps, &host_opts) {
+            Ok(pid) => {
+                if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
+                    c.pid = pid;
+                }
+            }
+            Err(e) => {
+                crate::diag::warn!("container did not start", id = &id[..12], image = spec.image, error = e);
+                self.fail_start(&id, &spec, &e);
+                return Err(Error::Io(e));
+            }
+        }
+        if let (true, Some((rows, cols))) = (spec.tty, size) {
+            let _ = vm.resize(&id, rows, cols);
+        }
+        if flags & (run_flags::NET_HOST | run_flags::NET_NONE) == 0 && joined.is_none() {
+            for extra in &spec.extra_networks {
+                if let Err(e) = self.attach_extra(&vm, &id, extra) {
+                    crate::diag::warn!("container not attached to a network", id = &id[..12], network = extra.name, error = format!("{e:?}"));
+                }
+            }
+        }
+        // Nothing outside a macvlan or ipvlan network reaches its
+        // containers: Docker publishes no ports for them either.
+        let own_link = net.as_ref().is_some_and(|n| n.own_link());
+        if !spec.ports.is_empty() && !own_link {
+            let target = if flags & run_flags::NET_HOST != 0 { [127, 0, 0, 1] } else { ip };
+            match super::ports::start(vm.clone(), &id, &spec.ports, target) {
+                Ok(fw) => {
+                    if let Some(c) = self.lock().containers.get_mut(&id) {
+                        c.forwards = Some(fw);
+                    }
+                }
+                Err(e) => {
+                    crate::diag::warn!("ports not published; container stopped", id = &id[..12], error = e);
+                    // Docker refuses to run a container whose ports clash.
+                    let _ = self.vm()?.kill(&id, libc::SIGKILL as u32);
+                    return Err(Error::Conflict(e.to_string()));
+                }
+            }
+        }
+        // The guest has the process now. A stop or kill that came in meanwhile
+        // waits for this, and not for the input below: handing that over
+        // takes as long as the program takes to read it.
+        if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
+            c.in_guest = true;
+        }
+        self.changed.notify_all();
+        // Deliver input that arrived early.
+        // It is drained before the container goes live, so input still
+        // arriving meanwhile (and its CloseStdin) queues behind it rather
+        // than overtaking it.
+        loop {
+            let (early, close) = {
+                let mut st = self.lock();
+                let Some(c) = st.containers.get_mut(&id) else { break };
+                let early = std::mem::take(&mut c.early_input);
+                if !early.is_empty() {
+                    (early, false)
+                } else {
+                    c.live = true;
+                    (early, std::mem::take(&mut c.early_close))
+                }
+            };
+            if early.is_empty() {
+                if close {
+                    let _ = self.vm()?.close_stdin(&id);
+                }
+                break;
+            }
+            let _ = self.vm()?.input(&id, &early);
+        }
+        self.health_start(&id);
+        if !spec.auto_remove {
+            self.save();
+        }
+        self.emit_container("start", &id, &[]);
+        Ok(())
+    }
+
+    /// Sends an event to every listener and keeps it for `--since`.
+    pub fn emit(&self, typ: &str, action: &str, actor: &str, attributes: serde_json::Map<String, serde_json::Value>, legacy: Option<(&str, &str)>) {
+        log_event(typ, action, actor, &attributes);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let mut ev = serde_json::json!({
+            "Type": typ,
+            "Action": action,
+            "Actor": {"ID": actor, "Attributes": attributes},
+            "scope": "local",
+            "time": now.as_secs(),
+            "timeNano": now.as_nanos() as u64,
+        });
+        // Old clients read `status`, `id` and `from` on container events.
+        if let Some((id, from)) = legacy {
+            ev["status"] = action.into();
+            ev["id"] = id.into();
+            ev["from"] = from.into();
+        }
+        let mut e = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        e.recent.push_back(ev.clone());
+        while e.recent.len() > RECENT_EVENTS {
+            e.recent.pop_front();
+        }
+        e.listeners.retain(|tx| !matches!(tx.try_send(ev.clone()), Err(std::sync::mpsc::TrySendError::Disconnected(_))));
+    }
+
+    /// Kept events, and a receiver for the ones to come.
+    pub fn subscribe(&self) -> (Vec<serde_json::Value>, Receiver<serde_json::Value>) {
+        let (tx, rx) = std::sync::mpsc::sync_channel(EVENT_QUEUE);
+        let mut e = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        e.listeners.push(tx);
+        (e.recent.iter().cloned().collect(), rx)
+    }
+
+    /// A container event, with its name, image and labels as attributes.
+    pub fn emit_container(&self, action: &str, id: &str, extra: &[(&str, String)]) {
+        let Some((image, attrs)) = self.lock().containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c))) else { return };
+        self.emit_container_with(action, id, &image, attrs, extra);
+    }
+
+    fn emit_container_with(&self, action: &str, id: &str, image: &str, mut attrs: serde_json::Map<String, serde_json::Value>, extra: &[(&str, String)]) {
+        for (k, v) in extra {
+            attrs.insert((*k).to_owned(), v.clone().into());
+        }
+        self.emit("container", action, id, attrs, Some((id, image)));
+    }
+
+    /// An image event, as Docker sends one: `pull`, `tag`, `untag`,
+    /// `delete`, `load`. Open windows refresh their image list on it.
+    pub fn emit_image(&self, action: &str, id: &str, name: &str) {
+        let mut attrs = serde_json::Map::new();
+        attrs.insert("name".into(), name.into());
+        self.emit("image", action, id, attrs, None);
+    }
+
+    /// A volume event: `create` or `destroy`.
+    fn emit_volume(&self, action: &str, name: &str) {
+        let mut attrs = serde_json::Map::new();
+        attrs.insert("driver".into(), "local".into());
+        self.emit("volume", action, name, attrs, None);
+    }
+
+    fn emit_network(&self, action: &str, net: &super::network::Network, container: &str) {
+        let mut attrs = serde_json::Map::new();
+        attrs.insert("container".into(), container.into());
+        attrs.insert("name".into(), net.name.clone().into());
+        attrs.insert("type".into(), net.driver.clone().into());
+        self.emit("network", action, &net.id, attrs, None);
+    }
+
+    /// Fixed addresses containers not running ask for on a network: an
+    /// automatic address passes over them, so they are free when those start.
+    fn wanted_addresses(&self, network: &str) -> Vec<[u8; 4]> {
+        let st = self.lock();
+        let mut out = Vec::new();
+        for c in st.containers.values().filter(|c| c.status != Status::Running) {
+            if c.spec.network_mode == network {
+                out.extend(super::network::parse_ip(&c.spec.ipv4_address));
+            }
+            out.extend(c.spec.extra_networks.iter().filter(|x| x.name == network).filter_map(|x| super::network::parse_ip(&x.ipv4_address)));
+        }
+        out
+    }
+
+    /// For `--network container:<target>`: the target's id, hostname and
+    /// domain name. It has to be running, as with Docker.
+    /// Also the network mode the namespace finally belongs to (following
+    /// `container:` chains), so the caller can tell a host-network one.
+    fn network_container(&self, id: &str, target: &str) -> Result<(String, String, String, String), Error> {
+        let st = self.lock();
+        let target = resolve(&st, target)?;
+        if target == id {
+            return Err(Error::BadRequest("cannot join own network".into()));
+        }
+        let c = st.containers.get(&target).expect("resolved");
+        if c.status != Status::Running {
+            return Err(Error::Conflict(format!("cannot join network of a non running container: {target}")));
+        }
+        let hostname = if c.spec.hostname.is_empty() { c.short_id().to_owned() } else { c.spec.hostname.clone() };
+        let mut mode = c.spec.network_mode.clone();
+        for _ in 0..8 {
+            let Some(next) = mode.strip_prefix("container:").and_then(|t| resolve(&st, t).ok()).and_then(|t| st.containers.get(&t)) else { break };
+            mode = next.spec.network_mode.clone();
+        }
+        Ok((target, hostname, c.spec.domainname.clone(), mode))
+    }
+
+    /// `--link` lines for /etc/hosts, as Docker writes them: `ip alias
+    /// hostname name`. Linked containers must be running; on the default
+    /// bridge (which has no DNS) they must be on it too. The lines are fixed
+    /// at start: a linked container that restarts with another address is
+    /// not followed (Docker rewrites them; restart this one).
+    fn link_hosts(&self, id: &str, spec: &Spec, net: &super::network::Network) -> Result<Vec<String>, Error> {
+        let st = self.lock();
+        let me = st.containers.get(id).map(|c| c.name.clone()).unwrap_or_default();
+        let mut out = Vec::new();
+        for l in &spec.links {
+            let c = st.containers.get(&l.id).ok_or_else(|| Error::NotFound(format!("could not get container for {}", l.name)))?;
+            if c.status != Status::Running {
+                return Err(Error::Conflict(format!("Cannot link to a non running container: /{} AS /{me}/{}", c.name, l.alias)));
+            }
+            let ip = if c.spec.network_mode == net.name { c.ip } else { c.extra_ips.iter().find(|(n, _)| *n == net.name).map(|(_, ip)| *ip) };
+            let Some(ip) = ip else {
+                if net.name == "bridge" {
+                    return Err(Error::BadRequest(format!("Cannot link to /{}, as it does not belong to the default network", c.name)));
+                }
+                continue;
+            };
+            let hostname = if c.spec.hostname.is_empty() { c.short_id() } else { c.spec.hostname.as_str() };
+            // A user network's DNS already answers the container's own names
+            // (Compose's `links: [db]`) and follows it across restarts; a
+            // fixed line would not.
+            if net.name != "bridge" {
+                let aliases: &[String] = if c.spec.network_mode == net.name { &c.spec.aliases } else { c.spec.extra_networks.iter().find(|x| x.name == net.name).map_or(&[], |x| &x.aliases) };
+                if l.alias == c.name || l.alias == hostname || aliases.contains(&l.alias) {
+                    continue;
+                }
+            }
+            let mut names = format!("{} {hostname}", l.alias);
+            if l.alias != c.name {
+                names.push(' ');
+                names.push_str(&c.name);
+            }
+            out.push(format!("{}\t{names}", super::network::ip_str(ip)));
+        }
+        Ok(out)
+    }
+
+    /// Records a start that never reached the guest as an immediate exit,
+    /// with the exit code Docker gives that failure (see `start_exit_code`).
+    fn fail_start(&self, id: &str, spec: &Spec, err: &dyn std::fmt::Debug) {
+        let code = start_exit_code(&format!("{err:?}"));
+        let mut st = self.lock();
+        let actor = st.containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c)));
+        if let Some(c) = st.containers.get_mut(id) {
+            c.status = Status::Exited;
+            c.exits += 1;
+            c.exit_code = code;
+            c.finished = Some(SystemTime::now());
+            c.attached.clear();
+            lock_log(&c.log).end_follow();
+            if let Some(ip) = c.ip.take() {
+                self.release_ip(&c.spec.network_mode, ip);
+            }
+            self.release_ip6s(c);
+        }
+        if let Some(h) = st.health.get_mut(id) {
+            close_monitor(h);
+        }
+        // `--rm`: Docker removes a container whose start failed, and an
+        // attached `docker run --rm` waits for exactly that (condition
+        // "removed") before it reports the error; without it, it hung.
+        let removed = if spec.auto_remove { st.containers.remove(id) } else { None };
+        if removed.is_some() {
+            note_removed(&mut st, id, code);
+        }
+        drop(st);
+        self.changed.notify_all();
+        if let Some(c) = removed {
+            if let Some(vm) = self.awake() {
+                let _ = vm.remove(id);
+            }
+            lock_log(&c.log).remove();
+            for v in c.spec.anon_volumes {
+                self.delete_volume_data(&v);
+            }
+            if let Some((image, attrs)) = actor {
+                self.emit_container_with("destroy", id, &image, attrs, &[]);
+            }
+        }
+        if !spec.auto_remove {
+            self.save();
+        }
+    }
+
+    pub fn lock_net(&self) -> MutexGuard<'_, Networks> {
+        self.lock_networks()
+    }
+
+    fn lock_networks(&self) -> MutexGuard<'_, Networks> {
+        self.networks.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn release_ip(&self, network: &str, ip: [u8; 4]) {
+        let mut nets = self.lock_networks();
+        let name = nets.find(network).map(|n| n.name.clone());
+        if let Some(name) = name {
+            nets.release(&name, ip);
+        }
+    }
+
+    /// Gives back a stopped container's IPv6 addresses.
+    fn release_ip6s(&self, c: &mut Container) {
+        let mut nets = self.lock_networks();
+        if let Some(ip) = c.ip6.take() {
+            if let Some(name) = nets.find(&c.spec.network_mode).map(|n| n.name.clone()) {
+                nets.release6(&name, ip);
+            }
+        }
+        for (net, ip) in std::mem::take(&mut c.extra_ip6s) {
+            nets.release6(&net, ip);
+        }
+    }
+
+    /// Fixed IPv6 addresses containers not running ask for on a network.
+    fn wanted_addresses6(&self, network: &str) -> Vec<[u8; 16]> {
+        let st = self.lock();
+        let mut out = Vec::new();
+        for c in st.containers.values().filter(|c| c.status != Status::Running) {
+            if c.spec.network_mode == network {
+                out.extend(super::network::parse_ip6(&c.spec.ipv6_address));
+            }
+            out.extend(c.spec.extra_networks.iter().filter(|x| x.name == network).filter_map(|x| super::network::parse_ip6(&x.ipv6_address)));
+        }
+        out
+    }
+
+    /// The container's IPv6 address on `n` if it has IPv6: the one asked
+    /// for (`want`), or the next free one.
+    fn allocate_ip6(&self, n: &super::network::Network, want: &str) -> Result<Option<[u8; 16]>, Error> {
+        if n.v6.is_none() && want.is_empty() {
+            return Ok(None);
+        }
+        let avoid = self.wanted_addresses6(&n.name);
+        self.lock_networks().allocate6(&n.name, super::network::parse_ip6(want), &avoid).map_err(Error::Conflict)
+    }
+
+    /// Where `<host>` (a `*.asagiri.localhost` name) should go: the container
+    /// and the ports that could be its web port (domains.rs picks one).
+    /// Names are the container name, or `<service>.<project>` for Compose
+    /// services.
+    pub fn route(&self, host: &str) -> Option<super::domains::Target> {
+        let host = host.split(':').next()?.to_ascii_lowercase();
+        let name = host.strip_suffix(".asagiri.localhost").or_else(|| host.strip_suffix(".asagiri.local"))?.to_owned();
+        let st = self.lock();
+        let c = st.containers.values().find(|c| {
+            c.status == Status::Running && {
+                let label = |k: &str| c.spec.labels.get(k).and_then(|v| v.as_str()).unwrap_or("");
+                let service = format!("{}.{}", label("com.docker.compose.service"), label("com.docker.compose.project"));
+                // `dev.asagiri.domain=api.myapp` (comma-separated for several) picks the names.
+                let chosen = label(DOMAIN_LABEL).split(',').map(|d| own_name(d.trim())).any(|d| !d.is_empty() && d.eq_ignore_ascii_case(&name));
+                chosen || c.name.eq_ignore_ascii_case(&name) || service.eq_ignore_ascii_case(&name) || (name.len() >= 12 && c.id.starts_with(&name))
+            }
+        })?;
+        let ip = if c.spec.network_mode == "host" { [127, 0, 0, 1] } else { c.ip? };
+        Some(super::domains::Target {
+            ip,
+            id: c.id.clone(),
+            label: c.spec.labels.get("dev.asagiri.http.port").and_then(|v| v.as_str()).and_then(|p| p.parse().ok()),
+            published: c.spec.ports.iter().filter(|b| b.proto != "udp").map(|b| b.container_port).collect(),
+            exposed: c.spec.exposed.clone(),
+        })
+    }
+
+    /// For the Finder view (macOS).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn fs_stat(&self, id: &str, path: &str) -> io::Result<super::vmlink::FileInfo> {
+        self.vm()?.fs_stat(id, path)
+    }
+
+    /// For the Finder view (macOS).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn fs_list(&self, id: &str, path: &str) -> io::Result<Vec<super::vmlink::FileInfo>> {
+        self.vm()?.fs_list(id, path)
+    }
+
+    /// For the Finder view (macOS).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn fs_read(&self, id: &str, path: &str, offset: u64, len: u32) -> io::Result<Vec<u8>> {
+        self.vm()?.fs_read(id, path, offset, len)
+    }
+
+    /// A stream into the guest relay towards `ip:port`.
+    pub fn relay_to(&self, ip: [u8; 4], port: u16) -> io::Result<asagiri_vmm::VsockStream> {
+        let vm = self.vm()?;
+        super::ports::open_relay(&vm, ip, port)
+    }
+
+    /// Opens a `docker cp` session with the guest for a container, running
+    /// or not: the request frame is sent, the caller does the rest.
+    pub fn copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
+        let (id, layers) = {
+            let st = self.lock();
+            let id = resolve(&st, key)?;
+            let layers = st.containers.get(&id).map(|c| c.layers.clone()).unwrap_or_default();
+            (id, layers)
+        };
+        let vm = self.vm()?;
+        let stream = vm.connect(asagiri_proto::COPY_PORT)?;
+        let mut out = Vec::new();
+        asagiri_proto::encode_copy(&mut out, op, &id, path, flags, &layers);
+        std::io::Write::write_all(&mut std::fs::File::from(stream.fd.try_clone()?), &out)?;
+        Ok(stream)
+    }
+
+    /// Running containers' domains, for the router's "not found" page.
+    pub fn domains(&self) -> Vec<String> {
+        let suffix = if super::dns::installed() { "asagiri.local" } else { "asagiri.localhost" };
+        let mut v = self.each(|c| {
+            let chosen = c.spec.labels.get(DOMAIN_LABEL).and_then(|v| v.as_str()).map(|d| own_name(d.split(',').next().unwrap_or("").trim()).to_owned());
+            (c.status == Status::Running).then(|| format!("{}.{suffix}", chosen.filter(|d| !d.is_empty()).unwrap_or_else(|| c.name.clone())))
+        });
+        v.sort();
+        v
+    }
+
+    /// Containers attached to a network.
+    pub fn network_members(&self, network: &str) -> Vec<Member> {
+        let canonical = self.lock_networks().find(network).map(|n| n.name.clone()).unwrap_or_default();
+        self.each(|c| {
+            let theirs = self.lock_networks().find(&c.spec.network_mode).map(|n| n.name.clone()).unwrap_or_default();
+            if theirs == canonical {
+                return Some((c.id.clone(), c.name.clone(), c.ip, c.ip6, c.spec.mac_address.clone(), c.status == Status::Running));
+            }
+            c.spec.extra_networks.iter().find(|x| x.name == canonical).map(|x| {
+                let ip = c.extra_ips.iter().find(|(n, _)| *n == canonical).map(|(_, ip)| *ip);
+                let ip6 = c.extra_ip6s.iter().find(|(n, _)| *n == canonical).map(|(_, ip)| *ip);
+                (c.id.clone(), c.name.clone(), ip, ip6, x.mac_address.clone(), c.status == Status::Running)
+            })
+        })
+    }
+
+    /// `DELETE /networks/{id}`: the network goes, and with it its bridge in
+    /// the guest (addresses, routes, DNS, the IPv6 NAT rule), if the VM is up.
+    pub fn network_remove(&self, key: &str) -> Result<(), String> {
+        let n = self.lock_networks().find(key).cloned();
+        self.lock_networks().remove(key)?;
+        if let Some(n) = n.filter(|n| !n.bridge.is_empty()) {
+            if let Some(vm) = self.awake() {
+                let _ = vm.remove_bridge(&n.bridge);
+            }
+        }
+        Ok(())
+    }
+
+    /// Subscribes to a container's output from now on. Returns the full id
+    /// and whether it runs on a terminal (raw stream, no multiplexing).
+    pub fn attach(&self, key: &str) -> Result<(String, bool, Receiver<(Stream, Vec<u8>)>), Error> {
+        let mut st = self.lock();
+        let id = resolve(&st, key)?;
+        let (tx, rx) = mpsc::channel();
+        let c = st.containers.get_mut(&id).expect("resolved");
+        if c.status != Status::Exited || !c.spec.auto_remove {
+            c.attached.push(tx);
+        }
+        Ok((id, c.spec.tty, rx))
+    }
+
+    /// Output so far, plus a live subscription if `follow` and still
+    /// running; `None` with `--log-driver none`, which cannot be read.
+    pub fn logs(&self, key: &str, follow: bool) -> Result<Option<Logs>, Error> {
+        let st = self.lock();
+        let id = resolve(&st, key)?;
+        let c = st.containers.get(&id).expect("resolved");
+        if !c.spec.log_config.readable() {
+            return Ok(None);
+        }
+        let (tty, running) = (c.spec.tty, c.status != Status::Exited);
+        // Under the engine's lock, so an exit can't end followers between
+        // the status check and joining them.
+        let log = c.log.clone();
+        let mut log = lock_log(&log);
+        drop(st);
+        let (tx, live) = if follow && running {
+            let (tx, rx) = mpsc::channel();
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+        let past = log.snapshot(tx);
+        Ok(Some(Logs { tty, past, live }))
+    }
+
+    /// Where a container's log is, for inspect's `LogPath`.
+    pub fn log_path(c: &Container) -> String {
+        lock_log(&c.log).path()
+    }
+
+    pub fn input(&self, id: &str, data: &[u8]) -> io::Result<()> {
+        {
+            let mut st = self.lock();
+            if let Some(c) = st.containers.get_mut(id) {
+                if !c.live {
+                    if c.status == Status::Exited {
+                        return Err(io::Error::new(io::ErrorKind::BrokenPipe, "container has exited"));
+                    }
+                    c.early_input.extend_from_slice(data);
+                    return Ok(());
+                }
+            }
+        }
+        self.vm()?.input(id, data)
+    }
+
+    pub fn close_stdin(&self, id: &str) -> io::Result<()> {
+        {
+            let mut st = self.lock();
+            if let Some(c) = st.containers.get_mut(id) {
+                if !c.live {
+                    c.early_close = true;
+                    return Ok(());
+                }
+            }
+        }
+        self.vm()?.close_stdin(id)
+    }
+
+    /// Resizes a container's (or exec's) terminal; remembered for a container
+    /// that has not started yet.
+    pub fn resize(&self, key: &str, rows: u16, cols: u16) -> Result<(), Error> {
+        let mut st = self.lock();
+        if st.execs.contains_key(key) {
+            drop(st);
+            return Ok(self.vm()?.resize(key, rows, cols)?);
+        }
+        let id = resolve(&st, key)?;
+        let c = st.containers.get_mut(&id).expect("resolved");
+        c.size = Some((rows, cols));
+        let running = c.status == Status::Running;
+        drop(st);
+        if running {
+            self.vm()?.resize(&id, rows, cols)?;
+        }
+        Ok(())
+    }
+
+    /// Blocks until the condition holds. Returns the exit code.
+    /// `condition`: `not-running` (default), `next-exit` or `removed`.
+    pub fn wait(&self, key: &str, condition: &str) -> Result<i32, Error> {
+        let mut st = self.lock();
+        let id = resolve(&st, key)?;
+        let exits_before = st.containers.get(&id).map_or(0, |c| c.exits);
+        loop {
+            match st.containers.get(&id) {
+                None => {
+                    let code = st.removed.iter().rev().find(|(r, _)| *r == id).map_or(0, |(_, c)| *c);
+                    return Ok(code);
+                }
+                Some(c) => match condition {
+                    "removed" => {}
+                    "next-exit" if c.exits > exits_before => return Ok(c.exit_code),
+                    "next-exit" => {}
+                    _ if c.status != Status::Running => return Ok(c.exit_code),
+                    _ => {}
+                },
+            }
+            st = self.changed.wait(st).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    /// SIGTERM, then SIGKILL after `timeout` if it is still running.
+    /// Plugs a running container into one more network, as the lowest
+    /// `eth{n}` it has free.
+    fn attach_extra(&self, vm: &VmLink, id: &str, extra: &ExtraNetwork) -> Result<(), Error> {
+        let net = self.lock_networks().find(&extra.name).cloned().ok_or_else(|| Error::NotFound(format!("network {} not found", extra.name)))?;
+        if !matches!(net.driver.as_str(), "bridge" | "macvlan" | "ipvlan") {
+            return Err(Error::BadRequest(format!("only bridge, macvlan and ipvlan networks can be connected, not {}", net.driver)));
+        }
+        // The number is taken before the guest is asked. Two networks that
+        // join at once would otherwise both see it free, and the guest
+        // replaces an interface that already has the name.
+        let n = match self.lock().containers.get_mut(id) {
+            Some(c) => take_ifnum(&mut c.extra_ifs, &net.name),
+            None => return Err(Error::NotFound(format!("No such container: {id}"))),
+        };
+        self.attach_as(vm, id, n, &net, extra).inspect_err(|_| {
+            if let Some(c) = self.lock().containers.get_mut(id) {
+                drop_ifnum(&mut c.extra_ifs, &net.name, n);
+            }
+        })
+    }
+
+    /// Gives the container its addresses on `net` and has the guest make
+    /// `eth{n}` there.
+    fn attach_as(&self, vm: &VmLink, id: &str, n: u32, net: &super::network::Network, extra: &ExtraNetwork) -> Result<(), Error> {
+        let ip = match super::network::parse_ip(&extra.ipv4_address) {
+            Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
+            None => {
+                let avoid = self.wanted_addresses(&net.name);
+                self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", net.name)))?
+            }
+        };
+        let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
+        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(net, &extra.ipv6_address) } {
+            Ok(a) => a,
+            Err(e) => {
+                self.lock_networks().release(&net.name, ip);
+                return Err(e);
+            }
+        };
+        let (name, hostname) = self.lock().containers.get(id).map(|c| (c.name.clone(), c.spec.hostname.clone())).unwrap_or_default();
+        let names = endpoint_names(&name, &extra.aliases, id, &hostname);
+        let mut opts: Vec<String> = if extra.mac_address.is_empty() { Vec::new() } else { vec![format!("{}={}", asagiri_proto::net_opts::MAC, extra.mac_address)] };
+        if let (Some(a), Some(v)) = (ip6, &net.v6) {
+            opts.push(format!("{}={}/{}", asagiri_proto::net_opts::IP6, super::network::ip6_str(a), v.prefix));
+            opts.push(format!("{}={}", asagiri_proto::net_opts::GW6, super::network::ip6_str(v.gateway)));
+        }
+        if net.internal {
+            opts.push(format!("{}=1", asagiri_proto::net_opts::INTERNAL));
+        }
+        if net.no_ipv4 {
+            opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
+        }
+        if let Some(mtu) = net.mtu() {
+            opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
+        }
+        if !net.icc() {
+            opts.push(format!("{}=1", asagiri_proto::net_opts::NO_ICC));
+        }
+        if let Some(mode) = net.macvlan_mode() {
+            opts.push(format!("{}={mode}", asagiri_proto::net_opts::MACVLAN));
+        }
+        if let Some((mode, flag)) = net.ipvlan() {
+            opts.push(format!("{}={mode}", asagiri_proto::net_opts::IPVLAN));
+            opts.push(format!("{}={flag}", asagiri_proto::net_opts::IPVLAN_FLAG));
+        }
+        if let Err(e) = vm.net_attach(id, n, &net.bridge, ip, net.prefix, net.gateway, &names, &opts) {
+            let mut nets = self.lock_networks();
+            nets.release(&net.name, ip);
+            if let Some(a) = ip6 {
+                nets.release6(&net.name, a);
+            }
+            return Err(Error::Io(e));
+        }
+        if let Some(c) = self.lock().containers.get_mut(id) {
+            c.extra_ips.push((net.name.clone(), ip));
+            if let Some(a) = ip6 {
+                c.extra_ip6s.push((net.name.clone(), a));
+            }
+        }
+        Ok(())
+    }
+
+    /// `docker network connect`.
+    pub fn connect(&self, network: &str, key: &str, aliases: Vec<String>, ipv4_address: String, ipv6_address: String, mac_address: String) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let net = self.lock_networks().find(network).cloned().ok_or_else(|| Error::NotFound(format!("network {network} not found")))?;
+        if let Some(ip) = super::network::parse_ip(&ipv4_address) {
+            net.check_static(ip).map_err(Error::BadRequest)?;
+        }
+        if let Some(ip) = super::network::parse_ip6(&ipv6_address) {
+            net.check_static6(ip).map_err(Error::BadRequest)?;
+        }
+        // Kept to plug in below: by then another network may have joined, and
+        // the last one in the container's list is no longer this one.
+        let extra = ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address };
+        let running = {
+            let mut st = self.lock();
+            let c = st.containers.get_mut(&id).expect("resolved");
+            if c.spec.network_mode == net.name || c.spec.extra_networks.iter().any(|x| x.name == net.name) {
+                return Err(Error::Conflict(format!("endpoint with name {} already exists in network {}", c.name, net.name)));
+            }
+            if matches!(c.spec.network_mode.as_str(), "host" | "none") {
+                return Err(Error::BadRequest(format!("container cannot be connected to {} while on {}", net.name, c.spec.network_mode)));
+            }
+            if c.spec.network_mode.starts_with("container:") {
+                return Err(Error::BadRequest("container sharing network namespace with another container or host cannot be connected to any other network".into()));
+            }
+            c.spec.extra_networks.push(extra.clone());
+            c.status == Status::Running
+        };
+        self.save();
+        if running {
+            let vm = self.vm()?;
+            if let Err(e) = self.attach_extra(&vm, &id, &extra) {
+                if let Some(c) = self.lock().containers.get_mut(&id) {
+                    c.spec.extra_networks.retain(|x| x.name != net.name);
+                }
+                return Err(e);
+            }
+        }
+        self.emit_network("connect", &net, &id);
+        Ok(())
+    }
+
+    /// `docker network disconnect`.
+    pub fn disconnect(&self, network: &str, key: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let net = self.lock_networks().find(network).cloned().ok_or_else(|| Error::NotFound(format!("network {network} not found")))?;
+        let (n, ip, ip6) = {
+            let mut st = self.lock();
+            let c = st.containers.get_mut(&id).expect("resolved");
+            if c.spec.network_mode == net.name {
+                return Err(Error::BadRequest(format!("Asagiri cannot disconnect a container from its first network ({})", net.name)));
+            }
+            let Some(pos) = c.spec.extra_networks.iter().position(|x| x.name == net.name) else {
+                return Err(Error::NotFound(format!("container {} is not connected to network {}", &id[..12], net.name)));
+            };
+            c.spec.extra_networks.remove(pos);
+            // The interface it was plugged in as, which is not its place in
+            // the list once an earlier network has left. The number stays
+            // taken until the guest has let the interface go: a network that
+            // joins meanwhile must not be given the same name.
+            let n = c.extra_ifs.iter().find(|(x, _)| *x == net.name).map(|(_, n)| *n);
+            let ip = c.extra_ips.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ips.remove(i).1);
+            let ip6 = c.extra_ip6s.iter().position(|(x, _)| *x == net.name).map(|i| c.extra_ip6s.remove(i).1);
+            (n, ip, ip6)
+        };
+        self.save();
+        let detached = match (n, ip, self.awake()) {
+            (Some(n), Some(ip), Some(vm)) => vm.net_detach(&id, n, &net.bridge, ip),
+            _ => Ok(()),
+        };
+        // The network has left the container whether or not the guest could
+        // be told: its number and addresses are free again either way.
+        if let (Some(n), Some(c)) = (n, self.lock().containers.get_mut(&id)) {
+            drop_ifnum(&mut c.extra_ifs, &net.name, n);
+        }
+        if let Some(ip) = ip {
+            self.release_ip(&net.name, ip);
+        }
+        if let Some(a) = ip6 {
+            self.lock_networks().release6(&net.name, a);
+        }
+        detached?;
+        self.emit_network("disconnect", &net, &id);
+        Ok(())
+    }
+
+    /// `docker pause` / `docker unpause`.
+    pub fn pause(&self, key: &str, paused: bool) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        {
+            let st = self.lock();
+            let c = st.containers.get(&id).expect("resolved");
+            if c.status != Status::Running {
+                return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
+            }
+            if c.paused == paused {
+                return Err(Error::Conflict(format!("Container {} is {}paused", &id[..12], if paused { "already " } else { "not " })));
+            }
+        }
+        self.vm()?.freeze(&id, paused)?;
+        if let Some(c) = self.lock().containers.get_mut(&id) {
+            c.paused = paused;
+        }
+        // Docker probes only running, unpaused containers.
+        if paused {
+            if let Some(h) = self.lock().health.get_mut(&id) {
+                close_monitor(h);
+            }
+            self.changed.notify_all();
+        } else {
+            self.health_resume(&id);
+        }
+        self.emit_container(if paused { "pause" } else { "unpause" }, &id, &[]);
+        Ok(())
+    }
+
+    /// `docker update`: new limits now, and at every later start.
+    pub fn update(&self, key: &str, limits: Limits, restart: Option<RestartPolicy>) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        limits.validate()?;
+        let running = self.with(&id, |c| c.status == Status::Running)?;
+        if running { self.vm()?.update(&id, limits.wire())?; }
+        {
+            let mut st = self.lock();
+            let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
+            c.spec.limits = limits;
+            if let Some(r) = restart { c.spec.restart = r; }
+        }
+        self.save();
+        self.emit_container("update", &id, &[]);
+        Ok(())
+    }
+
+    /// One `docker stats` sample of a running container.
+    pub fn stats(&self, key: &str) -> Result<(String, String, asagiri_proto::ContainerStats), Error> {
+        let id = self.resolve(key)?;
+        let name = self.lock().containers.get(&id).map(|c| c.name.clone()).unwrap_or_default();
+        if !self.is_running(&id) {
+            return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
+        }
+        Ok((id.clone(), name, self.vm()?.container_stats(&id)?))
+    }
+
+    /// `docker top`.
+    pub fn top(&self, key: &str) -> Result<Vec<String>, Error> {
+        let id = self.resolve(key)?;
+        if !self.is_running(&id) {
+            return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
+        }
+        Ok(self.vm()?.top(&id)?)
+    }
+
+    /// Asagiri's own: the TCP ports a running container listens on, split into
+    /// those a published port would reach and those it would not.
+    pub fn listening(&self, key: &str) -> Result<(Vec<u16>, Vec<u16>), Error> {
+        let id = self.resolve(key)?;
+        if !self.is_running(&id) {
+            return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
+        }
+        let mode = self.lock().containers.get(&id).map(|c| c.spec.network_mode.clone()).unwrap_or_default();
+        let lines = self.vm()?.listening(&id)?;
+        let (reach, local) = super::ports::listening(&lines, mode == "host");
+        // With no network at all (or another container's), nothing can be published.
+        if mode == "none" || mode.starts_with("container:") {
+            return Ok((Vec::new(), [reach, local].concat()));
+        }
+        Ok((reach, local))
+    }
+
+    /// `docker rename`.
+    /// Asagiri's own: new published ports for a container. A running one keeps
+    /// running: its ports are relays on the Mac, so only they are replaced.
+    /// If the new ones cannot be bound, the old ones are put back.
+    pub fn set_ports(&self, key: &str, ports: Vec<super::ports::Binding>) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let mode = self.lock().containers.get(&id).map(|c| c.spec.network_mode.clone()).unwrap_or_default();
+        if let Some(driver) = self.lock_networks().find(&mode).filter(|n| n.own_link() && !ports.is_empty()).map(|n| n.driver.clone()) {
+            return Err(Error::BadRequest(format!("a container on a {driver} network cannot publish ports")));
+        }
+        let (old_ports, old_fw, running, target) = {
+            let mut st = self.lock();
+            let c = st.containers.get_mut(&id).expect("resolved");
+            if c.spec.network_mode == "none" && !ports.is_empty() {
+                return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
+            }
+            if c.spec.network_mode.starts_with("container:") && !ports.is_empty() {
+                return Err(Error::BadRequest("conflicting options: port publishing and the container type network mode".into()));
+            }
+            let target = if c.spec.network_mode == "host" { Some([127, 0, 0, 1]) } else { c.ip };
+            let old = std::mem::replace(&mut c.spec.ports, ports.clone());
+            (old, c.forwards.take(), c.status == Status::Running, target)
+        };
+        // Closing listeners joins their threads: never under the lock.
+        drop(old_fw);
+        if running && !ports.is_empty() {
+            let vm = self.vm()?;
+            let target = target.unwrap_or([127, 0, 0, 1]);
+            match super::ports::start(vm.clone(), &id, &ports, target) {
+                Ok(fw) => {
+                    if let Some(c) = self.lock().containers.get_mut(&id) {
+                        c.forwards = Some(fw);
+                    }
+                }
+                Err(e) => {
+                    crate::diag::warn!("new ports not published; the old ones are kept", id = &id[..12], error = e);
+                    let back = super::ports::start(vm, &id, &old_ports, target).ok();
+                    if let Some(c) = self.lock().containers.get_mut(&id) {
+                        c.spec.ports = old_ports;
+                        c.forwards = back;
+                    }
+                    return Err(Error::Conflict(e.to_string()));
+                }
+            }
+        }
+        self.save();
+        self.emit_container("update", &id, &[]);
+        Ok(())
+    }
+
+    /// Asagiri's own: a container's environment. Takes effect at its next start;
+    /// says whether it is running now, so the caller can restart it.
+    pub fn set_env(&self, key: &str, env: Vec<String>) -> Result<bool, Error> {
+        let id = self.resolve(key)?;
+        let running = {
+            let mut st = self.lock();
+            let c = st.containers.get_mut(&id).expect("resolved");
+            c.spec.env = env;
+            c.status == Status::Running
+        };
+        self.save();
+        self.emit_container("update", &id, &[]);
+        Ok(running)
+    }
+
+    pub fn rename(&self, key: &str, new: &str) -> Result<(), Error> {
+        let new = new.trim_start_matches('/');
+        if !valid_container_name(new) {
+            return Err(Error::BadRequest(format!("Invalid container name ({new}), only [a-zA-Z0-9][a-zA-Z0-9_.-] are allowed")));
+        }
+        let id = {
+            let mut st = self.lock();
+            let id = resolve(&st, key)?;
+            if st.containers.values().any(|c| c.name == new && c.id != id) {
+                return Err(Error::Conflict(format!("Conflict. The container name \"/{new}\" is already in use by another container.")));
+            }
+            let c = st.containers.get_mut(&id).expect("resolved");
+            if c.name == new {
+                return Err(Error::Conflict(format!("Renaming a container with the same name as its current name")));
+            }
+            c.name = new.to_owned();
+            id
+        };
+        self.save();
+        self.emit_container("rename", &id, &[]);
+        Ok(())
+    }
+
+    /// Pauses an idle BuildKit container, and resumes it at once if an exec
+    /// started in it meanwhile: exec_start marks its exec running before it
+    /// looks for the pause, so one of the two sees the other.
+    pub fn pause_idle_builder(&self, id: &str) -> Result<(), Error> {
+        self.pause(id, true)?;
+        if self.running_execs(id) > 0 {
+            self.pause(id, false)?;
+            return Err(Error::Conflict("an exec started in it".into()));
+        }
+        Ok(())
+    }
+
+    /// Whether a container is frozen.
+    pub fn is_paused(&self, id: &str) -> bool {
+        self.lock().containers.get(id).is_some_and(|c| c.paused)
+    }
+
+    /// `docker stop`. False when there was nothing to stop: the container
+    /// was not running and its restart policy was not about to start it.
+    pub fn stop(&self, key: &str, timeout: Duration) -> Result<bool, Error> {
+        let id = self.resolve(key)?;
+        self.thaw_for_signal(&id);
+        let cancelled = self.mark_stopped(&id);
+        if !self.wait_started(&id) {
+            return Ok(cancelled);
+        }
+        // A start accepted since the mark above took it away again, and the
+        // restart policy would bring back what this stop is about to end.
+        self.mark_stopped(&id);
+        self.emit_container("kill", &id, &[("signal", (libc::SIGTERM).to_string())]);
+        // The run being stopped: a start that follows its exit is another run, not this one still going.
+        let (sig, run) = {
+            let st = self.lock();
+            let c = st.containers.get(&id);
+            (c.and_then(|c| c.spec.stop_signal).unwrap_or(libc::SIGTERM as u32), c.map_or(0, |c| c.exits))
+        };
+        self.vm()?.kill(&id, sig)?;
+        let deadline = std::time::Instant::now() + timeout;
+        let mut st = self.lock();
+        while st.containers.get(&id).is_some_and(|c| c.status == Status::Running && c.exits == run) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                drop(st);
+                self.vm()?.kill(&id, libc::SIGKILL as u32)?;
+                // Docker's stop response means the process has exited, even
+                // with t=0. Wait for its exit (or auto-removal) to be recorded,
+                // as long as `kill` does: the exit may never be reported.
+                let killed = std::time::Instant::now() + Duration::from_secs(10);
+                let mut exited = self.lock();
+                while exited.containers.get(&id).is_some_and(|c| c.status == Status::Running && c.exits == run) {
+                    let left = killed.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        return Err(Error::Io(io::Error::other(format!("cannot stop container: {}: it did not exit after SIGKILL", &id[..12]))));
+                    }
+                    exited = self.changed.wait_timeout(exited, left).unwrap_or_else(|e| e.into_inner()).0;
+                }
+                drop(exited);
+                self.emit_container("stop", &id, &[]);
+                return Ok(true);
+            }
+            st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        drop(st);
+        self.emit_container("stop", &id, &[]);
+        Ok(true)
+    }
+
+    /// A frozen process cannot handle a signal; Docker thaws it first.
+    fn thaw_for_signal(&self, id: &str) {
+        if self.is_paused(id) {
+            if let Ok(vm) = self.vm() {
+                if vm.freeze(id, false).is_ok() {
+                    if let Some(c) = self.lock().containers.get_mut(id) {
+                        c.paused = false;
+                    }
+                    self.health_resume(id);
+                }
+            }
+        }
+    }
+
+    /// Waits for a start that is under way to finish, and says whether the
+    /// container is running then. Until the guest has the process there is
+    /// nothing to signal: a stop or kill sent now would be dropped, and
+    /// would report success while the container kept running. A start that
+    /// never finishes is not waited for forever.
+    ///
+    /// The answer is the one to act on. Asking whether the container is
+    /// running in a second look would let a start that is accepted between
+    /// the two through, with the guest still without its process.
+    fn wait_started(&self, id: &str) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut st = self.lock();
+        while st.containers.get(id).is_some_and(|c| c.status == Status::Running && !c.in_guest) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        st.containers.get(id).is_some_and(|c| c.status == Status::Running)
+    }
+
+    pub fn kill(&self, key: &str, signal: u32) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        self.thaw_for_signal(&id);
+        if !self.wait_started(&id) {
+            return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
+        }
+        if signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32 {
+            self.mark_stopped(&id);
+        }
+        self.emit_container("kill", &id, &[("signal", signal.to_string())]);
+        self.vm()?.kill(&id, signal)?;
+        // Like Docker: a SIGKILL returns only once the exit is recorded, so
+        // an immediate inspect, start or rm sees the container stopped.
+        if signal == libc::SIGKILL as u32 {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            let mut st = self.lock();
+            while st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove(&self, key: &str, force: bool, with_volumes: bool) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        if self.is_running(&id) {
+            if !force {
+                return Err(Error::Conflict(format!(
+                    "cannot remove container \"{}\": container is running: stop the container before removing or force remove",
+                    &id[..12]
+                )));
+            }
+            self.wait_started(&id);
+            self.mark_stopped(&id);
+            self.vm()?.kill(&id, libc::SIGKILL as u32)?;
+            // The guest drops a kill for a process it does not have yet, as
+            // when the start was accepted a moment ago: send it again for as
+            // long as the container runs.
+            const AGAIN: Duration = Duration::from_millis(200);
+            let mut sent = std::time::Instant::now();
+            let mut st = self.lock();
+            while st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+                if sent.elapsed() >= AGAIN {
+                    drop(st);
+                    self.vm()?.kill(&id, libc::SIGKILL as u32)?;
+                    sent = std::time::Instant::now();
+                    st = self.lock();
+                    continue;
+                }
+                st = self.changed.wait_timeout(st, AGAIN).unwrap_or_else(|e| e.into_inner()).0;
+            }
+        }
+        let mut st = self.lock();
+        // The look above is not this one: a start accepted in between has the
+        // container running, and taking its record away now would leave the
+        // guest with a process nothing knows about. Start over, as for a
+        // container that was running all along.
+        if st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+            drop(st);
+            return self.remove(&id, force, with_volumes);
+        }
+        let removed = st.containers.remove(&id);
+        // A container that removed itself when it exited has its code noted
+        // already: a second note, without one, would have a wait report 0.
+        if let Some(c) = &removed {
+            note_removed(&mut st, &id, c.exit_code);
+        }
+        st.execs.retain(|_, e| e.container_id != id);
+        drop(st);
+        if let Some(c) = &removed {
+            self.emit_container_with("destroy", &id, &c.spec.image, container_attrs(c), &[]);
+        }
+        self.changed.notify_all();
+        let anon = removed.as_ref().map(|c| c.spec.anon_volumes.clone()).unwrap_or_default();
+        if let Some(c) = &removed {
+            lock_log(&c.log).remove();
+        }
+        if removed.is_some_and(|c| !c.spec.auto_remove) {
+            self.save();
+        }
+        // Its writable layer is still on the guest's disk.
+        self.vm()?.remove(&id)?;
+        if with_volumes {
+            for v in anon {
+                self.delete_volume_data(&v);
+            }
+        }
+        Ok(())
+    }
+
+    fn lock_volumes(&self) -> MutexGuard<'_, super::volumes::Volumes> {
+        self.volumes.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Records a volume (creating it if needed). Its directory appears in
+    /// the guest on first use.
+    pub fn volume_ensure(&self, name: &str, labels: serde_json::Value, anonymous: bool) -> Result<super::volumes::Volume, Error> {
+        let new = self.volume_get(name).is_none();
+        let v = self.lock_volumes().ensure(name, labels, anonymous).map_err(Error::BadRequest)?;
+        if new {
+            self.emit_volume("create", name);
+        }
+        Ok(v)
+    }
+
+    /// [`Engine::volume_ensure`] with the local driver's options, which a
+    /// new volume keeps (an existing one keeps its own).
+    pub fn volume_ensure_with(&self, name: &str, labels: serde_json::Value, options: std::collections::BTreeMap<String, String>) -> Result<super::volumes::Volume, Error> {
+        let new = self.volume_get(name).is_none();
+        let v = self.lock_volumes().ensure_with(name, labels, false, options).map_err(Error::BadRequest)?;
+        if new {
+            self.emit_volume("create", name);
+        }
+        Ok(v)
+    }
+
+    /// Containers using a volume, by name.
+    pub fn volume_users(&self, name: &str) -> Vec<String> {
+        self.each(|c| (c.spec.volumes.iter().chain(&c.spec.anon_volumes).any(|v| v == name)).then(|| c.name.clone()))
+    }
+
+    pub fn volume_list(&self) -> Vec<super::volumes::Volume> {
+        self.lock_volumes().all().to_vec()
+    }
+
+    pub fn volume_get(&self, name: &str) -> Option<super::volumes::Volume> {
+        self.lock_volumes().get(name).cloned()
+    }
+
+    pub fn volume_remove(&self, name: &str, force: bool) -> Result<(), Error> {
+        if self.volume_get(name).is_none() {
+            return Err(Error::NotFound(format!("get {name}: no such volume")));
+        }
+        let users = self.volume_users(name);
+        if !users.is_empty() && !force {
+            return Err(Error::Conflict(format!("remove {name}: volume is in use - [{}]", users.join(", "))));
+        }
+        self.delete_volume_data(name);
+        Ok(())
+    }
+
+    /// Forgets a volume and deletes its data in the guest.
+    fn delete_volume_data(&self, name: &str) {
+        if self.lock_volumes().forget(name) {
+            if let Ok(vm) = self.vm() {
+                let _ = vm.remove_volume(name);
+            }
+            self.emit_volume("destroy", name);
+        }
+    }
+
+    /// `docker exec` step one: record what to run.
+    pub fn exec_create(&self, key: &str, config: ExecConfig) -> Result<String, Error> {
+        let mut st = self.lock();
+        let container_id = resolve(&st, key)?;
+        if st.containers.get(&container_id).is_none_or(|c| c.status != Status::Running) {
+            return Err(Error::Conflict(format!("container {} is not running", &container_id[..12])));
+        }
+        // A paused BuildKit container is only idle: the exec resumes it. If the
+        // idle pause comes back before the exec starts, exec_start resumes it.
+        let builder = st.containers.get(&container_id).is_some_and(|c| c.paused && is_builder(c));
+        if builder {
+            drop(st);
+            match self.pause(&container_id, false) {
+                Ok(()) | Err(Error::Conflict(_)) => {}
+                Err(e) => return Err(e),
+            }
+            st = self.lock();
+        }
+        if !builder && st.containers.get(&container_id).is_some_and(|c| c.paused) {
+            return Err(Error::Conflict(format!("Container {} is paused, unpause the container before exec", &container_id[..12])));
+        }
+        if config.argv.is_empty() {
+            return Err(Error::BadRequest("no exec command specified".into()));
+        }
+        let id = random_hex(32);
+        let cmd = config.argv.join(" ");
+        let internal = config.internal;
+        st.execs.insert(id.clone(), Exec { id: id.clone(), container_id: container_id.clone(), config, running: false, exit_code: None, pid: 0, attached: Vec::new() });
+        drop(st);
+        if !internal {
+            self.emit_container(&format!("exec_create: {cmd}"), &container_id, &[("execID", id.clone())]);
+        }
+        Ok(id)
+    }
+
+    /// `docker exec` step two: start it. Output arrives on the receiver
+    /// until the process exits.
+    pub fn exec_start(&self, exec_id: &str) -> Result<(bool, Receiver<(Stream, Vec<u8>)>), Error> {
+        let (tx, rx) = mpsc::channel();
+        let exec_security;
+        let (container_id, config, env) = {
+            let mut st = self.lock();
+            // Execs get the container's ulimits, groups and seccomp profile,
+            // as with runc. Without them the exec is not run: it would be
+            // under the default profile and not the container's.
+            let of = st.execs.get(exec_id).and_then(|e| st.containers.get(&e.container_id));
+            let opts = of.map(|c| c.spec.guest_opts(false)).transpose()?.unwrap_or_default();
+            let e = st.execs.get_mut(exec_id).ok_or_else(|| Error::NotFound(format!("No such exec instance: {exec_id}")))?;
+            if e.running || e.exit_code.is_some() {
+                return Err(Error::Conflict("exec has already run".into()));
+            }
+            e.running = true;
+            // Subscribe before the process exists, so no output is missed.
+            e.attached.push(tx);
+            let (container_id, config) = (e.container_id.clone(), e.config.clone());
+            let (security, caps) = st.containers.get(&container_id).map(|c| (c.spec.security_flags() & !run_flags::READONLY_ROOTFS, c.spec.caps)).unwrap_or_default();
+            exec_security = (security, caps, opts);
+            let mut env = st.containers.get(&container_id).map(|c| c.spec.env.clone()).unwrap_or_default();
+            for e in &config.env {
+                let key = e.split('=').next().unwrap_or_default();
+                env.retain(|x| x.split('=').next() != Some(key));
+                env.push(e.clone());
+            }
+            (container_id, config, env)
+        };
+        // Paused by the idle watch since the exec was made: started frozen, it
+        // would hang. Marked running first, so pause_idle_builder sees it if
+        // it pauses after this look.
+        if self.lock().containers.get(&container_id).is_some_and(|c| c.paused && is_builder(c))
+            && let Err(e) = self.pause(&container_id, false)
+            && !matches!(e, Error::Conflict(_))
+        {
+            crate::diag::warn!("BuildKit container not resumed for an exec", error = format!("{e:?}"));
+        }
+        let mut flags = 0;
+        if config.tty {
+            flags |= run_flags::TTY;
+        }
+        if config.stdin {
+            flags |= run_flags::STDIN;
+        }
+        if config.privileged {
+            flags |= run_flags::PRIVILEGED;
+        }
+        flags |= exec_security.0;
+        let console = config.console_size;
+        let started = self.vm()?.exec(&container_id, exec_id, &config.argv, &env, &config.cwd, &config.user, flags, exec_security.1, &exec_security.2);
+        if let Ok(pid) = started {
+            if let Some(x) = self.lock().execs.get_mut(exec_id).filter(|x| x.exit_code.is_none()) {
+                x.pid = pid;
+            }
+        }
+        if let Err(e) = started {
+            let mut st = self.lock();
+            if let Some(x) = st.execs.get_mut(exec_id) {
+                x.running = false;
+                x.exit_code = Some(126);
+                x.attached.clear();
+            }
+            drop(st);
+            self.changed.notify_all();
+            return Err(Error::Io(e));
+        }
+        if let (true, Some((rows, cols))) = (config.tty, console) {
+            let _ = self.vm()?.resize(exec_id, rows, cols);
+        }
+        if !config.internal {
+            self.emit_container(&format!("exec_start: {}", config.argv.join(" ")), &container_id, &[("execID", exec_id.to_owned())]);
+        }
+        Ok((config.tty, rx))
+    }
+
+    /// Sets an exec's initial terminal size, given at start.
+    pub fn exec_console(&self, exec_id: &str, size: (u16, u16)) {
+        if let Some(e) = self.lock().execs.get_mut(exec_id) {
+            e.config.console_size = Some(size);
+        }
+    }
+
+    pub fn with_exec<T>(&self, exec_id: &str, f: impl FnOnce(&Exec) -> T) -> Result<T, Error> {
+        let st = self.lock();
+        st.execs.get(exec_id).map(f).ok_or_else(|| Error::NotFound(format!("No such exec instance: {exec_id}")))
+    }
+
+    /// Execs running in a container now (buildx's `buildctl dial-stdio`
+    /// while it builds, for one): the managed builder isn't idle while any are.
+    pub fn running_execs(&self, container_id: &str) -> usize {
+        self.lock().execs.values().filter(|e| e.container_id == container_id && e.running).count()
+    }
+
+    /// Drops a finished exec's record: Asagiri's own, which nobody inspects.
+    pub fn forget_exec(&self, exec_id: &str) {
+        self.lock().execs.remove(exec_id);
+    }
+
+    fn is_running(&self, id: &str) -> bool {
+        self.lock().containers.get(id).is_some_and(|c| c.status == Status::Running)
+    }
+
+    /// Records a stop asked for by the user. True when that cancelled a
+    /// restart its policy had pending.
+    fn mark_stopped(&self, id: &str) -> bool {
+        let (persist, cancelled) = {
+            let mut st = self.lock();
+            match st.containers.get_mut(id) {
+                Some(c) => {
+                    c.stopped_by_user = true;
+                    (!c.spec.auto_remove, std::mem::take(&mut c.restart_pending))
+                }
+                None => (false, false),
+            }
+        };
+        if persist {
+            self.save();
+        }
+        cancelled
+    }
+
+    /// Runs `f` over every container, under the lock.
+    pub fn each<T>(&self, mut f: impl FnMut(&Container) -> Option<T>) -> Vec<T> {
+        self.lock().containers.values().filter_map(&mut f).collect()
+    }
+
+    pub fn with<T>(&self, key: &str, f: impl FnOnce(&Container) -> T) -> Result<T, Error> {
+        let st = self.lock();
+        let id = resolve(&st, key)?;
+        Ok(f(st.containers.get(&id).expect("resolved")))
+    }
+
+    pub fn guest_memory(&self) -> Option<(u64, u64)> {
+        self.awake()?.stats().ok().map(|s| (s.mem_total_kib * 1024, s.mem_available_kib * 1024))
+    }
+
+    /// Resident memory of the guest agent, in bytes.
+    pub fn agent_rss(&self) -> Option<u64> {
+        self.awake()?.stats().ok().map(|s| s.agent_rss_kib * 1024)
+    }
+
+    /// Stops everything for a daemon shutdown, as Docker does: each running
+    /// container gets its stop signal and its own stop timeout, then
+    /// SIGKILL. They are not stopped by the user, so restart policies bring
+    /// them back when the daemon next starts.
+    pub fn shutdown(&self) {
+        crate::diag::info!("VM stopping for shutdown");
+        SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.save();
+        for log in self.each(|c| Some(c.log.clone())) {
+            lock_log(&log).flush();
+        }
+        let ids: Vec<String> = self.each(|c| (c.status == Status::Running).then(|| c.id.clone()));
+        if let Some(vm) = self.awake() {
+            self.stop_all_for_shutdown(&vm, &ids);
+        }
+        if let Some(vm) = self.awake() {
+            vm.shutdown();
+            if !vm.wait_stopped(Duration::from_secs(10)) {
+                crate::diag::warn!("the VM did not power off in 10 s; stopped it");
+            }
+        }
+    }
+}
+
+/// The lowest `n` for which a running container has no `eth{n}` yet, given
+/// its extra networks as (network, n). `eth0` is its first network.
+fn free_ifnum(taken: &[(String, u32)]) -> u32 {
+    (1..).find(|n| taken.iter().all(|(_, t)| t != n)).expect("fewer networks than numbers")
+}
+
+/// Takes the lowest free interface number for `network`.
+fn take_ifnum(taken: &mut Vec<(String, u32)>, network: &str) -> u32 {
+    let n = free_ifnum(taken);
+    taken.push((network.to_owned(), n));
+    n
+}
+
+/// Gives back the number `network` took. By number as well as by name: the
+/// network may have joined again, under another number, since.
+fn drop_ifnum(taken: &mut Vec<(String, u32)>, network: &str, n: u32) {
+    taken.retain(|(x, t)| !(x == network && *t == n));
+}
+
+/// A Docker event in Asagiri's log: containers and images coming and going,
+/// with name, image and exit code; never labels (they can hold anything).
+/// A BuildKit container's exec is a build session (`docker build`).
+/// The `key=value` network settings the guest takes with `Run`.
+fn net_opts(spec: &Spec, joined: Option<&str>, domainname: &str) -> Vec<String> {
+    use asagiri_proto::net_opts as k;
+    let mut opts = Vec::new();
+    if let Some(target) = joined {
+        opts.push(format!("{}={target}", k::NETNS));
+    }
+    if !spec.mac_address.is_empty() {
+        opts.push(format!("{}={}", k::MAC, spec.mac_address));
+    }
+    opts.extend(spec.dns.iter().map(|d| format!("{}={d}", k::NAMESERVER)));
+    opts.extend(spec.dns_search.iter().map(|d| format!("{}={d}", k::SEARCH)));
+    opts.extend(spec.dns_options.iter().map(|d| format!("{}={d}", k::OPTION)));
+    if !domainname.is_empty() {
+        opts.push(format!("{}={domainname}", k::DOMAINNAME));
+    }
+    opts
+}
+
+fn log_event(typ: &str, action: &str, actor: &str, attrs: &serde_json::Map<String, serde_json::Value>) {
+    let attr = |k: &str| attrs.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+    let id: String = actor.strip_prefix("sha256:").unwrap_or(actor).chars().take(12).collect();
+    let (name, image) = (attr("name"), attr("image"));
+    match (typ, action) {
+        ("container", "die") => {
+            let code = attr("exitCode");
+            if code == "0" {
+                crate::diag::info!("container exited", id = id, name = name, image = image, exit_code = code);
+            } else {
+                crate::diag::warn!("container exited", id = id, name = name, image = image, exit_code = code);
+            }
+        }
+        ("container", "exec_die") if name.starts_with("buildx_buildkit_") => {
+            crate::diag::info!("build session ended", builder = name, exit_code = attr("exitCode"));
+        }
+        ("container", "create" | "start" | "stop" | "destroy" | "kill" | "rename" | "commit") => {
+            crate::diag::info!(format!("container {action}"), id = id, name = name, image = image);
+        }
+        ("image", _) => crate::diag::info!(format!("image {action}"), id = id, name = attr("name")),
+        _ => crate::diag::debug!(format!("{typ} {action}"), id = id, name = name),
+    }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// What a container event carries: labels, then name and image.
+fn container_attrs(c: &Container) -> serde_json::Map<String, serde_json::Value> {
+    let mut attrs = c.spec.labels.as_object().cloned().unwrap_or_default();
+    attrs.insert("name".into(), c.name.clone().into());
+    attrs.insert("image".into(), c.spec.image.clone().into());
+    attrs
+}
+
+/// The exit code Docker records for a container that never started: 127
+/// when the command (or a file it needs) is missing, or a mount puts a
+/// directory on a file; 126 when it may not be run; and 128 for anything
+/// else, such as a network that could not be set up.
+fn start_exit_code(err: &str) -> i32 {
+    let err = err.to_lowercase();
+    if ["executable file not found", "no such file or directory", "system cannot find the file specified", "not a directory"].iter().any(|m| err.contains(m)) {
+        127
+    } else if err.contains("permission denied") {
+        126
+    } else {
+        128
+    }
+}
+
+fn note_removed(st: &mut State, id: &str, code: i32) {
+    // A removed container's monitor sees its record gone and quits.
+    st.health.remove(id);
+    st.removed.push_back((id.to_owned(), code));
+    while st.removed.len() > 1024 {
+        st.removed.pop_front();
+    }
+}
+
+/// A BuildKit daemon that buildx runs for its docker-container driver.
+pub fn is_builder(c: &Container) -> bool {
+    c.name.starts_with("buildx_buildkit_")
+}
+
+fn resolve(st: &State, key: &str) -> Result<String, Error> {
+    let key = key.trim_start_matches('/');
+    if st.containers.contains_key(key) {
+        return Ok(key.to_owned());
+    }
+    if let Some(c) = st.containers.values().find(|c| c.name == key) {
+        return Ok(c.id.clone());
+    }
+    let mut matches = st.containers.keys().filter(|id| !key.is_empty() && id.starts_with(key));
+    match (matches.next(), matches.next()) {
+        (Some(id), None) => Ok(id.clone()),
+        (Some(_), Some(_)) => Err(Error::NotFound(format!("multiple containers match {key}"))),
+        _ => Err(Error::NotFound(format!("No such container: {key}"))),
+    }
+}
+
+pub fn random_hex(bytes: usize) -> String {
+    let mut b = vec![0u8; bytes];
+    if std::fs::File::open("/dev/urandom").and_then(|mut f| io::Read::read_exact(&mut f, &mut b)).is_err() {
+        let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        for (i, x) in b.iter_mut().enumerate() {
+            *x = (t >> ((i % 16) * 8)) as u8 ^ i as u8;
+        }
+    }
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// The label a container chooses its local names with.
+pub const DOMAIN_LABEL: &str = "dev.asagiri.domain";
+
+/// `api.myapp`, from any of `api.myapp`, `api.myapp.asagiri.local` or
+/// `api.myapp.asagiri.localhost`.
+fn own_name(d: &str) -> &str {
+    d.strip_suffix(".asagiri.localhost").or_else(|| d.strip_suffix(".asagiri.local")).unwrap_or(d)
+}
+
+/// Docker's container-name rule: non-empty, `[a-zA-Z0-9_.-]` only. A name
+/// is a DNS label on user networks and part of `<name>.asagiri.localhost`, so
+/// it must not carry spaces, slashes or control characters.
+fn valid_container_name(n: &str) -> bool {
+    !n.is_empty() && n.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+}
+
+/// The image `name` means: a name, an ID, or `name@digest` and
+/// `name:tag@digest` by the platform manifest's digest or the index's it was
+/// pulled by.
+fn image_named(images: Vec<Image>, name: &str) -> Option<Image> {
+    let reference = asagiri_image::Reference::parse(name).ok();
+    let short = reference.as_ref().map(|r| r.short()).unwrap_or_else(|| name.to_owned());
+    images.into_iter().find(|i| {
+        i.name == short
+            || i.name == name
+            || reference.as_ref().is_some_and(|r| i.matches(r))
+            || i.config_digest == name
+            || i.config_digest.strip_prefix("sha256:").is_some_and(|h| name.len() >= 12 && h.starts_with(name))
+    })
+}
+
+#[cfg(test)]
+mod image_lookup_tests {
+    use asagiri_image::{Image, RunConfig};
+
+    const INDEX: &str = "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5";
+    const ARM64: &str = "sha256:6a3345f517a7df05185c648f83d18d464f2a94ea4a69eaee39b7e1de02611e59";
+
+    fn image(name: &str, index: Option<&str>) -> Image {
+        Image {
+            name: name.into(),
+            digest: ARM64.into(),
+            index_digest: index.map(str::to_owned),
+            config_digest: format!("sha256:{}", "c".repeat(64)),
+            layers: Vec::new(),
+            size: 0,
+            platform: "linux/arm64".into(),
+            created: String::new(),
+            pulled_at: 0,
+            config: RunConfig::default(),
+        }
+    }
+
+    fn found(images: &[Image], name: &str) -> bool {
+        super::image_named(images.to_vec(), name).is_some()
+    }
+
+    #[test]
+    fn a_pull_by_index_digest_is_found_by_either_digest() {
+        // What `kind create cluster` pulls, then creates the node from.
+        let pulled = [image(&format!("kindest/node@{INDEX}"), Some(INDEX))];
+        for name in [
+            format!("kindest/node@{INDEX}"),
+            format!("kindest/node:v1.37.0@{INDEX}"),
+            format!("docker.io/kindest/node:v1.37.0@{INDEX}"),
+            format!("kindest/node@{ARM64}"),
+            format!("kindest/node:v1.37.0@{ARM64}"),
+        ] {
+            assert!(found(&pulled, &name), "{name}");
+        }
+        assert_eq!(pulled[0].repo_digest(), Some(format!("kindest/node@{INDEX}")));
+    }
+
+    #[test]
+    fn a_digest_only_finds_images_of_its_repository() {
+        let pulled = [image("kindest/node:v1.37.0", Some(INDEX))];
+        assert!(found(&pulled, &format!("kindest/node@{INDEX}")));
+        assert!(found(&pulled, "kindest/node:v1.37.0"));
+        assert!(!found(&pulled, &format!("kindest/haproxy@{INDEX}")));
+        assert!(!found(&pulled, &format!("ghcr.io/kindest/node@{INDEX}")));
+        assert!(!found(&pulled, &format!("kindest/node@sha256:{}", "b".repeat(64))));
+        assert!(!found(&pulled, "kindest/node:v1.36.0"));
+    }
+
+    #[test]
+    fn an_image_without_an_index_shows_its_manifest_digest() {
+        let pulled = image("alpine:latest", None);
+        assert_eq!(pulled.repo_digest(), Some(format!("alpine@{ARM64}")));
+        assert!(found(&[pulled], &format!("alpine:3@{ARM64}")));
+    }
+}
+
+#[cfg(test)]
+mod k8s_range_tests {
+    #[test]
+    fn only_the_clusters_pod_and_service_ranges_can_be_forwarded() {
+        assert!(super::in_k8s_ranges([10, 43, 42, 10]));
+        assert!(super::in_k8s_ranges([10, 42, 0, 17]));
+        assert!(!super::in_k8s_ranges([10, 44, 0, 1]));
+        assert!(!super::in_k8s_ranges([172, 17, 0, 4]));
+        assert!(!super::in_k8s_ranges([127, 0, 0, 1]));
+        assert!(!super::in_k8s_ranges([192, 168, 64, 1]));
+    }
+}
+
+/// Docker's `CloseMonitorChannel`: the monitor stops, and a container whose
+/// monitor has stopped reads as unhealthy.
+fn close_monitor(h: &mut HealthRun) {
+    if h.monitoring {
+        h.monitoring = false;
+        h.epoch += 1;
+        h.health.status = super::health::UNHEALTHY.into();
+    }
+}
+
+fn error_text(e: &Error) -> String {
+    match e {
+        Error::NotFound(m) | Error::Conflict(m) | Error::BadRequest(m) | Error::Unauthorized(m) => m.clone(),
+        Error::Io(e) => e.to_string(),
+    }
+}
+
+/// The longest a daemon shutdown waits for one container, whatever its
+/// `--stop-timeout` says.
+const SHUTDOWN_WAIT_CAP: Duration = Duration::from_secs(120);
+
+impl Engine {
+    /// How long `docker stop` waits when the request does not say: the
+    /// container's `--stop-timeout`, else 10 s.
+    pub fn stop_timeout(&self, key: &str) -> Duration {
+        stop_wait(self.with(key, |c| c.spec.stop_timeout).ok().flatten().unwrap_or(DEFAULT_STOP_TIMEOUT))
+    }
+
+    /// Daemon shutdown: every running container gets its stop signal and its
+    /// own stop timeout, as `docker stop` would, then SIGKILL.
+    fn stop_all_for_shutdown(&self, vm: &VmLink, ids: &[String]) {
+        let t0 = std::time::Instant::now();
+        // (id, when to SIGKILL it, when it was SIGKILLed)
+        let mut pending: Vec<(String, std::time::Instant, Option<std::time::Instant>)> = Vec::new();
+        for id in ids {
+            let Some((sig, secs)) = self.lock().containers.get(id).map(|c| (c.spec.stop_signal.unwrap_or(libc::SIGTERM as u32), c.spec.stop_timeout.unwrap_or(DEFAULT_STOP_TIMEOUT)))
+            else {
+                continue;
+            };
+            self.thaw_for_signal(id);
+            let _ = vm.kill(id, sig);
+            pending.push((id.clone(), t0 + stop_wait(secs).min(SHUTDOWN_WAIT_CAP), None));
+        }
+        let mut st = self.lock();
+        loop {
+            let now = std::time::Instant::now();
+            pending.retain(|(id, _, _)| st.containers.get(id).is_some_and(|c| c.status == Status::Running));
+            for (id, deadline, killed) in &mut pending {
+                if *deadline <= now && killed.is_none() {
+                    let _ = vm.kill(id, libc::SIGKILL as u32);
+                    *killed = Some(now);
+                }
+            }
+            // A SIGKILLed container's exit is quick; don't hang on one that isn't.
+            if pending.iter().all(|(_, _, k)| k.is_some_and(|k| now.duration_since(k) > Duration::from_secs(2))) {
+                break;
+            }
+            let next = pending.iter().filter(|(_, _, k)| k.is_none()).map(|(_, d, _)| d.saturating_duration_since(now)).min().unwrap_or(Duration::from_millis(100));
+            st = self.changed.wait_timeout(st, next.clamp(Duration::from_millis(10), Duration::from_millis(250))).unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
+    /// `State.Health` of a container with a healthcheck.
+    pub fn health(&self, id: &str) -> Option<super::health::Health> {
+        self.lock().health.get(id).map(|h| h.health.clone())
+    }
+
+    /// Health status by container id, for `docker ps`.
+    pub fn health_statuses(&self) -> HashMap<String, super::health::Health> {
+        self.lock().health.iter().map(|(id, h)| (id.clone(), h.health.clone())).collect()
+    }
+
+    /// Docker's `initHealthMonitor` at every start: status back to
+    /// starting, failing streak 0, the log kept, and a monitor probing.
+    fn health_start(&self, id: &str) {
+        {
+            let mut st = self.lock();
+            let wanted = st.containers.get(id).is_some_and(|c| c.spec.healthcheck.as_ref().and_then(|h| h.probe(&c.spec.shell)).is_some());
+            if !wanted {
+                return;
+            }
+            let run = st.health.entry(id.to_owned()).or_default();
+            close_monitor(run);
+            run.health.status = super::health::STARTING.into();
+            run.health.failing_streak = 0;
+        }
+        self.health_resume(id);
+    }
+
+    /// Docker's `updateHealthMonitor`: a monitor while the container runs
+    /// unpaused (after `unpause`, its status stays until the next probe).
+    fn health_resume(&self, id: &str) {
+        let Some(me) = self.me.get().and_then(Weak::upgrade) else { return };
+        let epoch = {
+            let mut st = self.lock();
+            let wanted = st
+                .containers
+                .get(id)
+                .is_some_and(|c| c.status == Status::Running && !c.paused && c.spec.healthcheck.as_ref().and_then(|h| h.probe(&c.spec.shell)).is_some());
+            let Some(run) = st.health.get_mut(id) else { return };
+            if !wanted || run.monitoring {
+                return;
+            }
+            run.monitoring = true;
+            run.epoch += 1;
+            run.epoch
+        };
+        let id = id.to_owned();
+        let spawned = std::thread::Builder::new().name("asagiri-health".into()).spawn(move || me.monitor(&id, epoch));
+        if let Err(e) = spawned {
+            crate::diag::error!("healthcheck not started", error = e);
+        }
+    }
+
+    /// Probes a container every interval until its monitor is stopped
+    /// (exit, pause, removal: `epoch` moves on).
+    fn monitor(&self, id: &str, epoch: u64) {
+        let current = |st: &State| st.health.get(id).is_some_and(|h| h.epoch == epoch);
+        loop {
+            let (check, argv, cwd, user, started, wait) = {
+                let st = self.lock();
+                let (Some(c), Some(run)) = (st.containers.get(id), st.health.get(id)) else { return };
+                if run.epoch != epoch {
+                    return;
+                }
+                let Some(check) = c.spec.healthcheck.clone() else { return };
+                let Some(argv) = check.probe(&c.spec.shell) else { return };
+                let started = c.started.unwrap_or_else(SystemTime::now);
+                let since = started.elapsed().unwrap_or_default();
+                let wait = run.health.next_wait(since, &check);
+                (check, argv, c.spec.cwd.clone(), c.spec.user.clone(), started, wait)
+            };
+            let deadline = std::time::Instant::now() + wait;
+            {
+                let mut st = self.lock();
+                loop {
+                    if !current(&st) {
+                        return;
+                    }
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        break;
+                    }
+                    st = self.changed.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+                }
+            }
+            let start = SystemTime::now();
+            let (exit_code, output) = self.probe(id, argv, cwd, user, check.timeout());
+            let end = SystemTime::now();
+            let changed = {
+                let mut st = self.lock();
+                let auto_remove = st.containers.get(id).is_some_and(|c| c.spec.auto_remove);
+                let Some(run) = st.health.get_mut(id).filter(|h| h.epoch == epoch) else { return };
+                // Stopped meanwhile: Docker drops the result.
+                let before = run.health.status.clone();
+                let since = start.duration_since(started).unwrap_or_default();
+                let probe = super::health::Probe { start: super::time::rfc3339(start), end: super::time::rfc3339(end), exit_code, output };
+                run.health.record(probe, since, &check);
+                (run.health.status != before).then(|| (run.health.status.clone(), auto_remove))
+            };
+            if let Some((status, auto_remove)) = changed {
+                self.changed.notify_all();
+                self.emit_container(&format!("health_status: {status}"), id, &[]);
+                if !auto_remove {
+                    self.save();
+                }
+            }
+        }
+    }
+
+    /// One healthcheck probe: an exec in the container, as Docker runs it
+    /// (the container's user and working directory, no terminal). Returns
+    /// the exit code (-1 when it could not run or timed out) and output.
+    fn probe(&self, id: &str, argv: Vec<String>, cwd: String, user: String, timeout: Duration) -> (i64, String) {
+        use super::health::{OUTPUT_LIMIT, cap_output, go_duration};
+        let config = ExecConfig { console_size: None, argv, env: Vec::new(), cwd, user, tty: false, stdin: false, privileged: false, internal: false };
+        let exec_id = match self.exec_create(id, config) {
+            Ok(e) => e,
+            Err(e) => return (-1, error_text(&e)),
+        };
+        let rx = match self.exec_start(&exec_id) {
+            Ok((_, rx)) => rx,
+            Err(e) => {
+                self.lock().execs.remove(&exec_id);
+                return (-1, error_text(&e));
+            }
+        };
+        let deadline = std::time::Instant::now() + timeout;
+        let mut out = Vec::new();
+        let mut timed_out = false;
+        loop {
+            match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+                Ok((_, data)) => {
+                    // One byte past the limit is enough to know it was cut.
+                    let room = (OUTPUT_LIMIT + 1).saturating_sub(out.len());
+                    out.extend_from_slice(&data[..data.len().min(room)]);
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    timed_out = true;
+                    break;
+                }
+            }
+        }
+        if timed_out {
+            // Not left running: probes would pile up in a stuck container.
+            if let Some(vm) = self.awake() {
+                let _ = vm.kill(&exec_id, libc::SIGKILL as u32);
+            }
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while rx.recv_timeout(until.saturating_duration_since(std::time::Instant::now())).is_ok() {}
+        }
+        let code = self.with_exec(&exec_id, |e| e.exit_code).ok().flatten();
+        self.lock().execs.remove(&exec_id);
+        if timed_out {
+            return (-1, format!("Health check exceeded timeout ({})", go_duration(timeout)));
+        }
+        (code.map_or(-1, i64::from), cap_output(&out))
+    }
+}
+
+#[cfg(test)]
+mod ifnum_tests {
+    #[test]
+    fn a_new_network_takes_the_lowest_interface_number_not_in_use() {
+        let on = |ns: &[u32]| ns.iter().map(|n| (format!("net{n}"), *n)).collect::<Vec<_>>();
+        assert_eq!(super::free_ifnum(&on(&[])), 1);
+        assert_eq!(super::free_ifnum(&on(&[1, 2])), 3);
+        // The first of two has left: its number is free, the second's is not.
+        assert_eq!(super::free_ifnum(&on(&[2])), 1);
+        assert_eq!(super::free_ifnum(&on(&[2, 1])), 3);
+        assert_eq!(super::free_ifnum(&on(&[1, 3])), 2);
+    }
+
+    #[test]
+    fn an_interface_number_is_taken_from_the_moment_it_is_picked() {
+        // Two networks joining at once: the second picks while the first is
+        // still being plugged in.
+        let mut taken = Vec::new();
+        assert_eq!(super::take_ifnum(&mut taken, "a"), 1);
+        assert_eq!(super::take_ifnum(&mut taken, "b"), 2);
+        // "a" is leaving and its interface is not gone yet: "c" keeps clear
+        // of its number. Once it is gone the number is free.
+        assert_eq!(super::take_ifnum(&mut taken, "c"), 3);
+        super::drop_ifnum(&mut taken, "a", 1);
+        assert_eq!(super::take_ifnum(&mut taken, "d"), 1);
+        // "b" joined again while its old interface was on the way out: only
+        // the old number is given back.
+        assert_eq!(super::take_ifnum(&mut taken, "b"), 4);
+        super::drop_ifnum(&mut taken, "b", 2);
+        assert_eq!(taken, [("c".to_owned(), 3), ("d".to_owned(), 1), ("b".to_owned(), 4)]);
+    }
+}
+
+#[cfg(test)]
+mod net_opts_tests {
+    #[test]
+    fn endpoint_names_are_dockers_dns_names() {
+        let id = "0123456789abcdef0123";
+        assert_eq!(super::endpoint_names("web", &["api".to_owned(), "web".to_owned()], id, ""), ["web", "api", "0123456789ab"]);
+        assert_eq!(super::endpoint_names("web", &[], id, "front"), ["web", "0123456789ab", "front"]);
+        // Docker's default hostname is the short id, named once.
+        assert_eq!(super::endpoint_names("web", &[], id, "0123456789ab"), ["web", "0123456789ab"]);
+    }
+
+    #[test]
+    fn dns_mac_and_joined_namespace_reach_the_guest() {
+        let spec: super::Spec = serde_json::from_value(serde_json::json!({
+            "image": "alpine", "image_id": "sha256:x", "entrypoint": [], "cmd": ["sh"], "env": [], "cwd": "", "user": "",
+            "auto_remove": false, "network_mode": "bridge", "labels": {},
+            "mac_address": "02:42:ac:11:00:09", "dns": ["8.8.8.8", "1.1.1.1"], "dns_search": ["corp.example"], "dns_options": ["ndots:2"],
+        }))
+        .unwrap();
+        assert_eq!(
+            super::net_opts(&spec, Some("abc"), "example.com"),
+            ["netns=abc", "mac=02:42:ac:11:00:09", "nameserver=8.8.8.8", "nameserver=1.1.1.1", "search=corp.example", "option=ndots:2", "domainname=example.com"]
+        );
+        // Records saved before these settings existed still load.
+        let old: super::Spec = serde_json::from_value(serde_json::json!({
+            "image": "alpine", "image_id": "sha256:x", "entrypoint": [], "cmd": ["sh"], "env": [], "cwd": "", "user": "",
+            "auto_remove": false, "network_mode": "bridge", "labels": {},
+        }))
+        .unwrap();
+        assert!(super::net_opts(&old, None, "").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod stdin_once_tests {
+    #[test]
+    fn a_record_without_it_still_closes_stdin_with_the_clients_input() {
+        let spec = |stdin_once: Option<bool>| -> super::Spec {
+            let mut record = serde_json::json!({
+                "image": "alpine", "image_id": "sha256:x", "entrypoint": [], "cmd": ["cat"], "env": [], "cwd": "", "user": "",
+                "auto_remove": false, "network_mode": "bridge", "labels": {}, "open_stdin": true,
+            });
+            if let Some(once) = stdin_once { record["stdin_once"] = once.into(); }
+            serde_json::from_value(record).unwrap()
+        };
+        assert!(spec(None).stdin_once);
+        assert!(spec(Some(true)).stdin_once);
+        assert!(!spec(Some(false)).stdin_once);
+    }
+}
+
+/// A passed-through USB device keeps the VM awake: sleeping would unplug it.
+#[cfg(target_os = "macos")]
+fn usb_attached() -> bool {
+    super::usb::any_attached()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn usb_attached() -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn detach_usb() {
+    super::usb::detach_all();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detach_usb() {}
+
+#[cfg(test)]
+mod start_exit_tests {
+    #[test]
+    fn a_failed_start_gets_dockers_exit_code() {
+        let io = |m: &str| format!("{:?}", super::Error::Io(std::io::Error::other(m.to_owned())));
+        assert_eq!(super::start_exit_code(&io("dns: No such file or directory (os error 2)")), 127);
+        assert_eq!(super::start_exit_code(&io("exec: \"nope\": executable file not found in $PATH")), 127);
+        assert_eq!(super::start_exit_code(&io("mount etc/hosts: mount /proc/self/fd/28: Not a directory (os error 20)")), 127);
+        assert_eq!(super::start_exit_code(&io("exec /app: Permission denied (os error 13)")), 126);
+        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::Conflict("no free address left on network n".into()))), 128);
+        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
+    }
+}

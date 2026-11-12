@@ -1,4 +1,4 @@
-# Kiri's speed check on every pull request: main and the change, built the
+# Asagiri's speed check on every pull request: main and the change, built the
 # same way and run side by side on one machine (scripts/perf-run.sh), with
 # requests alternating between them. The table lands in the run's summary;
 # the check fails when the change is slower than main past the limits in
@@ -56,7 +56,7 @@ jobs:
             find "$e" -type f -exec touch {} +
             mkdir -p "$RUNNER_TEMP/$e-bin"
             docker run --rm -v "$PWD/$e:/src" -v "$RUNNER_TEMP/$e-bin:/out" \
-              -v kiri-perf-target:/t -v kiri-perf-cargo:/usr/local/cargo/registry \
+              -v asagiri-perf-target:/t -v asagiri-perf-cargo:/usr/local/cargo/registry \
               -w /src -e CARGO_TARGET_DIR=/t rust:1-alpine sh -c \
               'set -eu
                set -- crates/*-init/Cargo.toml

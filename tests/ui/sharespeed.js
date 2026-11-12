@@ -1,5 +1,5 @@
 // The Share view's cards with no traffic, with some, and near the plan's
-// speed limit (design: kiri/share-speed-card, variant C).
+// speed limit (design: asagiri/share-speed-card, variant C).
 show("share");
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
@@ -23,7 +23,7 @@ t("no traffic: the speed is 0 B/s, idle, against the plan's limit", () => {
   eq(text(c.querySelector(".row .s")), "of 5.0 GB", "month");
 });
 t("a request: bars for that moment only, and the count", () => {
-  kiri.on({ type: "share", id: 1, request: { method: "GET", path: "/", status: 200, ms: 12, in: 4000, out: 400000 } });
+  asagiri.on({ type: "share", id: 1, request: { method: "GET", path: "/", status: 200, ms: 12, in: 4000, out: 400000 } });
   const bars = [...card("Traffic served").querySelectorAll(".sh-wave i")].map((i) => parseInt(i.style.height));
   eq(bars.filter((h) => h > 0).length, 1, "one bar");
   eq(bars.at(-1), 34, "full height, the newest");
@@ -39,7 +39,7 @@ t("after a tick: the speed, in and out, and the peak", () => {
   eq(c.classList.contains("warn"), false, "not near the limit");
 });
 t("near the limit: amber and a hint", () => {
-  kiri.on({ type: "share", id: 1, request: { method: "GET", path: "/big", status: 200, ms: 900, in: 1000, out: 7.2e6 } });
+  asagiri.on({ type: "share", id: 1, request: { method: "GET", path: "/big", status: 200, ms: 900, in: 1000, out: 7.2e6 } });
   shTick();
   const c = card("This month");
   eq(c.classList.contains("warn"), true, "warn");

@@ -1,12 +1,12 @@
 // Share for Kubernetes: services and pods get the containers' Share cell; the
 // API server and kube-system never do; a pod is steered to its service; a
 // shared service or pod that goes ends its link with a reason.
-kiri.on({ type: "status", version: "0.1.4", dev: true, app: "Kiri Dev", ours: "kiri-dev", context: "kiri-dev" });
+asagiri.on({ type: "status", version: "0.1.4", dev: true, app: "Asagiri Dev", ours: "asagiri-dev", context: "asagiri-dev" });
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m + ": got " + JSON.stringify(a) + " want " + JSON.stringify(b)); };
 ui.vm = "running";
-ui.containers.push({ Id: "k8s1", Names: ["/kiri-k8s"], Image: "rancher/k3s:v1.37.1-k3s1", State: "running", Ports: [], Labels: { "dev.kiri.k8s": "1" }, KiriStartedAt: Date.now() / 1000 - 600 });
+ui.containers.push({ Id: "k8s1", Names: ["/asagiri-k8s"], Image: "rancher/k3s:v1.37.1-k3s1", State: "running", Ports: [], Labels: { "dev.asagiri.k8s": "1" }, AsagiriStartedAt: Date.now() / 1000 - 600 });
 sh.account = { signedIn: true };
 const svc = (ns, name, type, ip, ports, selector = {}) => ({ ns, name, type, clusterIP: ip, ports, selector, ingress: [], created: "2026-10-28T00:00:00Z" });
 const SVCS = [
@@ -22,7 +22,7 @@ const PODS = [
   pod("default", "web-5fc9-cdl9f", "10.42.0.17", { app: "web" }, "ReplicaSet", [{ containerPort: 80, protocol: "TCP" }]),
   pod("default", "debug", "10.42.0.30", { run: "debug" }, undefined, [{ containerPort: 8080, protocol: "TCP" }]),
 ];
-const lists = (services, pods) => kiri.on({ type: "k8s", state: "running", ready: true, services, pods, context: "kiri-dev" });
+const lists = (services, pods) => asagiri.on({ type: "k8s", state: "running", ready: true, services, pods, context: "asagiri-dev" });
 lists(SVCS, PODS);
 const row = (name) => [...document.querySelectorAll("#content tr.row")].find((r) => r.querySelector(".name")?.textContent.trim().startsWith(name));
 const cell = (name) => row(name)?.querySelector("td.col-share");
@@ -45,10 +45,10 @@ t("one web port shares straight away, to the cluster IP and service port", () =>
   eq(cell("web").textContent.trim(), "Sharing…", "spinner");
 });
 t("live: the cell reads Live and the link sits under the name", () => {
-  kiri.on({ type: "share", id: 5, source: "service default/web :18080", target: "service default/web :18080", state: "live", url: "https://web-k3x9.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 5, source: "service default/web :18080", target: "service default/web :18080", state: "live", url: "https://web-k3x9.share.example.org" });
   $("sh-modal")?.remove();
   eq(cell("web").textContent.trim(), "Live", "cell");
-  eq(row("web").querySelector(".addr .sh-chip").textContent.trim(), "web-k3x9.runkiri.cloud", "link under the name");
+  eq(row("web").querySelector(".addr .sh-chip").textContent.trim(), "web-k3x9.share.example.org", "link under the name");
 });
 t("several web ports open a menu, http ticked, the database port left out", () => {
   sent.length = 0; cell("shop").querySelector("button").click();
@@ -84,7 +84,7 @@ t("a shared service that's deleted ends its link with why, and only Dismiss", ()
   eq(sent.filter((x) => x.type === "unshare").map((x) => x.id), ["5"], "tunnel closed");
   const it = sh.items.get(5);
   eq([it.state, it.reason], ["ended", "Ended: service deleted"], "reason");
-  kiri.on({ type: "share", id: 5, state: "ended", reason: "stopped" });
+  asagiri.on({ type: "share", id: 5, state: "ended", reason: "stopped" });
   eq(sh.items.get(5)?.reason, "Ended: service deleted", "kept past the tunnel's own end");
   show("share");
   const r = document.querySelector('.sh-row[data-shrow="5"]');
@@ -96,7 +96,7 @@ t("a shared pod that restarts offers its service", () => {
   sent.length = 0; show("pods");
   cell("web-5fc9-cdl9f").querySelector("button").click();
   $("k-pick").querySelector('[data-kgo^="pod "]').click();
-  kiri.on({ type: "share", id: 6, source: "pod default/web-5fc9-cdl9f :80", target: "pod default/web-5fc9-cdl9f :80", state: "live", url: "https://web-5fc9-cdl9f-m4c8.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 6, source: "pod default/web-5fc9-cdl9f :80", target: "pod default/web-5fc9-cdl9f :80", state: "live", url: "https://web-5fc9-cdl9f-m4c8.share.example.org" });
   $("sh-modal")?.remove();
   lists(SVCS, PODS.filter((p) => p.name !== "debug" && p.name !== "web-5fc9-cdl9f"));
   eq(sh.items.get(6).reason, "Ended: pod restarted · share the service to keep a link", "reason");
@@ -110,10 +110,10 @@ t("a service's page has Share, and Stop sharing once live", () => {
   sh.starting.clear(); show("services"); openSvc("default/shop");
   eq(document.querySelector(".dhead .who b").textContent, "shop", "page");
   eq(!!document.querySelector('.dacts [data-ksh="service|default|shop"]'), true, "share");
-  kiri.on({ type: "share", id: 8, source: "service default/shop :80", target: "service default/shop :80", state: "live", url: "https://shop-a1b2.runkiri.cloud" });
+  asagiri.on({ type: "share", id: 8, source: "service default/shop :80", target: "service default/shop :80", state: "live", url: "https://shop-a1b2.share.example.org" });
   $("sh-modal")?.remove();
   eq(document.querySelector(".dacts [data-kstop]").textContent.trim(), "Stop sharing", "stop");
-  eq(document.querySelector(".dhead .sh-chip").textContent.trim(), "shop-a1b2.runkiri.cloud", "chip");
+  eq(document.querySelector(".dhead .sh-chip").textContent.trim(), "shop-a1b2.share.example.org", "chip");
 });
 t("a pod that declares no ports takes its service's port", () => {
   const bare = pod("default", "web-bare", "10.42.0.40", { app: "web" }, "ReplicaSet", undefined);
