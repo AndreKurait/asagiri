@@ -67,6 +67,8 @@ for Testing download. The cache stores only its original archive, whose size
 and SHA-256 are checked before every extraction. The Python dependencies are
 also hash pinned. This keeps browser checks reproducible without depending
 on a preinstalled desktop browser or the full Linux build runner pool.
+Failed, canceled, and otherwise ineligible release notifications use separate
+concurrency groups, so they cannot displace a pending website deployment.
 
 Security checks include dependency advisories, licenses and sources,
 ShellCheck, workflow auditing, and CodeQL. Advisory failures remain failures

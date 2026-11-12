@@ -32,7 +32,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: website-${{ github.ref }}
+  # Job conditions run after workflow concurrency. An ignored release event
+  # must not replace a pending deployment from a main push or successful release.
+  group: >-
+    website-${{ github.event_name == 'workflow_run' &&
+    (github.event.workflow_run.conclusion != 'success' ||
+    github.event.workflow_run.head_repository.full_name != github.repository ||
+    (github.event.workflow_run.event != 'push' && github.event.workflow_run.event != 'workflow_dispatch')) &&
+    github.run_id || github.ref }}
   # Complete the active deployment before the latest main push takes its turn.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
