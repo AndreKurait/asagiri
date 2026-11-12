@@ -1814,7 +1814,7 @@ impl Engine {
         let mut flags = 0;
         let net = self.lock_networks().find(&spec.network_mode).cloned();
         if let Some(Err(e)) = net.as_ref().map(|n| n.check_mac(&spec.mac_address)) {
-            self.fail_start(&id, &spec);
+            self.fail_start(&id, &spec, &e);
             return Err(Error::Io(io::Error::other(e)));
         }
         let links = match net.as_ref().map(|n| self.link_hosts(&id, &spec, n)).transpose() {
