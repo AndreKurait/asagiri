@@ -36,6 +36,7 @@ run() { # run <script> [image]
 }
 
 run api-version
+for img in busybox:stable alpine:3.21; do run image-import "$img"; done
 for t in empty-response-status lifecycle-status archive-permissions http-body-framing archive-directory-contents \
   resource-limits restart-policy interactive-attach attach-http encoded-api-paths; do
   run "$t" alpine:3.21

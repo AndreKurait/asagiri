@@ -1,4 +1,5 @@
-//! `docker load` and `docker save`: image tarballs in Docker's format
+//! `docker import`, `docker load` and `docker save`: root filesystems and
+//! image tarballs in Docker's format
 //! (`manifest.json` naming a config and layer files per image), which is
 //! also what `docker buildx build --load` produces. Archives are streamed:
 //! each file goes straight into the blob store as it is read.
@@ -14,6 +15,48 @@ use crate::store::{Image, Layer, RunConfig, Store};
 
 /// Largest JSON file kept in memory while reading an archive.
 const MAX_JSON: u64 = 4 << 20;
+
+/// Imports an uncompressed root filesystem tar as a single image layer.
+/// Validate while ingesting, before publishing a blob or an image record.
+/// `config` supplies the platform, creation time and requested instructions.
+pub fn import(store: &Store, name: Option<String>, mut config: Value, archive: impl Read) -> io::Result<Image> {
+    if !config.is_object() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "image config must be an object"));
+    }
+    struct Recording<R> {
+        reader: R,
+        writer: crate::store::Ingest,
+        bytes: u64,
+    }
+    impl<R: Read> Read for Recording<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.reader.read(buf)?;
+            self.writer.write_all(&buf[..n])?;
+            self.bytes += n as u64;
+            Ok(n)
+        }
+    }
+    let mut tar = tar::Archive::new(Recording { reader: archive, writer: store.ingest()?, bytes: 0 });
+    for entry in tar.entries()? {
+        io::copy(&mut entry?, &mut io::sink())?;
+    }
+    let mut recording = tar.into_inner();
+    // Keep the tar's end padding, and finish the reader so a cut-short
+    // upload or a compressed stream's bad checksum cannot pass validation.
+    io::copy(&mut recording, &mut io::sink())?;
+    if recording.bytes == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "root filesystem archive is empty"));
+    }
+    let (digest, size) = recording.writer.finish()?;
+    config["rootfs"] = json!({"type": "layers", "diff_ids": [digest]});
+    let mut writer = store.ingest()?;
+    writer.write_all(&serde_json::to_vec(&config).map_err(io::Error::other)?)?;
+    let (config_digest, _) = writer.finish()?;
+    let image = from_config(name.unwrap_or_else(|| config_digest.clone()), &config_digest, &config,
+        vec![Layer { digest, size, media_type: "application/vnd.oci.image.layer.v1.tar".into() }]);
+    store.put_image(image.clone())?;
+    Ok(image)
+}
 
 /// Reads an archive into the store. Returns the images it named.
 pub fn load(store: &Store, archive: impl Read) -> io::Result<Vec<Image>> {
@@ -189,6 +232,55 @@ mod tests {
         let d = std::env::temp_dir().join(format!("asagiri-archive-test-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    fn rootfs() -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_ustar();
+        header.set_size(5);
+        header.set_mode(0o755);
+        header.set_mtime(0);
+        tar.append_data(&mut header, "hello", b"hello".as_slice()).unwrap();
+        tar.into_inner().unwrap()
+    }
+
+    #[test]
+    fn rootfs_import_records_a_layer_and_round_trips_through_save() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let bytes = rootfs();
+        let config = json!({"os": "linux", "architecture": "arm64", "created": "2026-01-01T00:00:00Z",
+            "config": {"Cmd": ["/hello"], "Env": ["A=1"], "WorkingDir": "/work", "User": "1000"}});
+        let image = import(&store, Some("imported:1".into()), config.clone(), bytes.as_slice()).unwrap();
+        assert_eq!(image.platform, "linux/arm64");
+        assert_eq!(image.config.cmd, ["/hello"]);
+        assert_eq!(image.config.env, ["A=1"]);
+        assert_eq!(image.config.working_dir, "/work");
+        assert_eq!(image.config.user, "1000");
+        assert_eq!(image.layers[0].digest, crate::store::sha256_digest(&bytes));
+        assert_eq!(std::fs::read(store.blob_path(&image.layers[0].digest).unwrap()).unwrap(), bytes);
+        let config: Value = serde_json::from_slice(&store.read_config(&image.config_digest).unwrap()).unwrap();
+        assert_eq!(config["rootfs"]["diff_ids"][0], image.layers[0].digest);
+        let mut saved = Vec::new();
+        save(&store, &[image.clone()], &mut saved).unwrap();
+        let other = Store::open(dir.join("other")).unwrap();
+        assert_eq!(load(&other, saved.as_slice()).unwrap()[0].config_digest, image.config_digest);
+        let untagged = import(&store, None, config, bytes.as_slice()).unwrap();
+        assert_eq!(untagged.name, untagged.config_digest);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_bad_rootfs_import_publishes_nothing() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        for bytes in [Vec::new(), vec![b'x'; 512], rootfs()[..514].to_vec()] {
+            assert!(import(&store, Some("broken:1".into()), json!({}), bytes.as_slice()).is_err());
+            assert!(store.images().unwrap().is_empty());
+            assert_eq!(std::fs::read_dir(dir.join("blobs/sha256")).unwrap().count(), 0);
+            assert_eq!(std::fs::read_dir(dir.join("tmp")).unwrap().count(), 0);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

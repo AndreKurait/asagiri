@@ -92,6 +92,7 @@ t image-inspect-cmd "/bin/sh" $D image inspect -f '{{.Config.Cmd}}' alpine
 code pull-missing 1 $D pull asagiri-does-not-exist/nope:none
 t rmi "Untagged" $D rmi alpine:3.21
 code rmi-missing 1 $D rmi alpine:3.21
+code image-import 0 python3 "$(dirname "$0")/image-import.py" "$SOCK" alpine
 
 section "run: output and exit codes"
 code empty-response-status 0 python3 "$(dirname "$0")/empty-response-status.py" "$SOCK" alpine

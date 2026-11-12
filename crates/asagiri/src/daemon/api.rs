@@ -62,7 +62,7 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
 
 /// Requests whose bodies can be any size: archives and image tarballs.
 fn streams_body(method: &str, path: &str) -> bool {
-    matches!((method, path), ("PUT", p) if p.starts_with("/containers/") && p.ends_with("/archive")) || (method == "POST" && (path == "/images/load" || path == "/build"))
+    matches!((method, path), ("PUT", p) if p.starts_with("/containers/") && p.ends_with("/archive")) || (method == "POST" && (path == "/images/load" || path == "/images/create" || path == "/build"))
 }
 
 pub(super) enum Next {
@@ -193,7 +193,15 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         ("GET", "/asagiri/builder") => return reply(w, Ok(super::builder::settings_report(engine)), 200),
         ("POST", "/asagiri/builder") => return reply(w, super::builder::set_settings(req).map(|()| super::builder::settings_report(engine)), 200),
         ("GET", "/images/json") => return reply(w, images(req, engine), 200),
-        ("POST", "/images/create") => return pull(req, engine, w),
+        ("POST", "/images/create") => {
+            if req.query("fromSrc").is_some() {
+                return image_import(req, engine, w, r);
+            }
+            let next = pull(req, engine, w)?;
+            // Pulls have no upload. If a caller nevertheless sent one, its
+            // unread bytes must not become another request on this socket.
+            return Ok(if req.has_body() { Next::Close } else { next });
+        }
         ("POST", "/images/load") => return image_load(req, engine, w, r),
         ("GET", "/images/get") => {
             let names: Vec<String> = req.queries("names").map(str::to_owned).collect();
@@ -464,18 +472,16 @@ pub(super) fn reference_matches(pattern: &str, name: &str) -> bool {
 fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let f = filters(req, &["reference", "dangling", "label"])?;
     let list = engine.store.images()?;
-    // Every stored image is tagged, so there are no dangling ones.
-    if f.bool("dangling") == Some(true) {
-        return Ok(json!([]));
-    }
     Ok(Value::Array(
         list.iter()
-            .filter(|i| f.any("reference", |p| reference_matches(p, &i.name)) && f.labels(&Value::Null))
+            .filter(|i| f.any("reference", |p| reference_matches(p, &i.name))
+                && f.bool("dangling").is_none_or(|d| d == (i.name == i.config_digest))
+                && f.labels(&Value::Null))
             .map(|i| {
                 json!({
                     "Id": i.config_digest,
                     "ParentId": "",
-                    "RepoTags": [i.name],
+                    "RepoTags": image_tags(i),
                     "RepoDigests": i.repo_digest().into_iter().collect::<Vec<_>>(),
                     "Created": time::parse_unix(&i.created),
                     "Size": i.size,
@@ -491,24 +497,32 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
     ))
 }
 
+pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
+    if image.name == image.config_digest { Vec::new() } else { vec![&image.name] }
+}
+
 fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
     let i = engine.image(name)?.ok_or_else(|| Error::NotFound(format!("No such image: {name}")))?;
+    let stored: Value = serde_json::from_slice(&engine.store.read_config(&i.config_digest)?).map_err(|e| Error::Io(io::Error::other(e)))?;
+    let mut config = stored["config"].as_object().cloned().unwrap_or_default();
+    config.extend(serde_json::Map::from_iter([
+        ("Env".into(), json!(i.config.env)),
+        ("Cmd".into(), json!(i.config.cmd)),
+        ("Entrypoint".into(), if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) }),
+        ("WorkingDir".into(), json!(i.config.working_dir)),
+        ("User".into(), json!(i.config.user)),
+        ("Healthcheck".into(), image_healthcheck(engine, &i)),
+    ]));
     Ok(json!({
         "Id": i.config_digest,
-        "RepoTags": [i.name],
+        "RepoTags": image_tags(&i),
         "RepoDigests": i.repo_digest().into_iter().collect::<Vec<_>>(),
         "Created": i.created,
         "Size": i.size,
         "Architecture": i.platform.rsplit('/').next().unwrap_or(go_arch()),
+        "Variant": stored["variant"],
         "Os": "linux",
-        "Config": {
-            "Env": i.config.env,
-            "Cmd": i.config.cmd,
-            "Entrypoint": if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) },
-            "WorkingDir": i.config.working_dir,
-            "User": i.config.user,
-            "Healthcheck": image_healthcheck(engine, &i),
-        },
+        "Config": config,
         "RootFS": {"Type": "layers", "Layers": i.layers.iter().map(|l| &l.digest).collect::<Vec<_>>()},
     }))
 }
@@ -545,6 +559,85 @@ fn image_tag(req: &Request, engine: &Engine, source: &str) -> Result<(), Error> 
     engine.store.put_image(i.tagged(name.clone()))?;
     engine.emit_image("tag", &i.config_digest, &name);
     Ok(())
+}
+
+fn import_config(req: &Request) -> Result<(Option<String>, Value), Error> {
+    let repo = req.query("repo").unwrap_or_default();
+    let name = if repo.is_empty() {
+        None
+    } else {
+        let tag = req.query("tag").filter(|t| !t.is_empty()).unwrap_or("latest");
+        let reference = Reference::parse(&format!("{repo}:{tag}")).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
+        if reference.is_digest() {
+            return Err(Error::BadRequest("an imported image needs a tag, not a digest".into()));
+        }
+        Some(reference.short())
+    };
+    let platform = match req.query("platform").filter(|p| !p.is_empty()) {
+        None => Platform::host_linux(),
+        Some(p) => {
+            if p.split('/').count() > 3 || p.split('/').any(str::is_empty) {
+                return Err(Error::BadRequest(format!("invalid platform: {p}")));
+            }
+            Platform::parse(p).ok_or_else(|| Error::BadRequest(format!("invalid platform: {p}")))?
+        }
+    };
+    if platform.os != "linux" {
+        return Err(Error::BadRequest(format!("cannot import a {} image into a Linux engine", platform.os)));
+    }
+    let created = super::time::rfc3339(std::time::SystemTime::now());
+    let mut config = json!({
+        "created": created, "os": platform.os, "architecture": platform.architecture, "config": {},
+        "history": [{"created": created, "created_by": "Imported root filesystem", "comment": req.query("message").unwrap_or_default()}],
+    });
+    if let Some(variant) = req.query("platform").and_then(|p| p.split('/').nth(2)) {
+        config["variant"] = variant.into();
+    }
+    for change in req.queries("changes") {
+        for line in change.lines().filter(|l| !l.trim().is_empty()) {
+            super::ops::apply_change(&mut config, line)?;
+        }
+    }
+    Ok((name, config))
+}
+
+fn import_archive(engine: &Engine, name: Option<String>, config: Value, mut archive: impl io::Read) -> Result<asagiri_image::Image, Error> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    archive.by_ref().take(6).read_to_end(&mut head)?;
+    let reader = upload_reader(head, archive)?;
+    asagiri_image::archive::import(&engine.store, name, config, reader).map_err(|e| Error::BadRequest(format!("invalid root filesystem archive: {e}")))
+}
+
+/// `docker import`: a root filesystem upload (`fromSrc=-`) or HTTP(S) URL.
+fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    let imported = (|| -> Result<asagiri_image::Image, Error> {
+        let source = req.query("fromSrc").unwrap_or_default();
+        if source != "-" && !source.starts_with("https://") && !source.starts_with("http://") {
+            return Err(Error::BadRequest("fromSrc must be - for an upload, or an http(s) URL".into()));
+        }
+        if req.query("fromImage").is_some_and(|s| !s.is_empty()) {
+            return Err(Error::BadRequest("fromSrc and fromImage cannot be used together".into()));
+        }
+        let (name, config) = import_config(req)?;
+        if source == "-" {
+            import_archive(engine, name, config, http::Body::new(req, r))
+        } else {
+            let mut response = crate::tools::agent().get(source).call().map_err(|e| Error::BadRequest(format!("could not download the root filesystem: {e}")))?;
+            import_archive(engine, name, config, response.body_mut().reader())
+        }
+    })();
+    match imported {
+        Ok(image) => {
+            engine.emit_image("import", &image.config_digest, &image.name);
+            http::begin_stream(w, 200, "application/json")?;
+            http::chunk(w, format!("{}\n", json!({"status": image.config_digest})).as_bytes())?;
+            http::end(w)?;
+        }
+        Err(e) => error(w, e)?,
+    }
+    // Invalid metadata or a damaged archive may leave an upload unread.
+    Ok(Next::Close)
 }
 
 /// `docker load`: an image archive, streamed into the store.
@@ -3389,6 +3482,38 @@ mod tests {
 #[cfg(test)]
 mod network_option_tests {
     use super::*;
+
+    #[test]
+    fn import_options_keep_platform_changes_and_message() {
+        let req = Request::internal("POST", "/images/create", &[
+            ("repo", "example/rootfs"), ("tag", "test"), ("platform", "linux/aarch64"),
+            ("changes", "ENV GREETING=hello world"), ("changes", "CMD [\"/bin/sh\",\"-c\",\"echo hello\"]"),
+            ("changes", "ONBUILD COPY . /app"), ("message", "snapshot"),
+        ], Vec::new());
+        let (name, config) = import_config(&req).unwrap();
+        assert_eq!(name.as_deref(), Some("example/rootfs:test"));
+        assert_eq!(config["architecture"], "arm64");
+        assert_eq!(config["config"]["Env"], json!(["GREETING=hello world"]));
+        assert_eq!(config["config"]["Cmd"], json!(["/bin/sh", "-c", "echo hello"]));
+        assert_eq!(config["config"]["OnBuild"], json!(["COPY . /app"]));
+        assert_eq!(config["history"][0]["comment"], "snapshot");
+        let req = Request::internal("POST", "/images/create", &[], Vec::new());
+        assert!(import_config(&req).unwrap().0.is_none());
+    }
+
+    #[test]
+    fn import_options_reject_invalid_metadata_before_an_upload() {
+        for query in [
+            vec![("repo", "has a space")],
+            vec![("platform", "windows/amd64")],
+            vec![("platform", "linux//v8")],
+            vec![("platform", "linux/arm64/v8/extra")],
+            vec![("changes", "RUN echo cannot-run-during-import")],
+        ] {
+            let req = Request::internal("POST", "/images/create", &query, Vec::new());
+            assert!(matches!(import_config(&req), Err(Error::BadRequest(_))), "{query:?}");
+        }
+    }
 
     fn refused(body: Value) -> String {
         match container_mode_allowed(&body, "web") {

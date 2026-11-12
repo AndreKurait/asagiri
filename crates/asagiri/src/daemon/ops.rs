@@ -224,7 +224,7 @@ fn export(engine: &Engine, key: &str, w: &mut UnixStream) -> io::Result<Next> {
 }
 
 /// Applies one `--change` line (a Dockerfile instruction) to a config.
-fn apply_change(cfg: &mut Value, line: &str) -> Result<(), Error> {
+pub(super) fn apply_change(cfg: &mut Value, line: &str) -> Result<(), Error> {
     let (instr, arg) = line.trim().split_once(char::is_whitespace).unwrap_or((line.trim(), ""));
     let arg = arg.trim();
     // JSON form, or shell form run by /bin/sh -c.
@@ -270,6 +270,11 @@ fn apply_change(cfg: &mut Value, line: &str) -> Result<(), Error> {
             for v in serde_json::from_str::<Vec<String>>(arg).unwrap_or_else(|_| arg.split_whitespace().map(str::to_owned).collect()) {
                 c["Volumes"][v] = json!({});
             }
+        }
+        "ONBUILD" => {
+            let mut triggers = c["OnBuild"].as_array().cloned().unwrap_or_default();
+            triggers.push(arg.into());
+            c["OnBuild"] = triggers.into();
         }
         other => return Err(Error::BadRequest(format!("{other} is not a valid change command"))),
     }
@@ -395,7 +400,7 @@ fn container_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {
 
 fn image_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let f = filters(req, &["dangling", "until", "label", "label!"])?;
-    // Without `-a` only untagged images go; Asagiri keeps none of those around.
+    // Without `-a` only untagged images go, including unnamed imports.
     let dangling_only = f.bool("dangling").unwrap_or(true);
     let used: Vec<String> = engine.each(|c| Some(c.spec.image_id.clone()));
     let mut deleted = Vec::new();
@@ -554,7 +559,7 @@ fn history(engine: &Engine, name: &str) -> Result<Value, Error> {
     rows.reverse();
     if let Some(top) = rows.first_mut() {
         top["Id"] = i.config_digest.clone().into();
-        top["Tags"] = json!([i.name]);
+        top["Tags"] = json!(super::api::image_tags(&i));
     }
     Ok(Value::Array(rows))
 }
