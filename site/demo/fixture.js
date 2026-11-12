@@ -2,6 +2,15 @@
 // There is no container engine or network service behind this page.
 // Keep the translation responder assembled with the page.
 const demoLanguageBridge = window.webkit.messageHandlers.asagiri.postMessage;
+// Native hosts change the webview's color scheme. In the browser, apply the
+// same existing CSS rules when a visitor chooses a theme.
+const demoLightRules = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules])
+  .filter((rule) => rule.type === CSSRule.MEDIA_RULE && rule.conditionText === "(prefers-color-scheme: light)");
+function demoTheme(theme) {
+  for (const rule of demoLightRules)
+    rule.media.mediaText = theme === "system" ? "(prefers-color-scheme: light)" : theme === "light" ? "all" : "not all";
+  themeBtn();
+}
 const demoNow = Math.floor(Date.now() / 1000);
 const demoContainers = [
   ["a1", "web", "nginx:alpine", 8080, 80, "morning"],
@@ -77,7 +86,10 @@ function demoCommand(message) {
   }
   if (cmd === "imagelayers") return asagiri.on({ type: "imagelayers", name: message.name, layers: [], history: [], platforms: ["linux/arm64", "linux/amd64"] });
   if (cmd === "prefs") return;
-  if (cmd === "pref" || cmd === "setpref") return;
+  if (cmd === "pref" || cmd === "setpref") {
+    if (message.name === "theme") demoTheme(message.value);
+    return;
+  }
   if (cmd === "langwords") return demoLanguageBridge(JSON.stringify(message));
   if (cmd === "shareaccount") return asagiri.on({ type: "shareaccount", configured: false, signedIn: false });
   if (cmd === "importsources") return asagiri.on({ type: "importsources", sources: [] });
@@ -107,13 +119,17 @@ document.body.classList.add("demo");
 asagiri.on({ type: "status", version: "source", dev: false, share: true, app: "Asagiri", ours: "asagiri", context: "asagiri" });
 asagiri.on({ type: "state", state: "running" });
 asagiri.on({ type: "prefs", prefs: { theme: "dark", accent: "blue" } });
+demoTheme("dark");
 asagiri.on({ type: "shareaccount", configured: false, signedIn: false });
 asagiri.on({ type: "updatestate", state: "source" });
 asagiri.on({ type: "vm", awake: true, running: 5, cpus: 4, cpu_pct: 2.4, used_mib: 386, target_mib: 512, ceiling_mib: 8192, stall_pct: 0, oom_kills: 0 });
 demoLists();
 function demoView({ view, theme }) {
   if (["containers", "images", "volumes", "networks", "settings", "share"].includes(view)) show(view);
-  if (["light", "dark"].includes(theme)) asagiri.on({ type: "prefs", prefs: { theme } });
+  if (["light", "dark"].includes(theme)) {
+    asagiri.on({ type: "prefs", prefs: { theme } });
+    demoTheme(theme);
+  }
 }
 window.addEventListener("message", (event) => {
   if (event.source === parent && event.origin === location.origin && event.data?.type === "asagiri-demo") demoView(event.data);

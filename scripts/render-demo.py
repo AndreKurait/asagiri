@@ -2,12 +2,14 @@
 """Regenerate the UI screenshots, demo animation, and social image.
 
     uv run --with Pillow --with websocket-client python scripts/render-demo.py
+    uv run --with websocket-client python scripts/render-demo.py --check
 
 Uses an isolated headless Chrome profile, a loopback-only temporary web
 server, and the built app demo. It never starts the native container engine.
 CHROME can select a Chromium-compatible browser executable.
 """
 import base64
+import argparse
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -20,7 +22,6 @@ import threading
 import time
 from urllib.request import Request, urlopen
 
-from PIL import Image
 import websocket
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,7 +67,7 @@ class Browser:
         self.call("Page.navigate", url=url)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            if self.js("document.readyState === 'complete'"):
+            if self.js(f"location.href === {json.dumps(url)} && document.readyState === 'complete'"):
                 break
             time.sleep(0.1)
         else:
@@ -82,8 +83,14 @@ class Browser:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="check the demo and layouts without rewriting images")
+    check = parser.parse_args().check
+    if not check:
+        from PIL import Image
     subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
-    IMAGES.mkdir(exist_ok=True)
+    if not check:
+        IMAGES.mkdir(exist_ok=True)
     server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(ROOT / "target/site")))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -105,6 +112,10 @@ def main():
             with urlopen(Request(f"http://127.0.0.1:{port}/json/new?about:blank", method="PUT")) as response:
                 target = json.load(response)
             browser = Browser(target["webSocketDebuggerUrl"])
+            def capture(name):
+                assert not browser.errors, browser.errors
+                if not check:
+                    browser.screenshot(IMAGES / name)
             frames = []
             for name, query in [
                 ("asagiri-window.png", "view=containers&theme=dark"),
@@ -114,12 +125,16 @@ def main():
                 browser.load(f"{origin}/demo/window.html?{query}")
                 assert browser.js("window.ASAGIRI_DEMO_READY === true"), "Demo did not initialize"
                 assert browser.js("document.querySelectorAll('#results').length === 0"), "Demo page raised an error"
-                browser.screenshot(IMAGES / name)
-                frame = Image.open(IMAGES / name).convert("RGB")
-                frame.thumbnail((1080, 705))
-                frames.append(frame)
-            frames[0].save(IMAGES / "asagiri-demo.gif", save_all=True, append_images=frames[1:], duration=[2600, 2200, 2600], loop=0, optimize=True)
-            print("Wrote docs/images/asagiri-demo.gif", flush=True)
+                expected = "light" if "theme=light" in query else "dark"
+                assert browser.js("getComputedStyle(document.documentElement).colorScheme") == expected, "Demo theme did not apply"
+                capture(name)
+                if not check:
+                    frame = Image.open(IMAGES / name).convert("RGB")
+                    frame.thumbnail((1080, 705))
+                    frames.append(frame)
+            if not check:
+                frames[0].save(IMAGES / "asagiri-demo.gif", save_all=True, append_images=frames[1:], duration=[2600, 2200, 2600], loop=0, optimize=True)
+                print("Wrote docs/images/asagiri-demo.gif", flush=True)
             # Exercise the native bridge replacement and state changes.
             browser.load(f"{origin}/demo/window.html")
             browser.js("demoCommand({cmd:'container', id:'a1', action:'stop'})")
@@ -148,13 +163,18 @@ def main():
             browser.js("document.querySelector('[data-mirrordel]').click(); document.querySelector('[data-savemirrors]').click()")
             assert browser.js("document.querySelectorAll('[data-mirrordel]').length===0 && document.querySelector('[data-savemirrors]').disabled")
             browser.js("prefs.tab='appearance'; show('settings')")
+            browser.js("document.querySelector('[data-theme-pick=light]').click()")
+            assert browser.js("getComputedStyle(document.documentElement).colorScheme === 'light'")
+            browser.js("document.querySelector('[data-theme-pick=dark]').click()")
+            assert browser.js("getComputedStyle(document.documentElement).colorScheme === 'dark'")
             browser.js("{ const lang=document.getElementById('pref-lang'); lang.value='ar'; lang.dispatchEvent(new Event('change',{bubbles:true})); }")
             assert browser.js("document.documentElement.lang==='ar' && document.documentElement.dir==='rtl'")
             browser.js("{ const lang=document.getElementById('pref-lang'); lang.value='en'; lang.dispatchEvent(new Event('change',{bubbles:true})); }")
             assert browser.js("document.documentElement.lang==='en' && document.documentElement.dir==='ltr'")
-            print("PASS all demo settings tabs, mirror edits, and Arabic/English language switching", flush=True)
+            print("PASS all demo settings tabs, mirror edits, themes, and Arabic/English language switching", flush=True)
             # Copy the fresh screenshots before capturing the landing page.
-            subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
+            if not check:
+                subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
             browser.load(origin + "/", 1440, 1100)
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Desktop layout overflows"
             browser.js("document.querySelector('[data-platform=linux]').click()")
@@ -162,13 +182,13 @@ def main():
             browser.js("document.querySelector('[data-platform=windows]').click()")
             assert "cargo xtask windows-dev" in browser.js("document.querySelector('#build-command').textContent")
             browser.js("document.querySelector('[data-platform=macos]').click()")
-            browser.screenshot(IMAGES / "asagiri-site-desktop.png")
+            capture("asagiri-site-desktop.png")
             browser.load(origin + "/", 390, 844)
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Mobile layout overflows"
-            browser.screenshot(IMAGES / "asagiri-site-mobile.png")
+            capture("asagiri-site-mobile.png")
             print("PASS site build tabs and desktop/mobile layout", flush=True)
             browser.load(origin + "/social.html", 1200, 630)
-            browser.screenshot(IMAGES / "social-card.png")
+            capture("social-card.png")
             browser.ws.close()
         finally:
             process.terminate()
@@ -179,7 +199,8 @@ def main():
                 process.wait()
             server.shutdown()
             server.server_close()
-    subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
+    if not check:
+        subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
 
 
 if __name__ == "__main__":
