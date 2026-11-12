@@ -11,7 +11,7 @@ name: Pull request limit
 
 on:
   pull_request_target: # zizmor: ignore[dangerous-triggers] no code from the pull request is checked out or run
-    types: [opened, reopened, ready_for_review, converted_to_draft]
+    types: [opened, reopened, ready_for_review, converted_to_draft, synchronize, edited]
 
 permissions: {}
 
