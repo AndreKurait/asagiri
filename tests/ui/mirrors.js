@@ -19,7 +19,7 @@ if (document.getElementById("mirror-url")) items.push("mirrors address field");
 if (document.querySelector("#content [data-mirroradd]")) items.push("mirrors add button");
 
 t("with no mirrors it says Docker Hub itself is used", () => {
-  if (!/No mirrors yet/.test(pane().textContent)) throw new Error(pane().textContent);
+  if (!pane().textContent.includes("No mirrors yet")) throw new Error(pane().textContent);
   if (!save().disabled) throw new Error("save enabled with nothing changed");
 });
 t("opening Settings asks for the mirrors", () => {
@@ -32,7 +32,7 @@ t("opening Settings asks for the mirrors", () => {
 t("adding an address shows it, and Save sends the whole list", () => {
   put("mirror-url", "https://mirror.example.com");
   document.querySelector("#content [data-mirroradd]").click();
-  if (!/mirror\.example\.com/.test(pane().textContent)) throw new Error("no row");
+  if (!pane().textContent.includes("mirror.example.com")) throw new Error("no row");
   sent.length = 0;
   save().click();
   if (JSON.stringify(sentList()) !== JSON.stringify(["https://mirror.example.com"])) throw new Error("sent " + JSON.stringify(sent));
@@ -40,7 +40,7 @@ t("adding an address shows it, and Save sends the whole list", () => {
 t("the daemon's answer resets the page to the saved list", () => {
   asagiri.on(mirrors(["https://mirror.example.com", "https://mirror.example.net"]));
   open();
-  if (!/mirror\.example\.net/.test(pane().textContent)) throw new Error("no second mirror");
+  if (!pane().textContent.includes("mirror.example.net")) throw new Error("no second mirror");
   if (!save().disabled) throw new Error("save enabled");
 });
 t("removing a mirror takes it out of the list Save sends", () => {
@@ -55,6 +55,6 @@ t("with no daemon the page says to start Asagiri", () => {
   asagiri.on({ type: "mirrors", error: "connection refused" });
   open();
   if (document.getElementById("mirror-url")) throw new Error("field shown");
-  if (!/Start Asagiri/.test(pane().textContent)) throw new Error("no hint");
+  if (!pane().textContent.includes("Start Asagiri")) throw new Error("no hint");
 });
 report([...R, ...items.map((x) => "ITEM " + x)]);
