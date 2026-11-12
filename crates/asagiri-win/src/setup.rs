@@ -81,9 +81,8 @@ struct Saved {
     restart_after: Option<u64>,
     /// Why setup last stopped, kept so a restart of Asagiri doesn't lose it.
     last_error: Option<String>,
-    /// Why the first-run test container did not answer, if it didn't. Setup
-    /// carries on without it — a blocked Docker Hub must not trap a first
-    /// run — and the ready page says how to add a mirror and try again.
+    /// Why the first-run image could not be pulled. A blocked Docker Hub
+    /// does not trap setup; failures to run a pulled image still stop it.
     test_error: Option<String>,
 }
 
@@ -656,7 +655,22 @@ fn engine() -> io::Result<()> {
     if !dir().join("bin").join("docker.exe").is_file() {
         verified("bin/docker.exe")?;
     }
-    let out = quiet(&docker().to_string_lossy()).args(["--host", &format!("npipe://{}", pipe.replace('\\', "/")), "run", "--rm", "alpine", "echo", "hello"]).output()?;
+    let host = format!("npipe://{}", pipe.replace('\\', "/"));
+    // Separate the pull from the run: an engine failure after downloading
+    // the image must not be mistaken for a blocked registry.
+    let pull = quiet(&docker().to_string_lossy()).args(["--host", &host, "pull", "alpine"]).output()?;
+    if !pull.status.success() {
+        let text = String::from_utf8_lossy(&pull.stdout).into_owned() + &String::from_utf8_lossy(&pull.stderr);
+        let why = test_failure(&text, true);
+        log_line(&why);
+        task(2, "error", &why);
+        update(|s| s.test_error = Some(why.clone()));
+        let mut s = saved();
+        s.test_error = Some(why);
+        save(&s);
+        return tools();
+    }
+    let out = quiet(&docker().to_string_lossy()).args(["--host", &host, "run", "--pull=never", "--rm", "alpine", "echo", "hello"]).output()?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
     for l in text.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev() {
         log_line(l);
@@ -666,17 +680,7 @@ fn engine() -> io::Result<()> {
         for l in text.lines().map(str::trim).filter(|l| !l.is_empty()).take(20) {
             crate::serve::log(&format!("setup engine: docker: {l}"));
         }
-        // A test container that cannot pull is not a broken install: the
-        // engine answered and the pipe works, and Docker Hub may simply be
-        // blocked here. Carry on, and let the ready page say how to add a
-        // registry mirror and try again.
-        let why = test_failure(&text);
-        log_line(&why);
-        task(2, "error", &why);
-        update(|s| s.test_error = Some(why.clone()));
-        let mut s = saved();
-        s.test_error = Some(why);
-        save(&s);
+        return Err(io::Error::other(test_failure(&text, false)));
     } else {
         task(2, "done", "hello");
         update(|s| s.test_error = None);
@@ -689,7 +693,7 @@ fn engine() -> io::Result<()> {
 
 /// Why `docker run alpine` failed, from what docker printed: the engine's
 /// own words, and whether it was the pull.
-fn test_failure(text: &str) -> String {
+fn test_failure(text: &str, pulling: bool) -> String {
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let said = lines
         .iter()
@@ -697,7 +701,6 @@ fn test_failure(text: &str) -> String {
         .or_else(|| lines.iter().find_map(|l| l.strip_prefix("docker: ")))
         .or_else(|| lines.iter().rev().find(|l| !l.starts_with("See '") && !l.starts_with("Run '")).copied())
         .map(|r| r.trim().trim_end_matches('.').to_owned());
-    let pulling = text.contains("Unable to find image") && !text.contains("Status: Downloaded");
     match (said, pulling) {
         (Some(why), true) => trf("couldn't pull alpine: {why}", &[("why", &why)]),
         (Some(why), false) => trf("the test container did not run: {why}", &[("why", &why)]),
@@ -900,12 +903,13 @@ mod tests {
     #[test]
     fn a_failed_test_container_says_why() {
         let pull = "Unable to find image 'alpine:latest' locally\ndocker: Error response from daemon: the proxy http://127.0.0.1:7892 refused the connection or closed it: is it running? (network error: io: Connection refused (os error 111)).\nSee 'docker run --help'.\n";
-        assert_eq!(super::test_failure(pull), "couldn't pull alpine: the proxy http://127.0.0.1:7892 refused the connection or closed it: is it running? (network error: io: Connection refused (os error 111))");
+        assert_eq!(super::test_failure(pull, true), "couldn't pull alpine: the proxy http://127.0.0.1:7892 refused the connection or closed it: is it running? (network error: io: Connection refused (os error 111))");
         let stream = "Unable to find image 'alpine:latest' locally\nlatest: Pulling from library/alpine\ndocker: network error: timeout: connect\n\nRun 'docker run --help' for more information\n";
-        assert_eq!(super::test_failure(stream), "couldn't pull alpine: network error: timeout: connect");
+        assert_eq!(super::test_failure(stream, true), "couldn't pull alpine: network error: timeout: connect");
         let run = "Unable to find image 'alpine:latest' locally\nlatest: Pulling from library/alpine\nStatus: Downloaded newer image for alpine:latest\ndocker: Error response from daemon: no space left on device.\n";
-        assert_eq!(super::test_failure(run), "the test container did not run: no space left on device");
-        assert_eq!(super::test_failure("something odd\n"), "the test container did not run: something odd");
-        assert_eq!(super::test_failure(""), "the test container did not run");
+        assert_eq!(super::test_failure(run, false), "the test container did not run: no space left on device");
+        assert_eq!(super::test_failure("docker: Error response from daemon: no space left on device.\n", false), "the test container did not run: no space left on device");
+        assert_eq!(super::test_failure("something odd\n", false), "the test container did not run: something odd");
+        assert_eq!(super::test_failure("", false), "the test container did not run");
     }
 }

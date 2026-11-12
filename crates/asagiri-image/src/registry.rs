@@ -671,6 +671,10 @@ impl Client {
         cancel: &Cancel,
     ) -> Result<Image, Error> {
         let Resolved { target, index_digest, digest, manifest, media_type } = resolved;
+        // Resolving through a mirror was anonymous. Its config and layers
+        // must use that same identity, including retries and auth challenges.
+        let anonymous = (target.registry != name.registry).then(|| self.anonymous());
+        let client = anonymous.as_ref().unwrap_or(self);
         let (Some(config), Some(layers)) = (manifest.config.as_ref(), manifest.layers.as_ref()) else {
             return Err(Error::Manifest(format!("{media_type} has no config or layers")));
         };
@@ -702,7 +706,7 @@ impl Client {
                     return;
                 }
                 // Bounded: the manifest declares the size, and a config is small.
-                let result = self.download_with(store, target, &config.digest, crate::store::MAX_CONFIG, &|_| {}, cancel).and_then(|got| {
+                let result = client.download_with(store, target, &config.digest, crate::store::MAX_CONFIG, &|_| {}, cancel).and_then(|got| {
                     if got != config.size {
                         return Err(Error::Manifest(format!("config {} is {got} bytes, the manifest says {}", config.digest, config.size)));
                     }
@@ -725,7 +729,7 @@ impl Client {
                             Ok(layer.size)
                         } else {
                             let on_bytes = |got| progress(Progress::Downloading { digest: layer.digest.clone(), got, size: layer.size });
-                            self.download_with(store, target, &layer.digest, u64::MAX, &on_bytes, cancel)
+                            client.download_with(store, target, &layer.digest, u64::MAX, &on_bytes, cancel)
                         };
                         match result {
                             Ok(bytes) => progress(Progress::LayerDone { digest: layer.digest.clone(), bytes, cached }),
@@ -1548,6 +1552,26 @@ mod tests {
     }
 
     #[test]
+    fn a_mirror_gets_no_origin_credentials_for_manifests_or_blobs() {
+        let (mirror, seen) = image_server(200);
+        let root = std::env::temp_dir().join(format!("asagiri-mirror-auth-{}", std::process::id()));
+        let store = Store::open(&root).unwrap();
+        let name = Reference::parse("alpine:3.22").unwrap();
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let client = test_client().with_credentials(Some(Credentials {
+            registry_token: "origin-only-test-token".into(), ..Default::default()
+        }));
+        let result = client.pull_from(&store, &name, &[name.via(&mirror, None)], &platform, &|_| {}, &Cancel::new());
+        quit(&mirror);
+        let requests = seen.join().unwrap();
+        result.unwrap();
+        assert!(requests.iter().any(|r| r.contains("/manifests/")));
+        assert_eq!(requests.iter().filter(|r| r.contains("/blobs/")).count(), 2, "config and layer were both requested");
+        assert!(requests.iter().all(|r| !r.to_ascii_lowercase().contains("\nauthorization:")), "the mirror received credentials");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn a_mirror_without_the_image_falls_back_to_the_registry() {
         let (mirror, mirror_seen) = image_server(404);
         let (origin, origin_seen) = image_server(200);
@@ -1638,7 +1662,7 @@ mod tests {
                     break;
                 }
                 let path = head.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("").to_string();
-                seen.push(path.clone());
+                seen.push(head);
                 let (status, body, kind): (u16, Vec<u8>, &str) = if path == "/v2/" {
                     (200, b"{}".to_vec(), "application/json")
                 } else if let Some(reference) = path.split_once("/manifests/").map(|(_, r)| r) {

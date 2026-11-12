@@ -255,7 +255,7 @@ pub fn refresh(engine: &Engine) {
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
     let Some((id, status)) = find(engine) else { return };
     write_config(engine, &id);
-    if status != Status::Running || BUILDS.load(Ordering::Relaxed) > 0 {
+    if status != Status::Running || BUILDS.load(Ordering::Relaxed) > 0 || engine.running_execs(&id) > 0 {
         return;
     }
     if engine.is_paused(&id) {
