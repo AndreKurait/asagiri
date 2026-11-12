@@ -69,7 +69,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-target
             ${{ runner.temp }}/cargo-registry
-          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('head/Cargo.lock', 'head/**/Cargo.toml', 'head/.cargo/config.toml') }}
+          key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('head/Cargo.lock', 'head/**/Cargo.toml', 'head/.cargo/config.toml', 'head/scripts/ci/images.json', 'head/scripts/ci/build-linux.sh') }}
       - uses: ./head/.github/actions/container-cache # zizmor: ignore[self-repository] use the explicit head checkout alongside the separate baseline
         with:
           source-directory: head

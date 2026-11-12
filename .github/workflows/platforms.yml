@@ -42,7 +42,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-target
             ${{ runner.temp }}/cargo-registry
-          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
+          key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml', 'scripts/ci/images.json', 'scripts/ci/build-linux.sh') }}
       - name: Test and build
         run: |
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests

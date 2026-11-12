@@ -74,12 +74,13 @@ jobs:
         with:
           group: release
       - name: Restore compiler dependencies
+        id: compiler_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ runner.temp }}/cargo-target
             ${{ runner.temp }}/cargo-registry
-          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
+          key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml', 'scripts/ci/images.json', 'scripts/ci/build-linux.sh') }}
       - name: Restore pinned CLI downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         # zizmor: ignore[cache-poisoning] release-only key; fetch scripts verify every download against committed SHA-256 pins
@@ -101,6 +102,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq rpm
           bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs"
+      - name: Cache compiler dependencies from successful main package builds
+        if: github.ref == 'refs/heads/main' && steps.compiler_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] the verified main checkout must pass native unit, live, and package tests before seeding its architecture's cache
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: ${{ steps.compiler_cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-linux-${{ matrix.arch }}

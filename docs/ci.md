@@ -39,6 +39,11 @@ change does not download all the base images again. Image keys have no broad
 fallback prefix. Only trusted main jobs save shared entries. Cache misses
 affect build time, not which source or image is tested.
 
+Linux compiler keys include the architecture, Rust version, dependency
+manifests, pinned image manifest, and build script. Successful main release
+jobs also save compiler dependencies after their native package tests, so
+both x86_64 and Arm builds populate reusable caches.
+
 Primary references: [Actions cache](https://github.com/actions/cache),
 [sccache's GitHub backend](https://github.com/mozilla/sccache/blob/main/docs/GHA.md),
 [ECR pull-through cache](https://docs.aws.amazon.com/AmazonECR/latest/userguide/pull-through-cache.html),
