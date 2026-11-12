@@ -53,7 +53,9 @@ jobs:
             'packaging/linux/docker-wrapper' 'contrib/wsl/asagiri-linux/asagiri-start' \
             | xargs -0 shellcheck --severity=error
       - name: Check CI cache recovery and integrity
-        run: python3 tests/ci-container-cache.py
+        run: |
+          python3 tests/ci-container-cache.py
+          python3 tests/ci-release.py
 
   zizmor:
     name: zizmor (workflow audit)

@@ -1,0 +1,367 @@
+name: Release
+
+on:
+  # Whichever required workflow finishes last can release the checked main
+  # commit. The plan job ignores incomplete sets and already published tags.
+  workflow_run: # zizmor: ignore[dangerous-triggers] only same-repository main builds; the plan verifies trigger, ancestry, and checks before packaging
+    workflows: [Platform builds, UI tests, Security, Speed, Website, CodeQL]
+    types: [completed]
+    branches: [main]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  RUSTUP_TOOLCHAIN: 1.99.1
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  ASAGIRI_RELEASE_NOTES: docs/releases/asagiri.md
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    if: >-
+      github.repository == 'AndreKurait/asagiri' &&
+      (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      ready: ${{ steps.plan.outputs.ready }}
+      commit: ${{ steps.plan.outputs.commit }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require successful checks for this main commit
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f scripts/ci/release.py ] && [ -f RELEASE_VERSION ]; then
+            python3 scripts/ci/release.py plan
+          else
+            echo "This build predates release automation."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    name: Linux packages (${{ matrix.arch }})
+    needs: plan
+    if: needs.plan.outputs.ready == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] action and inputs come from the verified release checkout
+        with:
+          group: release
+      - name: Restore compiler dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
+      - name: Restore pinned CLI downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] release-only key; fetch scripts verify every download against committed SHA-256 pins
+        with:
+          path: |
+            ~/.cache/asagiri-linux-cli
+            ~/.cache/asagiri-build
+          key: release-linux-downloads-v1-${{ runner.arch }}-${{ hashFiles('crates/asagiri/src/cli_pins.rs', 'scripts/asagiri-linux.sh') }}
+      - name: Stamp the release version
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: python3 scripts/ci/release.py stamp "$VERSION"
+      - name: Build and test the release binaries
+        run: |
+          sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
+          sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Build and install-test the Linux packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm
+          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-inputs-${{ matrix.arch }}
+          path: ${{ runner.temp }}/linux-inputs/*
+          if-no-files-found: error
+          retention-days: 7
+
+  guest:
+    name: Guest kernels and corresponding source
+    needs: plan
+    if: needs.plan.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Restore guest build products
+        id: guest
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] release-only keyspace; PRs cannot run this workflow or write main-scoped entries
+        with:
+          path: target/release-guest
+          key: release-guest-v1-${{ hashFiles('guest/kernel/**', 'xtask/src/main.rs', 'scripts/ci/kernel-source.sh', 'scripts/ci/images.json') }}
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] action and inputs come from the verified release checkout
+        if: steps.guest.outputs.cache-hit != 'true'
+        with:
+          group: release
+      - name: Build both kernels, the sparse disk, and kernel source archive
+        if: steps.guest.outputs.cache-hit != 'true'
+        run: |
+          free_kib=$(df -Pk . | awk 'END { print $4 }')
+          [ "$free_kib" -ge 3145728 ] || { echo "Build guard: fewer than 3 GiB free"; exit 1; }
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          cargo xtask kernel --arch arm64
+          cargo xtask kernel --arch x86_64
+          cargo xtask disk
+          mkdir -p target/release-guest
+          tar -cSzf target/release-guest/guest-assets.tar.gz -C guest/out Image x86_64/bzImage data.img
+          sh scripts/ci/kernel-source.sh target/release-guest/asagiri-kernel-source.tar.xz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: guest-assets
+          path: target/release-guest/guest-assets.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-kernel-source
+          path: target/release-guest/asagiri-kernel-source.tar.xz
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS packages (${{ matrix.arch }})
+    needs: [plan, guest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            app: target/Asagiri.app
+          - arch: x86_64
+            runner: macos-15-intel
+            app: target/intel/Asagiri.app
+    env:
+      ASAGIRI_SIGN_IDENTITY: "-"
+      ASAGIRI_NOTARY_PROFILE: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update --target aarch64-unknown-linux-musl --target x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        # zizmor: ignore[cache-poisoning] release-only shared key; only main-ancestry-verified release jobs can save this cache
+        with:
+          cache-bin: false
+          shared-key: release-macos-${{ matrix.arch }}
+      - name: Cache verified CLI downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] release-only key; xtask verifies all cached CLI files against committed SHA-256 pins
+        with:
+          path: target/cli-cache
+          key: release-macos-downloads-v1-${{ runner.arch }}-${{ hashFiles('crates/asagiri/src/cli_pins.rs') }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: guest-assets
+          path: ${{ runner.temp }}/guest
+      - name: Build and verify the application and DMG
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          APP: ${{ matrix.app }}
+        run: |
+          python3 scripts/ci/release.py stamp "$VERSION"
+          mkdir -p guest/out "$RUNNER_TEMP/packages"
+          tar -xzf "$RUNNER_TEMP/guest/guest-assets.tar.gz" -C guest/out
+          cargo test --locked
+          cargo xtask guest --arch "$ARCH"
+          cargo xtask release --arch "$ARCH"
+          cargo xtask dmg --arch "$ARCH"
+          codesign --verify --deep --strict "$APP"
+          hdiutil verify "target/Asagiri-$VERSION-$ARCH.dmg"
+          cp "target/Asagiri-$VERSION-$ARCH.tar.gz" "target/Asagiri-$VERSION-$ARCH.dmg" "target/latest-mac-$ARCH.json" "$RUNNER_TEMP/packages/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows packages (${{ matrix.arch }})
+    needs: [plan, linux]
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            linux: x86_64
+          - arch: arm64
+            linux: aarch64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Install the pinned Rust and WiX tools
+        run: |
+          rustup toolchain install "$env:RUSTUP_TOOLCHAIN" --profile minimal --no-self-update --target aarch64-pc-windows-msvc
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet tool install --global wix --version 6.0.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wix extension add -g WixToolset.UI.wixext/6.0.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wix extension add -g WixToolset.Util.wixext/6.0.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        # zizmor: ignore[cache-poisoning] release-only shared key; only main-ancestry-verified release jobs can save this cache
+        with:
+          cache-bin: false
+          shared-key: release-windows-${{ matrix.arch }}
+      - name: Cache verified CLI downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] release-only key; xtask verifies downloads and the ARM64 CLI build against committed hashes
+        with:
+          path: target/cli-cache
+          key: release-windows-downloads-v1-${{ matrix.arch }}-${{ hashFiles('crates/asagiri/src/cli_pins.rs') }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-inputs-${{ matrix.linux }}
+          path: ${{ runner.temp }}/linux-inputs
+      - name: Build the complete Windows bundle and MSI
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.plan.outputs.commit }}
+          ARCH: ${{ matrix.arch }}
+          LINUX_ARCH: ${{ matrix.linux }}
+          ASAGIRI_WINDOWS_LINUX_DIR: ${{ runner.temp }}/linux-inputs
+        run: |
+          $metadata = Get-Content "$env:ASAGIRI_WINDOWS_LINUX_DIR/build.json" -Raw | ConvertFrom-Json
+          if ($metadata.version -ne $env:VERSION -or $metadata.arch -ne $env:LINUX_ARCH -or $metadata.commit -ne $env:SOURCE_COMMIT) {
+            throw "Linux inputs do not match this release version, architecture, and source commit"
+          }
+          foreach ($file in @("asagiri", "asagiri-init", "asagiri-linux.tar.gz")) {
+            $hash = (Get-FileHash "$env:ASAGIRI_WINDOWS_LINUX_DIR/$file" -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne $metadata.sha256.$file) { throw "Linux input hash mismatch: $file" }
+          }
+          python scripts/ci/release.py stamp "$env:VERSION"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test --locked -p asagiri-win
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo xtask msi --arch "$env:ARCH"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/packages" | Out-Null
+          Copy-Item "target/Asagiri-$env:VERSION-$env:ARCH.msi","target/latest-windows-$env:ARCH.json" "$env:RUNNER_TEMP/packages/"
+          Compress-Archive -Path "target/asagiri-windows-$env:LINUX_ARCH/*" -DestinationPath "$env:RUNNER_TEMP/packages/Asagiri-$env:VERSION-windows-$env:ARCH.zip"
+      - name: Install and remove the x86_64 MSI without starting WSL
+        if: matrix.arch == 'x86_64'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          & installer/windows/verify.ps1 -Msi "$env:GITHUB_WORKSPACE/target/Asagiri-$env:VERSION-x86_64.msi"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-windows-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Verify uploads and publish
+    needs: [plan, linux, guest, macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+      - name: Require every package and validate the update metadata
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: python3 scripts/ci/release.py collect dist "$VERSION" "$COMMIT"
+      - name: Attest the release artifacts
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+          predicate-type: https://slsa.dev/provenance/v1
+          predicate-path: target/release-provenance.json
+      - name: Include the provenance bundle
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/attestation.sigstore.json
+      - name: Upload, verify every GitHub digest, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/release.py publish dist

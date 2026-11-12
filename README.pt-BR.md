@@ -17,14 +17,19 @@ interface real do aplicativo.
 - Contêineres, imagens, volumes, redes, logs, terminais e limites de recursos.
 - Máquina virtual Linux no macOS, WSL 2 no Windows e execução nativa no Linux.
 - Nomes locais para contêineres, Kubernetes e máquinas Linux.
-- Interface em 15 idiomas e verificações de CI nas três plataformas.
+- Interface em 16 idiomas e verificações de CI nas três plataformas.
 - Testes de conformidade com a API do Docker e verificações de desempenho.
 
-## Compilar a partir do código-fonte
+## Downloads
 
-**Ainda não há versões publicadas do Asagiri.** Os artefatos de CI são binários
-de desenvolvimento sem assinatura, não instaladores completos. Não há um feed
-padrão de atualizações.
+Consulte os pacotes e instaladores na [página de versões](https://github.com/AndreKurait/asagiri/releases).
+Compilações aprovadas da branch principal publicam pré-lançamentos automaticamente;
+versões estáveis usam tags de versão. Os downloads incluem somas SHA-256 e
+atestados de procedência. Os aplicativos macOS não são notarizados pela Apple,
+e os instaladores Windows não têm assinatura Authenticode. Consulte as limitações
+de cada plataforma nas notas da versão. Não há um feed padrão de atualizações.
+
+## Compilar a partir do código-fonte
 
 ```sh
 git clone https://github.com/AndreKurait/asagiri.git

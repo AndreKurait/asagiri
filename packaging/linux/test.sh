@@ -16,7 +16,12 @@ out=$(cd "$1" && pwd) docker=${2:-docker} clidir=${3:-}
 fail=0
 # Scratch files of this run's own, not fixed names in /tmp another user could plant.
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+containers=()
+cleanup() {
+  for container in "${containers[@]}"; do $docker rm -fv "$container" >/dev/null 2>&1 || true; done
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 ok() { echo "  [ok]   $1"; }
 bad() { echo "  [FAIL] $1"; fail=$((fail + 1)); }
 check() { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
@@ -45,11 +50,12 @@ test_package() { # name full(0|1)
   check "rpm scripts: pre, post, preun, postun" "rpm -qp --scripts '$rpm' | grep -q preinstall && rpm -qp --scripts '$rpm' | grep -q postinstall && rpm -qp --scripts '$rpm' | grep -q preuninstall && rpm -qp --scripts '$rpm' | grep -q postuninstall"
 
   echo "== .deb in a privileged Ubuntu container"
-  local c=asagiri-deb-test-$name debname; debname=$(basename "$deb")
+  local c=asagiri-deb-test-$name-$$ debname; debname=$(basename "$deb")
+  containers+=("$c")
   local climount=()
   [ -n "$clidir" ] && climount=(-v "$(cd "$clidir" && pwd):/opt/docker:ro")
   $docker rm -f "$c" >/dev/null 2>&1
-  $docker run -d --name "$c" --privileged --tmpfs /run --tmpfs /tmp -v "$out:/pkg:ro" "${climount[@]}" ubuntu:24.04 sleep infinity >/dev/null
+  $docker run -d --name "$c" --privileged --tmpfs /run --tmpfs /tmp -v "$out:/pkg:ro" "${climount[@]}" "${ASAGIRI_CI_DEB_IMAGE:-ubuntu:24.04}" sleep infinity >/dev/null
   step "$c" "dpkg -i" "dpkg -i /pkg/$debname"
   step "$c" "/usr/bin/asagiri, asagiri-init, unit, copyright" "test -x /usr/bin/asagiri -a -x /usr/bin/asagiri-init -a -f /lib/systemd/system/asagiri.service -a -f /usr/share/doc/$name/copyright"
   step "$c" "group asagiri made by postinst" "getent group asagiri"
@@ -68,6 +74,9 @@ test_package() { # name full(0|1)
     cli="/opt/docker/docker -H unix:///run/asagiri/docker.sock"
   fi
   if [ -n "${cli:-}" ]; then
+    if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
+      step "$c" "packaged engine reports release version $ASAGIRI_EXPECTED_VERSION" "$cli version --format '{{.Server.Version}}' | grep -Fx '$ASAGIRI_EXPECTED_VERSION'"
+    fi
     # Nested in a container, overlay on overlay: the engine may answer the API
     # yet not run a container. test-host.sh proves that on a real host.
     step "$c" "docker run alpine on the packaged engine (nested; may be denied by the host)" "timeout -s KILL 120 $cli run --rm alpine cat /etc/alpine-release | grep -q '^3\.'"
@@ -81,7 +90,7 @@ test_package() { # name full(0|1)
 
   echo "== .rpm in a Fedora container"
   local rpmname; rpmname=$(basename "$rpm")
-  $docker run --rm -v "$out:/pkg:ro" fedora:41 bash -c "
+  $docker run --rm -v "$out:/pkg:ro" "${ASAGIRI_CI_RPM_IMAGE:-fedora:41}" bash -c "
     rpm -ivh /pkg/$rpmname >/tmp/i.log 2>&1 || { cat /tmp/i.log; exit 1; }
     test -x /usr/bin/asagiri && test -x /usr/bin/asagiri-init && test -f /usr/lib/systemd/system/asagiri.service && test -f /usr/share/licenses/$name/LICENSE || exit 2
     getent group asagiri >/dev/null || exit 3

@@ -1,13 +1,14 @@
 # Packaging Asagiri
 
-These are build recipes. No Asagiri packages have been released yet. CI builds
-and tests the engine binaries on every platform; full installer smoke tests
-remain part of preparing a release.
+These recipes also power the [automatic release workflow](../RELEASES.md).
+The [release page](https://github.com/AndreKurait/asagiri/releases) carries
+packages, installers, checksums, and provenance. The release notes state which
+installation and runtime paths have been verified.
 
 | Platform | Build | Package |
 | --- | --- | --- |
 | macOS | `cargo xtask app-dev` | local development app |
-| macOS | `cargo xtask release` | app, DMG, tarball and feed metadata |
+| macOS | `cargo xtask release`, then `cargo xtask dmg` | app, DMG, tarball and feed metadata |
 | Windows | `cargo xtask windows-dev` | local development bundle |
 | Windows | `cargo xtask msi` | per-user MSI |
 | Linux | `cargo xtask linux` | static engine and guest agent |
@@ -17,6 +18,12 @@ Add `--arch x86_64` for Intel Macs or `--arch arm64` for Windows on Arm.
 The guest and Linux packaging need Docker. WiX and the Windows SDK are required
 for an MSI; macOS app packaging needs Xcode command line tools. The CLI tool
 versions and download hashes are pinned in `crates/asagiri/src/cli_pins.rs`.
+
+`cargo xtask release` creates the app, tarball, and feed; run `cargo xtask dmg`
+to also create the disk image. Release CI builds the kernels on Linux and
+passes their sparse archive to the macOS jobs. Windows CI receives tested
+Linux binaries and the WSL rootfs through `ASAGIRI_WINDOWS_LINUX_DIR`, then
+builds the complete installer without starting WSL on the packaging runner.
 
 ## Linux package assembly
 

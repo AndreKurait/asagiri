@@ -1,11 +1,8 @@
 #!/bin/sh
-# A build that isn't a release takes the released version (the update feed's,
-# not the newest tag: stray v0.2.x tags predate 0.1.x), then -dev. and the CI
-# run's number (0.1.8-dev.42), so it says which build it is and never offers
-# itself an "update" (ui/mod.rs). Releases take theirs from the tag instead.
+# Stamp a development build using this repository's release series.
+# No external update feed is queried. Dependency versions remain locked.
 #   scripts/ci/test-version.sh
 set -eu
-last=$(curl -fsS -A asagiri-ci https://updates.example.org/latest.json | sed -n 's/.*"version": *"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' | head -1 || true)
-v="${last:-0.0.0}-dev.${GITHUB_RUN_NUMBER:-0}"
-perl -pi -e 's/^version = "[^"]*"/version = "'"$v"'"/ && ($done = 1) unless $done' Cargo.toml
-grep -m1 '^version = ' Cargo.toml
+root=$(cd "$(dirname "$0")/../.." && pwd)
+version=$(cat "$root/RELEASE_VERSION")
+python3 "$root/scripts/ci/release.py" stamp "$version-dev.${GITHUB_RUN_NUMBER:-1}"

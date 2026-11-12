@@ -5,7 +5,7 @@
   </picture>
 </p>
 <p align="center"><b>朝霧 · Morning mist</b><br>A fast Docker-compatible engine. A fresh start.</p>
-<p align="center"><a href="https://andrekurait.github.io/asagiri/">Website & demo</a> · <a href="docs/development.md">Development</a> · <a href="UPSTREAM.md">Upstream history</a> · <a href="README.pt-BR.md">Português brasileiro</a></p>
+<p align="center"><a href="https://andrekurait.github.io/asagiri/">Website & demo</a> · <a href="https://github.com/AndreKurait/asagiri/releases">Downloads</a> · <a href="docs/development.md">Development</a> · <a href="UPSTREAM.md">Upstream history</a> · <a href="README.pt-BR.md">Português brasileiro</a></p>
 
 Asagiri runs Linux containers on **macOS, Linux, and Windows** and speaks the
 Docker Engine API. Use the Docker CLI, Compose, buildx, and Docker SDKs, or
@@ -22,15 +22,20 @@ The screenshot and browser demo use sample data in the real app UI.
 - A window and setup in 16 languages, including right-to-left Arabic.
 - A Linux VM on macOS, WSL 2 on Windows, and native containers on Linux.
 - Container names for local development, plus Kubernetes and Linux machines.
-- An interface in 15 languages, with the same core features on all three platforms.
 - Cross-platform CI, live Docker API conformance tests, and performance checks.
 
-## Build from source
+## Downloads
 
-**There are no Asagiri releases yet.** Build from this repository. Actions
-artifacts are unsigned development binaries, not complete desktop installers.
-Asagiri has no default update feed and will not update itself into another
-project. See [release status](RELEASES.md).
+Find packages and installers on the [release page](https://github.com/AndreKurait/asagiri/releases).
+Successful main builds publish automatic prereleases; stable releases use version
+tags. Downloads include Linux packages, macOS apps, Windows installers, checksums,
+and build provenance. Read each release's platform limits: macOS apps are not
+notarized, and Windows installers are not Authenticode signed.
+
+Asagiri has no default update feed. See [release automation](RELEASES.md) and
+[packaging](packaging/README.md) for installation and verification.
+
+## Build from source
 
 ```sh
 git clone https://github.com/AndreKurait/asagiri.git

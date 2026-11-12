@@ -239,6 +239,7 @@ fn qemu(root: &Path, arch: Arch) -> io::Result<()> {
 fn kernel(root: &Path, arch: Arch) -> io::Result<()> {
     let src = root.join("guest/kernel");
     let out = arch.guest_out(root)?;
+    let image = std::env::var("ASAGIRI_CI_GUEST_IMAGE").unwrap_or_else(|_| "debian:trixie".to_owned());
     let (karch, cache) = match arch {
         Arch::Arm64 => ("KARCH=arm64", "asagiri-kbuild:/build"),
         Arch::X86_64 => ("KARCH=x86_64", "asagiri-kbuild-x86_64:/build"),
@@ -256,7 +257,7 @@ fn kernel(root: &Path, arch: Arch) -> io::Result<()> {
         &format!("{}:/src:ro", src.display()),
         "-v",
         &format!("{}:/out", out.display()),
-        "debian:trixie",
+        &image,
         "sh",
         "/src/build.sh",
     ]))
@@ -268,12 +269,13 @@ fn kernel(root: &Path, arch: Arch) -> io::Result<()> {
 /// The same ext4 image serves both architectures.
 fn disk(root: &Path) -> io::Result<()> {
     let out = Arch::Arm64.guest_out(root)?;
+    let image = std::env::var("ASAGIRI_CI_GUEST_IMAGE").unwrap_or_else(|_| "debian:trixie".to_owned());
     run(Command::new("docker").args([
         "run",
         "--rm",
         "-v",
         &format!("{}:/out", out.display()),
-        "debian:trixie",
+        &image,
         "sh",
         "-c",
         "set -e; apt-get update -qq >/dev/null && apt-get install -y -qq e2fsprogs >/dev/null; \
@@ -411,18 +413,30 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
     // Asagiri Linux itself (scripts/asagiri-linux.sh), built in WSL: on Windows,
     // the default distro, with Rust installed. zig cross-compiles, so
     // either architecture builds in either WSL.
-    let linux = root.join(format!("target/linux-{}-musl", arch.linux()));
+    // Release CI builds and tests the Linux engine on a native Linux runner.
+    // Reuse that job's complete input bundle without needing WSL on the
+    // Windows packaging runner. Local builds keep the WSL path below.
+    let prebuilt = std::env::var_os("ASAGIRI_WINDOWS_LINUX_DIR").map(PathBuf::from);
+    let linux = prebuilt.clone().unwrap_or_else(|| root.join(format!("target/linux-{}-musl", arch.linux())));
     if !cfg!(windows) {
         return Err(io::Error::other("the Windows bundle is built on Windows, in WSL"));
     }
-    fs::create_dir_all(&linux)?;
-    let wsl = |path: &Path| -> io::Result<String> {
-        let out = Command::new("wsl.exe").args(["wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")).output()?;
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    };
-    let (src, out_dir) = (wsl(root)?, wsl(&linux)?);
-    run(Command::new("wsl.exe").args(["--", "bash", &format!("{src}/scripts/windows-engine.sh"), &src, &out_dir, arch.linux()]))?;
-    run(Command::new("wsl.exe").args(["--", "sh", &format!("{src}/scripts/asagiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/asagiri-linux.tar.gz"), arch.linux()]))?;
+    if prebuilt.is_some() {
+        for file in ["asagiri", "asagiri-init", "asagiri-linux.tar.gz"] {
+            if !linux.join(file).is_file() {
+                return Err(io::Error::other(format!("prebuilt Linux input is missing {file}: {}", linux.display())));
+            }
+        }
+    } else {
+        fs::create_dir_all(&linux)?;
+        let wsl = |path: &Path| -> io::Result<String> {
+            let out = Command::new("wsl.exe").args(["wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")).output()?;
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+        let (src, out_dir) = (wsl(root)?, wsl(&linux)?);
+        run(Command::new("wsl.exe").args(["--", "bash", &format!("{src}/scripts/windows-engine.sh"), &src, &out_dir, arch.linux()]))?;
+        run(Command::new("wsl.exe").args(["--", "sh", &format!("{src}/scripts/asagiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/asagiri-linux.tar.gz"), arch.linux()]))?;
+    }
     // Assemble the bundle first: the engine, Asagiri Linux, the docker CLI,
     // Compose and buildx (pinned, checked, as Asagiri.app bundles them) and the
     // install scripts. asagiri-win is built last, with the SHA-256 of each of

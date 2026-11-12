@@ -14,6 +14,7 @@ beside the emulator.
 - Distribution and build recipe: https://github.com/multiarch/qemu-user-static/tree/v7.2.0-1
 - Binary release: https://github.com/multiarch/qemu-user-static/releases/tag/v7.2.0-1
 
-There is no Asagiri binary release yet. When distributing a bundle containing
-this emulator, provide its complete corresponding source, including the
-build recipe and any statically linked dependencies, alongside the bundle.
+Automated Asagiri release packages currently omit this optional emulator.
+Before enabling it in distributed bundles, package its complete corresponding
+source, including the build recipe and any statically linked dependencies,
+alongside the binary.
