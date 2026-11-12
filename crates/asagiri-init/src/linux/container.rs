@@ -185,6 +185,28 @@ enum ParentStdio {
     Pipes { stdin: Option<OwnedFd>, stdout: OwnedFd, stderr: OwnedFd },
 }
 
+/// What the child said before it ended, if it could not start (see
+/// `sys::child_fail`): read from where it reports, without waiting.
+fn child_report(fd: RawFd) -> Option<String> {
+    let mut ready = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    // SAFETY: one valid pollfd, no wait.
+    if unsafe { libc::poll(&mut ready, 1, 0) } != 1 || ready.revents & libc::POLLIN == 0 {
+        return None;
+    }
+    let mut buf = [0u8; 2048];
+    // SAFETY: reading into a local buffer from a descriptor that has data.
+    let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+    if n <= 0 {
+        return None;
+    }
+    start_failure(&String::from_utf8_lossy(&buf[..n as usize])).map(str::to_owned)
+}
+
+/// The reason in a child's "asagiri: cannot start container: <reason>" line.
+fn start_failure(said: &str) -> Option<&str> {
+    said.lines().find_map(|l| l.strip_prefix("asagiri: cannot start container: ")).map(str::trim).filter(|why| !why.is_empty())
+}
+
 fn stdio(p: &Prepared) -> io::Result<(ParentStdio, ChildStdio)> {
     if p.tty {
         let (parent, child) = sys::socketpair()?;
@@ -326,10 +348,23 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         netns = fs::File::open(format!("/proc/{pid}/ns/net")).map_or(0, |f| netns_inode(&f));
     }
     drop(cgroup_fd);
+    // The child makes its mounts before it waits for its network, and a
+    // mount that fails ends it with a message of its own. A step here then
+    // fails on a child that is already gone ("dns: No such file or
+    // directory", "network: Out of memory"): that is only where it was
+    // noticed, so the child's own message is the error.
+    let report = match &parent_io {
+        ParentStdio::Tty { sock } => sock.as_raw_fd(),
+        ParentStdio::Pipes { stderr, .. } => stderr.as_raw_fd(),
+    };
     let kill_child = |e: io::Error| {
+        let own = child_report(report);
         // SAFETY: killing the child we just cloned.
         unsafe { libc::kill(pid, libc::SIGKILL) };
-        e
+        match own {
+            Some(why) => io::Error::new(e.kind(), why),
+            None => e,
+        }
     };
     let mut veths = Vec::new();
     let mut macvlans = Unplug(Vec::new());
@@ -1769,6 +1804,17 @@ mod tests {
         make(&dir).unwrap();
         assert!(marker(&dir).is_dir());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A start that fails on a child already gone reports what the child
+    /// said, not the later step that noticed.
+    #[test]
+    fn a_start_failure_is_the_childs_own_reason() {
+        assert_eq!(super::start_failure("asagiri: cannot start container: mount etc/hosts: mount /proc/self/fd/24: Not a directory (os error 20)\n"), Some("mount etc/hosts: mount /proc/self/fd/24: Not a directory (os error 20)"));
+        assert_eq!(super::start_failure("noise\nasagiri: cannot start container: mount: boom\nmore"), Some("mount: boom"));
+        assert_eq!(super::start_failure("hello from the program\n"), None);
+        assert_eq!(super::start_failure("asagiri: cannot start container: \n"), None);
+        assert_eq!(super::start_failure(""), None);
     }
 
     #[test]

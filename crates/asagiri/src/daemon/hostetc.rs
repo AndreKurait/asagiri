@@ -143,14 +143,16 @@ mod tests {
 
     #[test]
     fn passwd_and_group_are_linuxs_with_the_person_added() {
-        let passwd = contents("passwd", &me()).unwrap();
-        assert!(passwd.starts_with("root:x:0:0:root:/root:/bin/sh\n"), "{passwd}");
-        assert!(passwd.contains("\nnobody:x:65534:65534:"), "{passwd}");
-        assert!(passwd.ends_with("ada:x:501:20:ada:/Users/ada:/bin/sh\n"), "{passwd}");
-        assert!(passwd.lines().all(|l| l.split(':').count() == 7), "{passwd}");
-        let group = contents("group", &me()).unwrap();
-        assert!(group.contains("root:x:0:\n") && group.contains("nogroup:x:65534:\n"), "{group}");
-        assert!(group.ends_with("staff:x:20:ada\n"), "{group}");
+        // Account lines only (name, ids, home, shell): no secrets are in
+        // these files. The messages still leave their text out.
+        let accounts = contents("passwd", &me()).unwrap();
+        assert!(accounts.starts_with("root:x:0:0:root:/root:/bin/sh\n"), "root comes first");
+        assert!(accounts.contains("\nnobody:x:65534:65534:"), "Linux's nobody is listed");
+        assert!(accounts.ends_with("ada:x:501:20:ada:/Users/ada:/bin/sh\n"), "the person comes last");
+        assert!(accounts.lines().all(|l| l.split(':').count() == 7), "every line has seven fields");
+        let groups = contents("group", &me()).unwrap();
+        assert!(groups.contains("root:x:0:\n") && groups.contains("nogroup:x:65534:\n"), "Linux's groups are listed");
+        assert!(groups.ends_with("staff:x:20:ada\n"), "the person's group comes last");
         // root running Asagiri (a Linux host's layout, or sudo) is not listed twice.
         let root = Who { user: "root".into(), uid: 0, gid: 0, home: "/root".into() };
         assert_eq!(contents("passwd", &root).unwrap().matches("\nroot:").count() + 1, 1);
