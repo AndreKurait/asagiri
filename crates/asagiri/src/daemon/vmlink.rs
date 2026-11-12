@@ -70,13 +70,14 @@ pub enum Event<'a> {
 
 pub struct VmLink {
     writer: Mutex<Writer>,
+    /// Closes the transport without waiting for a writer blocked in the guest.
+    control: File,
     /// Stdin credit per running process; see `input`.
     windows: Arc<Windows>,
     /// The guest's latest `Usage` lines, for `usage`.
     usage: Arc<UsageSlot>,
     pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
-    /// Kept so the VM lives as long as the link. Behind a mutex only so the
-    /// link can be shared between threads; nothing touches it after boot.
+    /// Owns the VM until retirement has confirmed shutdown and cleanup.
     _vm: Mutex<Vm>,
     /// Opens vsock streams without that mutex, so connects run side by side.
     connector: asagiri_vmm::Connector,
@@ -182,6 +183,19 @@ impl Windows {
         }
         g.lost
     }
+
+    fn wait_for_loss(&self, timeout: std::time::Duration) -> io::Result<()> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut g = self.lock();
+        while !g.loss_handled {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "the previous VM's exit accounting did not finish"));
+            }
+            g = self.changed.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        Ok(())
+    }
     /// Waits until `n` bytes may be sent to `id` and takes them. `Ok(false)`:
     /// the process is not running, the bytes should be dropped.
     fn take(&self, id: &str, n: usize) -> io::Result<bool> {
@@ -223,6 +237,7 @@ impl VmLink {
     pub fn new(vm: Vm, conn: File, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
         let pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>> = Arc::new(Mutex::new(VecDeque::new()));
         let mut reader = conn.try_clone()?;
+        let control = conn.try_clone()?;
         let queue = pending.clone();
         let windows = Arc::new(Windows::default());
         let wins = windows.clone();
@@ -297,6 +312,7 @@ impl VmLink {
         })?;
         Ok(VmLink {
             writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
+            control,
             pending,
             windows,
             usage,
@@ -593,7 +609,16 @@ impl VmLink {
     /// resources, even while relay threads retain this link.
     pub fn retire(&self) -> io::Result<()> {
         self._vm.lock().unwrap_or_else(|e| e.into_inner())
-            .retire(std::time::Duration::from_secs(10), std::time::Duration::from_secs(10))
+            .retire(std::time::Duration::from_secs(10), std::time::Duration::from_secs(10))?;
+        // The backend can finish before the reader sees EOF. Release its
+        // mutex, wake the reader, then wait for Lost to clear old state.
+        // Otherwise a late Lost could stop containers in the replacement.
+        use std::os::fd::AsRawFd;
+        // SAFETY: control owns a stream socket. Shutdown also wakes any
+        // blocked writer without needing its lock; an already closed peer
+        // is harmless. The accounting barrier below confirms completion.
+        unsafe { libc::shutdown(self.control.as_raw_fd(), libc::SHUT_RDWR); }
+        self.windows.wait_for_loss(std::time::Duration::from_secs(10))
     }
 
     #[cfg(test)]
@@ -665,5 +690,31 @@ mod tests {
         assert!(!windows.lock().loss_handled, "only the reader owns exit accounting");
         let mut peer = peer;
         assert_eq!(peer.read(&mut [0]).unwrap(), 0, "the failed transport is closed in both directions");
+    }
+
+    #[test]
+    fn retirement_waits_for_loss_to_arrive_and_finish_accounting() {
+        use std::time::Duration;
+        let windows = Arc::new(Windows::default());
+        let waiting = windows.clone();
+        let (sent, received) = mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            sent.send(waiting.wait_for_loss(Duration::from_secs(2))).unwrap();
+        });
+        assert!(received.recv_timeout(Duration::from_millis(50)).is_err(), "backend shutdown alone does not prove reader cleanup");
+        windows.lose();
+        assert!(received.recv_timeout(Duration::from_millis(50)).is_err(), "publishing Lost precedes exit accounting");
+        windows.finish_loss();
+        received.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        waiter.join().unwrap();
+        windows.wait_for_loss(Duration::ZERO).unwrap();
+    }
+
+    #[test]
+    fn unfinished_accounting_does_not_authorize_a_replacement() {
+        let windows = Windows::default();
+        assert_eq!(windows.wait_for_loss(std::time::Duration::ZERO).unwrap_err().kind(), io::ErrorKind::TimedOut);
+        windows.lose();
+        assert_eq!(windows.wait_for_loss(std::time::Duration::ZERO).unwrap_err().kind(), io::ErrorKind::TimedOut);
     }
 }

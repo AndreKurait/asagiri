@@ -46,7 +46,7 @@ if [ "$mode" = tests ]; then set -- "$@" --privileged; fi
     }
     clean_workspace
     if [ "$mode" = tests ]; then
-      cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image"
+      cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
     fi
     cargo build --release --locked -p "$engine" -p "$engine-init"
     cp "/t/release/$engine" "/t/release/$engine-init" /out/

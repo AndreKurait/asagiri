@@ -143,7 +143,9 @@ def check(path):
                 for layer in image_manifest["layers"]:
                     with tarfile.open(fileobj=blob(layer["digest"]), mode="r:*") as files:
                         for member in files:
-                            if member.name.removeprefix("./") == "bin/busybox" and member.isfile():
+                            # BusyBox's official layer hard-links this path
+                            # to bin/[; extractfile resolves that in memory.
+                            if member.name.removeprefix("./") == "bin/busybox" and (member.isfile() or member.islnk()):
                                 binary = files.extractfile(member).read(20)
                 assert binary and binary[:4] == b"\x7fELF", "export has no BusyBox ELF"
                 endian = {1: "little", 2: "big"}[binary[5]]

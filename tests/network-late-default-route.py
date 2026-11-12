@@ -109,6 +109,7 @@ def check(path, image):
     passed = 0
     try:
         closed = network("a-closed", Internal=True)
+        also_closed = network("a-second-closed", Internal=True)
         first = network("b-first", EnableIPv6=True,
                         IPAM={"Config": [{"Subnet": "172.31.244.0/24"}, {"Subnet": "fd42:7a::/64"}]})
         second = network("c-second", EnableIPv6=True,
@@ -118,6 +119,13 @@ def check(path, image):
         # routed network the container joins gives it one.
         cid = run(closed)
         assert ways_out(cid) == ("", ""), ways_out(cid)
+        join(also_closed, cid)
+        assert ways_out(cid) == ("", ""), ways_out(cid)
+        restart(cid)
+        assert ways_out(cid) == ("", ""), ways_out(cid)
+        leave(also_closed, cid)
+        passed += 1
+        print("PASS two internal networks have no default route before or after restart", flush=True)
         join(first, cid)
         assert ways_out(cid) == gateways(cid, first), (ways_out(cid), gateways(cid, first))
         assert gateways(cid, first)[0].startswith("172.31.244.") and gateways(cid, first)[1].startswith("fd42:7a::")

@@ -1246,7 +1246,7 @@ impl Engine {
     fn start_held(&self) {
         let held = std::mem::take(&mut *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()));
         for id in held {
-            if let Err(e) = self.start_inner(&id, false) {
+            if let Err(e) = self.start_inner(&id, Start::DaemonRestart) {
                 crate::diag::warn!("container did not restart", id = &id[..12], error = format!("{e:?}"));
             }
         }
@@ -3515,8 +3515,10 @@ impl Engine {
             let mut st = self.lock();
             match st.containers.get_mut(id) {
                 Some(c) => {
+                    let cancelled = c.restart_pending || recover_after_vm_loss(c);
                     c.stopped_by_user = true;
-                    (!c.spec.auto_remove, std::mem::take(&mut c.restart_pending))
+                    c.restart_pending = false;
+                    (!c.spec.auto_remove, cancelled)
                 }
                 None => (false, false),
             }
@@ -4212,7 +4214,10 @@ mod vm_recovery_tests {
 
     #[test]
     fn vm_loss_recovers_running_policies_but_preserves_user_stops() {
-        let dir = std::env::temp_dir().join(format!("asagiri-vm-recovery-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("asagiri-vm-recovery-{}-{}", std::process::id(), random_hex(8)));
+        // A fresh, exclusively created store cannot contain restart records.
+        // Engine::boot therefore cannot launch a VM before stopped is set.
+        std::fs::create_dir(&dir).unwrap();
         let store = Store::open(&dir).unwrap();
         let engine = Engine::boot(store).unwrap();
         // Prevent any real VM boot: this test supplies the guest events.
@@ -4262,11 +4267,11 @@ mod vm_recovery_tests {
         let stopping_id = ids["always-live"].clone();
         let (sent, received) = std::sync::mpsc::channel();
         let stop = std::thread::spawn(move || sent.send(stopping_engine.stop(&stopping_id, Duration::ZERO)).unwrap());
-        let canceled_during_preparation = received.recv_timeout(Duration::from_millis(200)).is_ok();
+        let canceled_during_preparation = received.recv_timeout(Duration::from_millis(200));
         drop(link);
         let started = start.join().unwrap();
         stop.join().unwrap();
-        assert!(canceled_during_preparation, "stop must finish while VM preparation is blocked");
+        assert!(matches!(canceled_during_preparation, Ok(Ok(true))), "stop must promptly report that it canceled VM recovery");
         assert!(matches!(started, Err(Error::Conflict(_))), "a newer manual stop invalidates the prepared user start");
         engine.lock().containers.get_mut(&ids["always-live"]).unwrap().stopped_by_user = false;
         // A start can finish reserving its address after Lost has already
@@ -4358,8 +4363,9 @@ mod vm_recovery_tests {
         });
         assert!(received.recv_timeout(Duration::from_millis(50)).is_err(), "stop must wait for an in-flight start");
         drop(starting);
-        received.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        assert!(received.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(), "canceling VM recovery is a successful stop");
         stop.join().unwrap();
+        assert!(!engine.stop(&ids["unless-live"], Duration::ZERO).unwrap(), "a second stop has nothing left to cancel");
         assert_eq!(engine.vm_restart_candidates(), vec![ids["always-live"].clone()]);
         engine.start_inner(&ids["unless-live"], Start::VmRecovery).unwrap();
         engine.start_inner(&ids["unless-live"], Start::Restart).unwrap();
@@ -4380,8 +4386,9 @@ mod vm_recovery_tests {
         let waiter = std::thread::spawn(move || sent.send(waiting.wait(&waiting_id, "removed")).unwrap());
         assert!(matches!(engine.start(&failed), Err(Error::Io(_))));
         assert!(engine.resolve(&failed).is_err(), "a failed boot must remove a --rm container and wake its waiter");
-        assert!(matches!(received.recv_timeout(Duration::from_secs(2)).unwrap(), Ok(127) | Err(Error::NotFound(_))));
+        assert!(matches!(received.recv_timeout(Duration::from_secs(2)).unwrap(), Ok(128) | Err(Error::NotFound(_))));
         waiter.join().unwrap();
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0, "this synthetic test must never boot a real VM");
         drop(engine);
         std::fs::remove_dir_all(dir).unwrap();
     }

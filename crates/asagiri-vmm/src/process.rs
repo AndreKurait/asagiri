@@ -47,12 +47,27 @@ pub struct Vm {
     child: Arc<Mutex<Child>>,
     events: Receiver<Event>,
     closing: Arc<AtomicBool>,
+    listeners: Mutex<Vec<std::thread::JoinHandle<()>>>,
     retired: bool,
 }
 
 fn runtime_directory(root: &Path) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     root.join(format!("asagiri-agent-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
+}
+
+fn accept_until_closed(listener: &UnixListener, closing: &AtomicBool) -> io::Result<Option<UnixStream>> {
+    loop {
+        if closing.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        match listener.accept() {
+            Ok((stream, _)) => return Ok(Some(stream)),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(10)),
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// A connection to one of the agent's ports.
@@ -84,15 +99,18 @@ impl Vm {
         // Made private in one step; an existing entry (a planted folder or
         // link) fails it rather than being used.
         std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700).create(&dir)?;
+        let result = Self::start_in(cfg, dir.clone());
+        if result.is_err() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        result
+    }
+
+    fn start_in(cfg: Config, dir: PathBuf) -> io::Result<Vm> {
         let (sender, events) = mpsc::channel();
         // The agent's first dial: the host's control connection.
         let control = UnixListener::bind(dir.join(format!("h{}.sock", cfg.agent_port)))?;
-        let tx = sender.clone();
-        std::thread::Builder::new().name("asa-agent-accep".into()).spawn(move || {
-            if let Ok((s, _)) = control.accept() {
-                let _ = tx.send(Event::GuestConnected(OwnedFd::from(s)));
-            }
-        })?;
+        control.set_nonblocking(true)?;
         let mut cmd = Command::new(&cfg.initrd);
         cmd.env("ASAGIRI_AGENT_DIR", &dir).env_remove("ASAGIRI_SOCKET");
         if let Some(fd) = cfg.console {
@@ -101,23 +119,36 @@ impl Vm {
             cmd.stdout(std::process::Stdio::null());
         }
         let child = Arc::new(Mutex::new(cmd.spawn().map_err(|e| io::Error::new(e.kind(), format!("starting {}: {e}", cfg.initrd.display())))?));
-        let (waiter, tx) = (child.clone(), sender);
-        std::thread::Builder::new().name("asa-agent-wait".into()).spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(100));
-            let status = waiter.lock().unwrap_or_else(|e| e.into_inner()).try_wait();
-            match status {
-                Ok(Some(s)) => {
-                    let _ = tx.send(Event::Stopped((!s.success()).then(|| format!("the agent exited: {s}"))));
-                    return;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    let _ = tx.send(Event::Stopped(Some(e.to_string())));
-                    return;
+        // Own the child before any fallible thread creation: Drop must reap
+        // it and close every already-created listener on a partial start.
+        let vm = Vm { dir, child, events, closing: Arc::new(AtomicBool::new(false)), listeners: Mutex::new(Vec::new()), retired: false };
+        let (tx, closing) = (sender.clone(), vm.closing.clone());
+        let accept = std::thread::Builder::new().name("asa-agent-accep".into()).spawn(move || {
+            if let Ok(Some(s)) = accept_until_closed(&control, &closing) {
+                let _ = tx.send(Event::GuestConnected(OwnedFd::from(s)));
+            }
+        })?;
+        vm.listeners.lock().unwrap_or_else(|e| e.into_inner()).push(accept);
+        let (waiter, tx, closing) = (vm.child.clone(), sender, vm.closing.clone());
+        let wait = std::thread::Builder::new().name("asa-agent-wait".into()).spawn(move || {
+            while !closing.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(100));
+                let status = waiter.lock().unwrap_or_else(|e| e.into_inner()).try_wait();
+                match status {
+                    Ok(Some(s)) => {
+                        let _ = tx.send(Event::Stopped((!s.success()).then(|| format!("the agent exited: {s}"))));
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        let _ = tx.send(Event::Stopped(Some(e.to_string())));
+                        return;
+                    }
                 }
             }
         })?;
-        Ok(Vm { dir, child, events, closing: Arc::new(AtomicBool::new(false)), retired: false })
+        vm.listeners.lock().unwrap_or_else(|e| e.into_inner()).push(wait);
+        Ok(vm)
     }
 
     pub fn next_event(&self, timeout: Duration) -> Option<Event> {
@@ -145,6 +176,7 @@ impl Vm {
             graceful,
             forced,
         )?;
+        self.close_listeners();
         match std::fs::remove_dir_all(&self.dir) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -152,6 +184,12 @@ impl Vm {
         }
         self.retired = true;
         Ok(())
+    }
+
+    fn close_listeners(&mut self) {
+        for thread in self.listeners.get_mut().unwrap_or_else(|e| e.into_inner()).drain(..) {
+            let _ = thread.join();
+        }
     }
 
     /// No balloon: the agent shares the host's memory as it is.
@@ -167,11 +205,22 @@ impl Vm {
         let path = self.dir.join(format!("h{port}.sock"));
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path)?;
-        std::thread::Builder::new().name(format!("asa-vs-{port:x}")).spawn(move || {
-            for s in l.incoming().flatten() {
-                handler(VsockStream { fd: OwnedFd::from(s) });
+        l.set_nonblocking(true)?;
+        let closing = self.closing.clone();
+        let handler: Arc<dyn Fn(VsockStream) + Send + Sync> = Arc::from(handler);
+        let listener = std::thread::Builder::new().name(format!("asa-vs-{port:x}")).spawn(move || {
+            while let Ok(Some(s)) = accept_until_closed(&l, &closing) {
+                let handler = handler.clone();
+                // Retirement joins accept loops, never a handler waiting on
+                // user data or on the engine's own exit accounting.
+                if std::thread::Builder::new().name(format!("asa-vs-{port:x}-conn")).spawn(move || {
+                    handler(VsockStream { fd: OwnedFd::from(s) });
+                }).is_err() {
+                    break;
+                }
             }
         })?;
+        self.listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
         Ok(())
     }
 
@@ -223,6 +272,7 @@ impl Drop for Vm {
         self.closing.store(true, Ordering::Release);
         self.force_stop();
         let _ = self.child.lock().unwrap_or_else(|e| e.into_inner()).wait();
+        self.close_listeners();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -243,7 +293,7 @@ mod tests {
             let dir = self.0.join(name);
             std::fs::create_dir(&dir).unwrap();
             let (_, events) = mpsc::channel();
-            Vm { dir, child: Arc::new(Mutex::new(child)), events, closing: Arc::new(AtomicBool::new(false)), retired: false }
+            Vm { dir, child: Arc::new(Mutex::new(child)), events, closing: Arc::new(AtomicBool::new(false)), listeners: Mutex::new(Vec::new()), retired: false }
         }
     }
     impl Drop for Fixture {
@@ -305,5 +355,37 @@ mod tests {
     fn runtime_directories_belong_to_one_generation() {
         let root = Path::new("/run");
         assert_ne!(runtime_directory(root), runtime_directory(root));
+    }
+
+    #[test]
+    fn retirement_closes_unconnected_listeners_and_joins_their_threads() {
+        let fixture = Fixture::new();
+        let child = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        let mut vm = fixture.vm("listeners", child);
+        vm.listen(123, Box::new(|_| panic!("no connections were made"))).unwrap();
+        vm.listen(456, Box::new(|_| panic!("no connections were made"))).unwrap();
+        assert_eq!(vm.listeners.lock().unwrap().len(), 2);
+        let directory = vm.dir.clone();
+        let started = Instant::now();
+        vm.retire(Duration::ZERO, Duration::from_secs(2)).unwrap();
+        assert!(vm.listeners.lock().unwrap().is_empty());
+        assert!(!directory.exists());
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert_eq!(vm.listen(789, Box::new(|_| {})).unwrap_err().kind(), io::ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn control_accept_can_be_canceled_without_a_guest_connection() {
+        let fixture = Fixture::new();
+        let listener = UnixListener::bind(fixture.0.join("control.sock")).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let closing = Arc::new(AtomicBool::new(false));
+        let cancel = closing.clone();
+        let (sent, received) = mpsc::channel();
+        let thread = std::thread::spawn(move || sent.send(accept_until_closed(&listener, &cancel).unwrap().is_none()).unwrap());
+        assert!(received.recv_timeout(Duration::from_millis(30)).is_err());
+        closing.store(true, Ordering::Release);
+        assert!(received.recv_timeout(Duration::from_secs(1)).unwrap());
+        thread.join().unwrap();
     }
 }

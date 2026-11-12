@@ -14,7 +14,8 @@ sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
-  -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri \
+  -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
+  -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
   "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
 trap 'docker rm -fv "$name" >/dev/null 2>&1' EXIT INT TERM
 
@@ -49,6 +50,8 @@ for t in kill-during-start remove-during-start wait-code-after-removal network-b
   network-connect-dns network-late-default-route network-interface-numbers network-macvlan network-ipvlan; do
   for img in busybox:stable alpine:3.21; do run "$t" "$img"; done
 done
+
+run vm-recovery alpine:3.21
 
 # Restart this disposable daemon process and its Linux host. A container
 # with an always policy must come back with its writable layer intact.
