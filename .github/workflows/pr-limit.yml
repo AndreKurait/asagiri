@@ -1,0 +1,78 @@
+# At most four open pull requests per person: two ready for review and two
+# drafts. A pull request past the limit is put back as it was (made a draft
+# again, or made ready again) when that fits, and closed with a note when it
+# doesn't. Bots are not counted. The repository variable PR_LIMIT_EXEMPT
+# (logins, comma-separated) lists people it leaves alone.
+#
+# It runs on pull_request_target so it can comment on and close pull
+# requests from forks. That is safe here: nothing from the pull request is
+# checked out or run, and its text is only ever read from the environment.
+name: Pull request limit
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] no code from the pull request is checked out or run
+    types: [opened, reopened, ready_for_review, converted_to_draft]
+
+permissions: {}
+
+concurrency:
+  # One at a time per person, so two opened together are counted in turn.
+  group: pr-limit-${{ github.event.pull_request.user.login }}
+  cancel-in-progress: false
+
+jobs:
+  limit:
+    name: limit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Count this person's open pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTION: ${{ github.event.action }}
+          EXEMPT: ${{ vars.PR_LIMIT_EXEMPT }}
+          READY_MAX: 2
+          DRAFT_MAX: 2
+        run: |
+          set -euo pipefail
+          case "$AUTHOR" in *'[bot]') echo "Bots are not counted."; exit 0 ;; esac
+          case ",${EXEMPT// /}," in *",$AUTHOR,"*) echo "$AUTHOR is exempt."; exit 0 ;; esac
+
+          # The list as it is now, not as the event saw it.
+          gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            | jq -r --arg a "$AUTHOR" '.[] | select(.user.login == $a) | "\(.number) \(.draft)"' > open.txt
+          ready=$(grep -c ' false$' open.txt || true)
+          drafts=$(grep -c ' true$' open.txt || true)
+          mine=$(awk -v n="$NUMBER" '$1 == n { print $2 }' open.txt)
+          echo "$AUTHOR has $ready ready and $drafts draft pull requests open (limit $READY_MAX and $DRAFT_MAX); #$NUMBER draft=$mine after $ACTION." | tee -a "$GITHUB_STEP_SUMMARY"
+          [ -n "$mine" ] || exit 0
+
+          rule="The limit here is $READY_MAX pull requests ready for review and $DRAFT_MAX drafts per person, so each one gets looked at properly."
+          later="Bring it back when one of your others is merged or closed."
+          close() {
+            gh pr close "$NUMBER" --repo "$REPO" --comment "$1 $rule This one was closed; nothing is lost. $later"
+            echo "Closed #$NUMBER." | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [ "$mine" = false ] && [ "$ready" -gt "$READY_MAX" ]; then
+            said="You have $ready pull requests ready for review open."
+            if [ "$drafts" -lt "$DRAFT_MAX" ] && gh pr ready "$NUMBER" --repo "$REPO" --undo; then
+              gh pr comment "$NUMBER" --repo "$REPO" --body "$said $rule This one was made a draft. Mark it ready when one of your others is merged or closed."
+              echo "Made #$NUMBER a draft." | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              close "$said"
+            fi
+          elif [ "$mine" = true ] && [ "$drafts" -gt "$DRAFT_MAX" ]; then
+            said="You have $drafts draft pull requests open."
+            if [ "$ACTION" = converted_to_draft ] && [ "$ready" -lt "$READY_MAX" ] && gh pr ready "$NUMBER" --repo "$REPO"; then
+              gh pr comment "$NUMBER" --repo "$REPO" --body "$said $rule This one was made ready for review again. Make it a draft when one of your other drafts is merged, closed or made ready."
+              echo "Made #$NUMBER ready again." | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              close "$said"
+            fi
+          fi

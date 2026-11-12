@@ -14,10 +14,12 @@ the output you got, as the issue form asks. A report we can't reproduce, or a
 problem found only by reading the code, may be closed until it can be shown
 on a real machine.
 
-Keep at most 3 pull requests open at a time. Each one takes a maintainer's
-time to review, and a few at a time get reviewed sooner. Pull requests beyond
-that, or larger changes without an agreed issue, are closed; you're welcome
-to reopen them one at a time later.
+Keep at most 4 pull requests open at a time: 2 ready for review and 2
+drafts. A few at a time get looked at properly and merged sooner. The
+"Pull request limit" check counts them for everyone, maintainers included:
+one past the limit is made a draft when you have room for a draft, and
+closed with a note when you don't. Nothing is lost; bring it back when one
+of your others is merged or closed.
 
 ## Building and testing
 

@@ -1,0 +1,16 @@
+# The actions the workflows use are pinned to a commit. This keeps the pins
+# current: one grouped pull request a week.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A release is taken a week after it comes out, not the day it does, so
+    # one that turns out to be bad has time to be noticed and pulled.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
