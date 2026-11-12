@@ -10,7 +10,7 @@ and Cargo configuration. Only pushes to `main` save caches; pull requests can
 restore them. Workspace crates are rebuilt. The Linux helper removes their
 artifacts before building and before saving the dependency cache, so a file
 timestamp cannot cause the performance check to reuse the other revision's
-engine.
+engine or shared protocol library.
 
 The Linux and speed jobs also cache the Rust, Docker CLI, and Alpine base
 images through GitHub Actions. `scripts/ci/images.json` pins both the registry
@@ -62,8 +62,12 @@ again against the live project URL. Every push to main publishes automatically;
 
 Security checks include dependency advisories, licenses and sources,
 ShellCheck, workflow auditing, and CodeQL. Advisory failures remain failures
-on PRs as well as main. Superseded builds, UI tests, and CodeQL runs are
-canceled so the newest revision gets the available runners.
+on PRs as well as main. Superseded PR checks are canceled. Main workflows
+finish their active run before handling the newest pending push, so repeated
+pushes do not discard progress toward a verified build or deployment. GitHub
+keeps one pending run per workflow group; a newer push can replace that
+pending run. Every main build that completes all required checks successfully
+can publish its own prerelease.
 
 To run the Linux build and unit tests locally with Docker:
 

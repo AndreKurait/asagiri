@@ -35,8 +35,14 @@ if [ "$mode" = tests ]; then set -- "$@" --privileged; fi
     mode=$1
     engine=${2#crates/}; engine=${engine%/Cargo.toml}; engine=${engine%-init}
     clean_workspace() {
-      cargo clean --locked -p "$engine" -p "$engine-init" -p "$engine-image" \
+      set -- -p "$engine" -p "$engine-init" -p "$engine-image" \
         -p "$engine-proto" -p "$engine-vmm"
+      # Older comparison baselines predate the shared protocol crate.
+      if [ -f "crates/$engine-share-proto/Cargo.toml" ]; then
+        set -- "$@" -p "$engine-share-proto"
+      fi
+      cargo clean --locked "$@"
+      cargo clean --locked --release "$@"
     }
     clean_workspace
     if [ "$mode" = tests ]; then

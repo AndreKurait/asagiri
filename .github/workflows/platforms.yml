@@ -22,7 +22,8 @@ env:
 
 concurrency:
   group: platforms-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish the active main build; newer pushes wait instead of restarting it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
