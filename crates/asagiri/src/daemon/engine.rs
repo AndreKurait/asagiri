@@ -1963,11 +1963,12 @@ impl Engine {
                 return Err(Error::Io(e));
             }
         };
-        self.start_on_vm(key, reason, vm)
+        self.start_on_vm(key, reason, vm, _starting)
     }
 
-    /// The lifecycle lock is held by start_inner for this entire attempt.
-    fn start_on_vm(&self, key: &str, reason: Start, vm: Arc<VmLink>) -> Result<(), Error> {
+    /// Own the lifecycle lock through guest creation, then release it before
+    /// input delivery, which may wait indefinitely for the program to read.
+    fn start_on_vm(&self, key: &str, reason: Start, vm: Arc<VmLink>, starting: MutexGuard<'_, u64>) -> Result<(), Error> {
         let (id, layers, argv, spec, size) = {
             let mut st = self.lock();
             let id = resolve(&st, key)?;
@@ -2228,6 +2229,7 @@ impl Engine {
             c.in_guest = true;
         }
         self.changed.notify_all();
+        drop(starting);
         // Deliver input that arrived early.
         // It is drained before the container goes live, so input still
         // arriving meanwhile (and its CloseStdin) queues behind it rather
@@ -4189,7 +4191,9 @@ mod vm_recovery_tests {
         assert!(st.vm_recovery_at.unwrap() > std::time::Instant::now() + Duration::from_secs(50));
         let spec = st.containers[&ids[0]].spec.clone();
         drop(st);
-        assert!(engine.start_on_vm(&ids[0], Start::VmRecovery, lost_vm).is_err(), "a start borrowing the old VM cannot claim Running after Lost");
+        let lifecycle = engine.lifecycle(&ids[0]).unwrap();
+        let starting = lifecycle.lock().unwrap();
+        assert!(engine.start_on_vm(&ids[0], Start::VmRecovery, lost_vm, starting).is_err(), "a start borrowing the old VM cannot claim Running after Lost");
         assert_eq!(engine.with(&ids[0], |c| (c.status, c.vm_stopped, c.exit_code)).unwrap(), (Status::Exited, true, 255));
         engine.fail_start(&ids[0], &spec, &"late VM start failure");
         assert_eq!(engine.with(&ids[0], |c| c.exit_code).unwrap(), 255, "a late start failure must preserve VM-loss accounting");
