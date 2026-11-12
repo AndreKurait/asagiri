@@ -18,7 +18,8 @@ manifest and each architecture's image content ID. After loading an archive,
 the helper verifies that content ID before exporting the image for a build.
 A warm cache needs no registry request. A missing, damaged, or incorrect cache
 falls back to a pull by digest and is replaced only after verification.
-Release jobs additionally cache their Debian, Ubuntu, and Fedora images.
+Release jobs additionally cache their Debian, Ubuntu, Fedora, and Amazon Linux
+2023 images.
 Test engines, their data directories, and their pulled test images stay fresh.
 
 ### Cache service choice
@@ -79,6 +80,25 @@ Pages deployment runs independently and does not block package publication.
 The publisher verifies the complete asset set, checksums, update metadata, and
 GitHub upload digests before making the draft public. Rerunning a failed
 Release workflow preserves its version and retries publication automatically.
+
+Linux releases also install both RPM variants on Amazon Linux 2023, configure
+an ordinary user's engine access, run a real container, and remove the package.
+The release matrix exercises native x86_64 and aarch64 binaries.
+
+A successful release refreshes Pages automatically. The website publisher
+verifies release provenance against the exact source and workflow commit,
+requires that source in main's history, and adds RPM signatures using the
+dedicated `ASAGIRI_RPM_SIGNING_KEY` secret. It publishes DNF metadata for both
+architectures and generates the install page's download index. Publication
+selects by version, so an older build finishing later cannot downgrade a
+channel. The deploy check verifies the installer key pin, download URLs, and
+RPM metadata over the live HTTPS site.
+
+The separate [Homebrew tap](https://github.com/AndreKurait/homebrew-asagiri)
+checks releases on a 15-minute schedule using its own `GITHUB_TOKEN`. It
+verifies the source, provenance, and DMG checksums before creating a GitHub
+signed and signed-off cask update. It needs no personal token or credential
+that can write to both repositories.
 
 To run the Linux build and unit tests locally with Docker:
 

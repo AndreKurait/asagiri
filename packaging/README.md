@@ -55,5 +55,8 @@ The renderer needs librsvg (`rsvg-convert`) and Pillow. It creates PNG and ICO
 icons, a monochrome menu-bar template, and 24-bit WiX bitmaps. Windows stamps the
 version onto the committed artwork during packaging.
 
-See [RELEASES.md](../RELEASES.md) for release preparation. There is no Asagiri
-Homebrew tap, package repository, hosted share service, or default update feed.
+See [RELEASES.md](../RELEASES.md) for release preparation and
+[installation](../docs/install.md) for Homebrew and the signed Amazon Linux
+2023 repository. The setup script detects the architecture and verifies its
+download. Website publication refreshes the package repository after releases.
+There is no hosted share service or default in-app update feed.

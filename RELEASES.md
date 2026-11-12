@@ -7,16 +7,16 @@ Asagiri release notes are in `docs/releases/asagiri.md`.
 
 ## Automatic prereleases
 
-Every main build whose Platform builds, UI tests, Security, Speed, Website,
+Every main build whose Platform builds, UI tests, Security, Speed,
 and CodeQL workflows succeed can publish one immutable prerelease. All gates
 must refer to the exact source commit. Forks, PR runs, other branches, failed
 checks, and missing checks cannot publish.
 
-The version is `RELEASE_VERSION-dev.N`, where `N` is the Platform builds run
-number, for example `0.1.0-dev.42`. Repeated workflow events for the same build
-reuse that tag and skip an already published release. A workflow completion
-reruns the gate, so the last successful check starts packaging without a
-manual step. `workflow_dispatch` on main can retry an interrupted release.
+The version is `RELEASE_VERSION-dev.N`, where `N` is the Release workflow run
+number, for example `0.1.0-dev.42`. Packaging starts on a main push alongside
+CI; the final publication job checks CI for that exact source commit. Rerunning
+a failed workflow preserves its version and skips an already published release.
+`workflow_dispatch` on main can start a new release attempt.
 
 The pipeline builds Linux packages and static engines on native x86_64 and
 arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
@@ -45,7 +45,7 @@ this repository:
 
 ```sh
 git tag -s v0.1.0 -m 'Asagiri 0.1.0'
-git push origin v0.1.0
+git push https://github.com/AndreKurait/asagiri.git v0.1.0
 ```
 
 Tags must be `vMAJOR.MINOR.PATCH` and point to a commit in main's history.
@@ -66,3 +66,25 @@ asset of every release.
 builder defaults to this repository's versioned GitHub release path.
 `ASAGIRI_UPDATE_URL` must be set explicitly to use an update feed. Updater
 checks preserve the app/MSI identity and target architecture.
+
+## Installation distribution
+
+The Website workflow runs after a successful Release workflow as well as
+main pushes. It verifies the public release manifests and GitHub provenance,
+refreshes direct download links, signs RPM headers with the dedicated
+`ASAGIRI_RPM_SIGNING_KEY`, and publishes DNF repositories through Pages.
+Website deployment runs independently of release publication.
+
+The recommended channel selects stable when available and otherwise the
+newest prerelease by version. `preview` always selects the newest tested main
+build; `stable` remains unavailable until a stable version is published.
+Older builds finishing late cannot downgrade a channel.
+
+The `AndreKurait/homebrew-asagiri` tap contains the macOS cask with explicit
+checksums for both architectures. Its own Actions workflow checks for new
+releases every 15 minutes and on demand, then creates a GitHub-signed update
+commit. It uses its own repository token, with no shared personal token.
+Schedules may be delayed by GitHub runner availability.
+
+See [installation](docs/install.md) for the user-facing commands and
+[RPM verification](packaging/keys/README.md) for signing details.

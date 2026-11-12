@@ -47,6 +47,12 @@ def main():
     (out / ".nojekyll").write_text("")
     commit = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
     (out / "deployment.json").write_text(json.dumps({"commit": commit}) + "\n")
+    # Main deployments replace this with the verified public release index.
+    # PR previews and an initial deployment still give an honest empty state.
+    (out / "releases.json").write_text(json.dumps({
+        "repository": "AndreKurait/asagiri",
+        "channels": {"latest": None, "stable": None, "preview": None},
+    }) + "\n")
     print(f"Built website and interactive demo: {out}")
 
 

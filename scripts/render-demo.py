@@ -196,6 +196,28 @@ def main():
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Mobile layout overflows"
             capture("asagiri-site-mobile.png")
             print("PASS site build tabs and desktop/mobile layout", flush=True)
+            browser.load(origin + "/install/", 1440, 1100)
+            assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Desktop install layout overflows"
+            browser.js("document.querySelector('[data-os=mac]').click()")
+            assert browser.js("!document.getElementById('mac').hidden && document.getElementById('amazon').hidden")
+            browser.js("navigator.clipboard.writeText = async text => { window.installCopied = text; }; document.querySelector('[data-copy=mac-command]').click()")
+            assert browser.js("window.installCopied") == "curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh"
+            browser.js("document.getElementById('channel').value='preview'; document.getElementById('channel').dispatchEvent(new Event('change'))")
+            assert "--channel preview" in browser.js("document.getElementById('mac-command').textContent")
+            browser.js("document.querySelector('[data-os=amazon]').click()")
+            assert browser.js("document.getElementById('mac').hidden && !document.getElementById('amazon').hidden")
+            assert "--channel preview --no-start" in browser.js("document.getElementById('image-command').textContent")
+            browser.js("document.getElementById('channel').value='latest'; document.getElementById('channel').dispatchEvent(new Event('change'))")
+            if not args.base_url:
+                browser.screenshot(ROOT / "target/install-desktop.png")
+            browser.load(origin + "/install/", 390, 844)
+            assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Mobile install layout overflows"
+            browser.js("document.querySelector('[data-os=amazon]').click()")
+            assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Amazon Linux install layout overflows"
+            if not args.base_url:
+                browser.screenshot(ROOT / "target/install-mobile.png")
+            assert not browser.errors, browser.errors
+            print("PASS installer platform/channel selection, copy commands, and desktop/mobile layouts", flush=True)
             browser.load(origin + "/social.html", 1200, 630)
             capture("social-card.png")
             browser.ws.close()

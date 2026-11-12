@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Install Asagiri on macOS or Amazon Linux 2023. Direct downloads, Homebrew, and a signed RPM repository.">
+  <title>Install Asagiri · Ready for your containers</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="install.css">
+  <script src="install.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="page">
+    <header>
+      <a class="identity" href="../" aria-label="Asagiri home"><img src="../assets/asagiri-horizontal-light.svg" alt="Asagiri" width="156" height="40"></a>
+      <nav aria-label="Main navigation"><a href="../demo/">Try the demo ↗</a><a href="https://github.com/AndreKurait/asagiri/releases">All releases ↗</a></nav>
+    </header>
+    <main id="main" class="install-main">
+      <p class="eyebrow">YOUR NEXT CONTAINER STARTS HERE</p>
+      <h1>Ready for<br><em>your machine.</em></h1>
+      <p class="install-intro">Install the app on your Mac, or run the engine directly on Amazon Linux 2023. Docker CLI, Compose, and Buildx are included.</p>
+      <div class="release-row">
+        <label for="channel">Release channel</label>
+        <select id="channel"><option value="latest">Recommended</option><option value="preview">Latest main preview</option><option value="stable">Stable only</option></select>
+        <span id="release-status" role="status">Checking published downloads…</span>
+      </div>
+      <p id="release-note" class="release-note">Recommended uses the newest stable release when available, otherwise a tested prerelease.</p>
+      <div class="os-tabs" role="tablist" aria-label="Install platform">
+        <button id="tab-mac" role="tab" aria-selected="true" aria-controls="mac" data-os="mac">macOS</button>
+        <button id="tab-amazon" role="tab" aria-selected="false" aria-controls="amazon" tabindex="-1" data-os="amazon">Amazon Linux 2023</button>
+      </div>
+      <section id="mac" role="tabpanel" aria-labelledby="tab-mac">
+        <div class="install-grid">
+          <article class="install-card">
+            <span class="card-label">DOWNLOAD & OPEN</span>
+            <h2>The Mac app.</h2>
+            <p>Choose your Mac. Open the DMG, drag Asagiri into Applications, then open Asagiri.</p>
+            <div class="download-actions">
+              <a id="download-arm64" class="button primary disabled" aria-disabled="true">Download for Apple Silicon ↓</a>
+              <a id="download-x86_64" class="button secondary disabled" aria-disabled="true">Download for Intel ↓</a>
+            </div>
+            <p class="fine">macOS 14 or newer. Apple Silicon means an M-series chip. Check Apple menu → About This Mac.</p>
+          </article>
+          <article class="install-card command-card">
+            <span class="card-label">COPY, PASTE, INSTALL</span>
+            <h2>Prefer the terminal?</h2>
+            <p>This command chooses your architecture, verifies the download, and installs the app.</p>
+            <pre><code id="mac-command">curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh</code></pre>
+            <button class="copy-button" data-copy="mac-command">Copy install command</button>
+            <p class="fine">Open Asagiri from Applications after installation.</p>
+          </article>
+        </div>
+        <div class="install-note"><strong>First launch:</strong> current apps are not notarized by Apple. If macOS asks for approval, open System Settings → Privacy &amp; Security → Open Anyway. The installer checks the app’s checksum and code signature; it does not change Gatekeeper settings.</div>
+        <div class="install-grid secondary-grid">
+          <article class="install-card">
+            <span class="card-label">ALREADY USE HOMEBREW?</span><h3>Install from our tap.</h3>
+            <pre><code id="brew-command">brew install --cask andrekurait/asagiri/asagiri</code></pre>
+            <button class="copy-button" data-copy="brew-command">Copy Homebrew command</button>
+            <p class="fine">Homebrew follows the recommended channel. Open Asagiri when the install finishes.</p>
+          </article>
+          <article class="install-card">
+            <span class="card-label">KEEP IT CURRENT</span><h3>Update when you’re ready.</h3>
+            <pre><code id="brew-update">brew upgrade --cask andrekurait/asagiri/asagiri</code></pre>
+            <button class="copy-button" data-copy="brew-update">Copy update command</button>
+            <p class="fine">For a direct install, quit Asagiri and rerun the install command. Container data stays in place.</p>
+          </article>
+        </div>
+      </section>
+      <section id="amazon" role="tabpanel" aria-labelledby="tab-amazon" hidden>
+        <div class="install-grid">
+          <article class="install-card command-card">
+            <span class="card-label">AMAZON LINUX 2023 · X86_64 & GRAVITON</span>
+            <h2>One setup command.</h2>
+            <p>Configure the signed RPM repository, install Asagiri and its Docker tools, then start the engine.</p>
+            <pre><code id="linux-command">curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh</code></pre>
+            <button class="copy-button" data-copy="linux-command">Copy setup command</button>
+            <p class="fine">Run as the account that will use containers. Setup asks for sudo and grants that account container access, which is equivalent to root access.</p>
+          </article>
+          <article class="install-card">
+            <span class="card-label">TRY YOUR FIRST CONTAINER</span>
+            <h2>You know the commands.</h2>
+            <pre><code id="hello-command">docker --context asagiri run --rm alpine echo hello
+docker --context asagiri compose version
+docker --context asagiri buildx version</code></pre>
+            <button class="copy-button" data-copy="hello-command">Copy quick check</button>
+            <p class="fine">Runs directly on the Linux host. An existing Docker installation and your selected context keep their settings.</p>
+          </article>
+        </div>
+        <div class="install-grid secondary-grid">
+          <article class="install-card"><span class="card-label">UPDATES THROUGH DNF</span><h3>A normal package upgrade.</h3><pre><code id="dnf-update">sudo dnf --refresh upgrade asagiri</code></pre><button class="copy-button" data-copy="dnf-update">Copy update command</button><p class="fine">Running containers continue using the existing engine. Run <code>sudo systemctl restart asagiri</code> when ready to use the new binary. This stops its containers; restart policies control which start again.</p></article>
+          <article class="install-card"><span class="card-label">BUILDING AN AMI OR FLEET IMAGE?</span><h3>Install without starting it.</h3><pre><code id="image-command">curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh -s -- --no-start</code></pre><button class="copy-button" data-copy="image-command">Copy image setup</button><p class="fine">Configure access after boot with <code>sudo asagiri host-access ec2-user</code>. Signed package verification stays enabled.</p></article>
+        </div>
+      </section>
+      <section class="install-details">
+        <h2>A few useful details.</h2>
+        <details><summary>Verify downloads and package signatures</summary><p>Each GitHub release includes SHA256SUMS, its source commit, and GitHub build provenance. The DNF repository adds an RPM signature and verifies every original release before publishing it. The setup command pins the RPM public key. <a href="https://github.com/AndreKurait/asagiri/blob/main/packaging/keys/README.md">Read the verification details ↗</a></p></details>
+        <details><summary>Preview and stable releases</summary><p>Main builds publish tested prereleases. Version tags publish stable releases. Recommended installs switch to stable releases when one is available. Select “Latest main preview” to keep testing main builds.</p></details>
+        <details><summary>Remove Asagiri</summary><p>With Homebrew: <code>brew uninstall --cask andrekurait/asagiri/asagiri</code>. For a direct Mac install, quit the app and move it to Trash. On Amazon Linux: <code>sudo dnf remove asagiri</code>. These steps preserve your container data.</p></details>
+        <details><summary>Windows and other Linux distributions</summary><p>Windows MSI installers, Debian packages, RPMs, and static Linux binaries are on the <a href="https://github.com/AndreKurait/asagiri/releases">release page ↗</a>. Follow the platform notes in the release before installing.</p></details>
+      </section>
+      <p id="copy-status" class="sr-only" role="status"></p>
+    </main>
+    <footer><span>Asagiri <span lang="ja">朝霧</span> · A clear start for your containers.</span><nav aria-label="Footer"><a href="../">Home</a><a href="https://github.com/AndreKurait/asagiri">Source ↗</a></nav></footer>
+  </div>
+</body>
+</html>

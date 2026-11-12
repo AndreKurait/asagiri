@@ -26,13 +26,27 @@ The screenshot and browser demo use sample data in the real app UI.
 
 ## Downloads
 
-Find packages and installers on the [release page](https://github.com/AndreKurait/asagiri/releases).
+Start with the [installation guide](https://andrekurait.github.io/asagiri/install/)
+for direct Mac downloads, Homebrew, and Amazon Linux 2023 setup:
+
+```sh
+curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh
+```
+
+The command detects the architecture and verifies the download. On Amazon
+Linux 2023 it configures the signed RPM repository, installs the Docker tools,
+and sets up the engine for your account. On macOS it installs the app; open
+Asagiri from Applications afterward.
+
+Homebrew users can run `brew install --cask andrekurait/asagiri/asagiri`.
+Find all packages and installers on the [release page](https://github.com/AndreKurait/asagiri/releases).
 Successful main builds publish automatic prereleases; stable releases use version
 tags. Downloads include Linux packages, macOS apps, Windows installers, checksums,
 and build provenance. Read each release's platform limits: macOS apps are not
 notarized, and Windows installers are not Authenticode signed.
 
-Asagiri has no default update feed. See [release automation](RELEASES.md) and
+Homebrew and DNF provide package updates. The desktop app does not check an
+update feed by default. See [release automation](RELEASES.md) and
 [packaging](packaging/README.md) for installation and verification.
 
 ## Build from source

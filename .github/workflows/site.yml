@@ -13,10 +13,17 @@ on:
       - 'scripts/render-demo.py'
       - 'scripts/ci/requirements-browser.txt'
       - 'scripts/ci/verify-pages.py'
+      - 'scripts/ci/distribution.py'
+      - 'packaging/keys/**'
+      - 'tests/ci-distribution.py'
+      - 'tests/installer.py'
       - '.github/workflows/site.yml'
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_run: # zizmor: ignore[dangerous-triggers] only successful same-repository releases; checkout is the trusted default-branch SHA, never release artifacts or a PR head
+    workflows: [Release]
+    types: [completed]
 
 permissions:
   contents: read
@@ -28,13 +35,23 @@ concurrency:
 
 jobs:
   site:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - run: python3 scripts/build-site.py
+      - name: Check distribution selection and integrity rules
+        run: |
+          python3 tests/ci-distribution.py
+          python3 tests/installer.py
       - run: python3 scripts/check-site.py
       - name: Check the interactive demo and responsive layouts
         run: |
@@ -43,6 +60,17 @@ jobs:
           printf '#!/bin/sh\nexec google-chrome --no-sandbox "$@"\n' > "$RUNNER_TEMP/site-chrome"
           chmod +x "$RUNNER_TEMP/site-chrome"
           CHROME="$RUNNER_TEMP/site-chrome" "$RUNNER_TEMP/site-venv/bin/python" scripts/render-demo.py --check
+      - name: Install repository publishing tools
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm gnupg createrepo-c
+      - name: Publish verified downloads and signed RPM repositories
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASAGIRI_RPM_SIGNING_KEY: ${{ secrets.ASAGIRI_RPM_SIGNING_KEY }}
+        run: python3 scripts/ci/distribution.py target/site
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         if: github.event_name != 'pull_request'
         with:

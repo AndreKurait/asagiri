@@ -44,6 +44,15 @@
     "env": "ASAGIRI_CI_DEB_IMAGE",
     "groups": ["release"]
   },
+  "amazon": {
+    "image": "public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:5c6ed3b38335b2aa424a045f1e564c8c508409ead0ff3f8bf5e62c31b94082cb",
+    "config": {
+      "amd64": "sha256:ae4f1a95a2c4d9d529ee3900823e0452144051a56607fdf1fe9a85c8537111c6",
+      "arm64": "sha256:6245865773e86e3e44db7d6322dfcd09dafd75eb35d25bf1e921035fe85d5344"
+    },
+    "env": "ASAGIRI_CI_AL2023_IMAGE",
+    "groups": ["release"]
+  },
   "rpm": {
     "image": "fedora:41@sha256:f1a3fab47bcb3c3ddf3135d5ee7ba8b7b25f2e809a47440936212a3a50957f3d",
     "config": {

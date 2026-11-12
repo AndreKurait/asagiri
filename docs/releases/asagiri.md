@@ -28,12 +28,14 @@ Choose the download for your system:
 
 Versions containing `-dev.` are automatic prereleases for testing. They
 are published only after the source commit's platform, UI, security, speed,
-website, and CodeQL checks succeed, and all release packages build and pass
+and CodeQL checks succeed, and all release packages build and pass
 their available checks. Stable versions are published from `vMAJOR.MINOR.PATCH`
 tags using the same workflow.
 
-Linux package installation does not start the engine. Follow
-`packaging/README.md` to configure host access. macOS VM startup and Windows
+For direct downloads, Homebrew, or the signed Amazon Linux 2023 repository,
+use the [installation guide](https://andrekurait.github.io/asagiri/install/).
+The Amazon Linux setup command installs the package and configures host access;
+installing a raw RPM alone does not start the engine. macOS VM startup and Windows
 WSL2 first-run setup still require testing on real target systems. Do not
 treat a CI package check as verification of those runtime paths.
 
