@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -127,6 +128,95 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(dependencies[0]["digest"]["gitCommit"], COMMIT)
         self.assertEqual(dependencies[1]["digest"]["gitCommit"], "b" * 40)
         self.assertEqual(predicate["buildDefinition"]["externalParameters"]["source"]["commit"], COMMIT)
+
+    def publication(self, root, *, existing=False, corruption=None):
+        """Model GitHub's draft lifecycle: the tag endpoint sees only published releases."""
+        dist = root / "dist"
+        dist.mkdir()
+        version = "0.1.0-dev.34"
+        tag = "v" + version
+        (root / "docs/releases").mkdir(parents=True)
+        (root / "docs/releases/asagiri.md").write_text("Release notes\n")
+        (dist / "release-manifest.json").write_text(json.dumps(
+            {"version": version, "commit": COMMIT, "repository": REPO, "assets": []}))
+        (dist / "payload.tar.gz").write_bytes(b"verified release payload")
+        state = {"exists": existing, "created": False, "uploaded": False, "draft_read": False}
+        remote = {"id": 123, "draft": True, "tag_name": tag, "target_commitish": COMMIT,
+                  "prerelease": True, "assets": [],
+                  "html_url": f"https://github.com/{REPO}/releases/tag/{tag}"}
+
+        def command(*args, **_):
+            self.assertEqual(args[:2], ("gh", "release"))
+            self.assertEqual(args[3], tag)
+            action = args[2]
+            if action == "view":
+                if not state["exists"]:
+                    return SimpleNamespace(returncode=1, stdout="")
+                fields = args[args.index("--json") + 1].split(",")
+                data = {"databaseId": remote["id"], "isDraft": remote["draft"],
+                        "targetCommitish": COMMIT, "tagName": tag}
+                return SimpleNamespace(returncode=0, stdout=json.dumps({key: data[key] for key in fields}))
+            if action == "create":
+                self.assertIn("--draft", args)
+                self.assertFalse(state["exists"])
+                state.update(exists=True, created=True)
+            elif action == "upload":
+                self.assertTrue(state["exists"])
+                state["uploaded"] = True
+                remote["assets"] = [{"name": path.name, "size": path.stat().st_size,
+                                     "digest": "sha256:" + release.sha256(path)} for path in sorted(dist.iterdir())]
+                if corruption == "digest":
+                    remote["assets"][0]["digest"] = "sha256:" + "0" * 64
+                elif corruption == "size":
+                    remote["assets"][0]["size"] += 1
+                elif corruption == "missing":
+                    remote["assets"].pop()
+                elif corruption == "source":
+                    remote["target_commitish"] = "b" * 40
+            elif action == "edit":
+                self.assertTrue(state["uploaded"] and state["draft_read"])
+                self.assertIn("--draft=false", args)
+                self.assertIn("--latest=false", args)
+                remote["draft"] = False
+            else:
+                self.fail(f"Unexpected release command: {action}")
+            return SimpleNamespace(returncode=0, stdout="")
+
+        def api(repo, path):
+            self.assertEqual(repo, REPO)
+            if path == f"releases/tags/{tag}":
+                if remote["draft"]:
+                    raise subprocess.CalledProcessError(
+                        1, ["gh", "api", path], stderr="HTTP 404: draft tags are not published")
+            else:
+                self.assertEqual(path, "releases/123")
+                if remote["draft"]:
+                    state["draft_read"] = True
+            return copy.deepcopy(remote)
+
+        return dist, state, remote, command, api
+
+    def test_first_publication_and_draft_retries_verify_uploads_by_release_id(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                dist, state, remote, command, api = self.publication(root, existing=existing)
+                with patch.object(release, "ROOT", root), patch.object(release, "run", side_effect=command), \
+                        patch.object(release, "api", side_effect=api), patch.object(release, "emit") as emit:
+                    release.publish(SimpleNamespace(directory=dist, repo=REPO))
+                self.assertEqual(state["created"], not existing)
+                self.assertFalse(remote["draft"])
+                emit.assert_called_once_with(url=remote["html_url"])
+
+    def test_damaged_uploads_or_changed_source_stay_drafts(self):
+        for corruption in ("digest", "size", "missing", "source"):
+            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                dist, _, remote, command, api = self.publication(root, corruption=corruption)
+                with patch.object(release, "ROOT", root), patch.object(release, "run", side_effect=command), \
+                        patch.object(release, "api", side_effect=api), self.assertRaises(SystemExit):
+                    release.publish(SimpleNamespace(directory=dist, repo=REPO))
+                self.assertTrue(remote["draft"])
 
     def test_stamping_preserves_dependency_versions_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:

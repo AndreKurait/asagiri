@@ -267,7 +267,17 @@ def publish(args):
         run(*command)
     files = sorted(p for p in dist.iterdir() if p.is_file())
     run("gh", "release", "upload", tag, "--repo", args.repo, "--clobber", *map(str, files))
-    release = api(args.repo, f"releases/tags/{tag}")
+    # REST's tag endpoint finds published releases only. `gh release view`
+    # also resolves pending draft tags through GraphQL, giving us their REST ID.
+    release_id = json.loads(run("gh", "release", "view", tag, "--repo", args.repo,
+                                "--json", "databaseId").stdout)["databaseId"]
+    if type(release_id) is not int or release_id <= 0:
+        raise SystemExit("GitHub returned an invalid draft release ID")
+    release_path = f"releases/{release_id}"
+    release = api(args.repo, release_path)
+    if (release["id"] != release_id or not release["draft"] or release["tag_name"] != tag
+            or release["target_commitish"] != commit):
+        raise SystemExit("The draft identity or source changed before upload verification")
     remote = {asset["name"]: asset for asset in release["assets"]}
     if set(remote) != {path.name for path in files}:
         raise SystemExit("Uploaded release has unexpected or missing files; leaving it as a draft")
@@ -280,7 +290,7 @@ def publish(args):
     if prerelease:
         command.append("--prerelease")
     run(*command)
-    release = api(args.repo, f"releases/tags/{tag}")
+    release = api(args.repo, release_path)
     if release["draft"] or release["prerelease"] != prerelease:
         raise SystemExit("Release publication state did not match the requested channel")
     emit(url=release["html_url"])
