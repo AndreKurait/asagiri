@@ -32,6 +32,7 @@ const demoNetworks = ["morning_default", "jobs_default", "bridge"].map((Name, i)
   Labels: {}, Containers: {},
 }));
 const demoLists = () => asagiri.on({ type: "lists", containers: demoContainers, images: demoImages, volumes: demoVolumes, networks: demoNetworks });
+let demoMirrors = [];
 function demoInspect(id) {
   const c = demoContainers.find((item) => item.Id === id);
   if (!c) return;
@@ -80,6 +81,11 @@ function demoCommand(message) {
   if (cmd === "routerports") return asagiri.on({ type: "routerports", ports: [] });
   if (cmd === "resources") return asagiri.on({ type: "resources", cpus: 4, memory_mib: 8192, max_cpus: 12, max_memory_mib: 16384 });
   if (cmd === "buildwith") return asagiri.on({ type: "buildwith", engine: "asagiri", ready: true });
+  if (cmd === "mirrors") return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+  if (cmd === "setmirrors") {
+    demoMirrors = Array.isArray(message.value?.mirrors) ? message.value.mirrors.filter((m) => typeof m === "string") : [];
+    return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+  }
   if (cmd === "openurl" || cmd === "url" || cmd === "open") return toast("ok", "Links open in the installed app.");
   if (["stop", "start"].includes(cmd)) return asagiri.on({ type: "state", state: cmd === "start" ? "running" : "stopped" });
   // Navigation, preferences and inspectors work normally. Native operations
