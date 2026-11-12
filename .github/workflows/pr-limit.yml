@@ -26,6 +26,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      # GitHub also requires contents:write for the GraphQL draft/ready
+      # mutations. This job checks out no code and never writes repository files.
+      contents: write
       pull-requests: write
     steps:
       - name: Count this person's open pull requests

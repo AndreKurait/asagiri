@@ -55,13 +55,14 @@ test_package() { # name full(0|1)
   local climount=()
   [ -n "$clidir" ] && climount=(-v "$(cd "$clidir" && pwd):/opt/docker:ro")
   $docker rm -f "$c" >/dev/null 2>&1
-  $docker run -d --name "$c" --privileged --tmpfs /run --tmpfs /tmp -v "$out:/pkg:ro" "${climount[@]}" "${ASAGIRI_CI_DEB_IMAGE:-ubuntu:24.04}" sleep infinity >/dev/null
+  # A fresh volume avoids nesting overlayfs in the container's writable
+  # layer. Mount its parent so purge can remove the engine's data directory.
+  $docker run -d --name "$c" --privileged --tmpfs /run --tmpfs /tmp -v /var/lib -v "$out:/pkg:ro" "${climount[@]}" "${ASAGIRI_CI_DEB_IMAGE:-ubuntu:24.04}" sleep infinity >/dev/null
   step "$c" "dpkg -i" "dpkg -i /pkg/$debname"
   step "$c" "/usr/bin/asagiri, asagiri-init, unit, copyright" "test -x /usr/bin/asagiri -a -x /usr/bin/asagiri-init -a -f /lib/systemd/system/asagiri.service -a -f /usr/share/doc/$name/copyright"
   step "$c" "group asagiri made by postinst" "getent group asagiri"
   step "$c" "engine starts as the unit would" "mkdir -p /run/asagiri /var/lib/asagiri-daemon && chmod 755 /run/asagiri && (ASAGIRI_SOCKET=/run/asagiri/docker.sock ASAGIRI_SOCKET_GROUP=asagiri HOME=/var/lib/asagiri-daemon nohup /usr/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &) && for i in \$(seq 30); do [ -S /run/asagiri/docker.sock ] && exit 0; sleep 1; done; cat /var/log/asagiri.log; exit 1"
   step "$c" "socket owned by group asagiri, mode 660" "stat -c '%G %a' /run/asagiri/docker.sock | grep -q '^asagiri 660'"
-  step "$c" "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
   local cli
   if [ "$full" = 1 ]; then
     step "$c" "/usr/bin/docker is Asagiri's, through update-alternatives" "readlink -f /usr/bin/docker | grep -q /usr/libexec/asagiri/docker"
@@ -77,16 +78,16 @@ test_package() { # name full(0|1)
     if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
       step "$c" "packaged engine reports release version $ASAGIRI_EXPECTED_VERSION" "$cli version --format '{{.Server.Version}}' | grep -Fx '$ASAGIRI_EXPECTED_VERSION'"
     fi
-    # Nested in a container, overlay on overlay: the engine may answer the API
-    # yet not run a container. test-host.sh proves that on a real host.
-    step "$c" "docker run alpine on the packaged engine (nested; may be denied by the host)" "timeout -s KILL 120 $cli run --rm alpine cat /etc/alpine-release | grep -q '^3\.'"
+    step "$c" "docker run alpine on the packaged engine" "timeout -s KILL 120 $cli run --rm alpine:3.21 cat /etc/alpine-release | grep -q '^3\.'"
+    # The Linux guest starts lazily; /version alone does not create its data.
+    step "$c" "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
   else
     echo "  [skip] docker run (pass a static docker CLI dir as the 3rd argument)"
   fi
   step "$c" "dpkg -r removes binaries, keeps data" "dpkg -r $name && test ! -e /usr/bin/asagiri -a ! -e /lib/systemd/system/asagiri.service && test -d /var/lib/asagiri-daemon"
   [ "$full" = 1 ] && step "$c" "docker alternative withdrawn" "test ! -e /usr/bin/docker"
   step "$c" "dpkg -P drops data and group" "dpkg -P $name && test ! -e /var/lib/asagiri -a ! -e /var/lib/asagiri-daemon && ! getent group asagiri"
-  $docker rm -f "$c" >/dev/null 2>&1
+  $docker rm -fv "$c" >/dev/null 2>&1
 
   echo "== .rpm in a Fedora container"
   local rpmname; rpmname=$(basename "$rpm")
