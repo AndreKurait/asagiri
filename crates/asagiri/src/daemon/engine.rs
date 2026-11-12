@@ -1108,15 +1108,19 @@ impl Engine {
     /// request). The window's Stop is stop_all; restarting the engine is this.
     pub fn sleep_now(&self) -> Result<(), Error> {
         let running = self.each(|c| (c.status == Status::Running).then(|| c.id.clone()));
+        // One container that does not stop must not keep the others running.
+        let mut failed = None;
         for id in running {
-            self.stop(&id, self.stop_timeout(&id))?;
+            if let Err(e) = self.stop(&id, self.stop_timeout(&id)) {
+                failed.get_or_insert(e);
+            }
         }
         // Passed-through USB devices go back to the Mac, as containers stop.
         detach_usb();
         if self.sleep_if_idle() {
             crate::diag::info!("VM stopped on request");
         }
-        Ok(())
+        failed.map_or(Ok(()), Err)
     }
 
     fn ceiling(&self) -> u64 {
@@ -2845,11 +2849,16 @@ impl Engine {
         // restart policy would bring back what this stop is about to end.
         self.mark_stopped(&id);
         self.emit_container("kill", &id, &[("signal", (libc::SIGTERM).to_string())]);
-        let sig = self.lock().containers.get(&id).and_then(|c| c.spec.stop_signal).unwrap_or(libc::SIGTERM as u32);
+        // The run being stopped: a start that follows its exit is another run, not this one still going.
+        let (sig, run) = {
+            let st = self.lock();
+            let c = st.containers.get(&id);
+            (c.and_then(|c| c.spec.stop_signal).unwrap_or(libc::SIGTERM as u32), c.map_or(0, |c| c.exits))
+        };
         self.vm()?.kill(&id, sig)?;
         let deadline = std::time::Instant::now() + timeout;
         let mut st = self.lock();
-        while st.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+        while st.containers.get(&id).is_some_and(|c| c.status == Status::Running && c.exits == run) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
                 drop(st);
@@ -2859,7 +2868,7 @@ impl Engine {
                 // as long as `kill` does: the exit may never be reported.
                 let killed = std::time::Instant::now() + Duration::from_secs(10);
                 let mut exited = self.lock();
-                while exited.containers.get(&id).is_some_and(|c| c.status == Status::Running) {
+                while exited.containers.get(&id).is_some_and(|c| c.status == Status::Running && c.exits == run) {
                     let left = killed.saturating_duration_since(std::time::Instant::now());
                     if left.is_zero() {
                         return Err(Error::Io(io::Error::other(format!("cannot stop container: {}: it did not exit after SIGKILL", &id[..12]))));
