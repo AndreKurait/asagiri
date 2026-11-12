@@ -4,7 +4,7 @@ Reviewed every public pull request in `libracoder/kiri`, open and closed:
 **133 total: 75 merged, 36 closed without merging, and 22 open**.
 Upstream main is `4645536f68d4bf2f5e708bd8339a9f71f844c43a`.
 Every merged PR's merge commit and the complete main history are ancestors of
-Asagiri. The runtime revision for this audit is `43d8cf4951fb81bd77546c623f455d6f5f643ba8`.
+Asagiri. The runtime revision for this audit is `6f003adfc179ed9bc7489d7c313c4080fc609578`.
 
 [Machine-readable evidence](upstream-pr-audit.json) records every reviewed head,
 merged commit, ancestry result and source-to-port mapping. [UPSTREAM.md](../UPSTREAM.md)
@@ -21,6 +21,8 @@ unmerged work.
   stop, remove, startup-error and network behavior. `tests/vm-recovery.py`
   crashes only the agent of the private Linux test engine, checks persisted
   recovery without API-triggered boots, and verifies restart counts and data.
+  The live race test also exposed a lifecycle lock held across unread stdin;
+  `6f003ad` releases it after guest creation so kill/stop/remove can proceed.
   Native macOS VM recovery remains unverified; its real-VM test is opt-in.
 - Integrated #116's `ba7fd94697d4` mirror fix and improved local tag provenance.
   Remote tags resolve all registry platforms; local same-repository tags stay
@@ -97,7 +99,7 @@ does not prove its native VM or WSL recovery was exercised.
 | [#51](https://github.com/libracoder/kiri/pull/51) — Linux: revoke removed users' engine access | merged | `9e2375e4ac7d` | **inherited** — Merged upstream commit 64474185fb48 is an ancestor of Asagiri. |
 | [#52](https://github.com/libracoder/kiri/pull/52) — Guest kernel: backport the upstream GRO frag_list fix behind the skb_segment BUG | merged | `ff4003faa78d` | **inherited** — Merged upstream commit f973293e5122 is an ancestor of Asagiri. |
 | [#53](https://github.com/libracoder/kiri/pull/53) — Keep the guest console so an unexpected VM stop leaves its oops | open | `968cf67ed4e3` | **ported** — All console-retention commits ported; Asagiri also keeps secret redaction latched across read boundaries and truncated lines. |
-| [#54](https://github.com/libracoder/kiri/pull/54) — Restart always and unless-stopped containers after the VM crashes | open | `508ba7ea8271` | **ported-and-improved** — All 11 recovery commits through 508ba7ea8271 ported; 43d8cf4 adds the reader-accounting barrier, cancelable Linux listeners, correct stop responses and private-engine crash tests. |
+| [#54](https://github.com/libracoder/kiri/pull/54) — Restart always and unless-stopped containers after the VM crashes | open | `508ba7ea8271` | **ported-and-improved** — All 11 recovery commits through 508ba7ea8271 ported; 43d8cf4 adds the reader-accounting barrier, cancelable Linux listeners, correct stop responses and private-engine crash tests. 6f003ad releases the lifecycle guard before stdin delivery after the live race test exposed a blocked kill. |
 | [#55](https://github.com/libracoder/kiri/pull/55) — UI: Run asks for a container name and optional host port | closed | `0bcdc8e29c60` | **partly-equivalent-and-held** — Image inspect already preserves ExposedPorts, Labels, Healthcheck and StopSignal. Hold the UI prototype: it guesses the exposed port, forces a dialog on every run, uses colliding default names and predates localization. Existing rename/port editors and Docker create options remain available. |
 | [#56](https://github.com/libracoder/kiri/pull/56) — UI: keep Images Actions visible when a tag is long | merged | `54ee598952b6` | **inherited** — Merged upstream commit 3fa32335cc68 is an ancestor of Asagiri. |
 | [#58](https://github.com/libracoder/kiri/pull/58) — UI: Chinese language option for the main window and Settings | closed | `c700637fcb91` | **superseded** — Multilingual UI is inherited through merged #95; do not restore the earlier two-language prototype. |
@@ -107,7 +109,7 @@ does not prove its native VM or WSL recovery was exercised.
 | [#63](https://github.com/libracoder/kiri/pull/63) — Guest kernel: per-process I/O accounting, so Typesense starts | merged | `07003a637a1d` | **inherited** — Merged upstream commit d4e361b5bac3 is an ancestor of Asagiri. |
 | [#65](https://github.com/libracoder/kiri/pull/65) — Security: only root may load BPF programs in the guest kernel | merged | `f59555cf70b1` | **inherited** — Merged upstream commit 8295c185edd2 is an ancestor of Asagiri. |
 | [#67](https://github.com/libracoder/kiri/pull/67) — docker push: RepoDigests names what the registry has, as with Docker | merged | `e21c7811fbe1` | **inherited** — Merged upstream commit 5981b2be32d3 is an ancestor of Asagiri. |
-| [#69](https://github.com/libracoder/kiri/pull/69) — UI: multi-language window (System/Custom + mainstream locales) | closed | `fb6078507781` | **partly-superseded-and-held** — Multilingual UI and image actions are superseded by #95; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage. |
+| [#69](https://github.com/libracoder/kiri/pull/69) — UI: multi-language window (System/Custom + mainstream locales) | closed | `fb6078507781` | **partly-superseded-and-held** — Multilingual UI is superseded by #95; the Images column sizing and regression test are inherited through #56; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage. |
 | [#70](https://github.com/libracoder/kiri/pull/70) — Builds: amd64 steps run through Rosetta on Apple silicon, not QEMU | merged | `f65c89f7278c` | **inherited** — Merged upstream commit 2af64d88689b is an ancestor of Asagiri. |
 | [#71](https://github.com/libracoder/kiri/pull/71) — Security: run CodeQL on every pull request, forks included | merged | `82d3bdf19032` | **inherited** — Merged upstream commit 108dac0748f0 is an ancestor of Asagiri. |
 | [#75](https://github.com/libracoder/kiri/pull/75) — Mac: the Finder mount never covers your files or another mount at ~/Kiri | merged | `5005b1d3ef0d` | **inherited** — Merged upstream commit 6327712d3cbd is an ancestor of Asagiri. |

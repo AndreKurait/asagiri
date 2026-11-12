@@ -2,7 +2,7 @@
   "reviewed_at": "2026-11-12T20:07:45.716760+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "4645536f68d4bf2f5e708bd8339a9f71f844c43a",
-  "asagiri_runtime_revision": "43d8cf4951fb81bd77546c623f455d6f5f643ba8",
+  "asagiri_runtime_revision": "6f003adfc179ed9bc7489d7c313c4080fc609578",
   "counts": {
     "total": 133,
     "merged": 75,
@@ -510,7 +510,11 @@
         }
       ],
       "disposition": "ported-and-improved",
-      "reason": "All 11 recovery commits through 508ba7ea8271 ported; 43d8cf4 adds the reader-accounting barrier, cancelable Linux listeners, correct stop responses and private-engine crash tests."
+      "reason": "All 11 recovery commits through 508ba7ea8271 ported; 43d8cf4 adds the reader-accounting barrier, cancelable Linux listeners, correct stop responses and private-engine crash tests. 6f003ad releases the lifecycle guard before stdin delivery after the live race test exposed a blocked kill.",
+      "asagiri_followups": [
+        "43d8cf4951fb81bd77546c623f455d6f5f643ba8",
+        "6f003adfc179ed9bc7489d7c313c4080fc609578"
+      ]
     },
     {
       "number": 55,
@@ -630,7 +634,7 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "partly-superseded-and-held",
-      "reason": "Multilingual UI and image actions are superseded by #95; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage."
+      "reason": "Multilingual UI is superseded by #95; the Images column sizing and regression test are inherited through #56; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage."
     },
     {
       "number": 70,
