@@ -28,9 +28,6 @@ jobs:
         checks:
           - advisories
           - bans licenses sources
-    # A new advisory against an existing dependency shouldn't block
-    # unrelated pull requests; the weekly run reports it.
-    continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

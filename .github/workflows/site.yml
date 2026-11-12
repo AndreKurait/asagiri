@@ -10,6 +10,8 @@ on:
       - 'scripts/build-site.py'
       - 'scripts/ui-test.py'
       - 'scripts/check-site.py'
+      - 'scripts/render-demo.py'
+      - 'scripts/ci/requirements-browser.txt'
       - '.github/workflows/site.yml'
   push:
     branches: [main]
@@ -31,6 +33,13 @@ jobs:
           persist-credentials: false
       - run: python3 scripts/build-site.py
       - run: python3 scripts/check-site.py
+      - name: Check the interactive demo and responsive layouts
+        run: |
+          python3 -m venv "$RUNNER_TEMP/site-venv"
+          "$RUNNER_TEMP/site-venv/bin/pip" install --require-hashes -r scripts/ci/requirements-browser.txt
+          printf '#!/bin/sh\nexec google-chrome --no-sandbox "$@"\n' > "$RUNNER_TEMP/site-chrome"
+          chmod +x "$RUNNER_TEMP/site-chrome"
+          CHROME="$RUNNER_TEMP/site-chrome" "$RUNNER_TEMP/site-venv/bin/python" scripts/render-demo.py --check
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         if: github.event_name != 'pull_request'
         with:

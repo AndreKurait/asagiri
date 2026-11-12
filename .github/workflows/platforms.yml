@@ -14,6 +14,12 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: 1.99.1
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
 concurrency:
   group: platforms-${{ github.ref }}
   cancel-in-progress: true
@@ -27,15 +33,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore Linux dependencies
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
       - name: Test and build
         run: |
-          # A static build, as `cargo xtask linux` makes it. The agent's
-          # tests make device nodes and namespaces, so the container is privileged.
-          mkdir -p "$RUNNER_TEMP/bin"
-          docker run --rm --privileged --tmpfs /tmp -v "$PWD:/src" -v "$RUNNER_TEMP/bin:/out" -w /src -e CARGO_TARGET_DIR=/t rust:1-alpine sh -c \
-            'apk add -q build-base && cargo test --locked -p asagiri -p asagiri-init -p asagiri-proto -p asagiri-image && cargo build --release --locked -p asagiri -p asagiri-init && cp /t/release/asagiri /t/release/asagiri-init /out/'
+          sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
-          (cd "$RUNNER_TEMP/bin" && sha256sum asagiri asagiri-init > SHA256SUMS && cat SHA256SUMS)
+      - name: Cache Linux dependencies from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Live tests on a private engine
         # The build just made, run as an engine, and the conformance scripts
         # in tests/ against it: containers, archives, attach, networks,
@@ -55,8 +72,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test
-        run: rustup update stable --no-self-update && cargo test --locked
+        run: cargo test --locked
       - name: Build
         run: |
           cargo build --release --locked -p asagiri
@@ -76,8 +99,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install "$env:RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test
-        run: rustup update stable --no-self-update; cargo test --locked -p asagiri-win
+        run: cargo test --locked -p asagiri-win
       - name: Build
         run: |
           cargo build --release --locked -p asagiri-win

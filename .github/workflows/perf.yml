@@ -15,12 +15,18 @@ name: Speed
 
 on:
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: 1.99.1
+
 concurrency:
-  group: speed-${{ github.event.pull_request.number }}
+  group: speed-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,40 +42,57 @@ jobs:
           fetch-depth: 2
           path: head
           persist-credentials: false
-      - name: Find main's commit
+      - name: Find the comparison baseline
         id: main
-        run: echo "sha=$(git -C head rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+        env:
+          PREVIOUS_MAIN: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            # A push can contain several commits. Compare the previous main,
+            # not just the last commit on the new branch.
+            [[ "$PREVIOUS_MAIN" =~ ^[0-9a-f]{40}$ ]]
+            git -C head fetch --no-tags --depth=1 origin "$PREVIOUS_MAIN"
+            sha=$PREVIOUS_MAIN
+          else
+            sha=$(git -C head rev-parse HEAD^1)
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.main.outputs.sha }}
           path: base
           persist-credentials: false
+      - name: Restore Linux dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: linux-musl-v1-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('head/Cargo.lock', 'head/**/Cargo.toml', 'head/.cargo/config.toml') }}
       - name: Build main and this change
         run: |
-          # Static Linux builds, as `cargo xtask linux` makes them. Both use
-          # one target folder, so the second only rebuilds what changed.
-          # Cargo tells what changed by file times, and this change was
-          # checked out before main was built: give each side's files the
-          # time now, or the second build keeps the first one's binary.
+          build="$GITHUB_WORKSPACE/head/scripts/ci/build-linux.sh"
           for e in base head; do
-            find "$e" -type f -exec touch {} +
-            mkdir -p "$RUNNER_TEMP/$e-bin"
-            docker run --rm -v "$PWD/$e:/src" -v "$RUNNER_TEMP/$e-bin:/out" \
-              -v asagiri-perf-target:/t -v asagiri-perf-cargo:/usr/local/cargo/registry \
-              -w /src -e CARGO_TARGET_DIR=/t rust:1-alpine sh -c \
-              'set -eu
-               set -- crates/*-init/Cargo.toml
-               [ "$#" -eq 1 ] && [ -f "$1" ]
-               engine=${1#crates/}; engine=${engine%/Cargo.toml}; engine=${engine%-init}
-               apk add -q musl-dev
-               cargo build --release --locked -p "$engine" -p "$engine-init"
-               cp "/t/release/$engine" "/t/release/$engine-init" /out/'
+            # Only dependencies are reused; both engines are freshly compiled.
+            (cd "$e" && sh "$build" "$RUNNER_TEMP/$e-bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" build)
           done
           ls -l "$RUNNER_TEMP"/base-bin "$RUNNER_TEMP"/head-bin
+      - name: Check whether the engine binaries changed
+        id: binaries
+        run: |
+          if cmp -s "$RUNNER_TEMP/base-bin/asagiri" "$RUNNER_TEMP/head-bin/asagiri" &&
+             cmp -s "$RUNNER_TEMP/base-bin/asagiri-init" "$RUNNER_TEMP/head-bin/asagiri-init"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Both freshly compiled engine binaries match the baseline byte for byte; no performance measurement is needed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install strace
+        if: steps.binaries.outputs.changed == 'true'
         run: sudo apt-get install -y -qq strace >/dev/null
       - name: Compare
+        if: steps.binaries.outputs.changed == 'true'
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
