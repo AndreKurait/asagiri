@@ -1,0 +1,42 @@
+name: Verified browser checks
+description: Prepare a pinned browser and Python tools on a lightweight Linux runner
+outputs:
+  chrome:
+    description: Verified Chromium executable wrapper
+    value: ${{ steps.prepare.outputs.chrome }}
+  python:
+    description: Python with the pinned browser test dependencies
+    value: ${{ steps.prepare.outputs.python }}
+runs:
+  using: composite
+  steps:
+    - name: Install browser runtime dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends \
+          python3-venv fonts-liberation fonts-noto-color-emoji libasound2t64 \
+          libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcups2t64 \
+          libdrm2 libgbm1 libnss3 libxcomposite1 libxdamage1 libxfixes3 \
+          libxkbcommon0 libxrandr2
+    - name: Restore browser download
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/browser-download
+        key: browser-v1-linux-x64-${{ hashFiles('scripts/ci/browser.json') }}
+    - name: Verify browser and prepare Python tools
+      id: prepare
+      shell: bash
+      run: |
+        python3 scripts/ci/browser.py --cache "$RUNNER_TEMP/browser-download" \
+          --directory "$RUNNER_TEMP/site-browser"
+        python3 -m venv "$RUNNER_TEMP/site-venv"
+        "$RUNNER_TEMP/site-venv/bin/pip" install --require-hashes -r scripts/ci/requirements-browser.txt
+        printf 'chrome=%s/site-browser/chrome\npython=%s/site-venv/bin/python\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+    - name: Save verified browser download from main
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/browser-download
+        key: ${{ steps.cache.outputs.cache-primary-key }}

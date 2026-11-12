@@ -61,6 +61,13 @@ checks the public HTML and assets over HTTPS, and runs the interaction suite
 again against the live project URL. Every push to main publishes automatically;
 `workflow_dispatch` can retry a deployment without a source change.
 
+The website's build and deployment use GitHub's `ubuntu-slim` runners; neither
+needs Docker or a VM. Both run the same browser checks with a pinned Chrome
+for Testing download. The cache stores only its original archive, whose size
+and SHA-256 are checked before every extraction. The Python dependencies are
+also hash pinned. This keeps browser checks reproducible without depending
+on a preinstalled desktop browser or the full Linux build runner pool.
+
 Security checks include dependency advisories, licenses and sources,
 ShellCheck, workflow auditing, and CodeQL. Advisory failures remain failures
 on PRs as well as main. Superseded PR checks are canceled. Main workflows

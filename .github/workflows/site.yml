@@ -12,11 +12,14 @@ on:
       - 'scripts/check-site.py'
       - 'scripts/render-demo.py'
       - 'scripts/ci/requirements-browser.txt'
+      - 'scripts/ci/browser.*'
       - 'scripts/ci/verify-pages.py'
       - 'scripts/ci/distribution.py'
       - 'packaging/keys/**'
       - 'tests/ci-distribution.py'
       - 'tests/installer.py'
+      - 'tests/ci-browser.py'
+      - '.github/actions/browser/**'
       - '.github/workflows/site.yml'
   push:
     branches: [main]
@@ -40,7 +43,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,14 +55,15 @@ jobs:
         run: |
           python3 tests/ci-distribution.py
           python3 tests/installer.py
+          python3 tests/ci-browser.py
       - run: python3 scripts/check-site.py
+      - uses: ./.github/actions/browser # zizmor: ignore[self-repository] use the trusted exact-SHA checkout, consistent with the other local actions and our actionlint
+        id: browser
       - name: Check the interactive demo and responsive layouts
-        run: |
-          python3 -m venv "$RUNNER_TEMP/site-venv"
-          "$RUNNER_TEMP/site-venv/bin/pip" install --require-hashes -r scripts/ci/requirements-browser.txt
-          printf '#!/bin/sh\nexec google-chrome --no-sandbox "$@"\n' > "$RUNNER_TEMP/site-chrome"
-          chmod +x "$RUNNER_TEMP/site-chrome"
-          CHROME="$RUNNER_TEMP/site-chrome" "$RUNNER_TEMP/site-venv/bin/python" scripts/render-demo.py --check
+        env:
+          CHROME: ${{ steps.browser.outputs.chrome }}
+          SITE_PYTHON: ${{ steps.browser.outputs.python }}
+        run: '"$SITE_PYTHON" scripts/render-demo.py --check'
       - name: Install repository publishing tools
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
@@ -79,7 +83,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: site
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     permissions:
       contents: read
@@ -91,6 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
@@ -99,12 +104,12 @@ jobs:
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: python3 scripts/ci/verify-pages.py "$PAGE_URL" "$GITHUB_SHA"
-      - name: Exercise the live demo
+      - name: Prepare the live browser checks
+        uses: ./.github/actions/browser # zizmor: ignore[self-repository] use the trusted exact-SHA checkout, consistent with the other local actions and our actionlint
+        id: browser
+      - name: Check the live interactive demo and installation page
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-        run: |
-          python3 -m venv "$RUNNER_TEMP/site-venv"
-          "$RUNNER_TEMP/site-venv/bin/pip" install --require-hashes -r scripts/ci/requirements-browser.txt
-          printf '#!/bin/sh\nexec google-chrome --no-sandbox "$@"\n' > "$RUNNER_TEMP/site-chrome"
-          chmod +x "$RUNNER_TEMP/site-chrome"
-          CHROME="$RUNNER_TEMP/site-chrome" "$RUNNER_TEMP/site-venv/bin/python" scripts/render-demo.py --check --base-url "$PAGE_URL"
+          CHROME: ${{ steps.browser.outputs.chrome }}
+          SITE_PYTHON: ${{ steps.browser.outputs.python }}
+        run: '"$SITE_PYTHON" scripts/render-demo.py --check --base-url "$PAGE_URL"'
