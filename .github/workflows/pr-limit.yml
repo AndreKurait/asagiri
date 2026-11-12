@@ -16,9 +16,11 @@ on:
 permissions: {}
 
 concurrency:
-  # One at a time per person, so two opened together are counted in turn.
+  # One at a time per person. Keep up to 100 pending events so a burst
+  # does not replace checks for other pull requests by the same author.
   group: pr-limit-${{ github.event.pull_request.user.login }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   limit:
