@@ -36,7 +36,10 @@ run() { # run <script> [image]
 }
 
 run api-version
-for img in busybox:stable alpine:3.21; do run image-import "$img"; done
+for img in busybox:stable alpine:3.21; do
+  run image-import "$img"
+  run bind-inotify "$img"
+done
 for t in empty-response-status lifecycle-status archive-permissions http-body-framing archive-directory-contents \
   resource-limits restart-policy interactive-attach attach-http encoded-api-paths; do
   run "$t" alpine:3.21
@@ -46,6 +49,38 @@ for t in kill-during-start remove-during-start wait-code-after-removal network-b
   network-connect-dns network-late-default-route network-interface-numbers network-macvlan network-ipvlan; do
   for img in busybox:stable alpine:3.21; do run "$t" "$img"; done
 done
+
+# Restart this disposable daemon process and its Linux host. A container
+# with an always policy must come back with its writable layer intact.
+# This covers Linux persistence; the macOS updater and launchd are separate.
+restart_engine() {
+  cid=$(dock run -d --restart always --network none alpine:3.21 sleep 3600) || return 1
+  dock exec "$cid" sh -c 'echo persisted > /restart-proof' || return 1
+  i=0
+  until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
+    i=$((i + 1)); [ "$i" -lt 50 ] || return 1; sleep 0.1
+  done
+  before=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
+  docker restart -t 5 "$name" >/dev/null || return 1
+  i=0
+  until dock version >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -lt 240 ] || return 1; sleep 0.5
+  done
+  after=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
+  [ "$before" != "$after" ] || return 1
+  i=0
+  until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
+    i=$((i + 1)); [ "$i" -lt 100 ] || return 1; sleep 0.1
+  done
+  dock rm -f "$cid" >/dev/null || return 1
+}
+if restart_engine; then
+  echo "[0] daemon-restart: always policy and writable layer survive a new daemon process"
+else
+  failed=$((failed + 1)); echo "[1] daemon-restart: restart or persistence failed"
+fi
+
+run buildx-bootstrap
 
 if [ "$failed" -ne 0 ]; then
   echo "$failed failed"; docker logs "$name" 2>&1 | tail -40; exit 1

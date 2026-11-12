@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise docker import/load beside a daemon, as the private CI harness does."""
+"""Exercise docker import/load beside a daemon, as the private CI harness does.
+
+--reference records Docker's leftover tags after a rejected import. Asagiri's
+default test additionally requires that an invalid import publish no image.
+"""
 import gzip
 import http.client
 import http.server
@@ -28,7 +32,7 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def check(path, base):
+def check(path, base, reference=False):
     prefix = "asagiri-import-" + uuid.uuid4().hex[:12]
     images, containers = [], []
 
@@ -60,6 +64,9 @@ def check(path, base):
         return image_id
 
     try:
+        if reference:
+            assert "Asagiri" not in cli("info", "--format", "{{.OperatingSystem}}").stdout.decode(), \
+                "Asagiri must pass the full transactional import checks"
         cid = cli("create", base, "true").stdout.decode().strip()
         containers.append(cid)
         data = io.BytesIO(cli("export", cid).stdout)
@@ -148,15 +155,19 @@ def check(path, base):
         assert "yes|asagiri-import-ok" in cli("run", "--rm", tag).stdout.decode()
         print("PASS imported image survives docker save/load", flush=True)
 
-        for options, body in [((), b"not a tar" * 64),
-                              (("--change", "RUN echo forbidden"), raw),
-                              ((), zipped[:-8])]:
-            broken = prefix + ":broken"
+        for case, options, body in [("tar", (), b"not a tar" * 64),
+                                    ("change", ("--change", "RUN echo forbidden"), raw),
+                                    ("gzip", (), zipped[:len(zipped) // 2])]:
+            broken = prefix + ":broken-" + case
             images.append(broken)
             p = cli("import", *options, "-", broken, data=body, ok=False)
-            assert p.returncode != 0, "a damaged archive or invalid instruction was accepted"
-            assert cli("image", "inspect", broken, ok=False).returncode != 0
-        print("PASS invalid input publishes no image", flush=True)
+            assert p.returncode != 0, case + ": a damaged archive or invalid instruction was accepted"
+            published = cli("image", "inspect", broken, ok=False).returncode == 0
+            if reference:
+                print(f"REFERENCE rejected {case} import; image record remains: {published}", flush=True)
+            else:
+                assert not published, case + ": a rejected import published an image"
+        print("PASS invalid input is rejected" if reference else "PASS invalid input publishes no image", flush=True)
     finally:
         for cid in containers:
             cli("rm", "-f", cid, ok=False)
@@ -165,4 +176,4 @@ def check(path, base):
 
 
 if __name__ == "__main__":
-    check(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "alpine:3.21")
+    check(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "alpine:3.21", "--reference" in sys.argv[3:])
