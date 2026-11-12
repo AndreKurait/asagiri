@@ -56,7 +56,13 @@ Warm the host cache in both arms and alternate their order. Preserve every
 sample and label the measured runtime, kernel and hardware. The reader's
 JSON reports bytes, elapsed seconds and MiB/s; it makes no speed assertion.
 
-## Colima comparison, 2026-11-12
+## Upstream Kiri and Colima comparison, 2026-11-12
+
+The following measurements come from [Kiri PR #192](https://github.com/libracoder/kiri/pull/192),
+reviewed through `d97296654125616fdfeca799e61fbbc7ca62aef4`. The original
+results and helper are preserved for reproducibility. These are Kiri
+measurements; they have not been repeated on Asagiri. Asagiri includes the
+same Mac path fix and 1024 KiB read-ahead setting.
 
 The local comparison used an M4 Max (128 GiB), macOS 15.8.2, Hyperfine
 2.0.0 and Colima 0.10.3 with Docker 29.5.2. Both VMs had two ARM CPUs and
@@ -106,7 +112,13 @@ when it is important. These fixture ratios do not predict an entire build
 or application speedup.
 
 `bench/io-workload.c` is the exact reader used for this comparison. Build
-it with `zig cc -target aarch64-linux-musl -static -O3`. Modes are
+it for an Arm Linux guest with:
+
+```sh
+zig cc -target aarch64-linux-musl -static -O3 bench/io-workload.c -o /tmp/io-reader
+```
+
+Use `x86_64-linux-musl` for an Intel guest. Modes are
 `seq-cold`, `seq-warm`, `metadata`, `small-read`, `durable-write` and `cpu`;
 the second argument is the data directory. Sequential modes expect a
 512 MiB `fixture.bin`; small-file modes expect `tree/f0000.dat` through
@@ -123,6 +135,8 @@ Run the reader inside a persistent container for each engine, for example
 Hyperfine with `--warmup 2 --runs 10 --export-json results.json`. Reverse
 engine order for a second block. Keep the source, data, mount layout and
 VM limits fixed; do not mix host binds with volumes in an engine-only claim.
+For a new Asagiri measurement, use its `asagiri` Docker context and record
+the actual Asagiri version and fresh results separately.
 
 `bench/colima-hyperfine-2026-11-12.json` contains source and fixture hashes,
 medians, exploratory bootstrap intervals, host-client CPU/RSS, empirical

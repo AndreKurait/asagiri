@@ -32,6 +32,11 @@ unmerged work.
   added the two-internal-networks restart case. Kept IPv6 and failover coverage.
 - Retained existing equivalents for #60, #119, #137, #159 and #163. Closed
   prototypes are tied to their replacements below, rather than reintroduced.
+- Refreshed all 133 PR heads after the installation work. Only #192 changed:
+  ported its benchmark helper, upstream Kiri/Colima results, and nearest-rank
+  percentile correction through `d97296654125`. The measurements retain their
+  upstream identity; they have not been repeated on Asagiri. Runtime code is
+  unchanged by this follow-up.
 
 ## Deliberate exclusions
 
@@ -195,5 +200,5 @@ does not prove its native VM or WSL recovery was exercised.
 | [#184](https://github.com/libracoder/kiri/pull/184) — Linux: stopping the engine removes its bridges and nftables table | merged | `8ffcac940d1e` | **inherited** — Merged upstream commit 63ddbf25de8a is an ancestor of Asagiri. |
 | [#185](https://github.com/libracoder/kiri/pull/185) — Terminal: a resize that macOS puts back is set again | merged | `6bc477f0b9d2` | **inherited** — Merged upstream commit d15c8c7849fe is an ancestor of Asagiri. |
 | [#186](https://github.com/libracoder/kiri/pull/186) — Ports: say once why the VM's NAT network is unreachable | merged | `6b0cb4dc25ef` | **inherited** — Merged upstream commit 4645536f68d4 is an ancestor of Asagiri. |
-| [#192](https://github.com/libracoder/kiri/pull/192) — Improve macOS bind-mount paths and sequential reads | open | `6d60e28b145a` | **ported** — 6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Upstream Mac throughput figures have not been remeasured here. |
+| [#192](https://github.com/libracoder/kiri/pull/192) — Improve macOS bind-mount paths and sequential reads | open | `d97296654125` | **ported** — 6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Follow-ups d26ad2b22a5b and d97296654125 ported as 1fa2dda and a600f4f: original benchmark helper, Kiri/Colima results, and corrected nearest-rank percentiles. Upstream Mac throughput figures have not been remeasured here. |
 | [#193](https://github.com/libracoder/kiri/pull/193) — Give secondary external networks an IPv4 default route | open | `8d6368bdcc2c` | **equivalent-and-expanded** — Covered by #163 implementation: secondary IPv4/IPv6 defaults without duplicates, restart and route failover. 43d8cf4 additionally checks two internal networks before and after restart. The DHCP route helper keeps its existing behavior. |

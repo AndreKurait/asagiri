@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-11-12T20:07:45.716760+00:00",
+  "reviewed_at": "2026-11-12T21:44:19.956937+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "4645536f68d4bf2f5e708bd8339a9f71f844c43a",
   "asagiri_runtime_revision": "6f003adfc179ed9bc7489d7c313c4080fc609578",
@@ -1695,7 +1695,7 @@
       "number": 192,
       "title": "Improve macOS bind-mount paths and sequential reads",
       "state": "open",
-      "head": "6d60e28b145a218e5cb1ee7b8ca0fd6662fa8fc8",
+      "head": "d97296654125616fdfeca799e61fbbc7ca62aef4",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
@@ -1703,10 +1703,18 @@
         {
           "source": "6d60e28b145a218e5cb1ee7b8ca0fd6662fa8fc8",
           "asagiri": "a833170e13fa26f03975a3b4e1f28cbe4ccbaf62"
+        },
+        {
+          "source": "d26ad2b22a5ba45bcc5f61bc342c5c3491f93812",
+          "asagiri": "1fa2dda486c397d77bc070eb7ef5324b24b6c1c5"
+        },
+        {
+          "source": "d97296654125616fdfeca799e61fbbc7ca62aef4",
+          "asagiri": "a600f4fdd4d14eb68818f435fbbe619527a3e1f1"
         }
       ],
       "disposition": "ported",
-      "reason": "6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Upstream Mac throughput figures have not been remeasured here."
+      "reason": "6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Follow-ups d26ad2b22a5b and d97296654125 ported as 1fa2dda and a600f4f: original benchmark helper, Kiri/Colima results, and corrected nearest-rank percentiles. Upstream Mac throughput figures have not been remeasured here."
     },
     {
       "number": 193,

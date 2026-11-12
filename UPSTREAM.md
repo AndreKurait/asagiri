@@ -98,6 +98,10 @@ Mac host files with component-boundary matching, and the Mac virtiofs share
 gets best-effort 1 MiB read-ahead. Other filesystems keep their settings.
 The measurement helper and reproduction notes are included; upstream's
 Mac throughput measurements have not been repeated on Asagiri.
+Its later benchmark and percentile corrections (`d26ad2b`, `d972966`)
+are also ported, with the original helper hash and Kiri/Colima results
+preserved. The documentation explicitly distinguishes those upstream
+measurements from new Asagiri measurements.
 
 The full open-and-closed review also covers #193 (`8d6368b`), already
 represented by Asagiri's broader #163 implementation. The live test retains
