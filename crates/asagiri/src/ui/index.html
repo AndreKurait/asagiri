@@ -2650,6 +2650,17 @@ document.addEventListener("contextmenu", (ev) => {
   const editable = ev.target.closest?.("input, textarea, [contenteditable]");
   if (!editable && !String(getSelection()).trim()) ev.preventDefault();
 });
+/* Copy with the keyboard. The window has no Edit menu, which is where the
+   Mac gets Copy's key from, so selected text (a log, a row's value) goes to
+   the clipboard the way the terminal's does. Text fields and the terminal
+   keep their own handling. */
+document.addEventListener("keydown", (ev) => {
+  const mod = WIN || LINUX ? ev.ctrlKey && !ev.metaKey : ev.metaKey && !ev.ctrlKey;
+  if (!mod || ev.altKey || ev.shiftKey || ev.key.toLowerCase() !== "c") return;
+  if (ev.target.closest?.("input, textarea, [contenteditable], .xterm")) return;
+  const text = String(getSelection());
+  if (text) send("term", { name: "copy", value: text });
+});
 /* A new language: the markup's words now, the rest as each part draws again
    (render, the status bar and the engine card follow in the callers). */
 function relang() {

@@ -10,4 +10,22 @@ t("selecting the log copies its lines, without the numbers", () => {
   getSelection().selectAllChildren(log);
   eq(getSelection().toString().trim().split("\n"), ["[INFO] Started worker-1", "ERROR: engine failed"], "copied");
 });
+t("the copy key sends the selected log to the clipboard", () => {
+  const log = document.querySelector(".console.numbered");
+  getSelection().selectAllChildren(log);
+  sent.length = 0;
+  log.dispatchEvent(new KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+  const copies = sent.filter((m) => m.cmd === "term" && m.name === "copy");
+  eq(copies.length, 1, "copies sent");
+  eq(copies[0].value.trim().split("\n"), ["[INFO] Started worker-1", "ERROR: engine failed"], "text");
+});
+t("the copy key leaves text fields and an empty selection alone", () => {
+  sent.length = 0;
+  getSelection().removeAllRanges();
+  document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+  const field = document.querySelector("input");
+  getSelection().selectAllChildren(document.querySelector(".console.numbered"));
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+  eq(sent.filter((m) => m.cmd === "term" && m.name === "copy").length, 0, "copies sent");
+});
 report(R);
