@@ -349,16 +349,17 @@ pub fn rosetta_installed() -> bool {
     false
 }
 
-/// A read-only virtiofs share of one host directory, under `tag`.
+/// A virtiofs share of one host directory, under `tag`.
 fn directory_share(
     dir: &std::path::Path,
     tag: &str,
+    read_only: bool,
 ) -> io::Result<Retained<VZVirtioFileSystemDeviceConfiguration>> {
     let dir_url = url(dir)?;
     // SAFETY: allocations and initialisers that take the objects they own and
     // return them retained; `dir_url` outlives the calls.
     let fs = unsafe {
-        let shared = VZSharedDirectory::initWithURL_readOnly(VZSharedDirectory::alloc(), &dir_url, false);
+        let shared = VZSharedDirectory::initWithURL_readOnly(VZSharedDirectory::alloc(), &dir_url, read_only);
         let share = VZSingleDirectoryShare::initWithDirectory(VZSingleDirectoryShare::alloc(), &shared);
         let fs = VZVirtioFileSystemDeviceConfiguration::initWithTag(VZVirtioFileSystemDeviceConfiguration::alloc(), &NSString::from_str(tag));
         fs.setShare(Some(&share));
@@ -437,12 +438,12 @@ fn build(cfg: Config, queue: &DispatchQueue, events: Sender<Event>) -> io::Resul
 
         let mut shares = Vec::new();
         if let Some((dir, tag)) = &cfg.share {
-            shares.push(Retained::into_super(directory_share(dir, tag)?));
+            shares.push(Retained::into_super(directory_share(dir, tag, false)?));
         }
         // The Intel guest's arm64 emulator, shared in like Rosetta below. A
         // directory that went missing costs arm64 images, not the VM.
         if let Some((dir, tag)) = &cfg.emulator {
-            match directory_share(dir, tag) {
+            match directory_share(dir, tag, true) {
                 Ok(fs) => shares.push(Retained::into_super(fs)),
                 Err(e) => eprintln!("asagiri-vmm: no arm64 emulator share ({e}); arm64 images will not run"),
             }

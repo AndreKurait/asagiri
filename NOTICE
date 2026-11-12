@@ -11,6 +11,21 @@ attribution notices for code bundled with or downloaded by Asagiri. The guest
 Linux kernel is a separate GPL-2.0-only work; its source offer follows the
 third-party licence texts below.
 
+QEMU user-mode emulator (Intel macOS builds)
+==========================================
+
+The optional qemu-aarch64 executable is QEMU 7.2.0, distributed by
+multiarch/qemu-user-static v7.2.0-1. It is a separate GPL-2.0 program,
+copyright Fabrice Bellard and the QEMU contributors. QEMU is a trademark
+of Fabrice Bellard.
+
+QEMU source: https://gitlab.com/qemu-project/qemu/-/tree/v7.2.0
+Binary and build recipe: https://github.com/multiarch/qemu-user-static/tree/v7.2.0-1
+The pinned binary's SHA-256 is in crates/asagiri/src/cli_pins.rs.
+The complete GPL version 2 text is in packaging/qemu/COPYING and is copied
+beside the emulator in the Intel app bundle. Source and packaging notes
+are in packaging/qemu/README.md (also copied beside the emulator).
+
 Rust workspace and locked dependencies
 ======================================
 

@@ -342,19 +342,20 @@ fn intel_mac_refusal(image: &str, platforms: &[String]) -> Option<String> {
     if !cfg!(all(target_os = "macos", target_arch = "x86_64")) {
         return None;
     }
-    if crate::guest::emulator_dir().is_some() {
-        return None;
-    }
-    amd64_only_refusal(image, platforms)
+    intel_platform_refusal(image, platforms, crate::guest::emulator_dir().is_some())
 }
 
-fn amd64_only_refusal(image: &str, platforms: &[String]) -> Option<String> {
+fn intel_platform_refusal(image: &str, platforms: &[String], arm64_emulator: bool) -> Option<String> {
     if platforms.iter().any(|p| p == "linux/amd64" || p.starts_with("linux/amd64/")) {
         return None;
     }
+    if arm64_emulator && platforms.iter().any(|p| p == "linux/arm64" || p.starts_with("linux/arm64/")) {
+        return None;
+    }
     let built = if platforms.is_empty() { "no platform Asagiri can run".to_owned() } else { platforms.join(", ") };
+    let supported = if arm64_emulator { "linux/amd64 or linux/arm64" } else { "linux/amd64" };
     Some(format!(
-        "{image} is built for {built}, and this Intel Mac runs linux/amd64 images (Asagiri does not emulate Arm): use an image with a linux/amd64 build"
+        "{image} is built for {built}, and this Intel Mac runs {supported} images: use an image with a {supported} build"
     ))
 }
 
@@ -3247,10 +3248,15 @@ mod tests {
     #[test]
     fn intel_macs_refuse_images_without_amd64() {
         let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(amd64_only_refusal("alpine", &p(&["linux/amd64"])), None);
-        assert_eq!(amd64_only_refusal("x", &p(&["linux/arm64", "linux/amd64/v3"])), None);
-        let why = amd64_only_refusal("arm-only:1", &p(&["linux/arm64", "linux/arm/v7"])).unwrap();
+        assert_eq!(intel_platform_refusal("alpine", &p(&["linux/amd64"]), false), None);
+        assert_eq!(intel_platform_refusal("x", &p(&["linux/arm64", "linux/amd64/v3"]), false), None);
+        let why = intel_platform_refusal("arm-only:1", &p(&["linux/arm64", "linux/arm/v7"]), false).unwrap();
         assert!(why.starts_with("arm-only:1 is built for linux/arm64, linux/arm/v7, and this Intel Mac runs linux/amd64"), "{why}");
+        assert_eq!(intel_platform_refusal("arm64", &p(&["linux/arm64"]), true), None);
+        assert_eq!(intel_platform_refusal("arm64-v8", &p(&["linux/arm64/v8"]), true), None);
+        for platform in ["linux/arm/v7", "linux/riscv64", "windows/arm64"] {
+            assert!(intel_platform_refusal("other", &p(&[platform]), true).is_some(), "{platform}");
+        }
         // Everywhere but an Intel Mac this never refuses.
         if !cfg!(all(target_os = "macos", target_arch = "x86_64")) {
             assert_eq!(intel_mac_refusal("arm-only", &p(&["linux/arm64"])), None);

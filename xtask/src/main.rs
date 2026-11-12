@@ -761,6 +761,9 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
         if bin.is_file() {
             fs::create_dir_all(res.join("qemu"))?;
             fs::copy(&bin, res.join("qemu/qemu-aarch64"))?;
+            for file in ["COPYING", "README.md"] {
+                fs::copy(root.join("packaging/qemu").join(file), res.join("qemu").join(file))?;
+            }
         } else {
             eprintln!("xtask app: no guest/out/qemu/qemu-aarch64: run `cargo xtask qemu` to run arm64 images");
         }
