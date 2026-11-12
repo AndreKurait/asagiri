@@ -134,6 +134,25 @@ def main():
             browser.js("show('images')")
             assert browser.js("ui.view === 'images' && ui.images.length === 6")
             print("PASS demo navigation, stop/start, inspect, and logs", flush=True)
+            browser.js("prefs.tab='mirrors'; show('settings')")
+            tabs = browser.js("[...document.querySelectorAll('[data-stab]')].map(e=>e.dataset.stab)")
+            for tab in tabs:
+                browser.js(f"document.querySelector('[data-stab={tab}]').click()")
+                assert browser.js("!!document.querySelector('#content .settings')"), tab
+                assert not browser.errors, browser.errors
+            browser.js("document.querySelector('[data-stab=mirrors]').click()")
+            browser.js("{ const field=document.getElementById('mirror-url'); field.value='https://mirror.example.invalid';"
+                       "field.dispatchEvent(new Event('input',{bubbles:true}));"
+                       "document.querySelector('[data-mirroradd]').click(); document.querySelector('[data-savemirrors]').click(); }")
+            assert browser.js("document.querySelectorAll('[data-mirrordel]').length===1 && document.querySelector('[data-savemirrors]').disabled")
+            browser.js("document.querySelector('[data-mirrordel]').click(); document.querySelector('[data-savemirrors]').click()")
+            assert browser.js("document.querySelectorAll('[data-mirrordel]').length===0 && document.querySelector('[data-savemirrors]').disabled")
+            browser.js("prefs.tab='appearance'; show('settings')")
+            browser.js("{ const lang=document.getElementById('pref-lang'); lang.value='ar'; lang.dispatchEvent(new Event('change',{bubbles:true})); }")
+            assert browser.js("document.documentElement.lang==='ar' && document.documentElement.dir==='rtl'")
+            browser.js("{ const lang=document.getElementById('pref-lang'); lang.value='en'; lang.dispatchEvent(new Event('change',{bubbles:true})); }")
+            assert browser.js("document.documentElement.lang==='en' && document.documentElement.dir==='ltr'")
+            print("PASS all demo settings tabs, mirror edits, and Arabic/English language switching", flush=True)
             # Copy the fresh screenshots before capturing the landing page.
             subprocess.run(["python3", str(ROOT / "scripts/build-site.py")], check=True)
             browser.load(origin + "/", 1440, 1100)

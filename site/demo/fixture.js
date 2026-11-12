@@ -1,5 +1,7 @@
 // The app's native bridge is replaced with an in-memory demonstration.
 // There is no container engine or network service behind this page.
+// Keep the translation responder assembled with the page.
+const demoLanguageBridge = window.webkit.messageHandlers.asagiri.postMessage;
 const demoNow = Math.floor(Date.now() / 1000);
 const demoContainers = [
   ["a1", "web", "nginx:alpine", 8080, 80, "morning"],
@@ -76,11 +78,16 @@ function demoCommand(message) {
   if (cmd === "imagelayers") return asagiri.on({ type: "imagelayers", name: message.name, layers: [], history: [], platforms: ["linux/arm64", "linux/amd64"] });
   if (cmd === "prefs") return;
   if (cmd === "pref" || cmd === "setpref") return;
+  if (cmd === "langwords") return demoLanguageBridge(JSON.stringify(message));
   if (cmd === "shareaccount") return asagiri.on({ type: "shareaccount", configured: false, signedIn: false });
   if (cmd === "importsources") return asagiri.on({ type: "importsources", sources: [] });
-  if (cmd === "routerports") return asagiri.on({ type: "routerports", ports: [] });
-  if (cmd === "resources") return asagiri.on({ type: "resources", cpus: 4, memory_mib: 8192, max_cpus: 12, max_memory_mib: 16384 });
-  if (cmd === "buildwith") return asagiri.on({ type: "buildwith", engine: "asagiri", ready: true });
+  if (cmd === "routerports") return asagiri.on({ type: "routerports",
+    http: { port: 80, default: 80, serving: true, env: null },
+    https: { port: 443, default: 443, serving: true, env: null } });
+  if (cmd === "resources") return asagiri.on({ type: "resources", cpus: 4, memory_mib: 8192,
+    running_cpus: 4, running_memory_mib: 8192, awake: true, overridden: false, max_cpus: 12, max_memory_mib: 16384 });
+  if (cmd === "buildwith") return asagiri.on({ type: "buildwith", with: "asagiri", engine: null,
+    ask: false, taken: false, ready: true, builder: "asagiri-build", context: "asagiri" });
   if (cmd === "mirrors") return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
   if (cmd === "setmirrors") {
     demoMirrors = Array.isArray(message.value?.mirrors) ? message.value.mirrors.filter((m) => typeof m === "string") : [];
