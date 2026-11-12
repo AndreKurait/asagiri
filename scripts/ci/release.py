@@ -11,7 +11,7 @@ import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUIRED = {"Platform builds", "UI tests", "Security", "Speed", "Website", "CodeQL"}
+REQUIRED = {"Platform builds", "UI tests", "Security", "Speed", "CodeQL"}
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-dev\.[1-9]\d*)?")
 
 
@@ -44,17 +44,49 @@ def emit(**outputs):
 
 
 def validate_event(kind, ref, event, repo, commit):
-    if kind == "workflow_run":
-        source = event["workflow_run"]
-        if (source["head_repository"]["full_name"] != repo
-                or source["head_branch"] != "main" or source["event"] not in ("push", "workflow_dispatch")
-                or source["head_sha"] != commit or source["conclusion"] != "success"):
-            raise SystemExit("Only a successful build of this repository's main can publish a prerelease")
-    elif kind == "workflow_dispatch":
-        if ref != "refs/heads/main":
-            raise SystemExit("Manual prereleases must run from main")
-    elif kind != "push" or not ref.startswith("refs/tags/v"):
+    if event["repository"]["full_name"] != repo:
+        raise SystemExit("Releases must originate in this repository")
+    if kind == "workflow_dispatch" and ref == "refs/heads/main":
+        return
+    if kind != "push" or event.get("deleted") or event.get("ref") != ref:
+        raise SystemExit("Releases require a main push, a version tag, or a manual main run")
+    if ref == "refs/heads/main" and event.get("after") != commit:
+        raise SystemExit("The source checkout differs from the main push")
+    if ref != "refs/heads/main" and not ref.startswith("refs/tags/v"):
         raise SystemExit("Unsupported release trigger")
+
+
+def require_checks(repo, commit, wait):
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise SystemExit("Invalid source commit")
+    deadline = time.monotonic() + wait
+    while True:
+        runs = api(repo, f"actions/runs?head_sha={commit}&per_page=100")["workflow_runs"]
+        checked, missing = checked_runs(runs, commit)
+        if not missing:
+            print(f"All release checks passed for {commit}", flush=True)
+            return
+        failed = [name for name in missing if name in checked
+                  and checked[name]["status"] == "completed"]
+        if failed:
+            raise SystemExit("Release checks did not succeed: " + ", ".join(failed))
+        print("Waiting for successful main checks: " + ", ".join(missing), flush=True)
+        if time.monotonic() >= deadline:
+            raise SystemExit("Release checks are incomplete; no release published")
+        time.sleep(15)
+
+
+def release_version(kind, ref, run_number, base):
+    if kind == "push" and ref.startswith("refs/tags/v"):
+        version = ref.removeprefix("refs/tags/v")
+        if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+            raise SystemExit("Stable tags must have the form vMAJOR.MINOR.PATCH")
+        return version, False
+    if not VERSION.fullmatch(base) or "-" in base:
+        raise SystemExit("RELEASE_VERSION must be MAJOR.MINOR.PATCH")
+    if not re.fullmatch(r"[1-9]\d*", run_number):
+        raise SystemExit("The prerelease requires a positive Release workflow run number")
+    return f"{base}-dev.{run_number}", True
 
 
 def plan(args):
@@ -64,29 +96,10 @@ def plan(args):
     commit = run("git", "rev-parse", "HEAD").stdout.strip()
     validate_event(kind, ref, event, args.repo, commit)
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
-    stable = kind == "push"
-    deadline = time.monotonic() + (args.wait if stable or kind == "workflow_dispatch" else 0)
-    while True:
-        runs = api(args.repo, f"actions/runs?head_sha={commit}&per_page=100")["workflow_runs"]
-        checked, missing = checked_runs(runs, commit)
-        if not missing:
-            break
-        print("Waiting for successful main checks: " + ", ".join(missing), flush=True)
-        if time.monotonic() >= deadline:
-            if stable or kind == "workflow_dispatch":
-                raise SystemExit("Release checks are incomplete or failed; no release published")
-            emit(ready=False)
-            return
-        time.sleep(15)
-    if stable:
-        version = ref.removeprefix("refs/tags/v")
-        if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
-            raise SystemExit("Stable tags must have the form vMAJOR.MINOR.PATCH")
-    else:
-        base = (ROOT / "RELEASE_VERSION").read_text().strip()
-        if not VERSION.fullmatch(base) or "-" in base:
-            raise SystemExit("RELEASE_VERSION must be MAJOR.MINOR.PATCH")
-        version = f"{base}-dev.{checked['Platform builds']['run_number']}"
+    if ref.startswith("refs/tags/") and run("git", "rev-parse", ref + "^{commit}").stdout.strip() != commit:
+        raise SystemExit("The version tag differs from the source checkout")
+    version, prerelease = release_version(
+        kind, ref, os.environ["GITHUB_RUN_NUMBER"], (ROOT / "RELEASE_VERSION").read_text().strip())
     tag = "v" + version
     previous = run("gh", "release", "view", tag, "--repo", args.repo,
                    "--json", "isDraft,targetCommitish", check=False)
@@ -100,7 +113,7 @@ def plan(args):
             print(f"{tag} is already published for {commit}")
             emit(ready=False)
             return
-    emit(ready=True, commit=commit, version=version, tag=tag, prerelease=not stable)
+    emit(ready=True, commit=commit, version=version, tag=tag, prerelease=prerelease)
 
 
 def stamp(root, version):
@@ -278,8 +291,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "AndreKurait/asagiri"))
     commands = parser.add_subparsers(dest="command", required=True)
-    prepare = commands.add_parser("plan")
-    prepare.add_argument("--wait", type=int, default=2700)
+    commands.add_parser("plan")
+    checks = commands.add_parser("checks")
+    checks.add_argument("commit")
+    checks.add_argument("--wait", type=int, default=2700)
     version = commands.add_parser("stamp")
     version.add_argument("version")
     version.add_argument("--root", type=Path, default=ROOT)
@@ -292,6 +307,8 @@ def main():
     args = parser.parse_args()
     if args.command == "plan":
         plan(args)
+    elif args.command == "checks":
+        require_checks(args.repo, args.commit, args.wait)
     elif args.command == "stamp":
         stamp(args.root, args.version)
     elif args.command == "collect":

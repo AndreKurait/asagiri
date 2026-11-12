@@ -2,10 +2,13 @@
 """Check release trust boundaries, gate completeness, and version stamping."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import tomllib
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "release", Path(__file__).resolve().parents[1] / "scripts/ci/release.py")
@@ -17,25 +20,61 @@ REPO = "AndreKurait/asagiri"
 
 class ReleaseTests(unittest.TestCase):
     def event(self):
-        return {"workflow_run": {"head_repository": {"full_name": REPO}, "head_branch": "main",
-                                 "head_sha": COMMIT, "event": "push", "conclusion": "success"}}
+        return {"repository": {"full_name": REPO}, "after": COMMIT, "deleted": False,
+                "ref": "refs/heads/main"}
 
-    def test_only_successful_main_source_events_are_trusted(self):
-        release.validate_event("workflow_run", "refs/heads/main", self.event(), REPO, COMMIT)
-        for field, value in [("head_repository", {"full_name": "fork/asagiri"}),
-                             ("head_branch", "feature"), ("head_sha", "b" * 40),
-                             ("event", "pull_request"), ("conclusion", "failure")]:
+    def test_only_main_and_version_tag_source_events_are_trusted(self):
+        release.validate_event("push", "refs/heads/main", self.event(), REPO, COMMIT)
+        release.validate_event("push", "refs/tags/v1.0.0",
+                               {**self.event(), "ref": "refs/tags/v1.0.0", "after": "c" * 40},
+                               REPO, COMMIT)
+        release.validate_event("workflow_dispatch", "refs/heads/main", self.event(), REPO, COMMIT)
+        for field, value in [("repository", {"full_name": "fork/asagiri"}),
+                             ("after", "b" * 40), ("deleted", True), ("ref", "refs/heads/feature")]:
             event = self.event()
-            event["workflow_run"][field] = value
+            event[field] = value
             with self.subTest(field=field), self.assertRaises(SystemExit):
-                release.validate_event("workflow_run", "refs/heads/main", event, REPO, COMMIT)
-        with self.assertRaises(SystemExit):
-            release.validate_event("workflow_dispatch", "refs/heads/feature", {}, REPO, COMMIT)
+                release.validate_event("push", "refs/heads/main", event, REPO, COMMIT)
+        for kind, ref in [("workflow_dispatch", "refs/heads/feature"), ("push", "refs/heads/feature"),
+                          ("pull_request", "refs/heads/main"), ("workflow_run", "refs/heads/main")]:
+            with self.subTest(kind=kind, ref=ref), self.assertRaises(SystemExit):
+                release.validate_event(kind, ref, self.event(), REPO, COMMIT)
+
+    def test_main_prerelease_versions_and_stable_tag_versions(self):
+        for kind in ("push", "workflow_dispatch"):
+            self.assertEqual(release.release_version(kind, "refs/heads/main", "34", "0.1.0"),
+                             ("0.1.0-dev.34", True))
+        self.assertEqual(release.release_version("push", "refs/tags/v1.2.3", "35", "0.1.0"),
+                         ("1.2.3", False))
+        for ref in ("refs/tags/v1", "refs/tags/v01.2.3", "refs/tags/v1.2.3-dev.1"):
+            with self.subTest(ref=ref), self.assertRaises(SystemExit):
+                release.release_version("push", ref, "35", "0.1.0")
+        for number in ("", "0", "01", "1\nready=true"):
+            with self.subTest(number=number), self.assertRaises(SystemExit):
+                release.release_version("push", "refs/heads/main", number, "0.1.0")
 
     def checks(self):
         return [{"id": number, "name": name, "head_sha": COMMIT, "head_branch": "main",
-                 "event": "push", "conclusion": "success", "run_number": 10}
+                 "event": "push", "status": "completed", "conclusion": "success", "run_number": 10}
                 for number, name in enumerate(sorted(release.REQUIRED), 1)]
+
+    def test_main_packaging_starts_without_waiting_for_other_workflows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "RELEASE_VERSION").write_text("0.1.0\n")
+            event_path = root / "event.json"
+            event_path.write_text(json.dumps(self.event()))
+            env = {"GITHUB_EVENT_PATH": str(event_path), "GITHUB_EVENT_NAME": "push",
+                   "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_NUMBER": "34"}
+            with patch.object(release, "ROOT", root), patch.dict(release.os.environ, env), \
+                    patch.object(release, "run", side_effect=[
+                        SimpleNamespace(stdout=COMMIT), SimpleNamespace(stdout=""),
+                        SimpleNamespace(returncode=1)]), \
+                    patch.object(release, "api") as api, patch.object(release, "emit") as emit:
+                release.plan(SimpleNamespace(repo=REPO))
+            api.assert_not_called()
+            emit.assert_called_once_with(ready=True, commit=COMMIT, version="0.1.0-dev.34",
+                                         tag="v0.1.0-dev.34", prerelease=True)
 
     def test_every_check_must_pass_on_the_exact_source_commit(self):
         runs = self.checks()
@@ -53,6 +92,30 @@ class ReleaseTests(unittest.TestCase):
         runs = self.checks()
         rerun = {**runs[0], "id": 100, "conclusion": "failure"}
         self.assertEqual(release.checked_runs([*runs, rerun], COMMIT)[1], [rerun["name"]])
+
+    def test_publication_waits_for_ci_and_ignores_website_deployment(self):
+        complete = self.checks()
+        queued = copy.deepcopy(complete)
+        queued[0].update(status="queued", conclusion=None)
+        website = {"id": 100, "name": "Website", "head_sha": COMMIT, "head_branch": "main",
+                   "event": "push", "status": "queued", "conclusion": None}
+        with patch.object(release, "api", side_effect=[
+                {"workflow_runs": queued}, {"workflow_runs": [*complete, website]}]), \
+                patch.object(release.time, "sleep") as sleep:
+            release.require_checks(REPO, COMMIT, 60)
+        sleep.assert_called_once_with(15)
+
+    def test_failed_cancelled_or_missing_ci_cannot_publish(self):
+        for conclusion in ("failure", "cancelled", "skipped", "timed_out"):
+            runs = self.checks()
+            runs[0]["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), \
+                    patch.object(release, "api", return_value={"workflow_runs": runs}), \
+                    self.assertRaises(SystemExit):
+                release.require_checks(REPO, COMMIT, 60)
+        with patch.object(release, "api", return_value={"workflow_runs": []}), \
+                self.assertRaises(SystemExit):
+            release.require_checks(REPO, COMMIT, 0)
 
     def test_provenance_distinguishes_source_from_a_newer_workflow(self):
         env = {"GITHUB_WORKFLOW_SHA": "b" * 40,

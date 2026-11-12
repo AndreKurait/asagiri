@@ -69,6 +69,17 @@ keeps one pending run per workflow group; a newer push can replace that
 pending run. Every main build that completes all required checks successfully
 can publish its own prerelease.
 
+Release packaging starts on each push to main, alongside those checks.
+The prerelease version is `RELEASE_VERSION-dev.N`, where `N` is the Release
+workflow's run number. A `vMAJOR.MINOR.PATCH` tag on main's history selects a
+stable release. Both channels require successful platform, UI, security, speed,
+and CodeQL checks for the exact source commit before publication, plus the
+release workflow's native builds, live tests, and package installation checks.
+Pages deployment runs independently and does not block package publication.
+The publisher verifies the complete asset set, checksums, update metadata, and
+GitHub upload digests before making the draft public. Rerunning a failed
+Release workflow preserves its version and retries publication automatically.
+
 To run the Linux build and unit tests locally with Docker:
 
 ```sh

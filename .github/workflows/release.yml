@@ -1,13 +1,10 @@
 name: Release
 
 on:
-  # Whichever required workflow finishes last can release the checked main
-  # commit. The plan job ignores incomplete sets and already published tags.
-  workflow_run: # zizmor: ignore[dangerous-triggers] only same-repository main builds; the plan verifies trigger, ancestry, and checks before packaging
-    workflows: [Platform builds, UI tests, Security, Speed, Website, CodeQL]
-    types: [completed]
-    branches: [main]
+  # Build packages alongside CI. Publication checks the exact source commit
+  # after packaging, so an unrelated Pages deployment cannot stall a release.
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -15,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: release-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 env:
@@ -31,18 +28,11 @@ defaults:
 
 jobs:
   plan:
-    if: >-
-      github.repository == 'AndreKurait/asagiri' &&
-      (github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.head_branch == 'main' &&
-      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    if: github.repository == 'AndreKurait/asagiri'
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
     outputs:
       ready: ${{ steps.plan.outputs.ready }}
       commit: ${{ steps.plan.outputs.commit }}
@@ -52,20 +42,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require successful checks for this main commit
+      - name: Plan the main prerelease or version-tag release
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -f scripts/ci/release.py ] && [ -f RELEASE_VERSION ]; then
-            python3 scripts/ci/release.py plan
-          else
-            echo "This build predates release automation."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 scripts/ci/release.py plan
 
   linux:
     name: Linux packages (${{ matrix.arch }})
@@ -372,7 +356,7 @@ jobs:
     name: Verify uploads and publish
     needs: [plan, linux, guest, macos, windows, windows-arm-install]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
       actions: read
@@ -383,6 +367,11 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
+      - name: Require successful CI for this exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+        run: python3 scripts/ci/release.py checks "$COMMIT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: packages-*
