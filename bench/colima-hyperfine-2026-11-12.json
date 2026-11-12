@@ -40,7 +40,8 @@
     "bytesPerSmallFile": 256,
     "durableWrites": "64x4096 bytes; fdatasync each file, fsync directory",
     "cpu": "20million xorshift iterations; end-to-end includes Dockerexec",
-    "imageIdentity": "Both exported configs and compressed layers byte-compared; engine display IDs use different config/manifest conventions"
+    "imageIdentity": "Both exported configs and compressed layers byte-compared; engine display IDs use different config/manifest conventions",
+    "percentiles": "Nearest-rank ceil(p*n)-1; with20 samples p99 is the maximum"
   },
   "baseline": [
     {
@@ -49,7 +50,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 20.492708,
-          "p95Ms": 21.918375,
+          "p95Ms": 21.742666,
           "p99Ms": 21.918375,
           "hostCpuMedianMs": 20.1545,
           "clientPeakRssMiB": 43.671875
@@ -57,7 +58,7 @@
         "colima": {
           "n": 20,
           "medianMs": 38.418479000000005,
-          "p95Ms": 42.870208,
+          "p95Ms": 41.572416000000004,
           "p99Ms": 42.870208,
           "hostCpuMedianMs": 20.706,
           "clientPeakRssMiB": 43.59375
@@ -66,7 +67,7 @@
       "ratio": 1.8747390047230459,
       "bootstrap95": [
         1.7719718448191817,
-        1.9392638281540822
+        1.9392274452029203
       ],
       "limits": "20 samples/arm across AB then BA blocks; p99 is empirical maximum, not a stable production-tail estimate; bootstrap is exploratory under shared-host load"
     },
@@ -76,7 +77,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 4.905792000000001,
-          "p95Ms": 5.520959,
+          "p95Ms": 5.42825,
           "p99Ms": 5.520959,
           "hostCpuMedianMs": 3.2005,
           "clientPeakRssMiB": 5.8125
@@ -84,7 +85,7 @@
         "colima": {
           "n": 20,
           "medianMs": 5.558312000000001,
-          "p95Ms": 6.8666670000000005,
+          "p95Ms": 6.571875,
           "p99Ms": 6.8666670000000005,
           "hostCpuMedianMs": 3.3539999999999996,
           "clientPeakRssMiB": 6.140625
@@ -92,7 +93,7 @@
       },
       "ratio": 1.1330101235437622,
       "bootstrap95": [
-        1.0492895802165763,
+        1.0486481935825276,
         1.1950109100276936
       ],
       "limits": "20 samples/arm across AB then BA blocks; p99 is empirical maximum, not a stable production-tail estimate; bootstrap is exploratory under shared-host load"
@@ -103,7 +104,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 23.386250000000004,
-          "p95Ms": 33.547042,
+          "p95Ms": 32.753333000000005,
           "p99Ms": 33.547042,
           "hostCpuMedianMs": 22.198,
           "clientPeakRssMiB": 44.890625
@@ -111,7 +112,7 @@
         "colima": {
           "n": 20,
           "medianMs": 77.50095800000001,
-          "p95Ms": 91.972334,
+          "p95Ms": 83.9055,
           "p99Ms": 91.972334,
           "hostCpuMedianMs": 23.4015,
           "clientPeakRssMiB": 44.484375
@@ -130,7 +131,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 36.533896,
-          "p95Ms": 54.83879100000001,
+          "p95Ms": 48.014041,
           "p99Ms": 54.83879100000001,
           "hostCpuMedianMs": 20.8185,
           "clientPeakRssMiB": 43.796875
@@ -138,7 +139,7 @@
         "colima": {
           "n": 20,
           "medianMs": 48.2904995,
-          "p95Ms": 55.073958000000005,
+          "p95Ms": 54.585792,
           "p99Ms": 55.073958000000005,
           "hostCpuMedianMs": 21.6115,
           "clientPeakRssMiB": 43.875
@@ -146,8 +147,8 @@
       },
       "ratio": 1.3217998841404708,
       "bootstrap95": [
-        1.2155988257415113,
-        1.3947295636375003
+        1.2155075149234722,
+        1.3945455898969281
       ],
       "limits": "20 samples/arm across AB then BA blocks; p99 is empirical maximum, not a stable production-tail estimate; bootstrap is exploratory under shared-host load"
     },
@@ -157,7 +158,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 19.968833500000002,
-          "p95Ms": 21.308084,
+          "p95Ms": 21.034792,
           "p99Ms": 21.308084,
           "hostCpuMedianMs": 20.4605,
           "clientPeakRssMiB": 43.734375
@@ -165,7 +166,7 @@
         "colima": {
           "n": 20,
           "medianMs": 33.4796035,
-          "p95Ms": 38.287542,
+          "p95Ms": 37.71791700000001,
           "p99Ms": 38.287542,
           "hostCpuMedianMs": 21.2705,
           "clientPeakRssMiB": 43.625
@@ -173,8 +174,8 @@
       },
       "ratio": 1.6765928515554,
       "bootstrap95": [
-        1.6377917554066725,
-        1.742096317579841
+        1.6376469068804294,
+        1.7419319228144194
       ],
       "limits": "20 samples/arm across AB then BA blocks; p99 is empirical maximum, not a stable production-tail estimate; bootstrap is exploratory under shared-host load"
     },
@@ -184,7 +185,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 109.4682705,
-          "p95Ms": 118.868458,
+          "p95Ms": 114.02754100000001,
           "p99Ms": 118.868458,
           "hostCpuMedianMs": 20.4825,
           "clientPeakRssMiB": 43.609375
@@ -192,7 +193,7 @@
         "colima": {
           "n": 20,
           "medianMs": 164.80125,
-          "p95Ms": 182.69291700000002,
+          "p95Ms": 174.054709,
           "p99Ms": 182.69291700000002,
           "hostCpuMedianMs": 21.385499999999997,
           "clientPeakRssMiB": 43.9375
@@ -211,7 +212,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 693.5617915,
-          "p95Ms": 2232.295167,
+          "p95Ms": 1631.226667,
           "p99Ms": 2232.295167,
           "hostCpuMedianMs": 21.5775,
           "clientPeakRssMiB": 43.734375
@@ -219,7 +220,7 @@
         "colima": {
           "n": 20,
           "medianMs": 554.7113750000001,
-          "p95Ms": 727.441208,
+          "p95Ms": 648.417625,
           "p99Ms": 727.441208,
           "hostCpuMedianMs": 20.712500000000002,
           "clientPeakRssMiB": 44.265625
@@ -238,7 +239,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 110.615125,
-          "p95Ms": 125.806583,
+          "p95Ms": 121.93220900000001,
           "p99Ms": 125.806583,
           "hostCpuMedianMs": 20.2605,
           "clientPeakRssMiB": 43.9375
@@ -246,7 +247,7 @@
         "colima": {
           "n": 20,
           "medianMs": 159.1025205,
-          "p95Ms": 170.817833,
+          "p95Ms": 170.81183300000004,
           "p99Ms": 170.817833,
           "hostCpuMedianMs": 20.566000000000003,
           "clientPeakRssMiB": 43.65625
@@ -265,7 +266,7 @@
         "kiri": {
           "n": 20,
           "medianMs": 49.4575835,
-          "p95Ms": 86.15637500000001,
+          "p95Ms": 53.924959,
           "p99Ms": 86.15637500000001,
           "hostCpuMedianMs": 20.078,
           "clientPeakRssMiB": 43.734375
@@ -273,7 +274,7 @@
         "colima": {
           "n": 20,
           "medianMs": 66.180104,
-          "p95Ms": 72.161208,
+          "p95Ms": 70.95066600000001,
           "p99Ms": 72.161208,
           "hostCpuMedianMs": 20.6005,
           "clientPeakRssMiB": 43.65625
@@ -282,7 +283,7 @@
       "ratio": 1.338118430311097,
       "bootstrap95": [
         1.30739683689849,
-        1.3710787073760384
+        1.3709144154588533
       ],
       "limits": "20 samples/arm across AB then BA blocks; p99 is empirical maximum, not a stable production-tail estimate; bootstrap is exploratory under shared-host load"
     }
@@ -292,7 +293,7 @@
       "kiri-bind": {
         "n": 20,
         "medianMs": 698.7170835000001,
-        "p95Ms": 971.0762500000001,
+        "p95Ms": 816.4741250000001,
         "p99Ms": 971.0762500000001,
         "hostCpuMedianMs": 21.054499999999997,
         "clientPeakRssMiB": 43.734375
@@ -300,7 +301,7 @@
       "kiri-volume": {
         "n": 20,
         "medianMs": 22.427395500000003,
-        "p95Ms": 26.463625,
+        "p95Ms": 23.724084,
         "p99Ms": 26.463625,
         "hostCpuMedianMs": 19.803,
         "clientPeakRssMiB": 44.046875
@@ -308,7 +309,7 @@
       "colima-bind": {
         "n": 20,
         "medianMs": 603.8517915000001,
-        "p95Ms": 712.663166,
+        "p95Ms": 705.177709,
         "p99Ms": 712.663166,
         "hostCpuMedianMs": 19.469,
         "clientPeakRssMiB": 43.765625
@@ -316,7 +317,7 @@
       "colima-volume": {
         "n": 20,
         "medianMs": 41.1369795,
-        "p95Ms": 50.78775000000001,
+        "p95Ms": 47.180458,
         "p99Ms": 50.78775000000001,
         "hostCpuMedianMs": 19.0275,
         "clientPeakRssMiB": 43.65625
