@@ -46,7 +46,7 @@ fn capture_to(
 fn record(mut reader: impl BufRead, path: &Path, max: u64) -> io::Result<()> {
     let redactor = super::redact::Redactor::home_only();
     let mut line = Vec::new();
-    let mut private_key = false;
+    let mut keys = KeyLatch::default();
     loop {
         line.clear();
         if reader
@@ -57,22 +57,31 @@ fn record(mut reader: impl BufRead, path: &Path, max: u64) -> io::Result<()> {
         {
             return Ok(());
         }
-        let text = String::from_utf8_lossy(&line);
-        if text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----") {
-            private_key = true;
-        }
+        let mut private_key = keys.feed(&line);
         let omitted = line.len() as u64 > MAX_LINE;
         if omitted && !line.ends_with(b"\n") {
-            reader.skip_until(b'\n')?;
+            // Omit the text, but still follow key delimiters in it. A BEGIN
+            // past the line cap must hide the key's following lines too.
+            loop {
+                let bytes = reader.fill_buf()?;
+                if bytes.is_empty() {
+                    break;
+                }
+                let n = bytes.iter().position(|&b| b == b'\n').map_or(bytes.len(), |i| i + 1);
+                private_key |= keys.feed(&bytes[..n]);
+                let ended = bytes[n - 1] == b'\n';
+                reader.consume(n);
+                if ended {
+                    break;
+                }
+            }
         }
         let output = if private_key {
-            if text.contains("-----END ") && text.contains("PRIVATE KEY-----") {
-                private_key = false;
-            }
             "[redacted private key]".to_owned()
         } else if omitted {
             "[guest console line omitted: exceeds 16 KiB]".to_owned()
         } else {
+            let text = String::from_utf8_lossy(&line);
             redactor.apply(text.trim_end_matches(['\r', '\n']))
         };
         if let Err(e) = super::append_to(path, &output, max) {
@@ -80,6 +89,43 @@ fn record(mut reader: impl BufRead, path: &Path, max: u64) -> io::Result<()> {
             let _ = io::copy(&mut reader, &mut io::sink());
             return Err(e);
         }
+    }
+}
+
+/// A bounded scanner that follows PEM delimiters in stream order, including
+/// when a delimiter straddles a read or lies in an omitted line's tail.
+#[derive(Default)]
+struct KeyLatch {
+    open: bool,
+    delimiter: Option<bool>,
+    tail: Vec<u8>,
+}
+
+impl KeyLatch {
+    fn feed(&mut self, bytes: &[u8]) -> bool {
+        let mut covered = self.open;
+        for &b in bytes {
+            if b == b'\n' {
+                self.delimiter = None;
+                self.tail.clear();
+                continue;
+            }
+            if self.tail.len() == 32 {
+                self.tail.remove(0);
+            }
+            self.tail.push(b);
+            if self.tail.ends_with(b"-----BEGIN ") {
+                self.delimiter = Some(true);
+            } else if self.tail.ends_with(b"-----END ") {
+                self.delimiter = Some(false);
+            } else if self.tail.ends_with(b"PRIVATE KEY-----") {
+                if let Some(open) = self.delimiter.take() {
+                    self.open = open;
+                    covered |= open;
+                }
+            }
+        }
+        covered
     }
 }
 
@@ -177,6 +223,32 @@ mod tests {
             );
         }
         assert!(!super::super::rotated(&path, 3).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn omitted_tails_and_split_reads_still_hide_private_keys() {
+        for offset in [MAX_LINE as usize - 5, MAX_LINE as usize * 2] {
+            let dir = dir(&format!("key-tail-{offset}"));
+            let path = dir.join("guest-console.log");
+            let input = format!("{}-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-key-body\n-----END OPENSSH PRIVATE KEY-----\nkernel BUG retained\n", "x".repeat(offset));
+            record(BufReader::with_capacity(7, input.as_bytes()), &path, MAX_FILE).unwrap();
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(!text.contains("secret-key-body"), "a key after the line cap escaped");
+            assert!(text.contains("kernel BUG retained"));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn delimiters_on_one_line_follow_their_stream_order() {
+        let dir = dir("key-order");
+        let path = dir.join("guest-console.log");
+        let input = b"-----BEGIN PRIVATE KEY----- -----END PRIVATE KEY----- -----BEGIN RSA PRIVATE KEY-----\nsecond-secret\n-----END RSA PRIVATE KEY-----\nboot continued\n";
+        record(BufReader::with_capacity(5, &input[..]), &path, MAX_FILE).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("second-secret"));
+        assert!(text.contains("boot continued"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
