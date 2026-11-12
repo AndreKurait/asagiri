@@ -88,6 +88,12 @@ config, and layer requests. The atomic firewall update in #60 (`6454f41`) is
 also present: `replace_table` sends create/delete/rebuild in one batch, with
 tests for IPv4 and IPv6. The existing bridge-isolation rules are preserved.
 
+The subsequent refresh ports #192 (`6d60e28`): `/opt` and `/usr/local` use
+Mac host files with component-boundary matching, and the Mac virtiofs share
+gets best-effort 1 MiB read-ahead. Other filesystems keep their settings.
+The measurement helper and reproduction notes are included; upstream's
+Mac throughput measurements have not been repeated on Asagiri.
+
 ## Issue follow-up
 
 | Issue | Work and verification scope |

@@ -24,7 +24,7 @@ mod volmount;
 
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 
 use asagiri_proto::{HOST_PORT, Hello, Msg, PROTOCOL};
@@ -352,6 +352,8 @@ fn data_dirs() -> io::Result<container::Paths> {
     sys::mkdir(c"/mnt/mac", 0o755);
     if let Err(e) = mount(c"asagiri-mac", c"/mnt/mac", c"virtiofs", libc::MS_NOATIME, None) {
         eprintln!("asagiri-init: no Mac file share ({e}); bind mounts of Mac paths will fail");
+    } else if let Err(e) = mac_readahead() {
+        eprintln!("asagiri-init: keeping the Mac file share's default read-ahead ({e})");
     }
     // An x86-64 guest (Intel Macs, WSL2) runs amd64 binaries natively.
     #[cfg(target_arch = "aarch64")]
@@ -386,6 +388,15 @@ fn data_dirs() -> io::Result<container::Paths> {
         trim::start(DATA);
     }
     Ok(paths)
+}
+
+/// Batch sequential reads across virtiofs without changing cache coherence.
+/// Only the Mac share's backing device is changed; Rosetta and the data disk
+/// keep their own settings. Older kernels may omit this optional tuning.
+fn mac_readahead() -> io::Result<()> {
+    let device = std::fs::metadata("/mnt/mac")?.dev();
+    let path = format!("/sys/class/bdi/{}:{}/read_ahead_kb", libc::major(device), libc::minor(device));
+    sys::write_file(&path, "1024\n")
 }
 
 /// x86-64 Linux binaries through Rosetta, when the Mac shares it: amd64

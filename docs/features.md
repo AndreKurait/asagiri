@@ -39,7 +39,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   `~/.asagiri/tls`, whose name constraints allow only `*.asagiri.local` and
   `*.asagiri.localhost` (Settings → Domains → HTTPS asks macOS to trust it)
 - **Storage**: named and anonymous volumes, bind mounts of Mac paths
-  (virtiofs), `--tmpfs`, `--mount`, `volume` commands
+  (virtiofs), `--tmpfs`, `--mount`, `volume` commands. Mac bind sources in
+  `/Users`, `/Volumes`, `/private`, `/tmp`, `/var/folders`, `/opt` and
+  `/usr/local` use the Mac's files. Other paths stay in the Linux VM.
+  The Mac share uses 1 MiB read-ahead for sequential reads; cache coherence
+  and read-only mounts are unchanged. Other filesystems keep their settings.
 - **Images**: `pull` (with `docker login` credentials), `push`, `tag`,
   `save`, `load`, [`import`](docker-import.md) (tar/gzip root filesystems, from a file, stdin or an
   HTTP(S) URL), `history`, `search`, `image prune`, `system df`;
