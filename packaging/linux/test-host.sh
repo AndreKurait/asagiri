@@ -17,6 +17,7 @@ log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 check() { if eval "$2" >"$log" 2>&1; then ok "$1"; else bad "$1"; sed 's/^/         /' "$log" | tail -4; fi; }
 [ -d /run/systemd/system ] || { echo "no systemd here; use test.sh"; exit 1; }
+command -v pgrep >/dev/null 2>&1 || { echo "pgrep is required (install procps/procps-ng)"; exit 1; }
 if pgrep -x asagiri >/dev/null; then
   if [ "${ASAGIRI_TEST_KILL:-}" = 1 ]; then pkill -x asagiri; sleep 1; else
     echo "a asagiri daemon is running on this machine; this test stops it (and every container it runs) and does not start it again. Set ASAGIRI_TEST_KILL=1 to go on." >&2
@@ -29,7 +30,7 @@ if command -v dpkg >/dev/null; then fmt=deb; else fmt=rpm; fi
 pkgfile() { if [ "$fmt" = deb ]; then ls "$out"/${1}_*.deb 2>/dev/null; else ls "$out"/${1}-[0-9]*.rpm 2>/dev/null; fi; }
 
 host_test() { # name full(0|1)
-  local name=$1 full=$2 deb cli= slot_free=1 install remove
+  local name=$1 full=$2 deb cli='' slot_free=1 install remove
   deb=$(pkgfile "$name")
   # dnf, not rpm -i: it brings what the package requires (update-alternatives).
   if [ "$fmt" = deb ]; then install="dpkg -i '$deb'" remove="dpkg -r $name"; else install="dnf install -y -q '$deb'" remove="rpm -e $name"; fi
@@ -50,22 +51,35 @@ host_test() { # name full(0|1)
   check "installed, engine not started or enabled" "! systemctl is-enabled -q asagiri && ! systemctl is-active -q asagiri && test ! -S /run/asagiri/docker.sock"
   # The window's setup checklist: \`asagiri host-access USER\` (through pkexec)
   # starts the engine and lets an account in at once, by name on the socket's
-  # access list, without it signing in again. Checked as that user with no
-  # groups at all, as a session started before the change would be.
+  # access list, without it signing in again when the filesystem supports
+  # ACLs. Otherwise exit 10 requests a new login with the updated groups.
   check "polkit action for the password prompt" "test -f /usr/share/polkit-1/actions/dev.asagiri.host-access.policy"
   check "NetworkManager leaves Asagiri's interfaces alone" "grep -q 'interface-name:asagiri\*;interface-name:kv\*;interface-name:kx\*' /usr/lib/NetworkManager/conf.d/asagiri.conf"
   userdel asagiri-acl-test >/dev/null 2>&1; useradd --system --no-create-home asagiri-acl-test
   userdel asagiri-acl-other >/dev/null 2>&1; useradd --system --no-create-home asagiri-acl-other
-  check "asagiri host-access starts the engine and adds the account to the asagiri group" "/usr/bin/asagiri host-access asagiri-acl-test && systemctl is-enabled -q asagiri && systemctl is-active -q asagiri && id -nG asagiri-acl-test | grep -qw asagiri"
+  local access_status=0
+  /usr/bin/asagiri host-access asagiri-acl-test >"$log" 2>&1 || access_status=$?
+  case "$access_status" in
+    0|10) ok "host-access completed (status $access_status)" ;;
+    *) bad "host-access failed (status $access_status)"; tail -4 "$log" ;;
+  esac
+  check "host-access starts the engine and adds the account to the asagiri group" "systemctl is-enabled -q asagiri && systemctl is-active -q asagiri && id -nG asagiri-acl-test | grep -qw asagiri"
   for _ in $(seq 30); do [ -S /run/asagiri/docker.sock ] && break; sleep 1; done
   check "socket /run/asagiri/docker.sock, group asagiri, mode 660" "test -S /run/asagiri/docker.sock && stat -c '%G %a' /run/asagiri/docker.sock | grep -q '^asagiri 660'"
   check "an account without host-access is refused" "! setpriv --reuid=asagiri-acl-other --regid=asagiri-acl-other --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping"
   userdel asagiri-acl-other >/dev/null 2>&1
-  check "and it gets in now, without signing in again" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
-  check "still in after the engine restarts" "systemctl restart asagiri && for i in \$(seq 30); do [ -S /run/asagiri/docker.sock ] && break; sleep 1; done; setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  if [ "$access_status" -eq 0 ]; then
+    check "ACL access works without signing in again" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  elif [ "$access_status" -eq 10 ]; then
+    check "without ACLs, an old session still needs its new group" "! setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping"
+  fi
+  check "a new session has access through its group" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --init-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  check "group access survives an engine restart" "systemctl restart asagiri && for i in \$(seq 30); do [ -S /run/asagiri/docker.sock ] && break; sleep 1; done; setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --init-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  if [ "$access_status" -eq 0 ]; then
+    check "ACL access also survives the restart" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  fi
   userdel asagiri-acl-test >/dev/null 2>&1
   check "/run/asagiri is root 755 (RuntimeDirectory; the socket itself is 660 root:asagiri)" "stat -c '%U %a' /run/asagiri | grep -q '^root 755'"
-  check "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
   check "/var/lib/asagiri-daemon (StateDirectory) exists" "test -d /var/lib/asagiri-daemon"
   if [ "$sock_free" = 1 ]; then
     check "/var/run/docker.sock links to Asagiri's socket" "test \"\$(readlink /var/run/docker.sock)\" = /run/asagiri/docker.sock"
@@ -91,12 +105,17 @@ host_test() { # name full(0|1)
     check "docker version through the socket" "for i in \$(seq 30); do $cli version >/dev/null 2>&1 && break; sleep 1; done; $cli version --format '{{.Server.Os}}' | grep -q linux"
   fi
   if [ -n "$cli" ]; then
+    if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
+      check "service runs the stamped release version" "test \"\$($cli version --format '{{.Server.Version}}')\" = '$ASAGIRI_EXPECTED_VERSION'"
+    fi
     check "docker run alpine" "$cli run --rm alpine cat /etc/alpine-release | grep -q '^3\.'"
+    # The Linux agent creates this directory lazily, on the first container.
+    check "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
     if [ "$fail" -gt 0 ]; then
       # Why a container doesn't start: the unit's cgroup tree and the engine's log.
       echo "         cgroup tree of asagiri.service:"
       find /sys/fs/cgroup/system.slice/asagiri.service -maxdepth 2 -type d 2>&1 | sed 's/^/           /'
-      echo "         asagiri-init's cgroup: $(cat /proc/$(pgrep -x asagiri-init | head -1)/cgroup 2>&1)"
+      echo "         asagiri-init's cgroup: $(cat "/proc/$(pgrep -x asagiri-init | head -1)/cgroup" 2>&1)"
       journalctl -u asagiri -n 25 --no-pager 2>&1 | cut -c1-220 | sed 's/^/           /'
     fi
     check "container has internet" "$cli run --rm alpine wget -qO- -T 20 http://example.com | grep -q 'Example Domain'"

@@ -92,7 +92,24 @@ Release workflow preserves its version and retries publication automatically.
 
 Linux releases also install both RPM variants on Amazon Linux 2023, configure
 an ordinary user's engine access, run a real container, and remove the package.
-The release matrix exercises native x86_64 and aarch64 binaries.
+The release matrix exercises native x86_64 and aarch64 binaries. A second check
+boots Amazon Linux userspace under systemd in a disposable container and tests
+the installed service, permissions, restarts, networking, Docker tools, and
+removal. It verifies both immediate ACL access and the documented login
+fallback, according to filesystem support. The data directory is checked after
+the first container creates it.
+
+These containers use private cgroup and network namespaces; they mount no host
+cgroup tree or Docker socket and publish no host ports. The test uses Amazon
+Linux userspace, the actual service unit, and the runner's kernel. To run the
+systemd check locally:
+
+```sh
+bash packaging/linux/test-amazon-systemd.sh /path/to/native-packages /path/to/native-docker-cli
+```
+
+An optional third argument supplies a public RPM key and requires package
+signature verification.
 
 A successful release refreshes Pages automatically. The website publisher
 verifies release provenance against the exact source and workflow commit,

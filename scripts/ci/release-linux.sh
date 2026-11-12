@@ -16,6 +16,7 @@ bash packaging/linux/fetch-cli.sh "$cli" "$HOME/.cache/asagiri-linux-cli" "$arch
 bash packaging/linux/build.sh "$bin" "$out" "$arch" "$cli"
 ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test.sh "$out" docker "$cli"
 ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test-amazon.sh "$out" "$cli"
+ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test-amazon-systemd.sh "$out" "$cli"
 cp "$bin/asagiri" "$bin/asagiri-init" "$inputs/"
 sh scripts/asagiri-linux.sh "$PWD" "$bin" "$inputs/asagiri-linux.tar.gz" "$arch"
 python3 - "$inputs" "$version" "$arch" <<'PY'
