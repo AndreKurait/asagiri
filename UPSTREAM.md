@@ -79,6 +79,15 @@ resolution (#178), the Stop/Start daemon lifecycle (#181), startup error details
 and Docker exit codes (#183), Linux network cleanup (#184), macOS terminal
 resize retries (#185), and the once-per-failure NAT warning (#186).
 
+The final open-PR scan also includes #177's keyboard-copy fix (`ee05b04`) and
+#119's upstream Arabic wording (`d21bbad`) and literal-string UI checks
+(`cd0a5ab`). Its `b4092bc` main merge is covered by the full main integration.
+The mirror credential fix in `fc739e4` is already enforced in Asagiri's
+`download_layers`, with a test checking the complete headers for the manifest,
+config, and layer requests. The atomic firewall update in #60 (`6454f41`) is
+also present: `replace_table` sends create/delete/rebuild in one batch, with
+tests for IPv4 and IPv6. The existing bridge-isolation rules are preserved.
+
 ## Issue follow-up
 
 | Issue | Work and verification scope |
@@ -95,7 +104,7 @@ resize retries (#185), and the once-per-failure NAT warning (#186).
 
 | Upstream work | Reason |
 | --- | --- |
-| #54 | Review found two deadlocks. Revisit when the synchronization design is fixed and covered by lifecycle tests. |
+| #54 | The earlier review found two deadlocks. The latest `508ba7e` head contains further recovery and retirement changes; the full branch remains held for a fresh concurrency review and macOS recovery validation. |
 | #89 | Incomplete wiring, a protocol change, and unresolved correctness findings. It needs a complete implementation and compatibility review before integration. |
 | #116, commit `ba7fd94` | Kept separate from the initial emulation implementation pending review and platform validation. |
 
