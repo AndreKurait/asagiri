@@ -1514,12 +1514,12 @@ mod tests {
     fn mirrors_are_tried_in_order_and_only_for_docker_hub() {
         let hub = Reference::parse("nginx:1.27").unwrap();
         let client = Client::new().with_mirrors(vec![
-            Mirror::parse("docker.1ms.run").unwrap(),
-            Mirror::parse("m.daocloud.io/docker.io").unwrap(),
+            Mirror::parse("mirror.example.com").unwrap(),
+            Mirror::parse("mirror.example.net/docker.io").unwrap(),
         ]);
         let targets = client.targets(&hub);
         let hosts: Vec<&str> = targets.iter().map(|r| r.registry.as_str()).collect();
-        assert_eq!(hosts, ["docker.1ms.run", "m.daocloud.io", "docker.io"]);
+        assert_eq!(hosts, ["mirror.example.com", "mirror.example.net", "docker.io"]);
         assert_eq!(targets[1].repository, "docker.io/library/nginx");
         assert_eq!(targets[2].repository, "library/nginx");
         assert_eq!(targets[2].reference, "1.27");

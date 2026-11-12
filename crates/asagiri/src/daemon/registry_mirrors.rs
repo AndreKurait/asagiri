@@ -69,15 +69,15 @@ mod tests {
 
     #[test]
     fn a_list_is_normalized_and_deduplicated() {
-        let body = json!({"mirrors": ["docker.1ms.run", "https://docker.1ms.run/", " https://docker.m.daocloud.io/docker.io ", "https://docker.1ms.run/v2"]});
+        let body = json!({"mirrors": ["mirror.example.com", "https://mirror.example.com/", " https://mirror.example.net/docker.io ", "https://mirror.example.com/v2"]});
         let urls: Vec<String> = normalize(body["mirrors"].as_array().unwrap()).unwrap().iter().map(Mirror::as_url).collect();
-        assert_eq!(urls, ["https://docker.1ms.run", "https://docker.m.daocloud.io/docker.io"]);
+        assert_eq!(urls, ["https://mirror.example.com", "https://mirror.example.net/docker.io"]);
     }
 
     #[test]
     fn what_is_not_a_mirror_is_refused() {
-        assert!(Mirror::parse("http://docker.1ms.run").is_err());
-        assert!(normalize(&[json!("http://docker.1ms.run")]).is_err());
+        assert!(Mirror::parse("http://mirror.example.com").is_err());
+        assert!(normalize(&[json!("http://mirror.example.com")]).is_err());
         assert!(normalize(&[json!(42)]).is_err());
         assert!(normalize(&[]).unwrap().is_empty());
     }

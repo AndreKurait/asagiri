@@ -1,6 +1,6 @@
 //! Pull-through mirrors of Docker Hub, as Settings → Registry mirrors
 //! stores them: a host (with an optional port) and, for mirrors that keep
-//! the upstream registry in the path (`m.daocloud.io/docker.io`, say), a
+//! the upstream registry in the path (`mirror.example.com/docker.io`, say), a
 //! path prefix. As Docker's `registry-mirrors`, they apply to `docker.io`
 //! only: other registries are pulled from directly.
 
@@ -15,8 +15,8 @@ pub struct Mirror {
 
 impl Mirror {
     /// Parses what a person types in Settings or passes to
-    /// `asagiri registry-mirror add`: `docker.1ms.run`, `https://docker.1ms.run`,
-    /// `https://m.daocloud.io/docker.io`, `127.0.0.1:5000`.
+    /// `asagiri registry-mirror add`: `mirror.example.com`, `https://mirror.example.com`,
+    /// `https://mirror.example.com/docker.io`, `127.0.0.1:5000`.
     ///
     /// A mirror is HTTPS, as Docker's are; a loopback one is plain HTTP, as
     /// every local registry is. A trailing `/v2` is not part of the address.
@@ -78,22 +78,22 @@ mod tests {
 
     #[test]
     fn parses_the_addresses_people_type() {
-        let m = Mirror::parse("docker.1ms.run").unwrap();
-        assert_eq!(m.host, "docker.1ms.run");
+        let m = Mirror::parse("mirror.example.com").unwrap();
+        assert_eq!(m.host, "mirror.example.com");
         assert_eq!(m.prefix, None);
-        assert_eq!(m.as_url(), "https://docker.1ms.run");
+        assert_eq!(m.as_url(), "https://mirror.example.com");
 
-        assert_eq!(Mirror::parse("https://Docker.1MS.run/").unwrap().as_url(), "https://docker.1ms.run");
-        assert_eq!(Mirror::parse("https://docker.m.daocloud.io/docker.io").unwrap().prefix.as_deref(), Some("docker.io"));
-        assert_eq!(Mirror::parse("https://docker.1ms.run/v2").unwrap().prefix, None);
+        assert_eq!(Mirror::parse("https://Mirror.Example.com/").unwrap().as_url(), "https://mirror.example.com");
+        assert_eq!(Mirror::parse("https://mirror.example.net/docker.io").unwrap().prefix.as_deref(), Some("docker.io"));
+        assert_eq!(Mirror::parse("https://mirror.example.com/v2").unwrap().prefix, None);
         assert_eq!(Mirror::parse("127.0.0.1:5000").unwrap().as_url(), "http://127.0.0.1:5000");
         assert_eq!(Mirror::parse("https://127.0.0.1:5000").unwrap().as_url(), "http://127.0.0.1:5000");
-        assert_eq!(Mirror::parse("https://m.daocloud.io/docker.io").unwrap().buildkit(), "m.daocloud.io/docker.io");
+        assert_eq!(Mirror::parse("https://mirror.example.net/docker.io").unwrap().buildkit(), "mirror.example.net/docker.io");
     }
 
     #[test]
     fn refuses_what_is_not_a_mirror() {
-        for bad in ["", "   ", "https://", "ftp://docker.1ms.run", "http://docker.1ms.run", "https://user:pw@docker.1ms.run", "https://docker.1ms.run/a b"] {
+        for bad in ["", "   ", "https://", "ftp://mirror.example.com", "http://mirror.example.com", "https://user:pw@mirror.example.com", "https://mirror.example.com/a b"] {
             assert!(Mirror::parse(bad).is_err(), "{bad:?} should be refused");
         }
     }

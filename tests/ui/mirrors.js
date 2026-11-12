@@ -30,17 +30,17 @@ t("opening Settings asks for the mirrors", () => {
   asagiri.on(mirrors([]));
 });
 t("adding an address shows it, and Save sends the whole list", () => {
-  put("mirror-url", "https://docker.1ms.run");
+  put("mirror-url", "https://mirror.example.com");
   document.querySelector("#content [data-mirroradd]").click();
-  if (!/docker\.1ms\.run/.test(pane().textContent)) throw new Error("no row");
+  if (!/mirror\.example\.com/.test(pane().textContent)) throw new Error("no row");
   sent.length = 0;
   save().click();
-  if (JSON.stringify(sentList()) !== JSON.stringify(["https://docker.1ms.run"])) throw new Error("sent " + JSON.stringify(sent));
+  if (JSON.stringify(sentList()) !== JSON.stringify(["https://mirror.example.com"])) throw new Error("sent " + JSON.stringify(sent));
 });
 t("the daemon's answer resets the page to the saved list", () => {
-  asagiri.on(mirrors(["https://docker.1ms.run", "https://docker.m.daocloud.io"]));
+  asagiri.on(mirrors(["https://mirror.example.com", "https://mirror.example.net"]));
   open();
-  if (!/m\.daocloud\.io/.test(pane().textContent)) throw new Error("no second mirror");
+  if (!/mirror\.example\.net/.test(pane().textContent)) throw new Error("no second mirror");
   if (!save().disabled) throw new Error("save enabled");
 });
 t("removing a mirror takes it out of the list Save sends", () => {
@@ -49,7 +49,7 @@ t("removing a mirror takes it out of the list Save sends", () => {
   rows[0].click();
   sent.length = 0;
   save().click();
-  if (JSON.stringify(sentList()) !== JSON.stringify(["https://docker.m.daocloud.io"])) throw new Error("sent " + JSON.stringify(sent));
+  if (JSON.stringify(sentList()) !== JSON.stringify(["https://mirror.example.net"])) throw new Error("sent " + JSON.stringify(sent));
 });
 t("with no daemon the page says to start Asagiri", () => {
   asagiri.on({ type: "mirrors", error: "connection refused" });
