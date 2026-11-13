@@ -23,37 +23,47 @@ if (/Linux/.test(navigator.platform)) select(tabs[1]);
 const channel = document.getElementById("channel");
 const status = document.getElementById("release-status");
 let releases;
+const releasePage = "https://github.com/AndreKurait/asagiri/releases";
+const buildPage = "https://github.com/AndreKurait/asagiri/actions/workflows/release.yml";
+function pendingDownloads(message, progress = false) {
+  document.getElementById("download-status").textContent = message;
+  for (const arch of ["arm64", "x86_64"]) {
+    const button = document.getElementById(`download-${arch}`);
+    const platform = arch === "arm64" ? "Apple Silicon" : "Intel";
+    button.href = progress ? buildPage : releasePage;
+    button.textContent = progress ? `${platform} · View release progress ↗` : `Check ${platform} downloads ↗`;
+  }
+}
 function render() {
   const name = channel.value;
   const option = name === "latest" ? "" : ` -s -- --channel ${name}`;
   const command = `curl -fsSL https://andrekurait.github.io/asagiri/install.sh | sh${option}`;
   for (const id of ["mac-command", "linux-command"]) document.getElementById(id).textContent = command;
   document.getElementById("image-command").textContent = `${command}${option ? "" : " -s --"} --no-start`;
-  for (const arch of ["arm64", "x86_64"]) {
-    const button = document.getElementById(`download-${arch}`);
-    button.removeAttribute("href");
-    button.setAttribute("aria-disabled", "true");
-    button.classList.add("disabled");
-  }
+  pendingDownloads("Checking for published installers…");
   if (!releases) return;
   const release = releases.channels[name];
   if (!release) {
-    status.textContent = name === "stable" ? "No stable release published yet" : "First release is building";
+    status.textContent = name === "stable" ? "No stable release published yet" : "No installer published yet";
+    pendingDownloads(name === "stable"
+      ? "No stable installer is available yet. Try Recommended or check the releases page."
+      : "The first installer has not been published. Follow release progress for build status.", name !== "stable");
     return;
   }
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-dev\.[1-9]\d*)?$/.test(release.version)) {
     status.textContent = "Download metadata could not be verified";
+    pendingDownloads("Check the releases page for verified installers.");
     return;
   }
   status.textContent = `${release.version} · ${release.prerelease ? "Preview release" : "Stable release"}`;
+  document.getElementById("download-status").textContent = "Choose your Mac to download the installer.";
   for (const arch of ["arm64", "x86_64"]) {
     const url = release.downloads?.[`macos-${arch}`]?.url;
     const expected = `https://github.com/AndreKurait/asagiri/releases/download/v${release.version}/Asagiri-${release.version}-${arch}.dmg`;
     if (url !== expected) continue;
     const button = document.getElementById(`download-${arch}`);
     button.href = url;
-    button.removeAttribute("aria-disabled");
-    button.classList.remove("disabled");
+    button.textContent = `Download for ${arch === "arm64" ? "Apple Silicon" : "Intel"} ↓`;
   }
 }
 channel.addEventListener("change", render);
@@ -65,7 +75,10 @@ fetch("../releases.json", {cache: "no-cache"})
     releases = index;
     render();
   })
-  .catch(() => { status.textContent = "Downloads are available on the release page"; });
+  .catch(() => {
+    status.textContent = "Could not check published downloads";
+    pendingDownloads("Check the releases page for available installers.");
+  });
 
 for (const button of document.querySelectorAll("[data-copy]")) {
   button.addEventListener("click", async () => {
