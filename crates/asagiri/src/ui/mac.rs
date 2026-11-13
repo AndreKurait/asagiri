@@ -147,6 +147,11 @@ fn read_direction() {
     RTL.store(super::lang::rtl(super::lang::resolve(prefs()["lang"].as_str())), std::sync::atomic::Ordering::Relaxed);
 }
 
+fn light_origin(width: f64, size: NSSize, index: usize, rtl: bool) -> NSPoint {
+    let x = if rtl { width - 20.0 - size.width - 20.0 * index as f64 } else { 20.0 + 20.0 * index as f64 };
+    NSPoint::new(x, ((STRIP - size.height) / 2.0).round())
+}
+
 /// The traffic lights, moved into the page's strip: 20 points in, centred
 /// in its height. AppKit lays them out again when the window resizes or
 /// leaves full screen, so the delegate calls this then too. In a
@@ -170,8 +175,7 @@ fn place_lights(window: &NSWindow) {
         let _: () = msg_send![&*bar, setFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(frame.size.width, STRIP))];
         for (i, b) in buttons.iter().enumerate() {
             let f: NSRect = msg_send![&**b, frame];
-            let x = if rtl { frame.size.width - 20.0 - f.size.width - 20.0 * i as f64 } else { 20.0 + 20.0 * i as f64 };
-            let _: () = msg_send![&**b, setFrameOrigin: NSPoint::new(x, ((STRIP - f.size.height) / 2.0).round())];
+            let _: () = msg_send![&**b, setFrameOrigin: light_origin(frame.size.width, f.size, i, rtl)];
         }
     }
 }
@@ -240,6 +244,40 @@ pub(super) fn set_appearance(theme: &str) {
             None => None,
         };
         let _: () = msg_send![&*app, setAppearance: appearance.as_deref()];
+    }
+    // AppKit restores its title-bar layout when the appearance changes.
+    // Apply our placement after that layout, not only after a resize.
+    DispatchQueue::main().exec_async(|| {
+        WINDOW.with(|w| {
+            if let Some(window) = w.borrow().as_ref() {
+                // SAFETY: the live window's view, on the main queue.
+                unsafe {
+                    let content: Option<Retained<AnyObject>> = msg_send![&**window, contentView];
+                    if let Some(content) = content {
+                        let _: () = msg_send![&*content, layoutSubtreeIfNeeded];
+                    }
+                }
+                place_lights(window);
+            }
+        });
+    });
+}
+
+#[cfg(test)]
+mod light_tests {
+    use super::*;
+
+    #[test]
+    fn window_buttons_stay_centered_in_the_strip_in_both_directions() {
+        for rtl in [false, true] {
+            for height in [12.0, 14.0, 16.0] {
+                for index in 0..3 {
+                    let p = light_origin(300.0, NSSize::new(14.0, height), index, rtl);
+                    assert_eq!(p.y + height / 2.0, STRIP / 2.0);
+                    assert_eq!(p.x, if rtl { 266.0 - 20.0 * index as f64 } else { 20.0 + 20.0 * index as f64 });
+                }
+            }
+        }
     }
 }
 

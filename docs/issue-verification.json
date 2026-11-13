@@ -357,9 +357,10 @@
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
       "coverage": "partial",
       "checks": [
-        "crates/asagiri-win/src/setup.rs"
+        "crates/asagiri-win/src/setup.rs",
+        "tests/native-window-regressions.md"
       ],
-      "remaining": "Incomplete setup is retryable in code; native first-run retry still requires platform execution."
+      "remaining": "Persisted incomplete setup, missing distro, reboot gating, and engine/tools retry have unit coverage; native Windows first-run recovery still requires execution."
     },
     {
       "issue": 93,
@@ -530,9 +531,12 @@
       "issue": 168,
       "title": "Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode)",
       "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
-      "coverage": "deferred-feature",
-      "checks": [],
-      "remaining": "WebView2 suspension/disposal and state restoration require implementation and native Windows lifecycle tests."
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/app.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Hidden WebView2 now requests suspension and resumes on show, preserving the document and terminal state. Native close/reopen race, terminal continuity, and renderer memory measurements remain required."
     },
     {
       "issue": 170,
@@ -551,9 +555,12 @@
       "issue": 187,
       "title": "macOS: window traffic-light buttons shift upward after switching themes",
       "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
-      "coverage": "platform-gap",
-      "checks": [],
-      "remaining": "Native macOS traffic-light alignment after theme changes is not covered by browser rendering tests."
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Theme changes now reapply native button placement after AppKit layout; pure LTR/RTL geometry regression passes. Switching themes in a native Mac window still requires verification."
     },
     {
       "issue": 188,

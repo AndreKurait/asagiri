@@ -306,8 +306,8 @@
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
-      "disposition": "inherited-review",
-      "reason": "Incomplete setup retry and diagnostics retained."
+      "disposition": "partially-covered",
+      "reason": "Incomplete persisted setup retries engine/tools and honors WSL/reboot/distro state; added regression coverage. Native first-run recovery still requires Windows execution."
     },
     {
       "number": 93,
@@ -450,8 +450,8 @@
       "state": "open",
       "updated_at": "2026-11-11T03:41:52Z",
       "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
-      "disposition": "deferred-feature",
-      "reason": "WebView2 suspend/dispose requires native lifecycle testing and state restoration; not implied fixed by engine memory accounting."
+      "disposition": "implemented-unverified-platform",
+      "reason": "Hidden WebView2 requests suspension, preserves its document, resumes on show, and handles close/reopen completion races. Native Windows lifecycle and renderer-memory verification remain required."
     },
     {
       "number": 170,
@@ -469,8 +469,8 @@
       "state": "open",
       "updated_at": "2026-11-12T02:28:17Z",
       "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
-      "disposition": "unverified-platform",
-      "reason": "Theme/traffic-light alignment report needs a native macOS window reproduction. Browser tests cannot validate native window controls."
+      "disposition": "implemented-unverified-platform",
+      "reason": "Theme changes now reapply traffic-light placement after AppKit layout; LTR/RTL geometry has a unit regression. Native Mac theme switching remains unverified."
     },
     {
       "number": 188,

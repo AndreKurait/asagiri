@@ -13,12 +13,12 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2, ICoreWebView2Controller, ICoreWebView2Environment, ICoreWebView2NavigationStartingEventArgs, ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2WebMessageReceivedEventArgs,
+    CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment, ICoreWebView2NavigationStartingEventArgs, ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2WebMessageReceivedEventArgs,
 };
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR, CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
-    WebMessageReceivedEventHandler,
+    TrySuspendCompletedHandler, WebMessageReceivedEventHandler,
 };
 use windows::core::{w, Interface, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -138,6 +138,7 @@ pub struct Ui {
     controller: Option<ICoreWebView2Controller>,
     /// Scripts waiting for the page to load.
     pending: Vec<String>,
+    executing: usize,
     loaded: bool,
     /// The webview has been asked for.
     started: bool,
@@ -218,13 +219,65 @@ fn show() {
 }
 
 impl Ui {
+    /// Keep the document (including terminal state), but let WebView2 release
+    /// renderer memory and pause timers while the window lives in the tray.
+    fn sync_webview_visibility(&self) {
+        let visible = self.visible();
+        // SAFETY: WebView2 and its controller belong to this UI thread.
+        unsafe {
+            if let Some(c) = &self.controller {
+                let _ = c.SetIsVisible(visible);
+            }
+            let Some(w) = self.webview.as_ref().and_then(|w| w.cast::<ICoreWebView2_3>().ok()) else { return };
+            if visible || self.executing != 0 {
+                let _ = w.Resume();
+            } else if self.loaded {
+                let mut suspended = windows::core::BOOL::default();
+                if w.IsSuspended(&mut suspended).is_ok() && suspended.as_bool() {
+                    return;
+                }
+                let _ = w.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| {
+                    // Closing and immediately reopening can race completion.
+                    with_ui_soon(|ui| {
+                        if ui.visible() || ui.executing != 0 {
+                            ui.sync_webview_visibility();
+                        }
+                    });
+                    Ok(())
+                })));
+            }
+        }
+    }
+
     pub fn eval(&mut self, js: String) {
         match (&self.webview, self.loaded) {
             (Some(w), true) => {
+                self.executing += 1;
+                // Deliver output and state updates even when script execution
+                // is suspended; the completion callback suspends again.
+                if !self.visible() {
+                    if let Ok(w) = w.cast::<ICoreWebView2_3>() {
+                        // SAFETY: the webview belongs to this UI thread.
+                        let _ = unsafe { w.Resume() };
+                    }
+                }
                 let js = CoTaskMemPWSTR::from(js.as_str());
-                let done = ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(())));
+                let done = ExecuteScriptCompletedHandler::create(Box::new(|_, _| {
+                    // Host updates remain deliverable while hidden. If one wakes
+                    // the renderer, suspend it again after the update completes.
+                    with_ui_soon(|ui| {
+                        ui.executing = ui.executing.saturating_sub(1);
+                        if !ui.visible() {
+                            ui.sync_webview_visibility();
+                        }
+                    });
+                    Ok(())
+                }));
                 // SAFETY: a live webview, on its own thread.
-                let _ = unsafe { w.ExecuteScript(*js.as_ref().as_pcwstr(), &done) };
+                if unsafe { w.ExecuteScript(*js.as_ref().as_pcwstr(), &done) }.is_err() {
+                    self.executing = self.executing.saturating_sub(1);
+                    self.sync_webview_visibility();
+                }
             }
             _ => self.pending.push(js),
         }
@@ -242,6 +295,7 @@ impl Ui {
             // whatever was behind it: once more, shortly.
             SetTimer(Some(self.hwnd), TIMER_FOREGROUND, 400, None);
         }
+        self.sync_webview_visibility();
         (!std::mem::replace(&mut self.started, true)).then_some(self.hwnd)
     }
 
@@ -250,6 +304,7 @@ impl Ui {
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
+        self.sync_webview_visibility();
     }
 
     pub fn visible(&self) -> bool {
@@ -361,7 +416,7 @@ pub fn run(show: bool, setup: bool, on_message: impl Fn(String) + 'static, on_tr
             SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_SMALL as usize)), Some(LPARAM(i.0 as isize)));
         }
     }
-    UI.with(|u| *u.borrow_mut() = Some(Ui { hwnd, webview: None, controller: None, pending: Vec::new(), loaded: false, started: false, menu: Menu::default(), on_message: Rc::new(on_message) }));
+    UI.with(|u| *u.borrow_mut() = Some(Ui { hwnd, webview: None, controller: None, pending: Vec::new(), executing: 0, loaded: false, started: false, menu: Menu::default(), on_message: Rc::new(on_message) }));
     tray(hwnd, small, NIM_ADD);
     if show {
         self::show();
@@ -567,7 +622,7 @@ fn webview_ready(hwnd: HWND, ctl: ICoreWebView2Controller) -> windows::core::Res
         let _ = GetClientRect(hwnd, &mut r);
         ctl.SetBounds(r)?;
         set_backdrop(&ctl, windows_dark());
-        ctl.SetIsVisible(true)?;
+        ctl.SetIsVisible(IsWindowVisible(hwnd).as_bool())?;
         // Block dropping files or links onto the window: that is the only way
         // foreign content could load into the page and reach the host commands.
         if let Ok(c4) = ctl.cast::<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller4>() {
@@ -630,6 +685,7 @@ fn webview_ready(hwnd: HWND, ctl: ICoreWebView2Controller) -> windows::core::Res
                     for js in std::mem::take(&mut ui.pending) {
                         ui.eval(js);
                     }
+                    ui.sync_webview_visibility();
                 });
                 Ok(())
             })),

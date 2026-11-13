@@ -240,22 +240,31 @@ fn restarted_since(at: u64) -> bool {
 /// Whether the window should open on setup rather than Asagiri.
 pub fn needed() -> bool {
     let s = saved();
-    !s.done || s.distro.as_deref().is_none_or(|d| !distros().iter().any(|x| x == d))
+    setup_needed(&s, &distros())
+}
+
+fn setup_needed(s: &Saved, installed: &[String]) -> bool {
+    !s.done || s.distro.as_ref().is_none_or(|d| !installed.contains(d))
 }
 
 /// The step to show now, from what is on this PC.
 fn current_step(s: &Saved) -> &'static str {
-    if !wsl_installed() {
+    resume_step(s, wsl_installed(), restarted_since, distros, crate::client::alive)
+}
+
+fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, installed: impl FnOnce() -> Vec<String>, alive: impl FnOnce() -> bool) -> &'static str {
+    if !wsl {
         return "welcome";
     }
     if let Some(at) = s.restart_after {
-        if !restarted_since(at) {
+        if !restarted(at) {
             return "restart";
         }
     }
+    let installed = installed();
     match &s.distro {
-        Some(d) if distros().iter().any(|x| x == d) => {
-            if crate::client::alive() {
+        Some(d) if installed.contains(d) => {
+            if alive() {
                 "tools"
             } else {
                 "engine"
@@ -900,6 +909,24 @@ pub fn on_message(msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn incomplete_setup_resumes_from_persisted_state() {
+        use super::{resume_step, setup_needed, Saved};
+        let saved: Saved = serde_json::from_str(r#"{"done":false,"distro":"asagiri","lastError":"pull failed"}"#).unwrap();
+        let installed = vec!["asagiri".to_owned()];
+        assert!(setup_needed(&saved, &installed));
+        assert_eq!(resume_step(&saved, true, |_| true, || installed.clone(), || false), "engine");
+        assert_eq!(resume_step(&saved, true, |_| true, || installed.clone(), || true), "tools");
+        assert_eq!(resume_step(&saved, true, |_| true, Vec::new, || panic!("no daemon probe without a distro")), "choose");
+        let complete = Saved { done: true, ..saved };
+        assert!(!setup_needed(&complete, &installed));
+        assert!(setup_needed(&complete, &[]));
+        let restarting = Saved { restart_after: Some(123), ..complete };
+        assert_eq!(resume_step(&restarting, false, |_| panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent")), "welcome");
+        assert_eq!(resume_step(&restarting, true, |at| { assert_eq!(at, 123); false }, || panic!("restart is pending"), || panic!("restart is pending")), "restart");
+        assert_eq!(resume_step(&restarting, true, |_| true, || installed.clone(), || false), "engine");
+    }
+
     #[test]
     fn a_failed_test_container_says_why() {
         let pull = "Unable to find image 'alpine:latest' locally\ndocker: Error response from daemon: the proxy http://127.0.0.1:7892 refused the connection or closed it: is it running? (network error: io: Connection refused (os error 111)).\nSee 'docker run --help'.\n";
