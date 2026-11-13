@@ -412,9 +412,13 @@
       "coverage": "partial",
       "checks": [
         "tests/image-import.py",
-        "tests/archive-permissions.py"
+        "tests/archive-permissions.py",
+        "tests/archive-upload-ownership.py",
+        "tests/archive-configured-user.py",
+        "tests/archive-overwrite.py",
+        "tests/archive-directory-times.py"
       ],
-      "remaining": "Gzip/copy regressions are tested; a complete DDEV project has not been rerun."
+      "remaining": "Gzip uploads, ownership, replacement rules, and directory timestamps have Docker comparisons; a complete DDEV project has not been rerun."
     },
     {
       "issue": 112,
