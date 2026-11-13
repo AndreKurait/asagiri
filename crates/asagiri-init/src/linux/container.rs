@@ -1302,7 +1302,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
             // SAFETY: new session with the pty as its controlling terminal,
             // then the pty as all three standard streams.
             unsafe {
-                libc::setsid();
+                if libc::setsid() < 0 {
+                    fail("session", io::Error::last_os_error());
+                }
                 if libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY as libc::Ioctl, 0) != 0
                     || libc::dup2(slave.as_raw_fd(), 0) < 0
                     || libc::dup2(slave.as_raw_fd(), 1) < 0
@@ -1320,7 +1322,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
                 // on a Linux host is the daemon's too: Apache's prefork stop
                 // (killpg(getpgrp(), SIGTERM)) then reached `asagiri daemon`, and
                 // systemd took the whole engine down with it (#191).
-                libc::setsid();
+                if libc::setsid() < 0 {
+                    fail("session", io::Error::last_os_error());
+                }
                 let input = match stdin {
                     Some(fd) => fd.as_raw_fd(),
                     None => libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY),

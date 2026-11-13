@@ -109,7 +109,8 @@ impl Request {
     /// closes then; a client that reads a 204 to the end of the stream waits
     /// for that close and times out if it never comes.
     pub fn wants_close(&self) -> bool {
-        self.header("Connection").is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("close")))
+        self.headers.iter().filter(|(key, _)| key.eq_ignore_ascii_case("Connection"))
+            .any(|(_, value)| value.split(',').any(|token| token.trim().eq_ignore_ascii_case("close")))
     }
 
     /// A request the daemon makes of itself (the managed builder's
@@ -871,6 +872,13 @@ mod tests {
         assert!(!with_connection(Some("keep-alive")).wants_close());
         assert!(!with_connection(Some("Upgrade")).wants_close());
         assert!(!with_connection(None).wants_close());
+    }
+
+    #[test]
+    fn repeated_connection_headers_cannot_hide_close() {
+        let mut request = with_connection(Some("keep-alive"));
+        request.headers.push(("Connection".to_owned(), "upgrade, CLOSE".to_owned()));
+        assert!(request.wants_close());
     }
 
     #[test]
