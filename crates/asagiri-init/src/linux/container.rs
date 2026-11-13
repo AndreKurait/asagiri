@@ -1643,9 +1643,14 @@ fn resolve_user(user: &str) -> io::Result<(libc::uid_t, libc::gid_t)> {
     if user.is_empty() {
         return Ok((0, 0));
     }
+    let passwd = fs::read_to_string("/etc/passwd").unwrap_or_default();
+    let group = fs::read_to_string("/etc/group").unwrap_or_default();
+    resolve_user_in(user, &passwd, &group)
+}
+
+fn resolve_user_in(user: &str, passwd: &str, group: &str) -> io::Result<(libc::uid_t, libc::gid_t)> {
     let (u, g) = user.split_once(':').map_or((user, None), |(u, g)| (u, Some(g)));
-    let lookup = |file: &str, name: &str| -> Option<(u32, u32)> {
-        let text = fs::read_to_string(file).ok()?;
+    let lookup = |text: &str, name: &str| -> Option<(u32, u32)> {
         text.lines().find_map(|l| {
             let mut f = l.split(':');
             if f.next()? != name {
@@ -1657,26 +1662,29 @@ fn resolve_user(user: &str) -> io::Result<(libc::uid_t, libc::gid_t)> {
         })
     };
     let not_found = |what: &str| io::Error::new(io::ErrorKind::NotFound, format!("unknown {what} {user}"));
-    let (uid, primary_gid) = match u.parse::<u32>() {
-        Ok(id) => (id, lookup_gid_for_uid(id).unwrap_or(id)),
-        Err(_) => lookup("/etc/passwd", u).ok_or_else(|| not_found("user"))?,
+    let (uid, primary_gid) = match u {
+        "" => (0, 0),
+        _ => match u.parse::<u32>() {
+            Ok(id) => {
+                let gid = passwd.lines().find_map(|line| {
+                    let mut fields = line.split(':').skip(2);
+                    (fields.next()?.parse::<u32>().ok()? == id).then(|| fields.next()?.parse().ok()).flatten()
+                });
+                // Docker accepts numeric users absent from /etc/passwd;
+                // their default primary group is root, not their UID.
+                (id, gid.unwrap_or(0))
+            }
+            Err(_) => lookup(passwd, u).ok_or_else(|| not_found("user"))?,
+        },
     };
     let gid = match g {
-        None => primary_gid,
+        None | Some("") => primary_gid,
         Some(g) => match g.parse::<u32>() {
             Ok(id) => id,
-            Err(_) => lookup("/etc/group", g).map(|(id, _)| id).ok_or_else(|| not_found("group"))?,
+            Err(_) => lookup(group, g).map(|(id, _)| id).ok_or_else(|| not_found("group"))?,
         },
     };
     Ok((uid, gid))
-}
-
-fn lookup_gid_for_uid(uid: u32) -> Option<u32> {
-    let text = fs::read_to_string("/etc/passwd").ok()?;
-    text.lines().find_map(|l| {
-        let f: Vec<&str> = l.split(':').collect();
-        (f.get(2)?.parse::<u32>().ok()? == uid).then(|| f.get(3)?.parse().ok()).flatten()
-    })
 }
 
 fn find_executable(p: &Prepared) -> Option<CString> {
@@ -1698,6 +1706,24 @@ fn find_executable(p: &Prepared) -> Option<CString> {
 #[cfg(test)]
 mod tests {
     use asagiri_proto::{Limits, Msg, Net, decode, encode_run, run_flags};
+
+    #[test]
+    fn docker_user_defaults_and_named_primary_groups() {
+        let passwd = "root:x:0:0:root:/root:/bin/sh\nworker:x:1001:1002::/:/bin/sh\n";
+        let group = "root:x:0:\nteam:x:1003:\n";
+        for (user, expected) in [
+            ("", (0, 0)), (":", (0, 0)), (":1003", (0, 1003)),
+            (":team", (0, 1003)), ("1234", (1234, 0)), ("1234:", (1234, 0)),
+            ("worker", (1001, 1002)), ("1001", (1001, 1002)),
+            ("worker:", (1001, 1002)), ("worker:team", (1001, 1003)),
+            ("1001:0", (1001, 0)), ("1234:team", (1234, 1003)),
+        ] {
+            assert_eq!(super::resolve_user_in(user, passwd, group).unwrap(), expected, "{user:?}");
+        }
+        assert_eq!(super::resolve_user_in("1234", "", "").unwrap(), (1234, 0));
+        assert!(super::resolve_user_in("missing", passwd, group).is_err());
+        assert!(super::resolve_user_in("worker:missing", passwd, group).is_err());
+    }
 
     /// Only a pipe or a terminal the user doesn't own yet changes hands:
     /// never /dev/null, a file or a socket, which a stream could otherwise be.
