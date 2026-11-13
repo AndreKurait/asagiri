@@ -80,13 +80,18 @@ pub(super) fn reply(w: &mut UnixStream, result: Result<Value, Error>, ok: u16) -
 }
 
 pub(super) fn error(w: &mut UnixStream, e: Error) -> io::Result<()> {
-    match e {
-        Error::NotFound(m) => http::error(w, 404, &m),
-        Error::Conflict(m) => http::error(w, 409, &m),
-        Error::BadRequest(m) => http::error(w, 400, &m),
-        Error::Unauthorized(m) => http::error(w, 401, &m),
-        Error::Io(e) => http::error(w, 500, &e.to_string()),
-    }
+    error_with(w, e, "")
+}
+
+pub(super) fn error_with(w: &mut UnixStream, e: Error, extra: &str) -> io::Result<()> {
+    let (status, message) = match e {
+        Error::NotFound(m) => (404, m),
+        Error::Conflict(m) => (409, m),
+        Error::BadRequest(m) => (400, m),
+        Error::Unauthorized(m) => (401, m),
+        Error::Io(e) => (500, e.to_string()),
+    };
+    http::respond_with(w, status, "application/json", extra, json!({"message": message}).to_string().as_bytes())
 }
 
 fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
@@ -632,11 +637,11 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
     match imported {
         Ok(image) => {
             engine.emit_image("import", &image.config_digest, &image.name);
-            http::begin_stream(w, 200, "application/json")?;
+            http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
             http::chunk(w, format!("{}\n", json!({"status": image.config_digest})).as_bytes())?;
             http::end(w)?;
         }
-        Err(e) => error(w, e)?,
+        Err(e) => error_with(w, e, "Connection: close\r\n")?,
     }
     // Invalid metadata or a damaged archive may leave an upload unread.
     Ok(Next::Close)
@@ -647,7 +652,7 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
     let loaded = asagiri_image::archive::load(&engine.store, http::Body::new(req, r));
     match loaded {
         Ok(images) => {
-            http::begin_stream(w, 200, "application/json")?;
+            http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
             for i in &images {
                 engine.emit_image("load", &i.config_digest, &i.name);
                 let line = if i.name.starts_with("sha256:") { format!("Loaded image ID: {}\n", i.name) } else { format!("Loaded image: {}\n", i.name) };
@@ -655,7 +660,7 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
             }
             http::end(w)?;
         }
-        Err(e) => error(w, Error::BadRequest(e.to_string()))?,
+        Err(e) => error_with(w, Error::BadRequest(e.to_string()), "Connection: close\r\n")?,
     }
     // A failed load may leave part of the body unread.
     Ok(Next::Close)
@@ -2956,7 +2961,7 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     let stream = match engine.copy(id, asagiri_proto::copy_op::IN, path, flags) {
         Ok(s) => s,
         Err(e) => {
-            reply(w, Err(e), 200)?;
+            error_with(w, e, "Connection: close\r\n")?;
             return Ok(Next::Close);
         }
     };
@@ -2969,7 +2974,7 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     let mut archive = match upload_reader(head, body) {
         Ok(a) => a,
         Err(e) => {
-            error(w, e)?;
+            error_with(w, e, "Connection: close\r\n")?;
             return Ok(Next::Close);
         }
     };
@@ -2977,7 +2982,7 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     if let Err(e) = send_chunks(&mut archive, &mut to_guest) {
         // The body broke off or isn't valid gzip: dropping the stream ends
         // the guest's copy.
-        error(w, upload_error(gzip, e))?;
+        error_with(w, upload_error(gzip, e), "Connection: close\r\n")?;
         return Ok(Next::Close);
     }
     let mut from_guest = std::fs::File::from(stream.fd.try_clone()?);
@@ -2992,10 +2997,12 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     };
     // Docker answers 200 with no body.
     match result {
-        Ok(()) => http::empty(w, 200)?,
-        Err(e) => error(w, e)?,
+        Ok(()) => http::empty_with(w, 200, "Connection: close\r\n")?,
+        Err(e) => error_with(w, e, "Connection: close\r\n")?,
     }
-    // The body may be partly unread after a refusal: this connection is done.
+    // Advertise closure even on success: otherwise pooled clients can race
+    // the close with their next request (Buildx copies config then starts).
+    // A refused upload may also leave the request body partly unread.
     Ok(Next::Close)
 }
 

@@ -11,6 +11,11 @@ Registry-backed Buildx tags resolve the requested platform while locally
 created tags remain available. Private Linux tests exercise real agent crashes,
 restart counts, retained files, and local and cross-platform Buildx builds.
 
+Buildx configuration uploads now advertise closed HTTP connections correctly,
+so pooled Docker clients reconnect before starting the builder. The same fix
+covers image import/load and classic build responses. Regression checks cover
+the upload-to-start sequence and its connection headers.
+
 Choose the download for your system:
 
 - **Linux:** `.deb` or `.rpm` for amd64/x86_64 or arm64/aarch64. `asagiri`

@@ -740,7 +740,7 @@ pub fn build(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut Bu
     let mut o = match Options::parse(req) {
         Ok(o) => o,
         Err(e) => {
-            api::error(w, e)?;
+            api::error_with(w, e, "Connection: close\r\n")?;
             return Ok(Next::Close);
         }
     };
@@ -759,7 +759,7 @@ pub fn build(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut Bu
     if o.remote.is_none() {
         req.accept_body(w)?;
     }
-    http::begin_stream(w, 200, "application/json")?;
+    http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
     let probe = w.try_clone()?;
     let began = Instant::now();
     let mut out = Out { w, broken: false };

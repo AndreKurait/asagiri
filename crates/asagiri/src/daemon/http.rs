@@ -470,7 +470,13 @@ pub fn json(w: &mut impl Write, status: u16, body: &str) -> io::Result<()> {
 /// A success with no body. Docker sends no Content-Type with one, and a
 /// zero Content-Length unless the status (204, 304) rules a body out.
 pub fn empty(w: &mut impl Write, status: u16) -> io::Result<()> {
-    head(w, status, if status == 204 || status == 304 { "" } else { "Content-Length: 0\r\n" })?;
+    empty_with(w, status, "")
+}
+
+/// An empty response with extra header lines, each ending in CRLF.
+pub fn empty_with(w: &mut impl Write, status: u16, extra: &str) -> io::Result<()> {
+    let length = if status == 204 || status == 304 { "" } else { "Content-Length: 0\r\n" };
+    head(w, status, &format!("{length}{extra}"))?;
     w.flush()
 }
 
@@ -822,6 +828,19 @@ mod tests {
             assert!(!text.to_ascii_lowercase().contains("content-type"), "{text}");
             // Without a length a keep-alive client would wait for a 200's body.
             assert_eq!(text.contains("Content-Length: 0\r\n"), length, "{text}");
+        }
+    }
+
+    #[test]
+    fn closing_empty_responses_preserve_framing() {
+        for (status, length) in [(200, true), (204, false), (304, false)] {
+            let mut out = Vec::new();
+            empty_with(&mut out, status, "Connection: close\r\n").unwrap();
+            let text = String::from_utf8(out).unwrap();
+            assert!(text.contains("Connection: close\r\n"), "{text}");
+            assert_eq!(text.contains("Content-Length: 0\r\n"), length, "{text}");
+            assert!(!text.contains("Content-Type:"), "{text}");
+            assert!(text.ends_with("\r\n\r\n"), "{text}");
         }
     }
 

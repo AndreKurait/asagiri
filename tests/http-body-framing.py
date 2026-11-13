@@ -19,7 +19,7 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def response(reader):
+def response(reader, *, expect_close=False):
     """Use one reader across replies so an unexpected extra reply cannot vanish."""
     line = reader.readline()
     assert line.startswith(b"HTTP/1.1 "), line
@@ -32,6 +32,8 @@ def response(reader):
         assert line.endswith(b"\r\n"), line
         key, value = line.split(b":", 1)
         headers[key.lower()] = value.strip().lower()
+    if expect_close:
+        assert headers.get(b"connection") == b"close", headers
     if status in (100, 204, 304):
         return status, b""
     if headers.get(b"transfer-encoding") == b"chunked":
@@ -133,7 +135,7 @@ def check(path, image):
                             connection.send(b"0\r\n" + (b"X-Checksum: test\r\n" if variant == "trailers" else b"") + b"\r\n")
                         else:
                             connection.send(payload)
-                        status, data = response(reader)
+                        status, data = response(reader, expect_close=streamed)
                         assert status == (200 if streamed else 201), (streamed, variant, expect, status, data)
                         if not streamed:
                             owned.append(json.loads(data)["Id"])
@@ -146,6 +148,26 @@ def check(path, image):
                         if reader is not None:
                             reader.close()
                         connection.close()
+        # Buildx uploads its config then immediately starts the container using
+        # a pooled HTTP client. A closing upload must retire that connection.
+        connection = Connection(path)
+        try:
+            connection.request("PUT", "/v1.47/containers/" + target + "/archive?path=/tmp",
+                               archive.getvalue(), {"Content-Type": "application/x-tar"})
+            upload = connection.getresponse()
+            assert upload.status == 200, (upload.status, upload.read())
+            assert upload.will_close, "archive upload closes without advertising Connection: close"
+            assert upload.getheader("Connection", "").lower() == "close"
+            assert upload.read() == b""
+            assert connection.sock is None, "pooled client retained the closed upload socket"
+            connection.request("POST", "/v1.47/containers/" + target + "/start", b"")
+            started = connection.getresponse()
+            assert started.status == 204, (started.status, started.read())
+            started.read()
+            count += 1
+            print("PASS pooled archive-copy then container-start", flush=True)
+        finally:
+            connection.close()
         # Framing that cannot be trusted is refused and the connection closed:
         # the request behind it must not be answered.
         for name, framing, want in (
@@ -169,7 +191,7 @@ def check(path, image):
             connection.putheader("Expect", "100-continue")
             connection.endheaders()
             with connection.sock.makefile("rb") as reader:
-                status, data = response(reader)
+                status, data = response(reader, expect_close=True)
             assert status == 404, (status, data)
             count += 1
             print("PASS refused missing-container expect", flush=True)

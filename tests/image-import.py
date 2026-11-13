@@ -49,6 +49,9 @@ def check(path, base, reference=False):
             connection.request(method, "/v1.47" + target, body,
                                {"Content-Type": "application/x-tar"}, encode_chunked=chunked)
             response = connection.getresponse()
+            if not reference and method == "POST" and target.split("?", 1)[0] in ("/images/create", "/images/load"):
+                assert response.will_close, (target, response.getheaders())
+                assert response.getheader("Connection", "").lower() == "close"
             return response.status, response.read()
         finally:
             connection.close()
