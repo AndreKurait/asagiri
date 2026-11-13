@@ -669,9 +669,8 @@ pub struct Engine {
     /// Serialises read/merge/apply/persist for resource updates.
     resource_updates: Mutex<()>,
     changed: Condvar,
-    /// Serialises sending layers, so two creates of a new image don't send
-    /// the same layers twice.
-    layers: Mutex<()>,
+    /// Independent layers may transfer together; duplicate digests wait.
+    layers: super::layer_transfers::LayerTransfers,
     records: PathBuf,
     /// Serialises writes of `containers.json`.
     saving: Mutex<()>,
@@ -789,7 +788,7 @@ impl Engine {
             state: Mutex::default(),
             resource_updates: Mutex::new(()),
             changed: Condvar::new(),
-            layers: Mutex::new(()),
+            layers: super::layer_transfers::LayerTransfers::default(),
             records,
             saving: Mutex::new(()),
             me: OnceLock::new(),
@@ -1804,11 +1803,13 @@ impl Engine {
     /// Sends the guest every layer of these (digest, media type) it doesn't
     /// have unpacked, from the blob store.
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>) -> io::Result<()> {
-        let _one_at_a_time = self.layers.lock().unwrap_or_else(|e| e.into_inner());
         for (digest, media_type) in layers {
-            if !vm.has_layer(digest)? {
-                vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
-            }
+            self.layers.run(digest, || {
+                if !vm.has_layer(digest)? {
+                    vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
+                }
+                Ok::<_, io::Error>(())
+            })?;
         }
         Ok(())
     }

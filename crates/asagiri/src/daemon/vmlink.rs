@@ -373,8 +373,22 @@ impl VmLink {
 
     pub fn send_layer(&self, digest: &str, media_type: &str, blob: &Path) -> io::Result<()> {
         let size = std::fs::metadata(blob)?.len();
-        self.call(|o| Msg::LayerBegin(LayerBegin { digest, media_type, size }).encode(o), Some((blob, size)))
-            .map(drop)
+        let socket = self.connect(asagiri_proto::LAYER_PORT)?;
+        // Keep the framework's connection object alive on macOS as well.
+        let mut connection = File::from(socket.fd.try_clone()?);
+        let mut frame = Vec::new();
+        Msg::LayerBegin(LayerBegin { digest, media_type, size }).encode(&mut frame);
+        connection.write_all(&frame)?;
+        let copied = io::copy(&mut File::open(blob)?.take(size), &mut connection)?;
+        if copied != size {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "layer blob shrank while sending"));
+        }
+        read_frame(&mut connection, &mut frame)?;
+        match asagiri_proto::decode(&frame) {
+            Ok(Msg::LayerStored(_)) => Ok(()),
+            Ok(Msg::Error(error)) => Err(io::Error::other(error.to_owned())),
+            other => Err(io::Error::other(format!("expected LayerStored, got {other:?}"))),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

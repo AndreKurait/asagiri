@@ -39,8 +39,10 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// would be taken as the reply to the next request. 5 adds swap, memory
 /// reservation and CPU/NUMA sets to Limits. 6 added the `noicc` network
 /// option, which an older agent would ignore and leave the containers of an
-/// `enable_icc=false` network connected. Upgrade host and guest together.
-pub const PROTOCOL: u16 = 6;
+/// `enable_icc=false` network connected. 7 adds the dedicated layer-upload
+/// socket so unpacking does not block the control stream.
+/// Upgrade host and guest together.
+pub const PROTOCOL: u16 = 7;
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.
@@ -188,6 +190,9 @@ pub enum Msg<'a> {
 
 /// vsock port of the guest's copy service: one connection per copy.
 pub const COPY_PORT: u32 = 1028;
+
+/// Guest layer uploads: one LayerBegin, its blob, then LayerStored or Error.
+pub const LAYER_PORT: u32 = 1041;
 
 /// vsock port of the host's DNS relay (VM only). The agent sends a lookup
 /// the VM's gateway resolver didn't answer as `u16 len | query`, as DNS over

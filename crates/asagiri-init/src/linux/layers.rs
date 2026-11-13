@@ -6,14 +6,82 @@
 //! lose its contents, leaving every file empty.
 
 use std::fs;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use asagiri_proto::{LayerBegin, LayerStored};
+use asagiri_proto::{LayerBegin, LayerStored, Msg};
 
 use super::sys;
+
+pub fn listen() -> io::Result<OwnedFd> {
+    super::transport::listen(asagiri_proto::LAYER_PORT)
+}
+
+/// The agent remains single-threaded for safe container forks. Each layer
+/// gets a separate worker process and connection; host-side permits bound
+/// simultaneous transfers.
+pub fn accept(listener: &OwnedFd, root: &Path) {
+    loop {
+        // SAFETY: accept from our live listening socket.
+        let fd = unsafe { libc::accept4(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_CLOEXEC) };
+        if fd < 0 {
+            return;
+        }
+        // SAFETY: accept4 returned a new owned descriptor.
+        let socket = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: getters and fork in the agent's single-threaded event loop,
+        // following the same process isolation as the archive-copy service.
+        let parent = unsafe { libc::getpid() };
+        match unsafe { libc::fork() } {
+            0 => {
+                // Do not retain the control socket, container pipes or other
+                // workers' sockets. A stopped agent also stops this worker.
+                // SAFETY: descriptor ranges exclude our socket; prctl uses
+                // a valid death signal. Check the parent-death race as well.
+                unsafe {
+                    if fd > 3 {
+                        libc::syscall(libc::SYS_close_range, 3, fd - 1, 0);
+                    }
+                    libc::syscall(libc::SYS_close_range, fd + 1, libc::c_uint::MAX, 0);
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 || libc::getppid() != parent {
+                        libc::_exit(1);
+                    }
+                }
+                let mut connection = fs::File::from(socket);
+                let result = upload(&mut connection, root);
+                if let Err(error) = &result {
+                    let mut reply = Vec::new();
+                    Msg::Error(&format!("layer upload: {error}")).encode(&mut reply);
+                    let _ = connection.write_all(&reply);
+                }
+                // SAFETY: exit the forked child without parent destructors.
+                unsafe { libc::_exit(i32::from(result.is_err())) }
+            }
+            pid if pid < 0 => eprintln!("asagiri-init: layer fork: {}", io::Error::last_os_error()),
+            _ => drop(socket),
+        }
+    }
+}
+
+fn upload(connection: &mut fs::File, root: &Path) -> io::Result<()> {
+    let mut header = [0; 4];
+    connection.read_exact(&mut header)?;
+    let size = asagiri_proto::frame_len(&header).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))?;
+    let mut frame = vec![0; size];
+    frame[..4].copy_from_slice(&header);
+    connection.read_exact(&mut frame[4..])?;
+    let Msg::LayerBegin(begin) = asagiri_proto::decode(&frame)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}")))? else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected LayerBegin"));
+    };
+    let stored = receive(connection, &begin, root)?;
+    let mut reply = Vec::new();
+    Msg::LayerStored(stored).encode(&mut reply);
+    connection.write_all(&reply)
+}
 
 pub fn hex(digest: &str) -> io::Result<&str> {
     let h = digest.strip_prefix("sha256:").unwrap_or(digest);
@@ -40,6 +108,21 @@ pub fn present(root: &Path, digest: &str) -> bool {
 pub fn receive(stream: &mut impl Read, begin: &LayerBegin<'_>, root: &Path) -> io::Result<LayerStored> {
     let started = Instant::now();
     let final_dir = dir(root, begin.digest)?;
+    fs::create_dir_all(root)?;
+    // Protect the temporary directory and atomic install even if two
+    // independent upload connections name the same digest.
+    let lock = fs::OpenOptions::new().create(true).truncate(false).read(true).write(true)
+        .open(root.join(format!(".lock-{}", hex(begin.digest)?)))?;
+    loop {
+        // SAFETY: lock owns a live descriptor until receive returns.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
     let tmp = root.join(format!(".tmp-{}", hex(begin.digest)?));
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp)?;
@@ -47,7 +130,14 @@ pub fn receive(stream: &mut impl Read, begin: &LayerBegin<'_>, root: &Path) -> i
     let mut limited = stream.take(begin.size);
     let result = unpack(&mut limited, begin.media_type, &tmp, begin.size);
     // Whatever happened, consume the rest of the blob so the next frame lines up.
-    io::copy(&mut limited, &mut io::sink())?;
+    let drained = io::copy(&mut limited, &mut io::sink()).and_then(|_| {
+        if limited.limit() == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::new(io::ErrorKind::UnexpectedEof, "layer transfer ended before its declared size"))
+        }
+    });
+    let result = result.and_then(|bytes| drained.map(|()| bytes));
 
     match result.and_then(|unpacked_bytes| install(root, begin.digest, &tmp, &final_dir).map(|()| unpacked_bytes)) {
         Ok(unpacked_bytes) => Ok(LayerStored { unpacked_bytes, elapsed_ns: started.elapsed().as_nanos() as u64 }),
@@ -95,7 +185,7 @@ pub fn retain<'a>(root: &Path, keep: impl Iterator<Item = &'a str>) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        let leftover = name.starts_with(".tmp-") || name.starts_with(".stale-");
+        let leftover = name.starts_with(".tmp-") || name.starts_with(".stale-") || name.starts_with(".lock-");
         let (h, is_marker) = match name.strip_suffix(".done") {
             Some(h) => (h, true),
             None => (name, false),
@@ -190,6 +280,9 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
         total += entry.size();
         entry.unpack_in(dest)?;
     }
+    // Tar stops at its end marker, before a compressed stream necessarily
+    // reaches its checksum or final member. Validate that tail as well.
+    io::copy(&mut archive.into_inner(), &mut io::sink())?;
     Ok(total)
 }
 
@@ -382,6 +475,90 @@ mod tests {
     fn send(root: &Path, digest: &str, blob: &[u8]) -> LayerStored {
         let begin = LayerBegin { digest, media_type: "application/vnd.oci.image.layer.v1.tar", size: blob.len() as u64 };
         receive(&mut &blob[..], &begin, root).unwrap()
+    }
+
+    #[test]
+    fn incomplete_transfer_never_publishes_a_complete_layer() {
+        let blob = layer_blob(&[("file", b"complete tar but incomplete transfer")]);
+        for missing in [1, 512, 1024] {
+            let root = scratch(&format!("short-{missing}"));
+            let begin = LayerBegin {
+                digest: D1, media_type: "application/vnd.oci.image.layer.v1.tar",
+                size: blob.len() as u64 + missing,
+            };
+            assert!(receive(&mut &blob[..], &begin, &root).is_err(), "missing {missing} bytes");
+            assert!(!present(&root, D1));
+            assert!(!dir(&root, D1).unwrap().exists());
+            assert!(!root.join(format!(".tmp-{}", hex(D1).unwrap())).exists());
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn corrupt_gzip_after_tar_end_never_publishes_a_layer() {
+        use std::io::Write;
+        let root = scratch("gzip-tail");
+        let blob = layer_blob(&[("file", b"complete")]);
+        let compress = |bytes: &[u8]| {
+            let mut writer = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            writer.write_all(bytes).unwrap();
+            writer.finish().unwrap()
+        };
+        let mut compressed = compress(&blob);
+        let mut trailing = compress(b"padding");
+        let length = trailing.len();
+        trailing[length - 8] ^= 1; // Damage the second member's CRC.
+        compressed.extend(trailing);
+        let begin = LayerBegin {
+            digest: D1, media_type: "application/vnd.oci.image.layer.v1.tar+gzip",
+            size: compressed.len() as u64,
+        };
+        assert!(receive(&mut &compressed[..], &begin, &root).is_err());
+        assert!(!present(&root, D1));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_receives_of_one_digest_install_one_whole_layer() {
+        let root = scratch("concurrent");
+        let blob = layer_blob(&[("file", b"complete")]);
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..8).map(|_| scope.spawn(|| send(&root, D1, &blob))).collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        });
+        assert!(present(&root, D1));
+        assert_eq!(fs::read(dir(&root, D1).unwrap().join("file")).unwrap(), b"complete");
+        assert!(!root.join(format!(".tmp-{}", hex(D1).unwrap())).exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn upload_connection_replies_only_after_a_whole_layer_is_installed() {
+        use std::os::unix::net::UnixStream;
+        let root = scratch("upload");
+        let blob = layer_blob(&[("file", b"complete")]);
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|scope| {
+            let server = scope.spawn(|| upload(&mut fs::File::from(OwnedFd::from(server)), &root));
+            let mut client = fs::File::from(OwnedFd::from(client));
+            let mut frame = Vec::new();
+            Msg::LayerBegin(LayerBegin {
+                digest: D1, media_type: "application/vnd.oci.image.layer.v1.tar", size: blob.len() as u64,
+            }).encode(&mut frame);
+            client.write_all(&frame).unwrap();
+            client.write_all(&blob).unwrap();
+            let mut header = [0; 4];
+            client.read_exact(&mut header).unwrap();
+            let mut reply = vec![0; asagiri_proto::frame_len(&header).unwrap()];
+            reply[..4].copy_from_slice(&header);
+            client.read_exact(&mut reply[4..]).unwrap();
+            assert!(matches!(asagiri_proto::decode(&reply).unwrap(), Msg::LayerStored(_)));
+            assert!(present(&root, D1));
+            server.join().unwrap().unwrap();
+        });
+        let _ = fs::remove_dir_all(root);
     }
 
     /// A stored layer is present only with its marker; one cut short

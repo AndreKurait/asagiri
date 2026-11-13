@@ -20,6 +20,7 @@ mod hostopts;
 mod mirror;
 mod http;
 mod identity;
+mod layer_transfers;
 mod logfile;
 mod names;
 mod network;

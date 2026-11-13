@@ -81,6 +81,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         super::relay::listen_engine().inspect_err(|e| eprintln!("asagiri-init: no engine socket for containers: {e}")).ok()
     };
     let copies = super::copy::listen()?;
+    let layer_uploads = layers::listen()?;
     // USB passthrough (VM only: on a Linux host containers see the host's devices).
     let usb = if host_process { None } else { super::usb::listen().inspect_err(|e| eprintln!("asagiri-init: no USB passthrough: {e}")).ok() };
     let udp = super::relay::listen_udp()?;
@@ -115,6 +116,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         fds.push(libc::pollfd { fd: ssh_agent.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: engine_api.as_ref().map_or(-1, |l| l.as_raw_fd()), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: copies.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        fds.push(libc::pollfd { fd: layer_uploads.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: usb.as_ref().map_or(-1, |l| l.as_raw_fd()), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: udp.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: pressure.as_ref().map_or(-1, |f| f.as_raw_fd()), events: libc::POLLPRI, revents: 0 });
@@ -179,6 +181,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         // Output and input first, so a process's last words go out before its exit.
         for pfd in &fds[3..] {
             if pfd.revents == 0 {
+                continue;
+            }
+            if pfd.fd == layer_uploads.as_raw_fd() {
+                layers::accept(&layer_uploads, &paths.layers);
                 continue;
             }
             if term.as_ref().is_some_and(|t| t.as_raw_fd() == pfd.fd) {
