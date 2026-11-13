@@ -146,6 +146,11 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
             let mut entry = entry?;
             let target = copy_target(dest, &entry.path()?);
             let kind = entry.header().entry_type();
+            // A "." directory header describes the extraction root. Docker
+            // leaves that existing directory's ownership and metadata alone.
+            if kind.is_dir() && target.as_deref() == Some(dest) {
+                continue;
+            }
             let mtime = if kind.is_dir() { Some(entry.header().mtime()?) } else { None };
             if let Some(target) = &target {
                 prepare_copy_target(dest, target, kind, spec.flags & copy_flags::NO_OVERWRITE_DIR_NON_DIR != 0)?;

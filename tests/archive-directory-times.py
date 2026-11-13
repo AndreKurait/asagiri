@@ -59,6 +59,24 @@ def check(path, image):
                 cli("stop", "-t", "0", cid)
                 cli("wait", cid)
             for compressed in (False, True):
+                # "." describes the extraction root, which Docker leaves alone.
+                # A deferred metadata pass must not accidentally change it.
+                root_metadata = []
+                for upload in (False, True):
+                    if upload:
+                        body = archive([(".", "dir", 7)])
+                        if compressed:
+                            body = gzip.compress(body)
+                        status, data = request("PUT", f"/containers/{cid}/archive?path=/tmp", body)
+                        assert status == 200, (state, "root-header", status, data)
+                    status, data = request("GET", f"/containers/{cid}/archive?path=/tmp")
+                    assert status == 200, (status, data)
+                    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+                        member = next(m for m in tar if m.name.rstrip("/") == "tmp")
+                        root_metadata.append((member.mode, member.uid, member.gid, member.mtime))
+                assert root_metadata[0] == root_metadata[1], (
+                    state, compressed, "root-header", root_metadata)
+                count += 1
                 for scenario in ("nested", "child-first", "merge", "duplicate", "epoch"):
                     count += 1
                     root = f"times-{count}"

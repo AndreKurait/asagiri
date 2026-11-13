@@ -30,6 +30,8 @@ compare Docker and Asagiri across running and stopped containers, gzip
 uploads, file modes, and links.
 Uploads also follow Docker's file/directory replacement rules and
 `noOverwriteDirNonDir` error status, while preserving symlink targets.
+Directory timestamps are restored after child extraction, including nested
+directories, merged uploads, repeated headers, and Unix epoch timestamps.
 
 Independent layer uploads can unpack concurrently while duplicate layers
 remain serialized. Truncated uploads and corrupt gzip tails cannot leave an
