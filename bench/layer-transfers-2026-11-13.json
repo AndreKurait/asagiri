@@ -1,0 +1,149 @@
+{
+  "date": "2026-11-13",
+  "environment": "Linux ARM64 engines in separate private Docker containers on the same host; no native Asagiri Mac VM",
+  "baseline_source": "eafd11232b6b5321d7f072cd5f9535847f655fdd",
+  "candidate_source": "eae81194081ce46b9fd9dc776f040f40c96dc189",
+  "results": {
+    "baseline_before": {
+      "workload": {
+        "rounds": 3,
+        "parallel_images": 4,
+        "layers_per_image": 3,
+        "files_per_layer": 128,
+        "bytes_per_file": 8192
+      },
+      "measurements": {
+        "cold_create_ms": {
+          "count": 12,
+          "median_ms": 68.35202050000078,
+          "p95_ms": 121.42654200002312,
+          "max_ms": 121.42654200002312
+        },
+        "warm_create_ms": {
+          "count": 12,
+          "median_ms": 0.9825625000132732,
+          "p95_ms": 1.6760000000033415,
+          "max_ms": 1.6760000000033415
+        },
+        "cold_batch_ms": {
+          "count": 3,
+          "median_ms": 120.17312500000799,
+          "p95_ms": 122.27395800002228,
+          "max_ms": 122.27395800002228
+        },
+        "warm_batch_ms": {
+          "count": 3,
+          "median_ms": 1.8231660000083139,
+          "p95_ms": 2.3633749999874,
+          "max_ms": 2.3633749999874
+        },
+        "exec_during_cold_ms": {
+          "count": 10,
+          "median_ms": 20.542916500005504,
+          "p95_ms": 26.63750100001039,
+          "max_ms": 26.63750100001039
+        },
+        "exec_idle_ms": {
+          "count": 10,
+          "median_ms": 5.719770499993615,
+          "p95_ms": 6.850416999981235,
+          "max_ms": 6.850416999981235
+        }
+      }
+    },
+    "candidate": {
+      "workload": {
+        "rounds": 3,
+        "parallel_images": 4,
+        "layers_per_image": 3,
+        "files_per_layer": 128,
+        "bytes_per_file": 8192
+      },
+      "measurements": {
+        "cold_create_ms": {
+          "count": 12,
+          "median_ms": 50.54287499999077,
+          "p95_ms": 51.704167000025336,
+          "max_ms": 51.704167000025336
+        },
+        "warm_create_ms": {
+          "count": 12,
+          "median_ms": 1.4178330000049755,
+          "p95_ms": 1.8815409999888288,
+          "max_ms": 1.8815409999888288
+        },
+        "cold_batch_ms": {
+          "count": 3,
+          "median_ms": 51.584875000003194,
+          "p95_ms": 52.69291700000167,
+          "max_ms": 52.69291700000167
+        },
+        "warm_batch_ms": {
+          "count": 3,
+          "median_ms": 2.5182919999906517,
+          "p95_ms": 3.060707999964052,
+          "max_ms": 3.060707999964052
+        },
+        "exec_during_cold_ms": {
+          "count": 6,
+          "median_ms": 10.552853999996614,
+          "p95_ms": 12.682208000001083,
+          "max_ms": 12.682208000001083
+        },
+        "exec_idle_ms": {
+          "count": 10,
+          "median_ms": 7.091541499960385,
+          "p95_ms": 10.522707999996328,
+          "max_ms": 10.522707999996328
+        }
+      }
+    },
+    "baseline_after": {
+      "workload": {
+        "rounds": 3,
+        "parallel_images": 4,
+        "layers_per_image": 3,
+        "files_per_layer": 128,
+        "bytes_per_file": 8192
+      },
+      "measurements": {
+        "cold_create_ms": {
+          "count": 12,
+          "median_ms": 50.723562500024855,
+          "p95_ms": 93.25741600002857,
+          "max_ms": 93.25741600002857
+        },
+        "warm_create_ms": {
+          "count": 12,
+          "median_ms": 1.779375000012351,
+          "p95_ms": 1.9920420000403283,
+          "max_ms": 1.9920420000403283
+        },
+        "cold_batch_ms": {
+          "count": 3,
+          "median_ms": 88.40920899996263,
+          "p95_ms": 94.36562499996626,
+          "max_ms": 94.36562499996626
+        },
+        "warm_batch_ms": {
+          "count": 3,
+          "median_ms": 2.836666999996851,
+          "p95_ms": 3.0107089999660275,
+          "max_ms": 3.0107089999660275
+        },
+        "exec_during_cold_ms": {
+          "count": 9,
+          "median_ms": 14.607208000029459,
+          "p95_ms": 19.676708999952552,
+          "max_ms": 19.676708999952552
+        },
+        "exec_idle_ms": {
+          "count": 10,
+          "median_ms": 7.519478999995499,
+          "p95_ms": 10.590791999959492,
+          "max_ms": 10.590791999959492
+        }
+      }
+    }
+  }
+}
