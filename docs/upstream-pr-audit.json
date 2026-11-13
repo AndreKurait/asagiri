@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-11-13T13:08:20.382056+00:00",
+  "reviewed_at": "2026-11-13T13:47:56.031486+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "b37ed29a824894d11648cc0acf3ff1045f611aae",
   "asagiri_runtime_revision": "92e0af04309f9e6cfdb4bc439097ec9b4ded9492",
@@ -760,13 +760,15 @@
       "number": 100,
       "title": "Docs: README, features and development in Brazilian Portuguese",
       "state": "open",
-      "head": "a6fa9453b34b7f597c9daa0f3823595614b85c45",
+      "head": "c49e68005bbb36d69dba0ed4a8dd455f8385419f",
       "merge": null,
-      "head_in_history": true,
+      "head_in_history": false,
       "merge_in_history": false,
-      "ports": [],
-      "disposition": "inherited",
-      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI."
+      "ports": [
+        "7e67edf"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "The two rebased translation commits are byte-identical in their three documentation files to the earlier inherited head. Ported the new signed c49e680 follow-up: language/Arabic guidance, real Portuguese UI labels, and existing kernel patch descriptions. Preserved Asagiri branding and accurate release limitations."
     },
     {
       "number": 101,

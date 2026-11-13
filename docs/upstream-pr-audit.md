@@ -60,6 +60,11 @@ unmerged work.
   platform limitations. A closed upstream issue is not treated as proof of a
   locally reproduced fix.
 
+- Refreshed #100 after its signed rebase. Its earlier translation files are
+  unchanged; ported the new follow-up for the 16-language list, Arabic layout,
+  Portuguese UI labels and the existing GSO/FUSE/GRO kernel patches. Kept
+  Asagiri release limitations and branding instead of upstream download claims.
+
 ## Deliberate exclusions
 
 #89 still needs a complete BuildKit bridge. `session` increments `ACTIVE` before
@@ -147,7 +152,7 @@ does not prove its native VM or WSL recovery was exercised.
 | [#89](https://github.com/libracoder/kiri/pull/89) — Built-in builder: relay buildx's gRPC to buildkitd in the guest | open | `2dd9bde86300` | **held** — The built-in gRPC builder is incomplete: missing accept-loop routing/local export support, unbounded request buffering, premature END_STREAM, no empty-body terminator, and ACTIVE counter leaks on error. Retain the tested docker-container Buildx driver. |
 | [#95](https://github.com/libracoder/kiri/pull/95) — UI: Settings → Appearance — Language, in 15 languages, chosen on first start | merged | `94b229d08316` | **inherited** — Merged upstream commit 0b518b898cbc is an ancestor of Asagiri. |
 | [#96](https://github.com/libracoder/kiri/pull/96) — USB passthrough (beta): USB devices in containers on macOS, Windows and Linux | merged | `8f5ff75741dd` | **inherited** — Merged upstream commit f28d227d709f is an ancestor of Asagiri. |
-| [#100](https://github.com/libracoder/kiri/pull/100) — Docs: README, features and development in Brazilian Portuguese | open | `a6fa9453b34b` | **inherited** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. |
+| [#100](https://github.com/libracoder/kiri/pull/100) — Docs: README, features and development in Brazilian Portuguese | open | `c49e68005bbb` | **inherited-and-ported** — Earlier rebased translations are unchanged; ported `c49e680` as `7e67edf` with language/Arabic guidance, actual Portuguese labels, and kernel patch descriptions. Asagiri branding and release limitations retained. |
 | [#101](https://github.com/libracoder/kiri/pull/101) — Windows: setup reaches a proxy on Windows' loopback, and says why a pull failed | merged | `90475150727c` | **inherited** — Merged upstream commit a7499c205879 is an ancestor of Asagiri. |
 | [#102](https://github.com/libracoder/kiri/pull/102) — Engine API: report the real kernel on Linux | merged | `98f0e37429a8` | **inherited** — Merged upstream commit 6f8908478b34 is an ancestor of Asagiri. |
 | [#103](https://github.com/libracoder/kiri/pull/103) — docker load: images saved by podman and older Docker load again | merged | `81461d7deb45` | **inherited** — Merged upstream commit 9bd6b8c62b2e is an ancestor of Asagiri. |

@@ -36,7 +36,7 @@ reviewed changes from these upstream pull requests:
 | #16 | cargo-deny, ShellCheck, zizmor, and OpenSSF Scorecard checks |
 | #60 | nftables networking on Linux and WSL kernels before 6.3 |
 | #61 | Restarting the engine after WSL goes away |
-| #100 | Brazilian Portuguese README, features, and development guides |
+| #100 | Brazilian Portuguese guides, including the signed language-list, UI-label and kernel-patch follow-up |
 | #122 | Reclaiming unused blocks from the macOS VM data disk |
 | #124 | Correct handling of an empty command array |
 | #171 | Linux WebKitGTK hover rendering |
