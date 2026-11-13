@@ -99,17 +99,19 @@ Kubernetes LoadBalancer services are published on `localhost`, and
 
 ## Releases
 
-The app and DMGs are signed with a Developer ID and notarized. Releases and
-the update feeds are at `https://download.runkiri.com`, and every file and
+Asagiri releases are hosted on GitHub, with verified download links on the
+[installation page](https://andrekurait.github.io/asagiri/install/). Current
+Mac packages are ad hoc signed and not notarized by Apple. The release
+workflow supports [Developer ID signing and notarization](macos-signing.md)
+once the project's Apple credentials are configured. Every file and
 feed names its architecture: `Asagiri-<version>-arm64.dmg`, `Asagiri-<version>-arm64.tar.gz`
 and `latest-mac-arm64.json` for Apple silicon (`-x86_64` for Intel Macs),
 `Asagiri-<version>-x86_64.msi` / `-arm64.msi` with `latest-windows-x86_64.json` /
 `latest-windows-arm64.json` for Windows. Each app reads only its own feed, and
-each platform is published on its own. Two DMGs: `Asagiri-<version>-arm64.dmg`
-bundles the docker CLI, Compose and buildx; `Asagiri-Lite-<version>-arm64.dmg`
-(`cargo xtask app-lite`) leaves them out and downloads the same pinned
-versions on first launch (`crates/asagiri/src/cli_pins.rs`, checked by SHA-256)
-unless the Mac already has a docker CLI.
+each platform is published on its own. The published DMGs bundle the Docker
+CLI, Compose, and Buildx. `cargo xtask app-lite` can build a local smaller app
+that downloads pinned CLI versions on first launch, but this is not a separate
+published Mac release asset.
 
 ## Known issues
 

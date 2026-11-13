@@ -125,6 +125,12 @@ selects by version, so an older build finishing later cannot downgrade a
 channel. The deploy check verifies the installer key pin, download URLs, and
 RPM metadata over the live HTTPS site.
 
+Mac packaging can use Developer ID signing, Apple notarization, stapled
+tickets, and Gatekeeper assessment on both architectures. See
+[macOS signing setup](macos-signing.md) for the five Actions secrets and the
+required-signing policy. Without credentials it explicitly produces ad hoc,
+unnotarized packages; it does not remove users' quarantine flags.
+
 The separate [Homebrew tap](https://github.com/AndreKurait/homebrew-asagiri)
 checks releases on a 15-minute schedule using its own `GITHUB_TOKEN`. It
 verifies the source, provenance, and DMG checksums before creating a GitHub

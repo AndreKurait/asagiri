@@ -33,6 +33,8 @@ It also detects Apple Silicon when the terminal runs under Rosetta.
 Current apps are ad hoc signed and are not notarized by Apple. If macOS asks
 for approval, use System Settings → Privacy & Security → Open Anyway. The
 installer does not disable Gatekeeper or remove quarantine flags.
+ZIP or tar compression does not replace Apple signing and notarization.
+The automated signing setup is documented in [macOS release signing](macos-signing.md).
 
 Update a Homebrew install with:
 

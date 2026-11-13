@@ -175,7 +175,8 @@ jobs:
     name: macOS packages (${{ matrix.arch }})
     needs: [plan, guest]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Leave time for both app and final-DMG notarization after compilation.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -186,9 +187,6 @@ jobs:
           - arch: x86_64
             runner: macos-15-intel
             app: target/intel/Asagiri.app
-    env:
-      ASAGIRI_SIGN_IDENTITY: "-"
-      ASAGIRI_NOTARY_PROFILE: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -211,6 +209,15 @@ jobs:
         with:
           name: guest-assets
           path: ${{ runner.temp }}/guest
+      - name: Prepare optional Developer ID signing
+        env:
+          ASAGIRI_APPLE_CERTIFICATE_BASE64: ${{ secrets.ASAGIRI_APPLE_CERTIFICATE_BASE64 }}
+          ASAGIRI_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.ASAGIRI_APPLE_CERTIFICATE_PASSWORD }}
+          ASAGIRI_APPLE_API_KEY_BASE64: ${{ secrets.ASAGIRI_APPLE_API_KEY_BASE64 }}
+          ASAGIRI_APPLE_API_KEY_ID: ${{ secrets.ASAGIRI_APPLE_API_KEY_ID }}
+          ASAGIRI_APPLE_API_ISSUER_ID: ${{ secrets.ASAGIRI_APPLE_API_ISSUER_ID }}
+          ASAGIRI_REQUIRE_APPLE_SIGNING: ${{ vars.ASAGIRI_REQUIRE_APPLE_SIGNING }}
+        run: python3 scripts/ci/macos-signing.py prepare
       - name: Build and verify the application and DMG
         env:
           VERSION: ${{ needs.plan.outputs.version }}
@@ -224,6 +231,7 @@ jobs:
           cargo xtask guest --arch "$ARCH"
           cargo xtask release --arch "$ARCH"
           cargo xtask dmg --arch "$ARCH"
+          python3 scripts/ci/macos-signing.py finalize --app "$APP" --arch "$ARCH" --version "$VERSION"
           codesign --verify --deep --strict "$APP"
           hdiutil verify "target/Asagiri-$VERSION-$ARCH.dmg"
           cp "target/Asagiri-$VERSION-$ARCH.tar.gz" "target/Asagiri-$VERSION-$ARCH.dmg" "target/latest-mac-$ARCH.json" "$RUNNER_TEMP/packages/"
@@ -233,6 +241,19 @@ jobs:
           path: ${{ runner.temp }}/packages/*
           if-no-files-found: error
           retention-days: 7
+      - name: Preserve notarization diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notarization-diagnostics-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/asagiri-signing/*-submission.json
+            ${{ runner.temp }}/asagiri-signing/*-failure.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove temporary Apple credentials
+        if: always()
+        run: python3 scripts/ci/macos-signing.py cleanup
 
   windows:
     name: Windows packages (${{ matrix.arch }})
