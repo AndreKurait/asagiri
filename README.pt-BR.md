@@ -20,6 +20,22 @@ interface real do aplicativo.
 - Interface em 16 idiomas e verificações de CI nas três plataformas.
 - Testes de conformidade com a API do Docker e verificações de desempenho.
 
+## No seu idioma
+
+A janela e a configuração do Asagiri seguem o idioma do sistema. Você pode
+alterá-lo em **Configurações → Aparência**. Em árabe, a interface é exibida da
+direita para a esquerda.
+
+| Idioma | Idioma | Idioma | Idioma |
+| --- | --- | --- | --- |
+| English | Français | Tiếng Việt | 日本語 |
+| Bahasa Indonesia | Italiano | Türkçe | 한국어 |
+| Deutsch | Polski | Русский | 简体中文 |
+| Español | Português (Brasil) | العربية | 繁體中文 |
+
+As traduções ficam em [`crates/asagiri/src/ui/lang`](crates/asagiri/src/ui/lang).
+Veja como contribuir em [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Downloads
 
 Consulte os pacotes e instaladores na [página de versões](https://github.com/AndreKurait/asagiri/releases).

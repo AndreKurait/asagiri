@@ -72,7 +72,9 @@ asagiri UI ────┘
 - **VM**: o Virtualization.framework da Apple, controlado a partir do Rust via objc2.
   Um kernel próprio de 10 MB (`guest/kernel/`) compilado a partir do allnoconfig, com um
   patch que reduz as esperas de reset do virtio-pci de um tick do scheduler para
-  microssegundos. O Rosetta é compartilhado via virtiofs e registrado no
+  microssegundos, um que entrega TCP grande ao host como GSO, um que mantém
+  os arquivos FUSE recém-criados legíveis pelo dono, e uma correção de GRO do upstream que
+  mantém os pacotes encaminhados segmentáveis. O Rosetta é compartilhado via virtiofs e registrado no
   binfmt_misc.
 - **Agente do guest**: um binário Rust estático de ~900 KB que é o PID 1. Um único loop
   `poll()` atende o host, recolhe processos filhos, encaminha a saída dos containers, repassa

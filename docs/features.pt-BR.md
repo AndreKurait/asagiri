@@ -32,12 +32,12 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
   `--subnet` ou de um /64 do próprio Asagiri dentro de fd00::/8; a bridge padrão continua
   só IPv4, como a do Docker), e
   `http://<nome>.asagiri.local` depois que você ativa (o app pergunta na primeira abertura;
-  Settings → Domains altera isso), ou `http://<nome>.asagiri.localhost` sem
+  Configurações → Domínios altera isso), ou `http://<nome>.asagiri.localhost` sem
   configuração. Os serviços do Compose respondem em `<serviço>.<projeto>.asagiri.local`, e um
   label `dev.asagiri.domain=api.myapp` escolhe os nomes de um container; HTTPS também
   (`https://<nome>.asagiri.local`), com a autoridade certificadora do próprio Asagiri em
   `~/.asagiri/tls`, cujas name constraints permitem apenas `*.asagiri.local` e
-  `*.asagiri.localhost` (Settings → Domains → HTTPS pede ao macOS para confiar nela)
+  `*.asagiri.localhost` (Configurações → Domínios → HTTPS pede ao macOS para confiar nela)
 - **Armazenamento**: volumes nomeados e anônimos, bind mounts de caminhos do Mac
   (virtiofs), `--tmpfs`, `--mount`, comandos `volume`
 - **Imagens**: `pull` (com as credenciais do `docker login`), `push`, `tag`,
@@ -55,12 +55,12 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
 - **A janela**: containers, imagens, volumes e redes, com os projetos
   Compose agrupados (iniciar, parar, reiniciar ou remover um projeto inteiro); cada
   container tem sua própria página com detalhes, logs ao vivo (busca, filtro de nível),
-  uma linha de comando (e "Open in Terminal" para um shell completo) e seus arquivos
-  (pré-visualização, Save to Downloads, Show in Finder); Settings de fontes, tamanho
+  uma linha de comando (e "Abrir no Terminal" para um shell completo) e seus arquivos
+  (pré-visualização, Salvar em Downloads, Mostrar no Finder); Configurações de fontes, tamanho
   do texto, CPUs e memória da VM (`~/.asagiri/vm.json`, usado a partir do próximo
   início da VM; `ASAGIRI_CPUS` e `ASAGIRI_MEMORY_MIB` têm precedência) e nomes locais
 - **Barra de menus**: o Asagiri fica na barra de menus quando a janela fecha, com o
-  estado da VM, os containers em execução (clique em um para abri-lo) e Start/Stop
+  estado da VM, os containers em execução (clique em um para abri-lo) e Iniciar/Parar
 - **Kubernetes**: `asagiri k8s start` — um cluster k3s de um só nó em um único
   container, pronto em ~20 s, como o contexto kubectl `asagiri`
 - **Máquinas Linux**: `asagiri machine create dev --distro ubuntu` e
