@@ -11,6 +11,14 @@ $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 # This PC's own MSI: arm64 on Windows on Arm (native PowerShell says ARM64 there).
 $arch = if (@($env:PROCESSOR_ARCHITEW6432, $env:PROCESSOR_ARCHITECTURE) -contains 'ARM64') { 'arm64' } else { 'x86_64' }
 if (-not $Msi) { $Msi = (Get-ChildItem (Join-Path $root "target\Asagiri-*-$arch.msi") | Sort-Object LastWriteTime | Select-Object -Last 1).FullName }
+# PowerShell accepts forward slashes, but Windows Installer rejects mixed
+# separators in an otherwise valid absolute package path (error 1619).
+# Resolve the existing file before invoking the native installer.
+$package = Get-Item -LiteralPath $Msi -ErrorAction Stop
+if ($package.PSIsContainer -or $package.Extension -ine '.msi') {
+    throw "Expected an existing MSI package: $Msi"
+}
+$Msi = $package.FullName
 $logs = Join-Path $root 'target\msi-verify'
 New-Item -ItemType Directory -Force $logs | Out-Null
 
