@@ -644,6 +644,8 @@ pub fn stop_wait(secs: i64) -> Duration {
 }
 
 pub struct Engine {
+    /// Stable for this data directory, including across daemon restarts.
+    pub id: String,
     pub volumes: Mutex<super::volumes::Volumes>,
     /// The VM, while it is awake. It sleeps (powers off, freeing all its
     /// memory) when idle, and boots again on the next request.
@@ -768,10 +770,12 @@ impl Engine {
     /// restart policy says so.
     pub fn boot(store: Store) -> io::Result<Arc<Engine>> {
         let records = store.root().join("containers.json");
+        let id = super::identity::load_id(store.root())?;
         let ceiling = memory_ceiling();
         let networks = Mutex::new(Networks::load(store.root())?);
         let volumes = Mutex::new(super::volumes::Volumes::load(store.root())?);
         let engine = Arc::new(Engine {
+            id,
             volumes,
             link: Mutex::new(None),
             waking: Mutex::new(()),

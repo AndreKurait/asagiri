@@ -37,7 +37,9 @@ run() { # run <script> [image]
 }
 
 run api-version
+run engine-identity
 run image-inspect-healthcheck
+run image-rootfs-digests alpine:3.21
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"
@@ -58,6 +60,7 @@ run vm-recovery alpine:3.21
 # with an always policy must come back with its writable layer intact.
 # This covers Linux persistence; the macOS updater and launchd are separate.
 restart_engine() {
+  engine_id=$(dock info --format '{{.ID}}') || return 1
   # This script is evaluated by the container's shell.
   # shellcheck disable=SC2016
   cid=$(dock run -d --restart always --network none alpine:3.21 sh -c \
@@ -77,6 +80,7 @@ restart_engine() {
   done
   after=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   [ "$before" != "$after" ] || return 1
+  docker exec -e "EXPECTED_ENGINE_ID=$engine_id" "$name" python3 /src/tests/engine-identity.py "$sock" || return 1
   i=0
   until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
     i=$((i + 1)); [ "$i" -lt 100 ] || return 1; sleep 0.1

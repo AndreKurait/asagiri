@@ -19,6 +19,7 @@ mod hostetc;
 mod hostopts;
 mod mirror;
 mod http;
+mod identity;
 mod logfile;
 mod names;
 mod network;

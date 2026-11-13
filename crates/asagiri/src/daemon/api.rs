@@ -419,8 +419,8 @@ fn info(engine: &Engine) -> Value {
     let images = engine.store.images().map(|v| v.len()).unwrap_or(0);
     let (mem_total, _) = engine.guest_memory().unwrap_or((0, 0));
     json!({
-        "ID": "asagiri",
-        "Name": "asagiri",
+        "ID": engine.id,
+        "Name": super::identity::hostname(),
         "Containers": states.len(),
         "ContainersRunning": running,
         "ContainersPaused": 0,
@@ -510,8 +510,12 @@ pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
 fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
     let i = engine.image(name)?.ok_or_else(|| Error::NotFound(format!("No such image: {name}")))?;
     let stored: Value = serde_json::from_slice(&engine.store.read_config(&i.config_digest)?).map_err(|e| Error::Io(io::Error::other(e)))?;
-    let config = image_inspect_config(&i, &stored);
-    Ok(json!({
+    Ok(image_inspect_value(&i, &stored))
+}
+
+fn image_inspect_value(i: &asagiri_image::Image, stored: &Value) -> Value {
+    let config = image_inspect_config(i, stored);
+    json!({
         "Id": i.config_digest,
         "RepoTags": image_tags(&i),
         "RepoDigests": i.repo_digest().into_iter().collect::<Vec<_>>(),
@@ -521,8 +525,8 @@ fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
         "Variant": stored["variant"],
         "Os": "linux",
         "Config": config,
-        "RootFS": {"Type": "layers", "Layers": i.layers.iter().map(|l| &l.digest).collect::<Vec<_>>()},
-    }))
+        "RootFS": {"Type": "layers", "Layers": stored["rootfs"]["diff_ids"].as_array().cloned().unwrap_or_default()},
+    })
 }
 
 fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json::Map<String, Value> {
@@ -3075,6 +3079,22 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_inspection_reports_uncompressed_diff_ids_in_config_order() {
+        let image: asagiri_image::Image = serde_json::from_value(json!({
+            "name": "inspect:test", "digest": "", "config_digest": "",
+            "layers": [
+                {"digest": "sha256:compressed-a", "size": 10, "media_type": "application/vnd.oci.image.layer.v1.tar+gzip"},
+                {"digest": "sha256:compressed-b", "size": 20, "media_type": "application/vnd.oci.image.layer.v1.tar+gzip"}
+            ],
+            "size": 30, "platform": "linux/arm64", "pulled_at": 0, "config": {},
+        })).unwrap();
+        let stored = json!({"config": {}, "rootfs": {"type": "layers", "diff_ids": ["sha256:plain-a", "sha256:plain-b"]}});
+        assert_eq!(image_inspect_value(&image, &stored)["RootFS"],
+            json!({"Type": "layers", "Layers": ["sha256:plain-a", "sha256:plain-b"]}));
+        assert_eq!(image_inspect_value(&image, &json!({"config": {}}))["RootFS"]["Layers"], json!([]));
+    }
 
     #[test]
     fn image_inspection_preserves_healthcheck_presence_and_value() {
