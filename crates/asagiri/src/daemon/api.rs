@@ -510,15 +510,7 @@ pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
 fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
     let i = engine.image(name)?.ok_or_else(|| Error::NotFound(format!("No such image: {name}")))?;
     let stored: Value = serde_json::from_slice(&engine.store.read_config(&i.config_digest)?).map_err(|e| Error::Io(io::Error::other(e)))?;
-    let mut config = stored["config"].as_object().cloned().unwrap_or_default();
-    config.extend(serde_json::Map::from_iter([
-        ("Env".into(), json!(i.config.env)),
-        ("Cmd".into(), json!(i.config.cmd)),
-        ("Entrypoint".into(), if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) }),
-        ("WorkingDir".into(), json!(i.config.working_dir)),
-        ("User".into(), json!(i.config.user)),
-        ("Healthcheck".into(), image_healthcheck(engine, &i)),
-    ]));
+    let config = image_inspect_config(&i, &stored);
     Ok(json!({
         "Id": i.config_digest,
         "RepoTags": image_tags(&i),
@@ -531,6 +523,23 @@ fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
         "Config": config,
         "RootFS": {"Type": "layers", "Layers": i.layers.iter().map(|l| &l.digest).collect::<Vec<_>>()},
     }))
+}
+
+fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json::Map<String, Value> {
+    // Docker omits a nil healthcheck, including an explicit null in the
+    // stored config. Preserve configured checks, including HEALTHCHECK NONE.
+    let mut config = stored["config"].as_object().cloned().unwrap_or_default();
+    if config.get("Healthcheck").is_some_and(Value::is_null) {
+        config.remove("Healthcheck");
+    }
+    config.extend(serde_json::Map::from_iter([
+        ("Env".into(), json!(i.config.env)),
+        ("Cmd".into(), json!(i.config.cmd)),
+        ("Entrypoint".into(), if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) }),
+        ("WorkingDir".into(), json!(i.config.working_dir)),
+        ("User".into(), json!(i.config.user)),
+    ]));
+    config
 }
 
 fn image_remove(engine: &Engine, name: &str) -> Result<Value, Error> {
@@ -2020,12 +2029,6 @@ fn healthcheck_from(body: &Value, image_cfg: &Value) -> Result<Option<super::hea
     Ok(super::health::merge(mine, Healthcheck::from_json(&image_cfg["config"]["Healthcheck"])))
 }
 
-/// The image's HEALTHCHECK, which Asagiri's image model does not keep.
-fn image_healthcheck(engine: &Engine, i: &asagiri_image::Image) -> Value {
-    let cfg: Value = engine.store.read_config(&i.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
-    cfg["config"]["Healthcheck"].clone()
-}
-
 /// `docker ps`'s Status: "Up 2 minutes (healthy)" while running unpaused
 /// with a healthcheck.
 fn ps_status(c: &Container, health: Option<&super::health::Health>) -> String {
@@ -3072,6 +3075,28 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_inspection_preserves_healthcheck_presence_and_value() {
+        let image: asagiri_image::Image = serde_json::from_value(json!({
+            "name": "inspect:test", "digest": "", "config_digest": "",
+            "layers": [], "size": 0, "platform": "linux/arm64",
+            "pulled_at": 0, "config": {},
+        })).unwrap();
+        for config in [
+            json!({}),
+            json!({"Healthcheck": null}),
+            json!({"Healthcheck": {"Test": ["NONE"]}}),
+            json!({"Healthcheck": {
+                "Test": ["CMD-SHELL", "exit 0"], "Interval": 1000000000,
+                "Timeout": 2000000000, "Retries": 3,
+                "StartPeriod": 4000000000u64, "StartInterval": 5000000000u64,
+            }}),
+        ] {
+            let inspected = image_inspect_config(&image, &json!({"config": config}));
+            assert_eq!(inspected.get("Healthcheck"), config.get("Healthcheck").filter(|v| !v.is_null()));
+        }
+    }
 
     #[test]
     fn empty_responses_keep_the_operations_status_code() {

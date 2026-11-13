@@ -37,6 +37,7 @@ run() { # run <script> [image]
 }
 
 run api-version
+run image-inspect-healthcheck
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"

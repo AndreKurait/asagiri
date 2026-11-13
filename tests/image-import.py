@@ -96,6 +96,7 @@ def check(path, base, reference=False):
                                "--change", "EXPOSE 8080", str(archive), tag))
         info = inspect(tag)
         assert info["Id"] == made and info["Os"] == "linux", info
+        assert "Healthcheck" not in info["Config"], info["Config"]
         assert info["Config"]["WorkingDir"] == "/tmp", info["Config"]
         assert "IMPORTED=yes" in info["Config"]["Env"], info["Config"]
         assert info["Config"]["Labels"]["import.test"] == prefix, info["Config"]
