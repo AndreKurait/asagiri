@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "{when}停止：記憶體耗盡（虛擬機器共有 {mem}）",
   "Stopped: out of memory": "已停止：記憶體不足",
   "Stopping": "正在停止",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "停止引擎不會關閉 WSL。Windows 仍可能保留記憶體。",
   "Stopping…": "正在停止…",
   "Stop…": "停止…",
   "Storage": "儲存裝置",

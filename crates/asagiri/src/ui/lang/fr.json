@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "Arrêté {when} : sa mémoire était épuisée (la VM a {mem})",
   "Stopped: out of memory": "Arrêté : mémoire épuisée",
   "Stopping": "Arrêt",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "L’arrêt du moteur n’arrête pas WSL. Windows peut continuer à réserver de la mémoire.",
   "Stopping…": "Arrêt…",
   "Stop…": "Arrêter…",
   "Storage": "Stockage",

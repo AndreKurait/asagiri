@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "Zatrzymano {when}: zabrakło mu pamięci (maszyna wirtualna ma {mem})",
   "Stopped: out of memory": "Zatrzymany: brak pamięci",
   "Stopping": "Zatrzymywanie",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "Zatrzymanie silnika nie wyłącza WSL. Windows może nadal rezerwować pamięć.",
   "Stopping…": "Zatrzymywanie…",
   "Stop…": "Zatrzymaj…",
   "Storage": "Pamięć masowa",

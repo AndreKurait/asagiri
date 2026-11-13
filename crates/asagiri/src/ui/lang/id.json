@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "Berhenti {when}: kehabisan memori (VM punya {mem})",
   "Stopped: out of memory": "Berhenti: kehabisan memori",
   "Stopping": "Menghentikan",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "Menghentikan mesin tidak mematikan WSL. Windows mungkin masih mencadangkan memori.",
   "Stopping…": "Menghentikan…",
   "Stop…": "Hentikan…",
   "Storage": "Penyimpanan",

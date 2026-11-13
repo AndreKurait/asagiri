@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "Detenido {when}: se quedó sin memoria (la VM tiene {mem})",
   "Stopped: out of memory": "Detenido: sin memoria",
   "Stopping": "Deteniendo",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "Detener el motor no apaga WSL. Windows puede seguir reservando memoria.",
   "Stopping…": "Deteniendo…",
   "Stop…": "Detener…",
   "Storage": "Almacenamiento",

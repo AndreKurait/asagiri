@@ -487,8 +487,8 @@
       "state": "open",
       "updated_at": "2026-11-12T09:38:16Z",
       "body_sha256": "22fd6ddb0d09bcc582ef4088171e105fc8bd16f1b9ef133fde1fb2a6a445d654",
-      "disposition": "known-limitation",
-      "reason": "Stop stops the Asagiri engine; Windows WSL residency is separate. Do not issue a global WSL shutdown that affects other distributions."
+      "disposition": "covered",
+      "reason": "Implemented the report's truthful-UI alternative: idle/stopped Windows memory is unknown, not zero or reclaimed; tooltip and feature documentation explain WSL residency. Cross-platform browser regression added. Stop does not terminate shared WSL."
     },
     {
       "number": 190,
@@ -515,7 +515,8 @@
       "updated_at": "2026-11-13T11:42:41Z",
       "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
       "disposition": "unverified-platform",
-      "reason": "New Rosetta auxiliary-vector report. No native VM reproduction was performed; do not claim fixed or alter kernel ABI speculatively."
+      "reason": "Native Rosetta crash remains unverified. The pinned Linux v6.18.58 UAPI defines 29/30 as AT_HWCAP3/AT_HWCAP4, not the reported rseq identifiers; an ABI workaround requires native reproduction.",
+      "reference": "https://github.com/gregkh/linux/blob/v6.18.58/include/uapi/linux/auxvec.h"
     }
   ]
 }

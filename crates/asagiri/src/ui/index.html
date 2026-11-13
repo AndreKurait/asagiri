@@ -2466,8 +2466,8 @@ setLang(window.ASAGIRI_LANG?.pick);
 // window on Linux (both set ASAGIRI_OS). Words that name the computer come from here.
 const WIN = window.ASAGIRI_OS === "windows", LINUX = window.ASAGIRI_OS === "linux";
 const OS = WIN ? "Windows" : LINUX ? "Linux" : "macOS", HOST = WIN ? "PC" : LINUX ? "computer" : "Mac";
-// What runs the containers: a Linux VM on the Mac and Windows; on Linux, the engine itself.
-const VM = LINUX ? "Engine" : "Linux VM";
+// Start/Stop controls the engine inside WSL, not the surrounding Windows VM.
+const VM = LINUX || WIN ? "Engine" : "Linux VM";
 /* Whether Share is in this build: the status event says (Asagiri Dev on the Mac, every Asagiri on Windows). */
 const shareOn = () => !!(ui.status?.share ?? ui.status?.dev);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -5151,7 +5151,9 @@ const FEEDBACK_URL = "https://github.com/AndreKurait/asagiri/issues/new";
 
 /* The VM's memory: under 1 GB in MB, so an idle VM doesn't read as "0.2". */
 const memText = (mib) => (mib < 1024 ? `${Math.round(mib)} MB` : `${(mib / 1024).toFixed(1)} GB`);
-const memTitle = () => !ui.mem?.target ? tr("The {vm} is asleep: it holds no memory", { vm: LANG === "en" ? VM.toLowerCase() : tr(VM) })
+const winMemoryUnknown = () => WIN && (!ui.mem?.target || ["stopped", "stopping", "asleep"].includes(ui.vm));
+const memTitle = () => winMemoryUnknown() ? tr("Stopping the engine does not shut down WSL. Windows may still reserve memory.")
+  : !ui.mem?.target ? tr("The {vm} is asleep: it holds no memory", { vm: LANG === "en" ? VM.toLowerCase() : tr(VM) })
   : LINUX ? tr("Asagiri's containers and engine use {used}, of the {total} this computer has.", { used: memText(ui.mem.used), total: memText(ui.mem.ceiling) })
   : WIN ? tr("Asagiri's containers, engine and agent hold {used} of the {total} WSL has (.wslconfig sets that).", { used: memText(ui.mem.used), total: memText(ui.mem.ceiling) })
   : tr("In use {used}. The VM may take up to {target} right now, and grows as containers need more.", { used: memText(ui.mem.used), target: memText(ui.mem.target) });
@@ -5193,7 +5195,7 @@ function renderStatus() {
   const k8sVersion = k8s ? (k8s.Image.split(":")[1] || "").replace(/-k3s\d+$/, "") : "";
   const { shown: vshown } = engineShown();
   const vmText = { running: tr("{vm} running", { vm: tr(VM) }), stopped: tr("{vm} off", { vm: tr(VM) }), booting: tr("Starting…"), stopping: tr("Stopping…") }[vshown] || vshown;
-  const mem = ui.mem ? tr("{used} of {total}", { used: memText(ui.mem.used), total: `${Math.round(ui.mem.ceiling / 1024)} GB` }) : "";
+  const mem = ui.mem && !winMemoryUnknown() ? tr("{used} of {total}", { used: memText(ui.mem.used), total: `${Math.round(ui.mem.ceiling / 1024)} GB` }) : "";
   const parts = [
     `<span class="item">${KDOT}<span>Asagiri ${esc(ui.status?.version || "")}</span>${ui.status?.dev ? `<span class="dev" title="${tr("{app}: its own engine, containers and settings", { app: esc(ui.status?.app || "Asagiri Dev") })}">DEV</span>` : ""}</span>`,
     usageItem(),
@@ -5470,8 +5472,14 @@ function setVm(state, error) {
     renderStatus();
     paintEngine();
     if (ui.view === "settings" && prefs.tab === "resources") render();
-    // Asleep, the VM holds no memory and the vm event says so (0 MB); off, there's nothing to read.
+    // Windows' process backend can be off while WSL still holds memory.
+    // The Mac VM releases memory asleep; off, there's nothing to read.
     if (state === "stopped" || state === "stopping") ["vm-mem"].forEach((id) => ($(id).textContent = "—")), ($("vm-meter").style.width = "0");
+    if (winMemoryUnknown()) {
+      $("vm-mem").textContent = "—";
+      $("vm-meter").style.width = "0";
+      $("vm-mem").title = memTitle();
+    }
     if (state === "stopped" || was === "stopped") render();
   }
   if (error) toast("error", error);
@@ -6529,13 +6537,13 @@ window.asagiri = {
         // The CPUs, and how busy they are together (an engine from before that reading sends none).
         // How busy, then how many: "4% · 1".
         setHTML($("vm-cpus"), e.cpus == null ? "—" : `${e.awake && e.cpu_pct != null ? `<span class="pct">${pct(e.cpu_pct)} · </span>` : ""}${e.cpus}`);
-        // What the VM uses, of the most it may; asleep, it holds none.
+        // WSL itself is outside the process backend's memory accounting.
         ui.mem = { used: e.awake ? e.used_mib : 0, target: e.awake ? e.target_mib : 0, ceiling: e.ceiling_mib, stall: e.awake ? e.stall_pct || 0 : 0 };
         oomCount(e.awake ? e.oom_kills : null);
         renderStatus();
-        setText($("vm-mem"), `${memText(ui.mem.used)} / ${(e.ceiling_mib / 1024).toFixed(0)} GB`);
+        setText($("vm-mem"), winMemoryUnknown() ? "—" : `${memText(ui.mem.used)} / ${(e.ceiling_mib / 1024).toFixed(0)} GB`);
         if ($("vm-mem").title !== memTitle()) $("vm-mem").title = memTitle();
-        const meter = `${(ui.mem.used / e.ceiling_mib * 100).toFixed(1)}%`;
+        const meter = winMemoryUnknown() ? "0%" : `${(ui.mem.used / e.ceiling_mib * 100).toFixed(1)}%`;
         if ($("vm-meter").style.width !== meter) $("vm-meter").style.width = meter;
         break;
       case "lists":

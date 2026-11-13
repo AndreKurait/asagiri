@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "توقف {when}: نفدت ذاكرته (لدى الجهاز الافتراضي {mem})",
   "Stopped: out of memory": "متوقف: نفدت الذاكرة",
   "Stopping": "جارٍ الإيقاف",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "إيقاف المحرك لا يُغلق WSL. قد يظل Windows يحتجز ذاكرة.",
   "Stopping…": "جارٍ الإيقاف…",
   "Stop…": "إيقاف…",
   "Storage": "التخزين",

@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "Durduruldu: {when}, belleği tükendi (VM'de {mem} var)",
   "Stopped: out of memory": "Durduruldu: bellek tükendi",
   "Stopping": "Durduruluyor",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "Motoru durdurmak WSL'yi kapatmaz. Windows bellek ayırmaya devam edebilir.",
   "Stopping…": "Durduruluyor…",
   "Stop…": "Durdur…",
   "Storage": "Depolama",

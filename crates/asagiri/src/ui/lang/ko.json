@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "{when}에 중지됨: 메모리 부족(VM 메모리 {mem})",
   "Stopped: out of memory": "중지됨: 메모리 부족",
   "Stopping": "중지 중",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "엔진을 중지해도 WSL은 종료되지 않습니다. Windows가 계속 메모리를 예약할 수 있습니다.",
   "Stopping…": "중지 중…",
   "Stop…": "중지…",
   "Storage": "저장 장치",

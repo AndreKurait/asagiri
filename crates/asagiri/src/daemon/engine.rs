@@ -1215,13 +1215,14 @@ impl Engine {
 
     /// The window's Stop: Asagiri off until Start. Marked stopped first, so
     /// nothing that comes in meanwhile boots it again; then every container
-    /// stops and the VM powers off.
+    /// stops and the backend stops. On Windows this stops the engine process,
+    /// not the surrounding WSL VM.
     pub fn stop_all(&self) -> Result<(), Error> {
         self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(f) = stopped_marker() {
             let _ = std::fs::write(f, b"");
         }
-        crate::diag::info!("Asagiri stopped: the VM stays off until Start");
+        crate::diag::info!("Asagiri stopped: the engine stays off until Start");
         self.sleep_now()
     }
 

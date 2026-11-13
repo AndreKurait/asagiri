@@ -1088,6 +1088,7 @@
   "Stopped {when}: its memory ran out (the VM has {mem})": "{when}に停止：メモリ不足（VM のメモリは {mem}）",
   "Stopped: out of memory": "停止：メモリ不足",
   "Stopping": "停止中",
+  "Stopping the engine does not shut down WSL. Windows may still reserve memory.": "エンジンを停止しても WSL は終了しません。Windows が引き続きメモリを確保する場合があります。",
   "Stopping…": "停止しています…",
   "Stop…": "停止…",
   "Storage": "ストレージ",

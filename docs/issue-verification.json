@@ -577,11 +577,13 @@
       "issue": 189,
       "title": "Windows: Stop leaves the WSL VM (vmmemWSL) running and its memory unclaimed",
       "body_sha256": "22fd6ddb0d09bcc582ef4088171e105fc8bd16f1b9ef133fde1fb2a6a445d654",
-      "coverage": "known-limitation",
+      "coverage": "automated",
       "checks": [
-        "tests/ui/enginestate.js"
+        "tests/ui/memory-accounting.js",
+        "tests/ui/enginestate.js",
+        "docs/features.md"
       ],
-      "remaining": "Stop stops the engine but does not guarantee WSL VM reclamation. Never issue global wsl --shutdown and disrupt unrelated distributions."
+      "remaining": "The UI no longer presents idle/stopped Windows engine readings as reclaimed WSL memory. Stop still intentionally leaves the shared WSL VM running; this does not implement WSL termination."
     },
     {
       "issue": 190,
@@ -610,7 +612,7 @@
       "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
       "coverage": "platform-gap",
       "checks": [],
-      "remaining": "Rosetta auxiliary-vector type 29 crash remains unverified on macOS 15; do not claim fixed or alter the guest ABI speculatively."
+      "remaining": "Native Rosetta auxv crash remains unverified. Linux v6.18.58 defines auxv 29/30 as AT_HWCAP3/AT_HWCAP4, not the rseq identifiers suggested by the report; do not apply that unverified ABI rewrite."
     }
   ]
 }

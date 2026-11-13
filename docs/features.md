@@ -59,8 +59,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Mac integration**: container files at `~/Asagiri` in Finder (read-only
   NFS, always current), SSH agent forwarding at
   `/run/host-services/ssh-auth.sock`
-- **Memory**: a balloon gives unused memory back while running, and the VM
-  sleeps after 60 s idle (the daemon stays at ~15 MB; waking takes ~0.15 s)
+- **Memory on macOS**: a balloon gives unused memory back while running, and
+  the VM sleeps after 60 s idle (the daemon stays at ~15 MB; waking takes
+  ~0.15 s). On Windows, Stop stops Asagiri's engine and containers; WSL can
+  remain running and retain memory. The stopped engine's memory reading
+  does not measure the resident WSL VM.
 - **The window**: containers, images, volumes and networks, with Compose
   projects grouped (start, stop, restart or remove a whole project); each
   container has its own page with details, live logs (find, level filter),
