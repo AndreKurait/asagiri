@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-12T21:44:19.956937+00:00",
+  "reviewed_at": "2026-11-13T04:54:40.643905+00:00",
   "upstream_repository": "libracoder/kiri",
-  "upstream_main": "4645536f68d4bf2f5e708bd8339a9f71f844c43a",
-  "asagiri_runtime_revision": "6f003adfc179ed9bc7489d7c313c4080fc609578",
+  "upstream_main": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
+  "asagiri_runtime_revision": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c",
   "counts": {
-    "total": 133,
-    "merged": 75,
+    "total": 135,
+    "merged": 76,
     "closed_unmerged": 36,
-    "open": 22
+    "open": 23
   },
   "pulls": [
     {
@@ -144,7 +144,7 @@
     },
     {
       "number": 15,
-      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -264,7 +264,7 @@
     },
     {
       "number": 31,
-      "title": "UI: window — built-in terminal panel",
+      "title": "UI: window \u2014 built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -556,25 +556,25 @@
       "number": 60,
       "title": "Security: Linux, WSL: containers reach the internet and are firewalled on kernels before 6.3",
       "state": "open",
-      "head": "6454f419a48a557f4434488de2a41362433a17a5",
+      "head": "641dc55411cbd57f1c9d9cb7a2ada64dd34c9226",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
       "disposition": "equivalent",
-      "reason": "Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation."
+      "reason": "Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head."
     },
     {
       "number": 61,
       "title": "Windows: the engine starts again after WSL goes away",
       "state": "open",
-      "head": "652cfdd99d6bccf85904903fe45ad0ee00b9778c",
+      "head": "21658a689c8572e456e16fd6d7fc481ece37852b",
       "merge": null,
-      "head_in_history": true,
+      "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "inherited",
-      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI."
+      "disposition": "equivalent",
+      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head."
     },
     {
       "number": 62,
@@ -734,7 +734,7 @@
     },
     {
       "number": 95,
-      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -926,7 +926,7 @@
     },
     {
       "number": 115,
-      "title": "UI: Settings → Domains — choose the ports container names answer on",
+      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -973,7 +973,7 @@
       "number": 119,
       "title": "Images: registry mirrors for Docker Hub, in Settings and the CLI",
       "state": "open",
-      "head": "cd0a5ab38e43f3d75f65b9aed1e780227f483ae7",
+      "head": "7554a5f49c69d0879dbccd4e5debeee658681033",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
@@ -1000,7 +1000,7 @@
         }
       ],
       "disposition": "ported-and-improved",
-      "reason": "Mirror/settings/setup commits ported. fc739e4 credential isolation is already enforced with complete manifest/config/layer header tests; active Buildx execs survive mirror settings changes."
+      "reason": "Mirror/settings/setup commits ported. fc739e4 credential isolation is already enforced with complete manifest/config/layer header tests; active Buildx execs survive mirror settings changes. Refreshed head only merges main, including #194; its registry changes have no additional delta."
     },
     {
       "number": 120,
@@ -1597,7 +1597,7 @@
     },
     {
       "number": 179,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1609,7 +1609,7 @@
     },
     {
       "number": 180,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1633,7 +1633,7 @@
     },
     {
       "number": 182,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -1727,6 +1727,44 @@
       "ports": [],
       "disposition": "equivalent-and-expanded",
       "reason": "Covered by #163 implementation: secondary IPv4/IPv6 defaults without duplicates, restart and route failover. 43d8cf4 additionally checks two internal networks before and after restart. The DHCP route helper keeps its existing behavior."
+    },
+    {
+      "number": 194,
+      "ports": [
+        {
+          "source": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
+          "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
+        }
+      ],
+      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
+      "state": "merged",
+      "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
+      "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "disposition": "ported-and-reviewed",
+      "reason": "GitHub and ECR tag listing, device/browser sign-in via installed CLIs, and shared tag ordering. Preserved Asagiri URL restrictions and existing mirrors. Native UI and image unit tests pass; native Windows and live external sign-ins remain separate hosted/manual checks."
+    },
+    {
+      "number": 195,
+      "ports": [
+        {
+          "source": "b919d223db6bbaff42b799c236f8bda276aaeba6",
+          "asagiri": "bed7387160b0a41425079f3ef801bfa38fd4acf4"
+        },
+        {
+          "source": "fbbb89ac599e45b52b3684328c2c538b979235c3",
+          "asagiri": "21aa5354fb4bd9176ac7d122bf3555a774acd477"
+        }
+      ],
+      "title": "bench: compare macOS workflow times on Kiri and Colima",
+      "state": "open",
+      "head": "fbbb89ac599e45b52b3684328c2c538b979235c3",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "ported",
+      "reason": "Upstream-only macOS Kiri/Colima benchmark documentation and chart, preserving measured engine identity. Recomputed all 560 samples across 26 blocks and headline median/p95 values; not an Asagiri performance claim."
     }
   ]
 }

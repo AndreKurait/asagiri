@@ -1,10 +1,10 @@
-# Upstream pull request audit — 2026-11-12
+# Upstream pull request audit — 2026-11-13
 
 Reviewed every public pull request in `libracoder/kiri`, open and closed:
-**133 total: 75 merged, 36 closed without merging, and 22 open**.
-Upstream main is `4645536f68d4bf2f5e708bd8339a9f71f844c43a`.
+**135 total: 76 merged, 36 closed without merging, and 23 open**.
+Upstream main is `ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449`.
 Every merged PR's merge commit and the complete main history are ancestors of
-Asagiri. The runtime revision for this audit is `6f003adfc179ed9bc7489d7c313c4080fc609578`.
+Asagiri. The runtime revision for this audit is `a7aefb9dfed331ed1dbea62cf2dccac53168d90c`.
 
 [Machine-readable evidence](upstream-pr-audit.json) records every reviewed head,
 merged commit, ancestry result and source-to-port mapping. [UPSTREAM.md](../UPSTREAM.md)
@@ -38,6 +38,14 @@ unmerged work.
   upstream identity; they have not been repeated on Asagiri. Runtime code is
   unchanged by this follow-up.
 
+- Refreshed the full inventory to 135 PRs. Ported merged #194's GitHub/ECR
+  tag listing and browser sign-in, retaining Asagiri branding, existing registry
+  mirrors, and exact allowed login-page URLs. #60/#61 were rebased without patch
+  changes; #119 only merged the updated upstream main.
+- Ported #195's upstream macOS workflow report and chart. Recomputed its 560
+  observations across 26 blocks and headline medians/p95 values. These are
+  Kiri/Colima measurements, not measurements of Asagiri.
+
 ## Deliberate exclusions
 
 #89 still needs a complete BuildKit bridge. `session` increments `ACTIVE` before
@@ -68,7 +76,7 @@ Runtime validation limits remain those in UPSTREAM.md; compiling on a platform
 does not prove its native VM or WSL recovery was exercised.
 
 | PR | State | Reviewed head | Disposition and evidence |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | [#1](https://github.com/libracoder/kiri/pull/1) — Relicense under Apache-2.0; shorter README | closed | `6cbcfed9da88` | **superseded** — Apache-2.0, NOTICE and the reorganized documentation are inherited from current main; the old release branch is not reintroduced. |
 | [#2](https://github.com/libracoder/kiri/pull/2) — Keep unpacked layers whole across VM stops | merged | `8be2db95ee89` | **inherited** — Merged upstream commit 76ccc11b8d7d is an ancestor of Asagiri. |
 | [#3](https://github.com/libracoder/kiri/pull/3) — Commands end quietly when their output is closed, instead of crashing | merged | `c650a58051d5` | **inherited** — Merged upstream commit 325a3b756c0e is an ancestor of Asagiri. |
@@ -108,8 +116,8 @@ does not prove its native VM or WSL recovery was exercised.
 | [#55](https://github.com/libracoder/kiri/pull/55) — UI: Run asks for a container name and optional host port | closed | `0bcdc8e29c60` | **partly-equivalent-and-held** — Image inspect already preserves ExposedPorts, Labels, Healthcheck and StopSignal. Hold the UI prototype: it guesses the exposed port, forces a dialog on every run, uses colliding default names and predates localization. Existing rename/port editors and Docker create options remain available. |
 | [#56](https://github.com/libracoder/kiri/pull/56) — UI: keep Images Actions visible when a tag is long | merged | `54ee598952b6` | **inherited** — Merged upstream commit 3fa32335cc68 is an ancestor of Asagiri. |
 | [#58](https://github.com/libracoder/kiri/pull/58) — UI: Chinese language option for the main window and Settings | closed | `c700637fcb91` | **superseded** — Multilingual UI is inherited through merged #95; do not restore the earlier two-language prototype. |
-| [#60](https://github.com/libracoder/kiri/pull/60) — Security: Linux, WSL: containers reach the internet and are firewalled on kernels before 6.3 | open | `6454f419a48a` | **equivalent** — Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation. |
-| [#61](https://github.com/libracoder/kiri/pull/61) — Windows: the engine starts again after WSL goes away | open | `652cfdd99d6b` | **inherited** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. |
+| [#60](https://github.com/libracoder/kiri/pull/60) — Security: Linux, WSL: containers reach the internet and are firewalled on kernels before 6.3 | open | `641dc55411cb` | **equivalent** — Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head. |
+| [#61](https://github.com/libracoder/kiri/pull/61) — Windows: the engine starts again after WSL goes away | open | `21658a689c85` | **equivalent** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head. |
 | [#62](https://github.com/libracoder/kiri/pull/62) — CI: run the UI tests on every pull request | merged | `9610d272b0e3` | **inherited** — Merged upstream commit 41ecc592d1b3 is an ancestor of Asagiri. |
 | [#63](https://github.com/libracoder/kiri/pull/63) — Guest kernel: per-process I/O accounting, so Typesense starts | merged | `07003a637a1d` | **inherited** — Merged upstream commit d4e361b5bac3 is an ancestor of Asagiri. |
 | [#65](https://github.com/libracoder/kiri/pull/65) — Security: only root may load BPF programs in the guest kernel | merged | `f59555cf70b1` | **inherited** — Merged upstream commit 8295c185edd2 is an ancestor of Asagiri. |
@@ -142,7 +150,7 @@ does not prove its native VM or WSL recovery was exercised.
 | [#115](https://github.com/libracoder/kiri/pull/115) — UI: Settings → Domains — choose the ports container names answer on | merged | `a850ed59c11c` | **inherited** — Merged upstream commit 7d8d0b4c1248 is an ancestor of Asagiri. |
 | [#116](https://github.com/libracoder/kiri/pull/116) — Intel Macs: run arm64 images through qemu, and leave a registry's tags to the registry | open | `ba7fd94697d4` | **ported-and-improved** — Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Optional Intel QEMU remains outside release bundles pending complete corresponding-source packaging. |
 | [#117](https://github.com/libracoder/kiri/pull/117) — Windows: setup carries on after a failed engine step | merged | `8b4a8664295e` | **inherited** — Merged upstream commit c21387373730 is an ancestor of Asagiri. |
-| [#119](https://github.com/libracoder/kiri/pull/119) — Images: registry mirrors for Docker Hub, in Settings and the CLI | open | `cd0a5ab38e43` | **ported-and-improved** — Mirror/settings/setup commits ported. fc739e4 credential isolation is already enforced with complete manifest/config/layer header tests; active Buildx execs survive mirror settings changes. |
+| [#119](https://github.com/libracoder/kiri/pull/119) — Images: registry mirrors for Docker Hub, in Settings and the CLI | open | `7554a5f49c69` | **ported-and-improved** — Mirror/settings/setup commits ported. fc739e4 credential isolation is already enforced with complete manifest/config/layer header tests; active Buildx execs survive mirror settings changes. Refreshed head only merges main, including #194; its registry changes have no additional delta. |
 | [#120](https://github.com/libracoder/kiri/pull/120) — A language picked from the menu shows everywhere at once | merged | `78b1291ead2d` | **inherited** — Merged upstream commit a86f903cbe2e is an ancestor of Asagiri. |
 | [#122](https://github.com/libracoder/kiri/pull/122) — Reclaim unused blocks from the macOS VM data disk | open | `676c46d2f1ae` | **inherited** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. |
 | [#124](https://github.com/libracoder/kiri/pull/124) — kiri api: fix handling of empty array for command | open | `d50ca5b9621a` | **inherited** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. |
@@ -202,3 +210,5 @@ does not prove its native VM or WSL recovery was exercised.
 | [#186](https://github.com/libracoder/kiri/pull/186) — Ports: say once why the VM's NAT network is unreachable | merged | `6b0cb4dc25ef` | **inherited** — Merged upstream commit 4645536f68d4 is an ancestor of Asagiri. |
 | [#192](https://github.com/libracoder/kiri/pull/192) — Improve macOS bind-mount paths and sequential reads | open | `d97296654125` | **ported** — 6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Follow-ups d26ad2b22a5b and d97296654125 ported as 1fa2dda and a600f4f: original benchmark helper, Kiri/Colima results, and corrected nearest-rank percentiles. Upstream Mac throughput figures have not been remeasured here. |
 | [#193](https://github.com/libracoder/kiri/pull/193) — Give secondary external networks an IPv4 default route | open | `8d6368bdcc2c` | **equivalent-and-expanded** — Covered by #163 implementation: secondary IPv4/IPv6 defaults without duplicates, restart and route failover. 43d8cf4 additionally checks two internal networks before and after restart. The DHCP route helper keeps its existing behavior. |
+| [#194](https://github.com/libracoder/kiri/pull/194) — UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page | merged | `e0f5f17c48f8` | **ported-and-reviewed** — GitHub and ECR tag listing, device/browser sign-in via installed CLIs, and shared tag ordering. Preserved Asagiri URL restrictions and existing mirrors. Native UI and image unit tests pass; native Windows and live external sign-ins remain separate hosted/manual checks. |
+| [#195](https://github.com/libracoder/kiri/pull/195) — bench: compare macOS workflow times on Kiri and Colima | open | `fbbb89ac599e` | **ported** — Upstream-only macOS Kiri/Colima benchmark documentation and chart, preserving measured engine identity. Recomputed all 560 samples across 26 blocks and headline median/p95 values; not an Asagiri performance claim. |

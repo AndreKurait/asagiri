@@ -4,11 +4,11 @@ Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
 The original Apache-2.0 license, copyright notices, and Git history are preserved.
 The rename does not change the authorship of inherited code.
 
-Upstream `main` was fetched on **2026-11-12** at
-`4645536f68d4bf2f5e708bd8339a9f71f844c43a`. Its complete history is merged,
-including the nine commits after the initial `a649319` integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **133** public PRs
-as of that review: 75 merged, 36 closed without merging, and 22 open. Every
+Upstream `main` was fetched on **2026-11-13** at
+`ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449`. Its complete history is merged,
+including the GitHub and ECR registry sign-in work after the initial integration.
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **135** public PRs
+as of that review: 76 merged, 36 closed without merging, and 23 open. Every
 merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
 port, equivalence, supersession, or hold recorded with its reviewed head.
 
