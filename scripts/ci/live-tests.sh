@@ -41,7 +41,7 @@ for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"
 done
-for t in empty-response-status lifecycle-status client-command-compatibility session-isolation archive-permissions http-body-framing archive-directory-contents \
+for t in empty-response-status lifecycle-status client-command-compatibility session-isolation reported-runtime-regressions archive-permissions http-body-framing archive-directory-contents \
   resource-limits restart-policy interactive-attach attach-http encoded-api-paths; do
   run "$t" alpine:3.21
 done
@@ -57,7 +57,12 @@ run vm-recovery alpine:3.21
 # with an always policy must come back with its writable layer intact.
 # This covers Linux persistence; the macOS updater and launchd are separate.
 restart_engine() {
-  cid=$(dock run -d --restart always --network none alpine:3.21 sleep 3600) || return 1
+  # This script is evaluated by the container's shell.
+  # shellcheck disable=SC2016
+  cid=$(dock run -d --restart always --network none alpine:3.21 sh -c \
+    'sid=$(cut -d" " -f6 /proc/$$/stat); [ "$sid" = "$$" ] || exit 42
+     trap '"'"'trap "" TERM; kill -TERM 0; exit 0'"'"' TERM
+     sleep 3600 & wait') || return 1
   dock exec "$cid" sh -c 'echo persisted > /restart-proof' || return 1
   i=0
   until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
@@ -75,6 +80,10 @@ restart_engine() {
   until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
     i=$((i + 1)); [ "$i" -lt 100 ] || return 1; sleep 0.1
   done
+  # #191: after a host/daemon restart, Compose stop can make a container
+  # signal its entire process group. That group must exclude the daemon.
+  dock stop "$cid" >/dev/null || return 1
+  dock version >/dev/null || return 1
   dock rm -f "$cid" >/dev/null || return 1
 }
 if restart_engine; then

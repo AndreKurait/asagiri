@@ -1,0 +1,609 @@
+{
+  "repository": "libracoder/kiri",
+  "note": "Coverage inventory, not an assertion that every platform or feature is fixed. Execution results must name a tested source revision.",
+  "issues": [
+    {
+      "issue": 10,
+      "title": "Thank you",
+      "body_sha256": "c5035029ad292fa9893743aa39560a2640e388c32c676768af1305477958a156",
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "General feedback; no reproducible behavior was reported."
+    },
+    {
+      "issue": 13,
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
+      "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The author withdrew the security evaluation; this is not a security certification."
+    },
+    {
+      "issue": 14,
+      "title": "Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota)",
+      "body_sha256": "65938d77c5f9fc353cccaf6fbf03f45b521706bccb2e2a3f643aa1fccb80fa8c",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/kernel-features.sh",
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "Probe exists; verify it on the bundled guest kernel, not only the Docker host kernel."
+    },
+    {
+      "issue": 18,
+      "title": "Set `net.ipv4.ip_unprivileged_port_start` to 0 in containers",
+      "body_sha256": "53ba01609280d49851175d29955b80d7ea80225ad589dbb062feacd0c64ffcef",
+      "coverage": "automated",
+      "checks": [
+        "tests/reported-runtime-regressions.py",
+        "crates/asagiri-init/src/linux/hostopts.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 25,
+      "title": "macOS: Allow hiding the Dock icon while Kiri runs in the background",
+      "body_sha256": "dca734ca2c9a3d411a2076695ac70f442d21889a275fa359e22f2244e975d7dd",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/ui/settingstabs.js"
+      ],
+      "remaining": "Dock/menu-bar lifecycle still requires a native Mac window."
+    },
+    {
+      "issue": 26,
+      "title": "Linux Host: Starting privileged container (kiri k8s) unlinks /dev/ptmx, breaking terminal creation",
+      "body_sha256": "ca427a223598a685d69a455e52547630f0b1631cad582d967328dc66ed29d94f",
+      "coverage": "automated",
+      "checks": [
+        "tests/reported-runtime-regressions.py",
+        "tests/linux-host.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 27,
+      "title": "Container DNS fails on Macs with Cisco Umbrella",
+      "body_sha256": "70b530b8dcc155cea9464fbc274452f763cbbd998c20c2180b6069c20603a4e4",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-connect-dns.py",
+        "crates/asagiri/src/daemon/dns.rs"
+      ],
+      "remaining": "Linux DNS coverage does not reproduce Cisco Umbrella on macOS."
+    },
+    {
+      "issue": 30,
+      "title": "bug: Sub-volumes under host bind mounts inherit host directory instead of base image layer",
+      "body_sha256": "40a637b5cb686da0c774333fd45de0bc66410e72a7a51bdc9866be562f91b12c",
+      "coverage": "automated",
+      "checks": [
+        "tests/reported-runtime-regressions.py",
+        "tests/e2e.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 38,
+      "title": "Cilium does not start in kind: the guest kernel needs BPF JIT, perf events and BTF",
+      "body_sha256": "bdff6d22dcf83e5494e77c011c582628f541a8b5a25bcccd441d3955709918af",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-features.sh",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "Kernel flags are configured; a real Cilium startup against the bundled guest remains unverified."
+    },
+    {
+      "issue": 40,
+      "title": "macOS: the Finder mount hides an existing ~/Kiri folder and force-unmounts other mounts",
+      "body_sha256": "5937f9b6e3c82a7ee47ec661a8f3f260d0dd529c259380c9843aecfe0b25f80c",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/finder-mount.sh"
+      ],
+      "remaining": "Requires a native Mac Finder/NFS mount; do not run against the user's folders implicitly."
+    },
+    {
+      "issue": 41,
+      "title": "Crash on Typesense startup (SIGSEGV): kernel missing CONFIG_TASK_IO_ACCOUNTING (/proc/self/io)",
+      "body_sha256": "7f5e08bc1fbfbdd1e4f85dff21935d56cb0d7407601842f48e1a110b1575949b",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "TASK_IO_ACCOUNTING is configured; actual Typesense startup on the bundled guest remains unverified."
+    },
+    {
+      "issue": 44,
+      "title": "Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets)",
+      "body_sha256": "65b901294bfb838ba0ac34fabd0cea14703dfe39ffa003c57909a0fe4867c58f",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-bridge-icc.py",
+        "tests/wsl.sh"
+      ],
+      "remaining": "Native WSL outbound networking still needs a Windows host."
+    },
+    {
+      "issue": 45,
+      "title": "silly question, is it needed Docker installed so kiri works?",
+      "body_sha256": "1b1c43f39afce8090d4989f796310e09bbf0020ab76f2a8b8e0b0c8bb22ea8cb",
+      "coverage": "partial",
+      "checks": [
+        "packaging/linux/test.sh",
+        "installer/windows/verify.ps1"
+      ],
+      "remaining": "Package checks cover bundled tools; final public installer verification is pending publication."
+    },
+    {
+      "issue": 48,
+      "title": "Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
+      "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildx-bootstrap.py",
+        "tests/bind-inotify.py",
+        "tests/seccomp-profiles.py",
+        "crates/asagiri/src/update.rs"
+      ],
+      "remaining": "The three Linux runtime regressions pass; native Mac updater/VM restart remains unverified."
+    },
+    {
+      "issue": 49,
+      "title": "Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver",
+      "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
+      "coverage": "deferred-feature",
+      "checks": [
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "The tested docker-container driver is supported; a built-in BuildKit gRPC driver is not implemented."
+    },
+    {
+      "issue": 50,
+      "title": "macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down",
+      "body_sha256": "5e17a20761f795020b6e94eae78030cd3aa6fedc59c69f82b22bf9dedd74d901",
+      "coverage": "partial",
+      "checks": [
+        "tests/vm-recovery.py",
+        "guest/kernel/patches/0004-gro-frag-list-gso-size.patch"
+      ],
+      "remaining": "Actual Linux agent crashes recover; native Mac kernel crash/VM recovery remains unverified."
+    },
+    {
+      "issue": 57,
+      "title": "Builds for a foreign platform use the local image of the same tag and ignore --platform (Invalid ELF image for this architecture)",
+      "body_sha256": "35403523d083446b793a505b5020efc61adc928330805b53b9e3f4ebe376ed93",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "Cross-platform OCI ELF and local-tag selection are tested; native Intel Mac execution remains unverified."
+    },
+    {
+      "issue": 59,
+      "title": "Allow running linux/arm64 containers on Intel Macs via QEMU user-mode emulation (currently hard-rejected with \"Kiri does not emulate Arm\")",
+      "body_sha256": "ce5a33302f555483651ca5212a669d164c7a15f3c0cf1c5b695e9e5294e2f8dc",
+      "coverage": "deferred-feature",
+      "checks": [
+        "crates/asagiri/src/guest.rs"
+      ],
+      "remaining": "Optional QEMU support is not shipped until its complete source/dependency bundle is available and validated."
+    },
+    {
+      "issue": 64,
+      "title": "After `docker push`, RepoDigests holds the image ID instead of the registry's manifest digest",
+      "body_sha256": "36bc45e32fa94dbeffa6c9e47db156ec76860b830e57818d28285b3395d18d7a",
+      "coverage": "automated",
+      "checks": [
+        "crates/asagiri-image/src/registry.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 66,
+      "title": "bun install aborts under linux/amd64 emulation on Apple Silicon (QEMU SIGABRT), works on OrbStack",
+      "body_sha256": "ec410c70bb77b82da9cc96d98f3411287b40b04f06deef94e0c20f3d8049db24",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "Actual Rosetta/bun execution requires a native Apple Silicon VM; no Linux emulation substitute proves it."
+    },
+    {
+      "issue": 72,
+      "title": "Bind mounts (macOS): open(O_CREAT|O_WRONLY, 0200) fails with EACCES, breaking Node's native fs.cpSync",
+      "body_sha256": "257d54d232efa8388462e6827ff64be8696205f7d49d92f0b569496b47712abc",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/patches/0003-fuse-create-owner-readable.patch",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "The patch is retained; native Mac virtiofs/Node fs.cpSync still needs reproduction."
+    },
+    {
+      "issue": 73,
+      "title": "Control Kiri from browser.",
+      "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "The website demo uses sample data; browser control of a real engine is not implemented."
+    },
+    {
+      "issue": 74,
+      "title": "Create an MCP server to allow agents to work smoother",
+      "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "An MCP server is not implemented."
+    },
+    {
+      "issue": 77,
+      "title": "fix(docs): install guide incorrectly says Intel Macs are unsupported",
+      "body_sha256": "42da8595c86e0dd3135ce6d0d72bb09836871e7a29cd6eb36c3515644993d0ce",
+      "coverage": "documentation",
+      "checks": [
+        "docs/install.md",
+        "docs/development.md"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 78,
+      "title": "fix(docs): Linux guides omit the window shipped in the full x86-64 package",
+      "body_sha256": "b42fee073ccfff256c4ae567d1962dd4b251ee706dd63803fd16ccaca7f6aa5f",
+      "coverage": "documentation",
+      "checks": [
+        "packaging/README.md",
+        "docs/features.md"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 79,
+      "title": "fix(api): native Linux reports a hardcoded kernel version",
+      "body_sha256": "ebc06a4be74a4e171570063b57a69492e851ec1068be30417e5f7f02749c284e",
+      "coverage": "automated",
+      "checks": [
+        "tests/reported-runtime-regressions.py",
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 80,
+      "title": "fix(docs): Linux packaging guide incorrectly promises service startup on install",
+      "body_sha256": "1cc28a8f86f2caa7a96f63b8e3a58889dcceb44a1ef58a0492e4d6cb67c03f4d",
+      "coverage": "documentation",
+      "checks": [
+        "packaging/README.md",
+        "packaging/linux/test.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 81,
+      "title": "fix(docs): development guide omits optional Docker socket integration",
+      "body_sha256": "79d047684e0455ae91a1c19645c5939bc9404c476c9c4eec134186020be0b245",
+      "coverage": "documentation",
+      "checks": [
+        "docs/development.md",
+        "crates/asagiri/src/setup.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 82,
+      "title": "fix(docs): features guide says IPv6 network creation is refused",
+      "body_sha256": "347bce72038176c835699ef7b75cc55f6353b76745aa7352a818f985f64a185b",
+      "coverage": "automated",
+      "checks": [
+        "tests/network-endpoint-metadata.py",
+        "tests/network-ipvlan.py",
+        "tests/network-macvlan.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 83,
+      "title": "fix(buildx): bootstrap can reset the container-start connection",
+      "body_sha256": "826be9deea2731456bef3bf0fda1f4b721a6f2f823f089e6970cc06e7af0cb21",
+      "coverage": "automated",
+      "checks": [
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 85,
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
+      "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
+      "coverage": "automated",
+      "checks": [
+        "tests/image-import.py",
+        "tests/http-body-framing.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 90,
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
+      "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/zh.js",
+        "tests/ui/langswitch.js"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 91,
+      "title": "Setup failure is undiagnosable: \"the test container did not run\" hides the real cause",
+      "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri-win/src/setup.rs"
+      ],
+      "remaining": "Diagnostics have unit coverage; native first-run setup still requires platform execution."
+    },
+    {
+      "issue": 92,
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
+      "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/setup.rs"
+      ],
+      "remaining": "Incomplete setup is retryable in code; native first-run retry still requires platform execution."
+    },
+    {
+      "issue": 93,
+      "title": "After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
+      "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/wsl.sh"
+      ],
+      "remaining": "Native Windows sleep/wake and WSL disappearance cannot be reproduced by Linux unit tests."
+    },
+    {
+      "issue": 94,
+      "title": "Setup failure is undiagnosable: \"the test container did not run\" hides the real cause",
+      "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri-win/src/setup.rs"
+      ],
+      "remaining": "Duplicate of setup-diagnostics report #91; same platform limitation."
+    },
+    {
+      "issue": 97,
+      "title": "Domain router always binds ports 80/443, even with Domains turned off, and the app-started daemon ignores KIRI_HTTP_PORT",
+      "body_sha256": "c1c2d3ca43e95e7634e8a689b7924dd8cced52015ea9a87b6c3dd6922cc10680",
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/routerports.js",
+        "crates/asagiri/src/daemon/domains.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 98,
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
+      "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
+      "coverage": "automated",
+      "checks": [
+        "tests/reported-runtime-regressions.py",
+        "tests/e2e.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 99,
+      "title": "Getting issue with DDEV",
+      "body_sha256": "bb4b185515b56fcbb00a10abe8e77803792643e9fbb2fdf9a588b5cff37bbff5",
+      "coverage": "partial",
+      "checks": [
+        "tests/image-import.py",
+        "tests/archive-permissions.py"
+      ],
+      "remaining": "Gzip/copy regressions are tested; a complete DDEV project has not been rerun."
+    },
+    {
+      "issue": 112,
+      "title": "feat: support i18n plz!",
+      "body_sha256": "e7ba4b03b319c717e2198ba244a2bf846462850a22a376ebd57ca7c772800f2d",
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/zh.js",
+        "tests/ui/langswitch.js",
+        "scripts/i18n-check.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 118,
+      "title": "Registry mirrors for Docker Hub (Settings + CLI)",
+      "body_sha256": "772e229c46189bab99719a0c4a3d562a4eee6b7924265e7d5cd632e007129154",
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/mirrors.js",
+        "tests/buildx-bootstrap.py",
+        "crates/asagiri-image/src/registry.rs"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 121,
+      "title": "Command is ignored when starting a container from testcontainers (using http api)",
+      "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
+      "coverage": "automated",
+      "checks": [
+        "tests/client-command-compatibility.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 123,
+      "title": "macOS: VM data.img retains host disk allocation after guest files are deleted",
+      "body_sha256": "1b170c60c7ccbd962d346710bff6c54879320c8a0545bcd18b494b620284312b",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri-init/src/linux/agent.rs"
+      ],
+      "remaining": "The trim implementation is present; host allocated-block reclamation needs a real Mac VM."
+    },
+    {
+      "issue": 125,
+      "title": "Docker network compatibility: bridge options and IPv4/IPv6 drivers",
+      "body_sha256": "f264e57737a3b1349e376ea7afa1debb6dfc9d90274c0c7d54a4b825bd944f7f",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-bridge-icc.py",
+        "tests/network-bridge-mtu.py",
+        "tests/network-endpoint-metadata.py",
+        "tests/network-ipvlan.py",
+        "tests/network-macvlan.py"
+      ],
+      "remaining": "Linux coverage passes; native Mac/WSL network parity remains a separate check."
+    },
+    {
+      "issue": 127,
+      "title": "Linux daemon: Docker-compatible socket access for containerized SDK clients",
+      "body_sha256": "cd2a02f19e8265b2aa8b19325d7828d49c49ce62e76b62ef9f38f012ea0b0fdb",
+      "coverage": "automated",
+      "checks": [
+        "tests/socket-access.py",
+        "tests/socket-access.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 128,
+      "title": "Docker interactive API: WebSocket attach, detach keys and stdin lifetime",
+      "body_sha256": "cb3dd99f173622c116395cd368bcdfe7a03ceb3086c12b19455bf28d2522b6c3",
+      "coverage": "automated",
+      "checks": [
+        "tests/interactive-attach.py",
+        "tests/attach-http.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 129,
+      "title": "Container controls: live resource updates and namespace compatibility",
+      "body_sha256": "082611c226c94f6b155507918cc7174d019c3bcf2911029a77a17e74d11fdf3e",
+      "coverage": "automated",
+      "checks": [
+        "tests/resource-limits.py",
+        "tests/lifecycle-status.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 130,
+      "title": "Container security: custom seccomp profiles without weakening Kiri host isolation",
+      "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
+      "coverage": "automated",
+      "checks": [
+        "tests/seccomp-profiles.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 134,
+      "title": "HTTP uploads: handle Expect and preserve chunked request boundaries",
+      "body_sha256": "a159e7b402311bfc3e8d0b001509626424b8a69ab26049aef00fd474c1cc4189",
+      "coverage": "automated",
+      "checks": [
+        "tests/http-body-framing.py"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 168,
+      "title": "Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode)",
+      "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "WebView2 suspension/disposal and state restoration require implementation and native Windows lifecycle tests."
+    },
+    {
+      "issue": 170,
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
+      "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri/src/setup.rs",
+        "tests/reported-runtime-regressions.py",
+        "tests/vm-recovery.py"
+      ],
+      "remaining": "Attached report contains four subreports: LaunchAgent restart, bundled kernel discovery, symlinked binds, and stale ports. New tests cover pure configuration/paths and Linux behavior; native Mac lifecycle/path/port reproduction remains required."
+    },
+    {
+      "issue": 187,
+      "title": "macOS: window traffic-light buttons shift upward after switching themes",
+      "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "Native macOS traffic-light alignment after theme changes is not covered by browser rendering tests."
+    },
+    {
+      "issue": 188,
+      "title": "UI: the sidebar's VM card shows Off after Start from the main area's empty state",
+      "body_sha256": "e2cc5c50455a236f3f45577fa5670a18b04fcff2598170fae409b94c03ba42c9",
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/enginestate.js",
+        "tests/ui/quietstart.js"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 189,
+      "title": "Windows: Stop leaves the WSL VM (vmmemWSL) running and its memory unclaimed",
+      "body_sha256": "22fd6ddb0d09bcc582ef4088171e105fc8bd16f1b9ef133fde1fb2a6a445d654",
+      "coverage": "known-limitation",
+      "checks": [
+        "tests/ui/enginestate.js"
+      ],
+      "remaining": "Stop stops the engine but does not guarantee WSL VM reclamation. Never issue global wsl --shutdown and disrupt unrelated distributions."
+    },
+    {
+      "issue": 190,
+      "title": "Windows: the window's usage figure counts unrelated processes (PID reuse when building the process tree)",
+      "body_sha256": "427437ba7aa249ed84f7f7583059c92591744ce3361e42c15d0ab8429df508dc",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/usage.rs"
+      ],
+      "remaining": "Four portable PID-tree tests pass; native Windows handle sampling runs in Windows CI."
+    },
+    {
+      "issue": 191,
+      "title": "Linux host: daemon gets SIGTERM and the whole engine stops on `docker compose stop` of containers restarted at boot",
+      "body_sha256": "70d5abb10e79999aa359e2dd414e056927cf86fe3ddad0862ac85bd52d7f5894",
+      "coverage": "automated",
+      "checks": [
+        "tests/session-isolation.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": ""
+    },
+    {
+      "issue": 199,
+      "title": "Every linux/amd64 container crashes with \"rosetta error: unhandled auxillary vector type 29\" (SIGTRAP) on Apple Silicon",
+      "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "Rosetta auxiliary-vector type 29 crash remains unverified on macOS 15; do not claim fixed or alter the guest ABI speculatively."
+    }
+  ]
+}

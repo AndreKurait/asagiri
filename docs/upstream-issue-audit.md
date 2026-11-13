@@ -5,6 +5,8 @@ Reviewed all **57** public issue records alongside the 138-PR audit.
 macOS or Windows report was reproduced on this Mac. Native Asagiri/VM launches
 were not performed. Apple notarization is outside this follow-up.
 
+[Issue-by-issue verification and remaining gaps](issue-verification.md) lists concrete checks without treating closed reports as passing tests.
+
 [Machine-readable evidence](upstream-issue-audit.json) records source update
 times, body hashes and dispositions.
 
@@ -60,7 +62,7 @@ times, body hashes and dispositions.
 | [#130](https://github.com/libracoder/kiri/issues/130) — Container security: custom seccomp profiles without weakening Kiri host isolation | open | **covered**: Custom seccomp profiles preserve the host boundary; tests/seccomp-profiles.py validates actual behavior. |
 | [#134](https://github.com/libracoder/kiri/issues/134) — HTTP uploads: handle Expect and preserve chunked request boundaries | open | **covered**: Shared bounded upload decoder, Expect handling, contradictory framing rejection and connection-reuse tests in tests/http-body-framing.py. |
 | [#168](https://github.com/libracoder/kiri/issues/168) — Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode) | open | **deferred-feature**: WebView2 suspend/dispose requires native lifecycle testing and state restoration; not implied fixed by engine memory accounting. |
-| [#170](https://github.com/libracoder/kiri/issues/170) — 请看提交的报告 | closed | **inherited-review**: Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history. |
+| [#170](https://github.com/libracoder/kiri/issues/170) — Attached issue report | closed | **partially-covered**: Four attached subreports are tracked: LaunchAgent restart, bundled kernel discovery, symlinked binds and stale ports. Configuration/path and Linux regressions added; native Mac reproduction remains unverified. |
 | [#187](https://github.com/libracoder/kiri/issues/187) — macOS: window traffic-light buttons shift upward after switching themes | open | **unverified-platform**: Theme/traffic-light alignment report needs a native macOS window reproduction. Browser tests cannot validate native window controls. |
 | [#188](https://github.com/libracoder/kiri/issues/188) — UI: the sidebar's VM card shows Off after Start from the main area's empty state | closed | **inherited-review**: Engine state controls from merged #197 plus browser regressions. |
 | [#189](https://github.com/libracoder/kiri/issues/189) — Windows: Stop leaves the WSL VM (vmmemWSL) running and its memory unclaimed | open | **known-limitation**: Stop stops the Asagiri engine; Windows WSL residency is separate. Do not issue a global WSL shutdown that affects other distributions. |

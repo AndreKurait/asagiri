@@ -471,12 +471,17 @@ fn missing_kernel(kernel: &std::path::Path, exe: Option<&std::path::Path>) -> io
 /// `Asagiri.app/Contents/Resources/guest` when running from the app, else the
 /// in-repo build output (development).
 pub fn guest_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("ASAGIRI_GUEST_DIR") {
+    guest_dir_from(std::env::var_os("ASAGIRI_GUEST_DIR"), std::env::current_exe().ok())
+}
+
+#[cfg(target_os = "macos")]
+fn guest_dir_from(override_dir: Option<std::ffi::OsString>, exe: Option<PathBuf>) -> PathBuf {
+    if let Some(d) = override_dir {
         return PathBuf::from(d);
     }
     // Through its links: `asagiri` on the PATH is one (~/.asagiri/bin/asagiri), and
     // the guest is beside the binary it leads to, not beside the link.
-    let exe = std::env::current_exe().ok().map(|e| e.canonicalize().unwrap_or(e));
+    let exe = exe.map(|e| e.canonicalize().unwrap_or(e));
     let bundled = exe.as_ref().and_then(|e| e.parent().map(|d| d.join("../Resources/guest"))).filter(|d| d.join(KERNEL).is_file());
     // From a checkout: what `cargo xtask guest`/`kernel` built, the Intel
     // guest under guest/out/x86_64. Found from the binary's place in
@@ -487,4 +492,38 @@ pub fn guest_dir() -> PathBuf {
         let repo = exe.as_ref().and_then(|e| e.ancestors().find(|d| d.join("Cargo.lock").is_file() && d.join("guest").is_dir()));
         repo.map(|r| r.join(built)).unwrap_or_else(|| PathBuf::from(built))
     })
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod guest_path_tests {
+    use super::*;
+
+    #[test]
+    fn app_and_symlinked_cli_find_the_bundled_kernel_without_environment() {
+        let root = std::env::temp_dir().join(format!("asagiri-guest-path-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("Asagiri.app/Contents/MacOS")).unwrap();
+        let guest = root.join("Asagiri.app/Contents/Resources/guest");
+        std::fs::create_dir_all(&guest).unwrap();
+        std::fs::write(guest.join(KERNEL), b"fixture").unwrap();
+        let exe = root.join("Asagiri.app/Contents/MacOS/asagiri");
+        std::fs::write(&exe, b"fixture").unwrap();
+        let link = root.join("asagiri");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&exe, &link).unwrap();
+        for executable in [exe, link] {
+            assert_eq!(guest_dir_from(None, Some(executable)).canonicalize().unwrap(), guest.canonicalize().unwrap());
+        }
+        assert_eq!(guest_dir_from(Some("/explicit/guest".into()), None), PathBuf::from("/explicit/guest"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_kernel_diagnostics_name_the_absolute_path_or_moved_application() {
+        let error = missing_kernel(std::path::Path::new("missing-kernel"), None).to_string();
+        assert!(error.contains(&std::path::absolute("missing-kernel").unwrap().display().to_string()));
+        let error = missing_kernel(std::path::Path::new("missing-kernel"),
+            Some(std::path::Path::new("/nonexistent-asagiri-fixture/Contents/MacOS/asagiri"))).to_string();
+        assert!(error.contains("deleted or moved"));
+        assert!(!error.contains("reinstall"));
+    }
 }

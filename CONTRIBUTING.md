@@ -20,6 +20,8 @@ cargo test --locked
 cargo clippy --locked
 python3 scripts/i18n-check.py
 python3 scripts/ui-test.py
+python3 tests/kernel-config-regressions.py
+python3 scripts/ci/verify-issue-coverage.py
 ```
 
 Linux engine tests that create namespaces or device nodes need the privileged

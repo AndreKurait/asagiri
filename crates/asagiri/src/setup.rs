@@ -712,27 +712,7 @@ fn uid() -> u32 {
 fn agent() -> io::Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
     let log = home()?.join(crate::flavor::STATE.get()).join("daemon.log");
-    let esc = |p: &Path| p.to_string_lossy().replace('&', "&amp;").replace('<', "&lt;");
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{AGENT}</string>
-  <key>AssociatedBundleIdentifiers</key><array><string>{APP_ID}</string></array>
-  <key>ProgramArguments</key><array><string>{}</string><string>daemon</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>ProcessType</key><string>Interactive</string>
-  <key>StandardOutPath</key><string>{}</string>
-  <key>StandardErrorPath</key><string>{}</string>
-</dict>
-</plist>
-"#,
-        esc(&exe),
-        esc(&log),
-        esc(&log)
-    );
+    let plist = agent_description(&exe, &log);
     let path = agent_plist()?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -757,6 +737,30 @@ fn agent() -> io::Result<PathBuf> {
         return Err(io::Error::other(format!("launchctl could not load {}", path.display())));
     }
     Ok(path)
+}
+
+fn agent_description(exe: &Path, log: &Path) -> String {
+    let esc = |p: &Path| p.to_string_lossy().replace('&', "&amp;").replace('<', "&lt;");
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{AGENT}</string>
+  <key>AssociatedBundleIdentifiers</key><array><string>{APP_ID}</string></array>
+  <key>ProgramArguments</key><array><string>{}</string><string>daemon</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>{}</string>
+  <key>StandardErrorPath</key><string>{}</string>
+</dict>
+</plist>
+"#,
+        esc(exe),
+        esc(log),
+        esc(log)
+    )
 }
 
 /// Whether the LaunchAgent starts this copy of Asagiri. One left by another
@@ -859,6 +863,27 @@ fn uninstall() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn launch_agent_restarts_failed_exits_but_not_a_clean_stop() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let plist = super::agent_description(
+            std::path::Path::new("/Applications/Asagiri & Test.app/Contents/MacOS/asagiri"),
+            std::path::Path::new("/tmp/asagiri <test>.log"));
+        let mut child = Command::new("/usr/bin/plutil")
+            .args(["-convert", "json", "-o", "-", "-"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(plist.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let data: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(data["KeepAlive"]["SuccessfulExit"], false);
+        assert_eq!(data["RunAtLoad"], true);
+        assert_eq!(data["ProgramArguments"][1], "daemon");
+        assert_eq!(data["ProgramArguments"][0], "/Applications/Asagiri & Test.app/Contents/MacOS/asagiri");
+        assert_eq!(data["StandardErrorPath"], "/tmp/asagiri <test>.log");
+    }
+
     #[test]
     fn runs_apple_script() {
         super::apple_script("do shell script \"true\"").unwrap();

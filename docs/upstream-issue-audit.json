@@ -459,8 +459,9 @@
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
-      "disposition": "inherited-review",
-      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+      "disposition": "partially-covered",
+      "reason": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. Pure configuration/path and Linux regressions exist; native Mac reproduction remains unverified.",
+      "attachment_sha256": "2e56f3d47c3565b061f25ca8db005e753a2b97ff4478a1b6cd984a532a77821c"
     },
     {
       "number": 187,
