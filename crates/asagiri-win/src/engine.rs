@@ -30,6 +30,9 @@ mod usage;
 // Signing in to registries, the Mac's own file: it needs only crate::client.
 #[path = "../../asagiri/src/ui/logins.rs"]
 mod logins;
+// Signing in through the registry's own page (Pull from's Sign in), also the Mac's file.
+#[path = "../../asagiri/src/ui/weblogin.rs"]
+mod weblogin;
 
 /// How often the VM panel's figures refresh. The lists refresh on events.
 const TICK: Duration = Duration::from_secs(2);
@@ -823,7 +826,7 @@ fn set_pref(name: &str, value: Value) {
 
 /// A page link: only Asagiri's own addresses, as on the Mac.
 fn allowed_url(url: &str) -> bool {
-    if ["https://andrekurait.github.io/asagiri", "https://github.com/AndreKurait", "https://github.com/AndreKurait/asagiri/releases", "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md", "https://github.com/anchore/grype"].contains(&url) || url == "https://andrekurait.github.io/asagiri/" || url == "https://learn.microsoft.com/windows/wsl/about" || url == "https://github.com/AndreKurait/asagiri/issues/new" || url == "https://github.com/AndreKurait/asagiri" {
+    if ["https://andrekurait.github.io/asagiri", "https://github.com/AndreKurait", "https://github.com/AndreKurait/asagiri/releases", "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md", "https://github.com/anchore/grype"].contains(&url) || url == "https://andrekurait.github.io/asagiri/" || url == "https://learn.microsoft.com/windows/wsl/about" || url == "https://github.com/AndreKurait/asagiri/issues/new" || url == "https://github.com/AndreKurait/asagiri" || url == "https://login.docker.com/activate" || url == "https://github.com/login/device" {
         return true;
     }
     let Some(rest) = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")) else { return false };
@@ -1025,6 +1028,7 @@ pub fn on_message(msg: &str) {
         "logsstop" => detail::stop_logs(),
         // Registries signed in to, signing in (checked by the engine first) and out.
         "logins" | "login" | "logout" => logins::handle(&c.cmd, c.name, &c.value, emit, || Ok(())),
+        "weblogin" | "webloginopen" | "webloginmfa" | "webloginsso" | "weblogincancel" | "awsprofiles" => weblogin::handle(&c.cmd, c.name, &c.value, emit, || Ok(()), crate::term::captured),
         // Before Run: what the image's start script won't start without.
         "needs" => {
             let image = c.name;
