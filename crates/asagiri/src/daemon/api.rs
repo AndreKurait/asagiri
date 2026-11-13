@@ -2964,10 +2964,10 @@ fn upload_reader<'a>(head: Vec<u8>, rest: impl io::Read + 'a) -> Result<Box<dyn 
 fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     use asagiri_proto::copy_flags;
     let path = req.query("path").unwrap_or("/");
-    let mut flags = copy_flags::CHUNKED;
-    if req.flag("copyUIDGID") {
-        flags |= copy_flags::KEEP_OWNERS;
-    }
+    // The upload API preserves the tar's numeric owners by default. The
+    // docker cp client rewrites those headers when it wants root ownership;
+    // SDK uploads must not lose their owners when copyUIDGID is omitted.
+    let mut flags = copy_flags::CHUNKED | copy_flags::KEEP_OWNERS;
     if req.flag("noOverwriteDirNonDir") {
         flags |= copy_flags::NO_OVERWRITE_DIR_NON_DIR;
     }
