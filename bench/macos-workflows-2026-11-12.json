@@ -413,7 +413,7 @@
       ]
     },
     {
-      "experiment": "office-routes",
+      "experiment": "webapp-routes",
       "block": 0,
       "arms": [
         {
@@ -469,7 +469,7 @@
       ]
     },
     {
-      "experiment": "office-routes",
+      "experiment": "webapp-routes",
       "block": 1,
       "arms": [
         {
@@ -525,7 +525,7 @@
       ]
     },
     {
-      "experiment": "office-contact-write",
+      "experiment": "webapp-contact-write",
       "block": 0,
       "arms": [
         {
@@ -581,7 +581,7 @@
       ]
     },
     {
-      "experiment": "office-contact-write",
+      "experiment": "webapp-contact-write",
       "block": 1,
       "arms": [
         {
@@ -637,7 +637,7 @@
       ]
     },
     {
-      "experiment": "agent-targeted-tests",
+      "experiment": "cli-targeted-tests",
       "block": 0,
       "arms": [
         {
@@ -693,7 +693,7 @@
       ]
     },
     {
-      "experiment": "agent-targeted-tests",
+      "experiment": "cli-targeted-tests",
       "block": 1,
       "arms": [
         {
@@ -749,7 +749,7 @@
       ]
     },
     {
-      "experiment": "office-contact-write-v2",
+      "experiment": "webapp-contact-write-v2",
       "block": 0,
       "arms": [
         {
@@ -805,7 +805,7 @@
       ]
     },
     {
-      "experiment": "office-contact-write-v2",
+      "experiment": "webapp-contact-write-v2",
       "block": 1,
       "arms": [
         {
@@ -1057,7 +1057,7 @@
       ]
     },
     {
-      "experiment": "native-office-contact",
+      "experiment": "native-webapp-contact",
       "block": 0,
       "arms": [
         {
@@ -1083,7 +1083,7 @@
       ]
     },
     {
-      "experiment": "native-office-contact",
+      "experiment": "native-webapp-contact",
       "block": 1,
       "arms": [
         {
@@ -1109,7 +1109,7 @@
       ]
     },
     {
-      "experiment": "native-agent-test",
+      "experiment": "native-cli-test",
       "block": 0,
       "arms": [
         {
@@ -1135,7 +1135,7 @@
       ]
     },
     {
-      "experiment": "native-agent-test",
+      "experiment": "native-cli-test",
       "block": 1,
       "arms": [
         {
