@@ -45,7 +45,7 @@ for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"
 done
-for t in empty-response-status lifecycle-status client-command-compatibility user-resolution session-isolation reported-runtime-regressions archive-permissions archive-upload-ownership http-body-framing archive-directory-contents \
+for t in empty-response-status lifecycle-status client-command-compatibility user-resolution session-isolation reported-runtime-regressions archive-permissions archive-upload-ownership archive-configured-user http-body-framing archive-directory-contents \
   resource-limits restart-policy interactive-attach attach-http encoded-api-paths; do
   run "$t" alpine:3.21
 done

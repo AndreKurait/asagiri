@@ -125,13 +125,20 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
         Ok(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("notdir: extraction point is not a directory: {}", spec.path))),
         Err(_) => return Err(io::Error::new(io::ErrorKind::NotFound, format!("notfound: Could not find the file {} in container {}", spec.path, spec.id))),
     }
+    // Resolve before extracting anything. Like Docker, an empty Config.User
+    // leaves archive ownership unchanged even when copyUIDGID is true.
+    let owner = if spec.flags & copy_flags::CONTAINER_USER != 0 && !spec.user.is_empty() {
+        Some(container::resolve_user(spec.user)?)
+    } else {
+        None
+    };
     let source: Box<dyn Read + '_> = if spec.flags & copy_flags::CHUNKED != 0 { Box::new(Chunks::new(&mut *conn)) } else { Box::new(&mut *conn) };
     let mut reader = BufReader::with_capacity(256 * 1024, source);
     {
         let mut archive = tar::Archive::new(&mut reader);
         archive.set_preserve_permissions(true);
         archive.set_preserve_mtime(true);
-        archive.set_preserve_ownerships(spec.flags & copy_flags::KEEP_OWNERS != 0);
+        archive.set_preserve_ownerships(owner.is_none() && spec.flags & copy_flags::KEEP_OWNERS != 0);
         archive.set_unpack_xattrs(false);
         archive.set_overwrite(true);
         for entry in archive.entries()? {
@@ -147,7 +154,13 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
                     }
                 }
             }
-            entry.unpack_in(dest)?;
+            let target = if owner.is_some() { copy_target(dest, &entry.path()?) } else { None };
+            let kind = entry.header().entry_type();
+            if entry.unpack_in(dest)? {
+                if let (Some(owner), Some(target)) = (owner, target) {
+                    chown_entry(&target, kind, owner)?;
+                }
+            }
         }
     }
     // The archive's trailing padding: read it so the host's writes complete.
@@ -156,6 +169,34 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     let mut out = Vec::new();
     Msg::CopyDone.encode(&mut out);
     conn.write_all(&out)
+}
+
+/// The path normalization used by tar::Entry::unpack_in. Never let an
+/// absolute archive path select a different destination for ownership.
+fn copy_target(dest: &std::path::Path, entry: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut target = dest.to_path_buf();
+    for part in entry.components() {
+        match part {
+            std::path::Component::Normal(name) => target.push(name),
+            std::path::Component::ParentDir => return None,
+            _ => {}
+        }
+    }
+    Some(target)
+}
+
+fn chown_entry(path: &std::path::Path, kind: tar::EntryType, owner: (libc::uid_t, libc::gid_t)) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    let name = sys::cstr(path)?;
+    // SAFETY: a valid NUL-terminated path in the container's chroot.
+    sys::check(unsafe { libc::lchown(name.as_ptr(), owner.0, owner.1) } as _, "chown uploaded file")?;
+    // Ownership changes can clear set-ID bits. Restore regular entries'
+    // extracted modes afterward, without following symlinks. Hard links
+    // share their target's mode and have already been created by tar.
+    if !metadata.file_type().is_symlink() && !kind.is_hard_link() {
+        fs::set_permissions(path, metadata.permissions())?;
+    }
+    Ok(())
 }
 
 /// A `copy_flags::CHUNKED` archive: chunks of `len: u32 LE | bytes`, read
@@ -556,6 +597,37 @@ fn read_frame(conn: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ownership_targets_stay_under_the_extraction_directory() {
+        let dest = std::path::Path::new("/upload");
+        for path in ["file", "./file", "/file", "//file", "dir//./file"] {
+            let expected = if path.starts_with("dir") { "/upload/dir/file" } else { "/upload/file" };
+            assert_eq!(copy_target(dest, std::path::Path::new(path)).unwrap(), std::path::Path::new(expected));
+        }
+        for path in ["../file", "/../file", "dir/../file", "dir/../../file"] {
+            assert!(copy_target(dest, std::path::Path::new(path)).is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn ownership_override_preserves_file_modes_and_does_not_follow_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("asagiri-copy-owner-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("file");
+        let link = dir.join("link");
+        fs::write(&file, b"secret").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o6751)).unwrap();
+        std::os::unix::fs::symlink("file", &link).unwrap();
+        let meta = fs::metadata(&file).unwrap();
+        chown_entry(&file, tar::EntryType::Regular, (meta.uid(), meta.gid())).unwrap();
+        assert_eq!(fs::metadata(&file).unwrap().mode() & 0o7777, 0o6751);
+        chown_entry(&link, tar::EntryType::Symlink, (meta.uid(), meta.gid())).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), std::path::Path::new("file"));
+        assert_eq!(fs::metadata(&file).unwrap().mode() & 0o7777, 0o6751);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     /// /proc reached through a link to the root, as a container can make
     /// one, archives as the one empty directory. /sys goes the same way.

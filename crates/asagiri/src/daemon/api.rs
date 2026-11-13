@@ -2972,6 +2972,9 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
     // docker cp client rewrites those headers when it wants root ownership;
     // SDK uploads must not lose their owners when copyUIDGID is omitted.
     let mut flags = copy_flags::CHUNKED | copy_flags::KEEP_OWNERS;
+    if req.flag("copyUIDGID") {
+        flags |= copy_flags::CONTAINER_USER;
+    }
     if req.flag("noOverwriteDirNonDir") {
         flags |= copy_flags::NO_OVERWRITE_DIR_NON_DIR;
     }

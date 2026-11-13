@@ -40,9 +40,10 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// reservation and CPU/NUMA sets to Limits. 6 added the `noicc` network
 /// option, which an older agent would ignore and leave the containers of an
 /// `enable_icc=false` network connected. 7 adds the dedicated layer-upload
-/// socket so unpacking does not block the control stream.
+/// socket so unpacking does not block the control stream. 8 includes the
+/// configured user in copy requests for Docker's copyUIDGID option.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 7;
+pub const PROTOCOL: u16 = 8;
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.
@@ -230,6 +231,8 @@ pub mod copy_flags {
     /// Intel Mac with macOS 14 passes a half-close on as a full one, and the
     /// guest's answer fails with EPIPE.
     pub const CHUNKED: u32 = 4;
+    /// Use the nonempty configured container user instead of tar owners.
+    pub const CONTAINER_USER: u32 = 8;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,16 +242,18 @@ pub struct CopySpec<'a> {
     pub path: &'a str,
     pub flags: u32,
     pub layers: StrList<'a>,
+    pub user: &'a str,
 }
 
 /// Encodes a `Copy` frame from the sender's side.
-pub fn encode_copy<S: AsRef<str>>(out: &mut Vec<u8>, op: u8, id: &str, path: &str, flags: u32, layers: &[S]) {
+pub fn encode_copy<S: AsRef<str>>(out: &mut Vec<u8>, op: u8, id: &str, path: &str, flags: u32, layers: &[S], user: &str) {
     frame(out, kind::COPY, |o| {
         o.push(op);
         put_str(o, id);
         put_str(o, path);
         put_u32(o, flags);
         StrList::put(o, layers);
+        put_str(o, user);
     });
 }
 
@@ -1008,6 +1013,7 @@ impl Msg<'_> {
                 put_u32(o, c.flags);
                 put_u32(o, c.layers.count);
                 o.extend_from_slice(c.layers.raw);
+                put_str(o, c.user);
             }),
             Msg::CopyStat { entry, link } => frame(out, kind::COPY_STAT, |o| {
                 put_entry(o, &entry);
@@ -1281,7 +1287,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::MEMORY_PRESSURE => Msg::MemoryPressure,
         kind::REMOVE_VOLUME => Msg::RemoveVolume { name: r.str()? },
         kind::REMOVE_BRIDGE => Msg::RemoveBridge { bridge: r.str()? },
-        kind::COPY => Msg::Copy(CopySpec { op: r.u8()?, id: r.str()?, path: r.str()?, flags: r.u32()?, layers: r.list()? }),
+        kind::COPY => Msg::Copy(CopySpec { op: r.u8()?, id: r.str()?, path: r.str()?, flags: r.u32()?, layers: r.list()?, user: r.str()? }),
         kind::COPY_STAT => Msg::CopyStat { entry: read_entry(&mut r)?, link: r.str()? },
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
@@ -1486,10 +1492,12 @@ mod tests {
         round(Msg::Uplink { ip: [192, 168, 64, 18], gateway: [192, 168, 64, 1] });
         round(Msg::Ack);
         let mut buf = Vec::new();
-        encode_copy(&mut buf, copy_op::IN, "c1", "/etc", copy_flags::KEEP_OWNERS, &["sha256:a", "sha256:b"]);
+        let flags = copy_flags::KEEP_OWNERS | copy_flags::CONTAINER_USER;
+        encode_copy(&mut buf, copy_op::IN, "c1", "/etc", flags, &["sha256:a", "sha256:b"], "1001:1002");
         let Msg::Copy(c) = decode(&buf).unwrap() else { panic!() };
-        assert_eq!((c.op, c.id, c.path, c.flags), (copy_op::IN, "c1", "/etc", copy_flags::KEEP_OWNERS));
+        assert_eq!((c.op, c.id, c.path, c.flags), (copy_op::IN, "c1", "/etc", flags));
         assert_eq!(c.layers.iter().collect::<Vec<_>>(), ["sha256:a", "sha256:b"]);
+        assert_eq!(c.user, "1001:1002");
         let mut again = Vec::new();
         Msg::Copy(c).encode(&mut again);
         assert_eq!(buf, again);

@@ -1639,7 +1639,7 @@ fn chown_refused(e: &io::Error) -> bool {
     matches!(e.raw_os_error(), Some(libc::EINVAL | libc::EPERM | libc::EROFS))
 }
 
-fn resolve_user(user: &str) -> io::Result<(libc::uid_t, libc::gid_t)> {
+pub(super) fn resolve_user(user: &str) -> io::Result<(libc::uid_t, libc::gid_t)> {
     if user.is_empty() {
         return Ok((0, 0));
     }

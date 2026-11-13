@@ -2583,16 +2583,17 @@ impl Engine {
     /// Opens a `docker cp` session with the guest for a container, running
     /// or not: the request frame is sent, the caller does the rest.
     pub fn copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
-        let (id, layers) = {
+        let (id, layers, user) = {
             let st = self.lock();
             let id = resolve(&st, key)?;
-            let layers = st.containers.get(&id).map(|c| c.layers.clone()).unwrap_or_default();
-            (id, layers)
+            let (layers, user) = st.containers.get(&id)
+                .map(|c| (c.layers.clone(), c.spec.user.clone())).unwrap_or_default();
+            (id, layers, user)
         };
         let vm = self.vm()?;
         let stream = vm.connect(asagiri_proto::COPY_PORT)?;
         let mut out = Vec::new();
-        asagiri_proto::encode_copy(&mut out, op, &id, path, flags, &layers);
+        asagiri_proto::encode_copy(&mut out, op, &id, path, flags, &layers, &user);
         std::io::Write::write_all(&mut std::fs::File::from(stream.fd.try_clone()?), &out)?;
         Ok(stream)
     }
