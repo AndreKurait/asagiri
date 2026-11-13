@@ -4,7 +4,7 @@
 # Starts that build as a private engine in a container (privileged, as the
 # engine needs; no port is published, so nothing outside the machine can
 # reach it) and runs the conformance scripts in tests/ against it, on
-# busybox and on alpine. Prints one line per script, the end of its output
+# busybox and on alpine. Prints one line per script, its complete output
 # when it fails, and exits 1 when any failed.
 set -u
 bin=$(cd "$1" && pwd) || exit 2
@@ -33,7 +33,7 @@ failed=0
 run() { # run <script> [image]
   out=$(docker exec "$name" python3 "/src/tests/$1.py" "$sock" ${2:+"$2"} 2>&1); rc=$?
   echo "[$rc] $1${2:+ $2}: $(echo "$out" | tail -1 | cut -c1-200)"
-  if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | tail -15 | sed 's/^/    /'; fi
+  if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | sed 's/^/    /'; fi
 }
 
 run api-version
@@ -86,6 +86,6 @@ fi
 run buildx-bootstrap
 
 if [ "$failed" -ne 0 ]; then
-  echo "$failed failed"; docker logs "$name" 2>&1 | tail -40; exit 1
+  echo "$failed failed"; docker logs "$name" 2>&1; exit 1
 fi
 echo "all passed"
