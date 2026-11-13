@@ -9,6 +9,102 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "asagiri"
+version = "0.0.0"
+dependencies = [
+ "asagiri-image",
+ "asagiri-proto",
+ "asagiri-share-proto",
+ "asagiri-vmm",
+ "block2",
+ "dispatch2",
+ "flate2",
+ "gtk",
+ "javascriptcore-rs",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-text",
+ "objc2-foundation",
+ "objc2-web-kit",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tungstenite",
+ "ureq",
+ "webkit2gtk",
+ "webpki-roots",
+]
+
+[[package]]
+name = "asagiri-image"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "ureq",
+]
+
+[[package]]
+name = "asagiri-init"
+version = "0.0.0"
+dependencies = [
+ "asagiri-proto",
+ "flate2",
+ "libc",
+ "ruzstd",
+ "serde_json",
+ "tar",
+]
+
+[[package]]
+name = "asagiri-proto"
+version = "0.0.0"
+
+[[package]]
+name = "asagiri-share-proto"
+version = "0.0.0"
+dependencies = [
+ "hmac",
+ "sha2",
+]
+
+[[package]]
+name = "asagiri-vmm"
+version = "0.0.0"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "libc",
+ "objc2",
+ "objc2-foundation",
+ "objc2-virtualization",
+]
+
+[[package]]
+name = "asagiri-win"
+version = "0.0.0"
+dependencies = [
+ "asagiri-share-proto",
+ "embed-resource",
+ "libc",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "webpki-roots",
+ "webview2-com",
+ "windows",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "asn1-rs"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -543,8 +639,6 @@ dependencies = [
 [[package]]
 name = "glib"
 version = "0.18.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5"
 dependencies = [
  "bitflags 2.13.2",
  "futures-channel",
@@ -739,102 +833,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "asagiri"
-version = "0.0.0"
-dependencies = [
- "block2",
- "dispatch2",
- "flate2",
- "gtk",
- "javascriptcore-rs",
- "asagiri-image",
- "asagiri-proto",
- "asagiri-share-proto",
- "asagiri-vmm",
- "libc",
- "objc2",
- "objc2-app-kit",
- "objc2-core-foundation",
- "objc2-core-text",
- "objc2-foundation",
- "objc2-web-kit",
- "rcgen",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tungstenite",
- "ureq",
- "webkit2gtk",
- "webpki-roots",
-]
-
-[[package]]
-name = "asagiri-image"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "ureq",
-]
-
-[[package]]
-name = "asagiri-init"
-version = "0.0.0"
-dependencies = [
- "flate2",
- "asagiri-proto",
- "libc",
- "ruzstd",
- "serde_json",
- "tar",
-]
-
-[[package]]
-name = "asagiri-proto"
-version = "0.0.0"
-
-[[package]]
-name = "asagiri-share-proto"
-version = "0.0.0"
-dependencies = [
- "hmac",
- "sha2",
-]
-
-[[package]]
-name = "asagiri-vmm"
-version = "0.0.0"
-dependencies = [
- "block2",
- "dispatch2",
- "libc",
- "objc2",
- "objc2-foundation",
- "objc2-virtualization",
-]
-
-[[package]]
-name = "asagiri-win"
-version = "0.0.0"
-dependencies = [
- "embed-resource",
- "asagiri-share-proto",
- "libc",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "webpki-roots",
- "webview2-com",
- "windows",
- "windows-sys 0.52.0",
 ]
 
 [[package]]

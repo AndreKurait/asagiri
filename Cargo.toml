@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+exclude = ["vendor/glib"]
+
+[patch.crates-io]
+# GTK 3 requires the 0.18 API. Backport the upstream VariantStrIter safety fix.
+glib = { path = "vendor/glib" }
 
 [workspace.package]
 # Not a release number: a release takes its version from its tag (v0.2.0),

@@ -17,6 +17,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  glib-variant:
+    name: GLib optimized iterator regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install GLib development files and the release compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libglib2.0-dev
+          rustup toolchain install 1.99.1 --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: glib-${{ hashFiles('vendor/glib/src/**', 'vendor/glib/Cargo.lock') }}
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Exercise the patched iterators with optimization
+        env:
+          CARGO_TARGET_DIR: target/glib
+        run: cargo +1.99.1 test --locked --release --manifest-path vendor/glib/Cargo.toml --lib variant_iter::tests
+
   cargo-deny:
     name: cargo-deny (${{ matrix.checks }})
     runs-on: ubuntu-latest

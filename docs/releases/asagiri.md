@@ -36,6 +36,10 @@ records the measured Linux workload and its limits. Engine inspection also
 reports the host name, preserves its daemon ID across restarts, returns
 uncompressed RootFS layer digests, and omits absent healthchecks.
 
+The optional Linux GTK window uses a backport of the upstream GLib iterator
+safety fix (GHSA-wrw7-89jp-8q8g). Optimized iterator regressions run in CI;
+the source, license, and patch provenance are included in `vendor/glib`.
+
 Choose the download for your system:
 
 - **Linux:** `.deb` or `.rpm` for amd64/x86_64 or arm64/aarch64. `asagiri`
