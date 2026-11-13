@@ -14,13 +14,22 @@ use serde_json::json;
 /// Activity Monitor or Task Manager shows), and its CPU time so far.
 struct Proc {
     pid: u32,
+    started: u64,
     part: &'static str,
     mem: u64,
     cpu_ns: u64,
 }
 
-/// The last look: each process's CPU time, and when, for the CPU since.
-static LAST: Mutex<Option<(Instant, HashMap<u32, u64>)>> = Mutex::new(None);
+/// The last look: CPU time by PID and creation time. A reused PID must not
+/// inherit the CPU baseline of the process that previously owned it.
+static LAST: Mutex<Option<(Instant, HashMap<(u32, u64), u64>)>> = Mutex::new(None);
+
+fn cpu_percent(p: &Proc, seconds: Option<f64>, previous: Option<&HashMap<(u32, u64), u64>>) -> f64 {
+    match (seconds, previous.and_then(|m| m.get(&(p.pid, p.started)))) {
+        (Some(s), Some(before)) if s > 0.0 => p.cpu_ns.saturating_sub(*before) as f64 / 1e9 / s * 100.0,
+        _ => 0.0,
+    }
+}
 
 /// `{type: "usage", mem, cpu, cores, parts: [{name, mem, cpu, n}]}`: bytes, and
 /// CPU as a percentage of one core since the last look (0 the first time).
@@ -29,13 +38,9 @@ pub fn event() -> String {
     let now = Instant::now();
     let mut last = LAST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let secs = last.as_ref().map(|(at, _)| now.duration_since(*at).as_secs_f64()).filter(|s| *s > 0.2);
-    let pct = |p: &Proc| match (secs, last.as_ref().and_then(|(_, m)| m.get(&p.pid))) {
-        (Some(s), Some(before)) => p.cpu_ns.saturating_sub(*before) as f64 / 1e9 / s * 100.0,
-        _ => 0.0,
-    };
     let mut parts: Vec<(&'static str, u64, f64, u32)> = Vec::new();
     for p in &procs {
-        let c = pct(p);
+        let c = cpu_percent(p, secs, last.as_ref().map(|(_, m)| m));
         match parts.iter_mut().find(|x| x.0 == p.part) {
             Some(x) => {
                 x.1 += p.mem;
@@ -45,7 +50,7 @@ pub fn event() -> String {
             None => parts.push((p.part, p.mem, c, 1)),
         }
     }
-    *last = Some((now, procs.iter().map(|p| (p.pid, p.cpu_ns)).collect()));
+    *last = Some((now, procs.iter().map(|p| ((p.pid, p.started), p.cpu_ns)).collect()));
     let mem: u64 = parts.iter().map(|p| p.1).sum();
     let cpu: f64 = parts.iter().map(|p| p.2).sum();
     let round = |c: f64| (c * 1000.0).round() / 1000.0;
@@ -122,7 +127,7 @@ fn sample(pid: libc::pid_t, part: &'static str) -> Option<Proc> {
     unsafe { mach_timebase_info(&raw mut tb) };
     let ticks = info.ri_user_time + info.ri_system_time;
     let ns = if tb.denom == 0 { ticks } else { ticks * u64::from(tb.numer) / u64::from(tb.denom) };
-    Some(Proc { pid: pid as u32, part, mem: info.ri_phys_footprint, cpu_ns: ns })
+    Some(Proc { pid: pid as u32, started: info.ri_proc_start_abstime, part, mem: info.ri_phys_footprint, cpu_ns: ns })
 }
 
 /// This process and its children: WebKitGTK's page and network processes.
@@ -171,7 +176,7 @@ fn procs() -> Vec<Proc> {
             // Pss: shared pages split between the processes that share them, as a footprint.
             let rollup = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).unwrap_or_default();
             let kib = rollup.lines().find_map(|l| l.strip_prefix("Pss:")).and_then(|v| v.trim().trim_end_matches(" kB").trim().parse::<u64>().ok()).unwrap_or(0);
-            Some(Proc { pid, part, mem: kib << 10, cpu_ns })
+            Some(Proc { pid, started: *f.get(19)?, part, mem: kib << 10, cpu_ns })
         })
         .collect()
 }
@@ -235,8 +240,8 @@ fn procs() -> Vec<Proc> {
     tree.into_iter().filter_map(|pid| {
         let name = all.iter().find(|p| p.0 == pid)?.2.to_ascii_lowercase();
         let part = if pid == me { "Window" } else if name.starts_with("msedgewebview2") { "WebView2" } else { "Helpers" };
-        let &(_, mem, cpu_ns) = samples.get(&pid)?;
-        Some(Proc { pid, part, mem, cpu_ns })
+        let &(started, mem, cpu_ns) = samples.get(&pid)?;
+        Some(Proc { pid, started, part, mem, cpu_ns })
     }).collect()
 }
 
@@ -266,6 +271,37 @@ fn windows_sample(pid: u32) -> Option<(u64, u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reused_pid_does_not_inherit_the_previous_process_cpu() {
+        let previous = HashMap::from([((42, 100), 1_000_000_000)]);
+        let current = Proc { pid: 42, started: 200, part: "Helpers", mem: 0, cpu_ns: 9_000_000_000 };
+        assert_eq!(cpu_percent(&current, Some(1.0), Some(&previous)), 0.0);
+    }
+
+    #[test]
+    fn same_process_reports_cpu_delta_and_new_processes_start_at_zero() {
+        let previous = HashMap::from([((42, 100), 1_000_000_000)]);
+        let current = Proc { pid: 42, started: 100, part: "Helpers", mem: 0, cpu_ns: 1_500_000_000 };
+        assert_eq!(cpu_percent(&current, Some(2.0), Some(&previous)), 25.0);
+        assert_eq!(cpu_percent(&current, Some(2.0), None), 0.0);
+        assert_eq!(cpu_percent(&current, None, Some(&previous)), 0.0);
+        assert_eq!(cpu_percent(&current, Some(0.0), Some(&previous)), 0.0);
+        let reset = Proc { cpu_ns: 0, ..current };
+        assert_eq!(cpu_percent(&reset, Some(2.0), Some(&previous)), 0.0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn current_linux_process_has_a_creation_time_and_can_be_sampled() {
+        let samples = procs();
+        let me = samples.iter().find(|p| p.pid == std::process::id()).unwrap();
+        assert!(me.started > 0);
+        assert_eq!(me.part, "Window");
+        let event: serde_json::Value = serde_json::from_str(&event()).unwrap();
+        assert_eq!(event["type"], "usage");
+        assert!(event["cpu"].as_f64().unwrap().is_finite());
+    }
 
     #[test]
     fn recycled_parent_pid_excludes_the_unrelated_subtree() {

@@ -593,7 +593,7 @@
       "checks": [
         "crates/asagiri/src/ui/usage.rs"
       ],
-      "remaining": "Four portable PID-tree tests pass; native Windows handle sampling runs in Windows CI."
+      "remaining": "Portable PID-tree and CPU sample-identity regressions pass; CPU baselines use process creation time on Mac, Linux, and Windows. Native Windows handle sampling remains a Windows CI check."
     },
     {
       "issue": 191,
