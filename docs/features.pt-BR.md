@@ -90,17 +90,17 @@ Os serviços LoadBalancer do Kubernetes são publicados em `localhost`, e
 
 ## Versões
 
-O app e os DMGs são assinados com um Developer ID e notarizados. As versões e
-os feeds de atualização ficam em `https://download.runkiri.com`, e cada arquivo e
+As versões do Asagiri ficam no GitHub, com downloads verificados na
+[página de instalação](https://andrekurait.github.io/asagiri/install/). Os pacotes
+atuais para Mac têm assinatura ad hoc e não são notarizados pela Apple.
+Cada arquivo e
 feed indica sua arquitetura: `Asagiri-<versão>-arm64.dmg`, `Asagiri-<versão>-arm64.tar.gz`
 e `latest-mac-arm64.json` para Apple silicon (`-x86_64` para Macs Intel),
 `Asagiri-<versão>-x86_64.msi` / `-arm64.msi` com `latest-windows-x86_64.json` /
-`latest-windows-arm64.json` para Windows. Cada app lê apenas o próprio feed, e
-cada plataforma é publicada separadamente. Dois DMGs: `Asagiri-<versão>-arm64.dmg`
-inclui o docker CLI, Compose e buildx; `Asagiri-Lite-<versão>-arm64.dmg`
-(`cargo xtask app-lite`) os deixa de fora e baixa as mesmas versões fixadas
-na primeira abertura (`crates/asagiri/src/cli_pins.rs`, verificadas por SHA-256),
-a menos que o Mac já tenha um docker CLI.
+`latest-windows-arm64.json` para Windows. Cada app lê apenas o próprio feed. Os DMGs publicados incluem Docker
+CLI, Compose e Buildx. `cargo xtask app-lite` gera um app local menor que baixa
+versões fixadas das ferramentas na primeira abertura; ele não é um pacote
+Mac separado nas versões publicadas.
 
 ## Problemas conhecidos
 

@@ -16,6 +16,13 @@ so pooled Docker clients reconnect before starting the builder. The same fix
 covers image import/load and classic build responses. Regression checks cover
 the upload-to-start sequence and its connection headers.
 
+Containers and execs now have independent process sessions, so process-group
+signals cannot stop the engine. The UI's engine card follows the actual engine
+state after every Start/Stop control. HTTP clients requesting connection closure
+receive EOF, and empty command/entrypoint arrays follow Docker's image defaults.
+Windows usage accounting excludes unrelated processes with recycled parent PIDs.
+The MSI installation check normalizes native Windows paths before invocation.
+
 Choose the download for your system:
 
 - **Linux:** `.deb` or `.rpm` for amd64/x86_64 or arm64/aarch64. `asagiri`
