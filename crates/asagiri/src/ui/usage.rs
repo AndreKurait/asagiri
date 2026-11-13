@@ -176,14 +176,34 @@ fn procs() -> Vec<Proc> {
         .collect()
 }
 
+/// Windows retains the original parent PID after its parent exits. Require
+/// creation-time ordering before following an edge, or a recycled PID can
+/// make an unrelated application look like one of our helpers (#190).
+#[cfg(any(windows, test))]
+fn descendants(me: u32, parents: &[(u32, u32)], mut started: impl FnMut(u32) -> Option<u64>) -> Vec<u32> {
+    let Some(born) = started(me) else { return Vec::new() };
+    let mut tree = vec![(me, born)];
+    let mut index = 0;
+    while index < tree.len() {
+        let (parent, parent_born) = tree[index];
+        for &(pid, ppid) in parents {
+            if ppid != parent || tree.iter().any(|(known, _)| *known == pid) {
+                continue;
+            }
+            if let Some(born) = started(pid).filter(|born| *born >= parent_born) {
+                tree.push((pid, born));
+            }
+        }
+        index += 1;
+    }
+    tree.into_iter().map(|(pid, _)| pid).collect()
+}
+
 #[cfg(windows)]
 fn procs() -> Vec<Proc> {
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
-    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
-    use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
-    // Every process and its parent, then the tree under this one.
     let mut all: Vec<(u32, u32, String)> = Vec::new();
     // SAFETY: a snapshot handle walked with a sized PROCESSENTRY32W and closed.
     unsafe {
@@ -202,38 +222,79 @@ fn procs() -> Vec<Proc> {
         CloseHandle(snap);
     }
     let me = std::process::id();
-    let mut tree = vec![me];
-    let mut i = 0;
-    while i < tree.len() {
-        let parent = tree[i];
-        tree.extend(all.iter().filter(|p| p.1 == parent && p.0 != parent && !tree.contains(&p.0)).map(|p| p.0).collect::<Vec<_>>());
-        i += 1;
-    }
-    let ft = |f: FILETIME| (u64::from(f.dwHighDateTime) << 32 | u64::from(f.dwLowDateTime)) * 100;
-    let mut out = Vec::new();
-    for pid in tree {
-        let name = all.iter().find(|p| p.0 == pid).map(|p| p.2.to_ascii_lowercase()).unwrap_or_default();
-        let part = if pid == me {
-            "Window"
-        } else if name.starts_with("msedgewebview2") {
-            "WebView2"
-        } else {
-            "Helpers"
-        };
-        // SAFETY: a query-only handle, read and closed.
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h == 0 {
-                continue;
-            }
-            let mut m: PROCESS_MEMORY_COUNTERS_EX = std::mem::zeroed();
-            m.cb = size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
-            let mem = if GetProcessMemoryInfo(h, (&raw mut m).cast(), m.cb) != 0 { m.PrivateUsage as u64 } else { 0 };
-            let (mut c, mut x, mut k, mut u) = (std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed());
-            let cpu_ns = if GetProcessTimes(h, &mut c, &mut x, &mut k, &mut u) != 0 { ft(k) + ft(u) } else { 0 };
+    let parents: Vec<_> = all.iter().map(|p| (p.0, p.1)).collect();
+    let mut samples = HashMap::new();
+    let tree = descendants(me, &parents, |pid| {
+        // Sample once: the creation time, memory and CPU belong to the same
+        // process handle even if its PID is recycled after this query.
+        let sample = windows_sample(pid)?;
+        let born = sample.0;
+        samples.insert(pid, sample);
+        Some(born)
+    });
+    tree.into_iter().filter_map(|pid| {
+        let name = all.iter().find(|p| p.0 == pid)?.2.to_ascii_lowercase();
+        let part = if pid == me { "Window" } else if name.starts_with("msedgewebview2") { "WebView2" } else { "Helpers" };
+        let &(_, mem, cpu_ns) = samples.get(&pid)?;
+        Some(Proc { pid, part, mem, cpu_ns })
+    }).collect()
+}
+
+#[cfg(windows)]
+fn windows_sample(pid: u32) -> Option<(u64, u64, u64)> {
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
+    use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    let ticks = |f: FILETIME| u64::from(f.dwHighDateTime) << 32 | u64::from(f.dwLowDateTime);
+    // SAFETY: a query-only handle, read and closed on every path.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h == 0 { return None; }
+        let (mut c, mut x, mut k, mut u) = (std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed());
+        if GetProcessTimes(h, &mut c, &mut x, &mut k, &mut u) == 0 {
             CloseHandle(h);
-            out.push(Proc { pid, part, mem, cpu_ns });
+            return None;
         }
+        let mut m: PROCESS_MEMORY_COUNTERS_EX = std::mem::zeroed();
+        m.cb = size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+        let mem = if GetProcessMemoryInfo(h, (&raw mut m).cast(), m.cb) != 0 { m.PrivateUsage as u64 } else { 0 };
+        CloseHandle(h);
+        Some((ticks(c), mem, (ticks(k) + ticks(u)) * 100))
     }
-    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recycled_parent_pid_excludes_the_unrelated_subtree() {
+        let parents = [(2, 1), (3, 2), (4, 3), (5, 2)];
+        let times = [(1, 10), (2, 20), (3, 5), (4, 30), (5, 25)];
+        assert_eq!(descendants(1, &parents, |pid| times.iter().find(|p| p.0 == pid).map(|p| p.1)), [1, 2, 5]);
+    }
+
+    #[test]
+    fn child_order_and_identical_creation_ticks_do_not_drop_valid_children() {
+        let parents = [(3, 2), (2, 1)];
+        assert_eq!(descendants(1, &parents, |_| Some(10)), [1, 2, 3]);
+    }
+
+    #[test]
+    fn unreadable_processes_are_not_assumed_to_belong_to_the_window() {
+        assert_eq!(descendants(1, &[(2, 1), (3, 2)], |pid| (pid != 2).then_some(10)), [1]);
+        assert!(descendants(1, &[], |_| None).is_empty());
+    }
+
+    #[test]
+    fn parent_cycles_never_duplicate_processes() {
+        assert_eq!(descendants(1, &[(1, 1), (2, 1), (1, 2)], |_| Some(10)), [1, 2]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn current_window_process_can_be_sampled() {
+        assert!(windows_sample(std::process::id()).unwrap().0 > 0);
+        assert!(procs().iter().any(|p| p.pid == std::process::id() && p.part == "Window"));
+    }
 }
