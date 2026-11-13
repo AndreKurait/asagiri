@@ -22,11 +22,17 @@ SECRET_NAMES = (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+class CommandFailure(RuntimeError):
+    def __init__(self, command, code, stdout):
+        super().__init__(f"{Path(command).name} failed (exit {code})")
+        self.stdout = stdout
+
+
 def run(*args):
     # Never echo commands: certificate passwords can occur in their arguments.
     result = subprocess.run(args, text=True, capture_output=True, check=False)
     if result.returncode:
-        raise RuntimeError(f"{Path(args[0]).name} failed (exit {result.returncode})")
+        raise CommandFailure(args[0], result.returncode, result.stdout)
     return result.stdout
 
 
@@ -103,16 +109,34 @@ def prepare():
 
 def submit(path, keychain, label):
     args = ("--keychain-profile", "asagiri-release", "--keychain", str(keychain))
-    result = json.loads(run("xcrun", "notarytool", "submit", str(path), *args,
-                            "--wait", "--timeout", "20m", "--output-format", "json"))
+    failure = None
+    try:
+        output = run("xcrun", "notarytool", "submit", str(path), *args,
+                     "--wait", "--timeout", "20m", "--output-format", "json")
+    except CommandFailure as error:
+        # Rejection and wait-timeout exits can still contain the submission ID.
+        # Retain structured diagnostics, without logging raw command output.
+        output = error.stdout
+        failure = error
+    try:
+        result = json.loads(output)
+    except ValueError:
+        raise RuntimeError("Apple submission returned no valid JSON diagnostics") from None
+    if not isinstance(result, dict):
+        raise RuntimeError("Apple submission returned unexpected JSON diagnostics")
     directory = state_dir()
     (directory / f"{label}-submission.json").write_text(json.dumps(result, indent=2) + "\n")
-    if result.get("status") != "Accepted":
+    if failure or result.get("status") != "Accepted":
         identifier = result.get("id", "")
         if re.fullmatch(r"[a-fA-F0-9-]{36}", identifier):
-            log = run("xcrun", "notarytool", "log", identifier, *args)
-            (directory / f"{label}-failure.json").write_text(log)
-        raise RuntimeError(f"Apple rejected the {label} submission; see notarization diagnostics")
+            try:
+                log = run("xcrun", "notarytool", "log", identifier, *args)
+                (directory / f"{label}-failure.json").write_text(log)
+            except CommandFailure:
+                # A timed-out submission may not have a log yet. Keep its ID
+                # and status so an operator can inspect it later.
+                pass
+        raise RuntimeError(f"Apple did not accept the {label} submission; see notarization diagnostics")
 
 
 def finalize(app, arch, version):

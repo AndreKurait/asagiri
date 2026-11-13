@@ -137,10 +137,33 @@ class SigningTests(unittest.TestCase):
                 return '{"status":"Invalid","id":"12345678-1234-1234-1234-123456789012"}'
             return "{}"
 
-        with patch.object(signing, "run", side_effect=response) as run, self.assertRaisesRegex(RuntimeError, "rejected"):
+        with patch.object(signing, "run", side_effect=response) as run, self.assertRaisesRegex(RuntimeError, "did not accept"):
             signing.finalize(self.root / "Asagiri.app", "arm64", "0.1.0")
         self.assertFalse(any(call.args[0] == "cargo" for call in run.call_args_list))
         self.assertTrue((directory / "app-failure.json").exists())
+
+    def test_nonzero_submission_exit_preserves_id_and_rejection_log(self):
+        directory = self.root / "asagiri-signing"
+        directory.mkdir()
+        output = '{"status":"Invalid","id":"12345678-1234-1234-1234-123456789012"}'
+        with patch.object(signing, "run", side_effect=[
+            signing.CommandFailure("xcrun", 1, output), '{"issues":[]}']):
+            with self.assertRaisesRegex(RuntimeError, "did not accept"):
+                signing.submit(Path("app.zip"), Path("temporary.keychain"), "app")
+        self.assertEqual(json.loads((directory / "app-submission.json").read_text())["status"], "Invalid")
+        self.assertTrue((directory / "app-failure.json").exists())
+
+    def test_wait_timeout_retains_submission_when_log_is_unavailable(self):
+        directory = self.root / "asagiri-signing"
+        directory.mkdir()
+        output = '{"status":"In Progress","id":"12345678-1234-1234-1234-123456789012"}'
+        with patch.object(signing, "run", side_effect=[
+            signing.CommandFailure("xcrun", 1, output),
+            signing.CommandFailure("xcrun", 1, "log not available")]):
+            with self.assertRaisesRegex(RuntimeError, "did not accept"):
+                signing.submit(Path("app.zip"), Path("temporary.keychain"), "app")
+        self.assertEqual(json.loads((directory / "app-submission.json").read_text())["status"], "In Progress")
+        self.assertFalse((directory / "app-failure.json").exists())
 
 
 if __name__ == "__main__":
