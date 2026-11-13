@@ -1,0 +1,520 @@
+{
+  "reviewed_at": "2026-11-13T13:08:20.112622+00:00",
+  "repository": "libracoder/kiri",
+  "count": 57,
+  "issues": [
+    {
+      "number": 10,
+      "title": "Thank you",
+      "state": "closed",
+      "updated_at": "2026-11-04T11:38:57Z",
+      "body_sha256": "c5035029ad292fa9893743aa39560a2640e388c32c676768af1305477958a156",
+      "disposition": "inherited-review",
+      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+    },
+    {
+      "number": 13,
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
+      "state": "closed",
+      "updated_at": "2026-11-06T11:14:54Z",
+      "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
+      "disposition": "inherited-review",
+      "reason": "Security controls and release checks retained; no claim that a security review proves absence of vulnerabilities."
+    },
+    {
+      "number": 14,
+      "title": "Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota)",
+      "state": "closed",
+      "updated_at": "2026-11-06T17:39:46Z",
+      "body_sha256": "65938d77c5f9fc353cccaf6fbf03f45b521706bccb2e2a3f643aa1fccb80fa8c",
+      "disposition": "inherited-review",
+      "reason": "Guest netfilter configuration inherited."
+    },
+    {
+      "number": 18,
+      "title": "Set `net.ipv4.ip_unprivileged_port_start` to 0 in containers",
+      "state": "closed",
+      "updated_at": "2026-11-06T17:39:59Z",
+      "body_sha256": "53ba01609280d49851175d29955b80d7ea80225ad589dbb062feacd0c64ffcef",
+      "disposition": "inherited-review",
+      "reason": "Unprivileged port configuration retained."
+    },
+    {
+      "number": 25,
+      "title": "macOS: Allow hiding the Dock icon while Kiri runs in the background",
+      "state": "closed",
+      "updated_at": "2026-11-07T17:04:43Z",
+      "body_sha256": "dca734ca2c9a3d411a2076695ac70f442d21889a275fa359e22f2244e975d7dd",
+      "disposition": "inherited-review",
+      "reason": "Dock visibility preference inherited."
+    },
+    {
+      "number": 26,
+      "title": "Linux Host: Starting privileged container (kiri k8s) unlinks /dev/ptmx, breaking terminal creation",
+      "state": "closed",
+      "updated_at": "2026-11-05T18:54:57Z",
+      "body_sha256": "ca427a223598a685d69a455e52547630f0b1631cad582d967328dc66ed29d94f",
+      "disposition": "inherited-review",
+      "reason": "Private device-node ownership retained; host ptmx protection tests."
+    },
+    {
+      "number": 27,
+      "title": "Container DNS fails on Macs with Cisco Umbrella",
+      "state": "closed",
+      "updated_at": "2026-11-08T12:00:38Z",
+      "body_sha256": "70b530b8dcc155cea9464fbc274452f763cbbd998c20c2180b6069c20603a4e4",
+      "disposition": "inherited-review",
+      "reason": "DNS fallback and resolver handling inherited."
+    },
+    {
+      "number": 30,
+      "title": "bug: Sub-volumes under host bind mounts inherit host directory instead of base image layer",
+      "state": "closed",
+      "updated_at": "2026-11-06T04:11:39Z",
+      "body_sha256": "40a637b5cb686da0c774333fd45de0bc66410e72a7a51bdc9866be562f91b12c",
+      "disposition": "inherited-review",
+      "reason": "Nested mount resolution work inherited."
+    },
+    {
+      "number": 38,
+      "title": "Cilium does not start in kind: the guest kernel needs BPF JIT, perf events and BTF",
+      "state": "closed",
+      "updated_at": "2026-11-08T06:11:03Z",
+      "body_sha256": "bdff6d22dcf83e5494e77c011c582628f541a8b5a25bcccd441d3955709918af",
+      "disposition": "inherited-review",
+      "reason": "Guest kernel BPF/perf configuration retained."
+    },
+    {
+      "number": 40,
+      "title": "macOS: the Finder mount hides an existing ~/Kiri folder and force-unmounts other mounts",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:28:35Z",
+      "body_sha256": "5937f9b6e3c82a7ee47ec661a8f3f260d0dd529c259380c9843aecfe0b25f80c",
+      "disposition": "inherited-review",
+      "reason": "Finder mount path safeguards retained; native reproduction not rerun."
+    },
+    {
+      "number": 41,
+      "title": "Crash on Typesense startup (SIGSEGV): kernel missing CONFIG_TASK_IO_ACCOUNTING (/proc/self/io)",
+      "state": "closed",
+      "updated_at": "2026-11-08T04:49:07Z",
+      "body_sha256": "7f5e08bc1fbfbdd1e4f85dff21935d56cb0d7407601842f48e1a110b1575949b",
+      "disposition": "inherited-review",
+      "reason": "Guest kernel accounting configuration retained."
+    },
+    {
+      "number": 44,
+      "title": "Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets)",
+      "state": "open",
+      "updated_at": "2026-11-09T03:49:58Z",
+      "body_sha256": "65b901294bfb838ba0ac34fabd0cea14703dfe39ffa003c57909a0fe4867c58f",
+      "disposition": "implemented-unverified-platform",
+      "reason": "Kernel-version-compatible nftables/NAT work is retained from #60; native WSL network validation remains distinct from private Linux tests."
+    },
+    {
+      "number": 45,
+      "title": "silly question, is it needed Docker installed so kiri works?",
+      "state": "closed",
+      "updated_at": "2026-11-07T18:09:12Z",
+      "body_sha256": "1b1c43f39afce8090d4989f796310e09bbf0020ab76f2a8b8e0b0c8bb22ea8cb",
+      "disposition": "inherited-review",
+      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+    },
+    {
+      "number": 48,
+      "title": "Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
+      "state": "open",
+      "updated_at": "2026-11-10T03:13:45Z",
+      "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
+      "disposition": "partially-covered",
+      "reason": "Builder repair, bind notifications, seccomp and lifecycle improvements retained; native Mac updater and VM behavior are not claimed reproduced."
+    },
+    {
+      "number": 49,
+      "title": "Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver",
+      "state": "open",
+      "updated_at": "2026-11-07T22:18:04Z",
+      "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
+      "disposition": "deferred-feature",
+      "reason": "Built-in docker-driver BuildKit bridge remains incomplete; keep functional docker-container/classic-build support and do not advertise the incomplete bridge."
+    },
+    {
+      "number": 50,
+      "title": "macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down",
+      "state": "open",
+      "updated_at": "2026-11-10T11:45:40Z",
+      "body_sha256": "5e17a20761f795020b6e94eae78030cd3aa6fedc59c69f82b22bf9dedd74d901",
+      "disposition": "implemented-unverified-platform",
+      "reason": "Agent/VM recovery and restart-policy fixes retained; private Linux crash tests pass. Native Mac kernel-crash reproduction remains unverified."
+    },
+    {
+      "number": 57,
+      "title": "Builds for a foreign platform use the local image of the same tag and ignore --platform (Invalid ELF image for this architecture)",
+      "state": "open",
+      "updated_at": "2026-11-10T04:10:14Z",
+      "body_sha256": "35403523d083446b793a505b5020efc61adc928330805b53b9e3f4ebe376ed93",
+      "disposition": "covered",
+      "reason": "Registry platform resolution and local-tag provenance fixed; cross-platform OCI ELF validation is in Buildx tests."
+    },
+    {
+      "number": 59,
+      "title": "Allow running linux/arm64 containers on Intel Macs via QEMU user-mode emulation (currently hard-rejected with \"Kiri does not emulate Arm\")",
+      "state": "open",
+      "updated_at": "2026-11-10T04:10:16Z",
+      "body_sha256": "ce5a33302f555483651ca5212a669d164c7a15f3c0cf1c5b695e9e5294e2f8dc",
+      "disposition": "implemented-with-limits",
+      "reason": "Intel/ARM QEMU work reviewed and ported; optional emulator redistribution remains subject to complete corresponding-source packaging."
+    },
+    {
+      "number": 64,
+      "title": "After `docker push`, RepoDigests holds the image ID instead of the registry's manifest digest",
+      "state": "closed",
+      "updated_at": "2026-11-08T12:02:19Z",
+      "body_sha256": "36bc45e32fa94dbeffa6c9e47db156ec76860b830e57818d28285b3395d18d7a",
+      "disposition": "inherited-review",
+      "reason": "Registry manifest RepoDigest handling inherited."
+    },
+    {
+      "number": 66,
+      "title": "bun install aborts under linux/amd64 emulation on Apple Silicon (QEMU SIGABRT), works on OrbStack",
+      "state": "closed",
+      "updated_at": "2026-11-08T11:44:11Z",
+      "body_sha256": "ec410c70bb77b82da9cc96d98f3411287b40b04f06deef94e0c20f3d8049db24",
+      "disposition": "unverified-platform",
+      "reason": "Emulated execution depends on the host Rosetta/QEMU environment; track the new #199 report separately rather than claiming universal compatibility."
+    },
+    {
+      "number": 72,
+      "title": "Bind mounts (macOS): open(O_CREAT|O_WRONLY, 0200) fails with EACCES, breaking Node's native fs.cpSync",
+      "state": "closed",
+      "updated_at": "2026-11-09T22:49:14Z",
+      "body_sha256": "257d54d232efa8388462e6827ff64be8696205f7d49d92f0b569496b47712abc",
+      "disposition": "inherited-review",
+      "reason": "Bind-mount access behavior inherited; native Mac reproduction not rerun."
+    },
+    {
+      "number": 73,
+      "title": "Control Kiri from browser.",
+      "state": "open",
+      "updated_at": "2026-11-08T20:15:48Z",
+      "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
+      "disposition": "deferred-feature",
+      "reason": "Hosted site provides an interactive sample-data demo; it does not claim browser control of a live engine."
+    },
+    {
+      "number": 74,
+      "title": "Create an MCP server to allow agents to work smoother",
+      "state": "open",
+      "updated_at": "2026-11-09T03:40:59Z",
+      "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
+      "disposition": "deferred-feature",
+      "reason": "An MCP server is a new product interface, not an existing compatibility fix; no unauthenticated remote control service added."
+    },
+    {
+      "number": 77,
+      "title": "fix(docs): install guide incorrectly says Intel Macs are unsupported",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:39:24Z",
+      "body_sha256": "42da8595c86e0dd3135ce6d0d72bb09836871e7a29cd6eb36c3515644993d0ce",
+      "disposition": "inherited-review",
+      "reason": "Intel Mac support documentation retained."
+    },
+    {
+      "number": 78,
+      "title": "fix(docs): Linux guides omit the window shipped in the full x86-64 package",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:39:26Z",
+      "body_sha256": "b42fee073ccfff256c4ae567d1962dd4b251ee706dd63803fd16ccaca7f6aa5f",
+      "disposition": "inherited-review",
+      "reason": "Linux full-package GUI documentation retained."
+    },
+    {
+      "number": 79,
+      "title": "fix(api): native Linux reports a hardcoded kernel version",
+      "state": "closed",
+      "updated_at": "2026-11-09T17:39:31Z",
+      "body_sha256": "ebc06a4be74a4e171570063b57a69492e851ec1068be30417e5f7f02749c284e",
+      "disposition": "inherited-review",
+      "reason": "Runtime Linux kernel version reporting retained."
+    },
+    {
+      "number": 80,
+      "title": "fix(docs): Linux packaging guide incorrectly promises service startup on install",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:46:29Z",
+      "body_sha256": "1cc28a8f86f2caa7a96f63b8e3a58889dcceb44a1ef58a0492e4d6cb67c03f4d",
+      "disposition": "inherited-review",
+      "reason": "Package install/start behavior documented separately."
+    },
+    {
+      "number": 81,
+      "title": "fix(docs): development guide omits optional Docker socket integration",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:46:31Z",
+      "body_sha256": "79d047684e0455ae91a1c19645c5939bc9404c476c9c4eec134186020be0b245",
+      "disposition": "inherited-review",
+      "reason": "Development documentation describes optional socket integration."
+    },
+    {
+      "number": 82,
+      "title": "fix(docs): features guide says IPv6 network creation is refused",
+      "state": "closed",
+      "updated_at": "2026-11-09T03:46:33Z",
+      "body_sha256": "347bce72038176c835699ef7b75cc55f6353b76745aa7352a818f985f64a185b",
+      "disposition": "inherited-review",
+      "reason": "Network documentation reviewed with IPv6 support."
+    },
+    {
+      "number": 83,
+      "title": "fix(buildx): bootstrap can reset the container-start connection",
+      "state": "open",
+      "updated_at": "2026-11-08T22:43:15Z",
+      "body_sha256": "826be9deea2731456bef3bf0fda1f4b721a6f2f823f089e6970cc06e7af0cb21",
+      "disposition": "covered",
+      "reason": "Upload-close header fix passed hosted native x86_64 and ARM release live tests at c4b990a."
+    },
+    {
+      "number": 85,
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
+      "state": "open",
+      "updated_at": "2026-11-12T02:37:32Z",
+      "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
+      "disposition": "covered",
+      "reason": "Image import/load and archive-framing fixes retained; Docker/OCI import live checks run in release builds."
+    },
+    {
+      "number": 90,
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
+      "state": "closed",
+      "updated_at": "2026-11-10T00:00:18Z",
+      "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
+      "disposition": "inherited-review",
+      "reason": "Internationalization work retained."
+    },
+    {
+      "number": 91,
+      "title": "Setup failure is undiagnosable: \"the test container did not run\" hides the real cause",
+      "state": "closed",
+      "updated_at": "2026-11-10T03:27:25Z",
+      "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
+      "disposition": "inherited-review",
+      "reason": "Duplicate setup-diagnostics report; inherited fix retained."
+    },
+    {
+      "number": 92,
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
+      "state": "closed",
+      "updated_at": "2026-11-10T08:03:22Z",
+      "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
+      "disposition": "inherited-review",
+      "reason": "Incomplete setup retry and diagnostics retained."
+    },
+    {
+      "number": 93,
+      "title": "After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
+      "state": "open",
+      "updated_at": "2026-11-09T10:05:22Z",
+      "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
+      "disposition": "implemented-unverified-platform",
+      "reason": "WSL recovery port retained; native Windows sleep/wake reproduction is still a separate check."
+    },
+    {
+      "number": 94,
+      "title": "Setup failure is undiagnosable: \"the test container did not run\" hides the real cause",
+      "state": "closed",
+      "updated_at": "2026-11-09T17:15:23Z",
+      "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
+      "disposition": "inherited-review",
+      "reason": "Setup diagnostics retained."
+    },
+    {
+      "number": 97,
+      "title": "Domain router always binds ports 80/443, even with Domains turned off, and the app-started daemon ignores KIRI_HTTP_PORT",
+      "state": "closed",
+      "updated_at": "2026-11-10T03:04:53Z",
+      "body_sha256": "c1c2d3ca43e95e7634e8a689b7924dd8cced52015ea9a87b6c3dd6922cc10680",
+      "disposition": "inherited-review",
+      "reason": "Domain listener gating and configurable ports retained."
+    },
+    {
+      "number": 98,
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
+      "state": "closed",
+      "updated_at": "2026-11-10T16:58:28Z",
+      "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
+      "disposition": "inherited-review",
+      "reason": "Private stdio ownership retained from #106."
+    },
+    {
+      "number": 99,
+      "title": "Getting issue with DDEV",
+      "state": "closed",
+      "updated_at": "2026-11-09T22:36:26Z",
+      "body_sha256": "bb4b185515b56fcbb00a10abe8e77803792643e9fbb2fdf9a588b5cff37bbff5",
+      "disposition": "inherited-review",
+      "reason": "Gzip archive handling and Docker-copy tests retained."
+    },
+    {
+      "number": 112,
+      "title": "feat: support i18n plz!",
+      "state": "closed",
+      "updated_at": "2026-11-10T03:27:22Z",
+      "body_sha256": "e7ba4b03b319c717e2198ba244a2bf846462850a22a376ebd57ca7c772800f2d",
+      "disposition": "inherited-review",
+      "reason": "Translation dictionaries and consistency checks retained."
+    },
+    {
+      "number": 118,
+      "title": "Registry mirrors for Docker Hub (Settings + CLI)",
+      "state": "open",
+      "updated_at": "2026-11-10T08:18:55Z",
+      "body_sha256": "772e229c46189bab99719a0c4a3d562a4eee6b7924265e7d5cd632e007129154",
+      "disposition": "covered",
+      "reason": "Registry mirrors and local-tag provenance retained; real Buildx and mirror-refresh tests."
+    },
+    {
+      "number": 121,
+      "title": "Command is ignored when starting a container from testcontainers (using http api)",
+      "state": "open",
+      "updated_at": "2026-11-10T08:41:36Z",
+      "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
+      "disposition": "covered",
+      "reason": "Empty Cmd/default Entrypoint rules expanded by #198 port; live SDK compatibility test."
+    },
+    {
+      "number": 123,
+      "title": "macOS: VM data.img retains host disk allocation after guest files are deleted",
+      "state": "open",
+      "updated_at": "2026-11-10T10:46:22Z",
+      "body_sha256": "1b170c60c7ccbd962d346710bff6c54879320c8a0545bcd18b494b620284312b",
+      "disposition": "implemented-unverified-platform",
+      "reason": "Trim/reclamation implementation is inherited from #122; no native Mac VM disk-reclamation run here."
+    },
+    {
+      "number": 125,
+      "title": "Docker network compatibility: bridge options and IPv4/IPv6 drivers",
+      "state": "open",
+      "updated_at": "2026-11-10T13:42:13Z",
+      "body_sha256": "f264e57737a3b1349e376ea7afa1debb6dfc9d90274c0c7d54a4b825bd944f7f",
+      "disposition": "covered-with-limits",
+      "reason": "Bridge/direct-driver and endpoint behavior retained with live network tests; external IPv6 and native guest parity are not inferred."
+    },
+    {
+      "number": 127,
+      "title": "Linux daemon: Docker-compatible socket access for containerized SDK clients",
+      "state": "open",
+      "updated_at": "2026-11-10T13:57:11Z",
+      "body_sha256": "cd2a02f19e8265b2aa8b19325d7828d49c49ce62e76b62ef9f38f012ea0b0fdb",
+      "disposition": "covered",
+      "reason": "Root Linux service socket and explicit managed-group policy retained; package/user-access checks cover the service."
+    },
+    {
+      "number": 128,
+      "title": "Docker interactive API: WebSocket attach, detach keys and stdin lifetime",
+      "state": "open",
+      "updated_at": "2026-11-10T13:57:12Z",
+      "body_sha256": "cb3dd99f173622c116395cd368bcdfe7a03ceb3086c12b19455bf28d2522b6c3",
+      "disposition": "covered",
+      "reason": "Attach/WebSocket/detach and stdin lifetime work retained; tests/interactive-attach.py and tests/attach-http.py."
+    },
+    {
+      "number": 129,
+      "title": "Container controls: live resource updates and namespace compatibility",
+      "state": "open",
+      "updated_at": "2026-11-10T13:57:13Z",
+      "body_sha256": "082611c226c94f6b155507918cc7174d019c3bcf2911029a77a17e74d11fdf3e",
+      "disposition": "covered",
+      "reason": "Resource and namespace validation implemented; release tests cover limits, lifecycle and rollback scenarios."
+    },
+    {
+      "number": 130,
+      "title": "Container security: custom seccomp profiles without weakening Kiri host isolation",
+      "state": "open",
+      "updated_at": "2026-11-10T13:57:14Z",
+      "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
+      "disposition": "covered",
+      "reason": "Custom seccomp profiles preserve the host boundary; tests/seccomp-profiles.py validates actual behavior."
+    },
+    {
+      "number": 134,
+      "title": "HTTP uploads: handle Expect and preserve chunked request boundaries",
+      "state": "open",
+      "updated_at": "2026-11-10T14:18:27Z",
+      "body_sha256": "a159e7b402311bfc3e8d0b001509626424b8a69ab26049aef00fd474c1cc4189",
+      "disposition": "covered",
+      "reason": "Shared bounded upload decoder, Expect handling, contradictory framing rejection and connection-reuse tests in tests/http-body-framing.py."
+    },
+    {
+      "number": 168,
+      "title": "Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode)",
+      "state": "open",
+      "updated_at": "2026-11-11T03:41:52Z",
+      "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
+      "disposition": "deferred-feature",
+      "reason": "WebView2 suspend/dispose requires native lifecycle testing and state restoration; not implied fixed by engine memory accounting."
+    },
+    {
+      "number": 170,
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
+      "state": "closed",
+      "updated_at": "2026-11-12T05:55:19Z",
+      "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
+      "disposition": "inherited-review",
+      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+    },
+    {
+      "number": 187,
+      "title": "macOS: window traffic-light buttons shift upward after switching themes",
+      "state": "open",
+      "updated_at": "2026-11-12T02:28:17Z",
+      "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
+      "disposition": "unverified-platform",
+      "reason": "Theme/traffic-light alignment report needs a native macOS window reproduction. Browser tests cannot validate native window controls."
+    },
+    {
+      "number": 188,
+      "title": "UI: the sidebar's VM card shows Off after Start from the main area's empty state",
+      "state": "closed",
+      "updated_at": "2026-11-13T06:32:04Z",
+      "body_sha256": "e2cc5c50455a236f3f45577fa5670a18b04fcff2598170fae409b94c03ba42c9",
+      "disposition": "inherited-review",
+      "reason": "Engine state controls from merged #197 plus browser regressions."
+    },
+    {
+      "number": 189,
+      "title": "Windows: Stop leaves the WSL VM (vmmemWSL) running and its memory unclaimed",
+      "state": "open",
+      "updated_at": "2026-11-12T09:38:16Z",
+      "body_sha256": "22fd6ddb0d09bcc582ef4088171e105fc8bd16f1b9ef133fde1fb2a6a445d654",
+      "disposition": "known-limitation",
+      "reason": "Stop stops the Asagiri engine; Windows WSL residency is separate. Do not issue a global WSL shutdown that affects other distributions."
+    },
+    {
+      "number": 190,
+      "title": "Windows: the window's usage figure counts unrelated processes (PID reuse when building the process tree)",
+      "state": "open",
+      "updated_at": "2026-11-12T09:49:57Z",
+      "body_sha256": "427437ba7aa249ed84f7f7583059c92591744ce3361e42c15d0ab8429df508dc",
+      "disposition": "fixed",
+      "reason": "Creation-time checked Windows process tree and single-handle sampling; portable regression tests and Windows self-sampling test."
+    },
+    {
+      "number": 191,
+      "title": "Linux host: daemon gets SIGTERM and the whole engine stops on `docker compose stop` of containers restarted at boot",
+      "state": "closed",
+      "updated_at": "2026-11-13T06:32:00Z",
+      "body_sha256": "70d5abb10e79999aa359e2dd414e056927cf86fe3ddad0862ac85bd52d7f5894",
+      "disposition": "inherited-review",
+      "reason": "Independent sessions from merged #196 plus process-group signal regression."
+    },
+    {
+      "number": 199,
+      "title": "Every linux/amd64 container crashes with \"rosetta error: unhandled auxillary vector type 29\" (SIGTRAP) on Apple Silicon",
+      "state": "open",
+      "updated_at": "2026-11-13T11:42:41Z",
+      "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
+      "disposition": "unverified-platform",
+      "reason": "New Rosetta auxiliary-vector report. No native VM reproduction was performed; do not claim fixed or alter kernel ABI speculatively."
+    }
+  ]
+}

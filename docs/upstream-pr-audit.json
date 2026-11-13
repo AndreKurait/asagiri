@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-13T04:54:40.643905+00:00",
+  "reviewed_at": "2026-11-13T13:08:20.382056+00:00",
   "upstream_repository": "libracoder/kiri",
-  "upstream_main": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
-  "asagiri_runtime_revision": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c",
+  "upstream_main": "b37ed29a824894d11648cc0acf3ff1045f611aae",
+  "asagiri_runtime_revision": "92e0af04309f9e6cfdb4bc439097ec9b4ded9492",
   "counts": {
-    "total": 135,
-    "merged": 76,
+    "total": 138,
+    "merged": 78,
     "closed_unmerged": 36,
-    "open": 23
+    "open": 24
   },
   "pulls": [
     {
@@ -940,7 +940,7 @@
       "number": 116,
       "title": "Intel Macs: run arm64 images through qemu, and leave a registry's tags to the registry",
       "state": "open",
-      "head": "ba7fd94697d4d5cb112769060035df64a7715adb",
+      "head": "27b7086ea8c0ef1d37c4b0b5bd81b4eb721b525b",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
@@ -955,7 +955,7 @@
         }
       ],
       "disposition": "ported-and-improved",
-      "reason": "Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Optional Intel QEMU remains outside release bundles pending complete corresponding-source packaging."
+      "reason": "Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Optional Intel QEMU remains outside release bundles pending complete corresponding-source packaging. Refreshed head 27b7086 is patch-equivalent to previously ported ba7fd94 (git range-diff identical); preserve the improved local-tag tests."
     },
     {
       "number": 117,
@@ -1765,6 +1765,48 @@
       "merge_in_history": false,
       "disposition": "ported",
       "reason": "Upstream-only macOS Kiri/Colima benchmark documentation and chart, preserving measured engine identity. Recomputed all 560 samples across 26 blocks and headline median/p95 values; not an Asagiri performance claim."
+    },
+    {
+      "number": 196,
+      "title": "Give every container and exec a session of its own",
+      "state": "merged",
+      "head": "be0bf1afb66642ecb8e49372d63e0b33890b0c32",
+      "merge": "c2d78232f09c34186dbe7c2ed3cf7d3bb2b4ad2a",
+      "ports": [
+        "bee0be43dc3a547d82dca1f719ee675d684180c2"
+      ],
+      "disposition": "ported",
+      "reason": "Ported process-session isolation with checked setsid failures and release-suite group-signal regression coverage.",
+      "head_in_history": false,
+      "merge_in_history": true
+    },
+    {
+      "number": 197,
+      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
+      "state": "merged",
+      "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
+      "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
+      "ports": [
+        "c725b95a4e9343ab9b4760d92d0fd67af72ccc54"
+      ],
+      "disposition": "ported",
+      "reason": "Ported real engine-state UI across all start/stop controls; retained Asagiri branding and cross-platform UI checks.",
+      "head_in_history": false,
+      "merge_in_history": true
+    },
+    {
+      "number": 198,
+      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
+      "state": "open",
+      "head": "d2bc825e00c661662cad0c44f70486ce98f31193",
+      "merge": null,
+      "ports": [
+        "48f97e4dccd8149073085ba53b7219ac6ff0715e"
+      ],
+      "disposition": "ported",
+      "reason": "Ported HTTP Connection: close and Docker command-default rules; extended repeated-header handling and live SDK checks.",
+      "head_in_history": false,
+      "merge_in_history": false
     }
   ]
 }

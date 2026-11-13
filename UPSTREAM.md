@@ -5,10 +5,10 @@ The original Apache-2.0 license, copyright notices, and Git history are preserve
 The rename does not change the authorship of inherited code.
 
 Upstream `main` was fetched on **2026-11-13** at
-`ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449`. Its complete history is merged,
+`b37ed29a824894d11648cc0acf3ff1045f611aae`. Its complete history is merged,
 including the GitHub and ECR registry sign-in work after the initial integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **135** public PRs
-as of that review: 76 merged, 36 closed without merging, and 23 open. Every
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **138** public PRs
+as of that review: 78 merged, 36 closed without merging, and 24 open. Every
 merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
 port, equivalence, supersession, or hold recorded with its reviewed head.
 
