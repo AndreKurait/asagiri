@@ -30,6 +30,8 @@ function pendingDownloads(message, progress = false) {
   for (const arch of ["arm64", "x86_64"]) {
     const button = document.getElementById(`download-${arch}`);
     const platform = arch === "arm64" ? "Apple Silicon" : "Intel";
+    button.removeAttribute("aria-disabled");
+    button.classList.remove("disabled");
     button.href = progress ? buildPage : releasePage;
     button.textContent = progress ? `${platform} · View release progress ↗` : `Check ${platform} downloads ↗`;
   }

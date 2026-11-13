@@ -198,8 +198,12 @@ def main():
             print("PASS site build tabs and desktop/mobile layout", flush=True)
             browser.load(origin + "/install/", 1440, 1100)
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Desktop install layout overflows"
-            browser.js("window.savedReleaseIndex = releases; releases = {channels:{latest:null,preview:null,stable:null}}; render()")
+            browser.js("""window.savedReleaseIndex = releases;
+              document.getElementById('download-arm64').setAttribute('aria-disabled','true');
+              document.getElementById('download-arm64').classList.add('disabled');
+              releases = {channels:{latest:null,preview:null,stable:null}}; render()""")
             assert browser.js("document.getElementById('download-arm64').href === buildPage && !document.getElementById('download-arm64').hasAttribute('aria-disabled')")
+            assert browser.js("getComputedStyle(document.getElementById('download-arm64')).pointerEvents !== 'none'")
             assert "View release progress" in browser.js("document.getElementById('download-arm64').textContent")
             browser.js("""releases.channels.latest = {version:"0.1.0-dev.1",prerelease:true,downloads:{
               "macos-arm64":{url:"https://github.com/AndreKurait/asagiri/releases/download/v0.1.0-dev.1/Asagiri-0.1.0-dev.1-arm64.dmg"},
