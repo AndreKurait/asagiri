@@ -28,6 +28,8 @@ they use the configured container user, including named users and primary
 groups; an empty configured user keeps the archive owners. Regression tests
 compare Docker and Asagiri across running and stopped containers, gzip
 uploads, file modes, and links.
+Uploads also follow Docker's file/directory replacement rules and
+`noOverwriteDirNonDir` error status, while preserving symlink targets.
 
 Independent layer uploads can unpack concurrently while duplicate layers
 remain serialized. Truncated uploads and corrupt gzip tails cannot leave an
