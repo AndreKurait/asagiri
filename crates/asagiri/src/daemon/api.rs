@@ -2844,7 +2844,9 @@ pub(super) fn send_chunks(archive: &mut dyn io::Read, to_guest: &mut impl io::Wr
 
 /// The guest says why a copy failed; Docker's status codes follow from it.
 pub(super) fn copy_error(m: &str) -> Error {
-    if let Some(m) = m.strip_prefix("notfound: ") {
+    if let Some(m) = m.strip_prefix("overwrite: ") {
+        Error::Io(io::Error::other(m.to_owned()))
+    } else if let Some(m) = m.strip_prefix("notfound: ") {
         Error::NotFound(m.to_owned())
     } else if let Some(m) = m.strip_prefix("notdir: ") {
         Error::BadRequest(m.to_owned())

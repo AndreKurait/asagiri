@@ -143,19 +143,11 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
         archive.set_overwrite(true);
         for entry in archive.entries()? {
             let mut entry = entry?;
-            if spec.flags & copy_flags::NO_OVERWRITE_DIR_NON_DIR != 0 {
-                let target = dest.join(entry.path()?);
-                if let Ok(m) = fs::symlink_metadata(&target) {
-                    if m.is_dir() != entry.header().entry_type().is_dir() {
-                        return Err(io::Error::new(
-                            io::ErrorKind::AlreadyExists,
-                            format!("cannot overwrite {} {} with {}", if m.is_dir() { "directory" } else { "non-directory" }, target.display(), if m.is_dir() { "non-directory" } else { "directory" }),
-                        ));
-                    }
-                }
-            }
-            let target = if owner.is_some() { copy_target(dest, &entry.path()?) } else { None };
+            let target = copy_target(dest, &entry.path()?);
             let kind = entry.header().entry_type();
+            if let Some(target) = &target {
+                prepare_copy_target(dest, target, kind, spec.flags & copy_flags::NO_OVERWRITE_DIR_NON_DIR != 0)?;
+            }
             if entry.unpack_in(dest)? {
                 if let (Some(owner), Some(target)) = (owner, target) {
                     chown_entry(&target, kind, owner)?;
@@ -183,6 +175,35 @@ fn copy_target(dest: &std::path::Path, entry: &std::path::Path) -> Option<std::p
         }
     }
     Some(target)
+}
+
+/// Docker replaces existing entries, except that two directories merge.
+/// Validate the existing parent before removing anything: tar also checks
+/// this before unpacking, but that would be too late for our removal.
+fn prepare_copy_target(dest: &std::path::Path, target: &std::path::Path, kind: tar::EntryType, no_overwrite: bool) -> io::Result<()> {
+    if target == dest {
+        return Ok(());
+    }
+    let old = match fs::symlink_metadata(target) {
+        Ok(old) => old,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let base = fs::canonicalize(dest)?;
+    let parent = fs::canonicalize(target.parent().ok_or_else(|| io::Error::other("archive entry has no parent"))?)?;
+    if !parent.starts_with(&base) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "archive entry is outside the extraction directory"));
+    }
+    if no_overwrite && old.is_dir() != kind.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("overwrite: cannot overwrite {} {} with {}", if old.is_dir() { "directory" } else { "non-directory" }, target.display(), if old.is_dir() { "non-directory" } else { "directory" }),
+        ));
+    }
+    if old.is_dir() && kind.is_dir() {
+        return Ok(());
+    }
+    if old.is_dir() { fs::remove_dir_all(target) } else { fs::remove_file(target) }
 }
 
 fn chown_entry(path: &std::path::Path, kind: tar::EntryType, owner: (libc::uid_t, libc::gid_t)) -> io::Result<()> {
@@ -597,6 +618,65 @@ fn read_frame(conn: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestDir(std::path::PathBuf);
+    impl Drop for TestDir {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+    fn test_dir() -> TestDir {
+        let path = std::env::temp_dir().join(format!("asagiri-copy-replace-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&path).unwrap();
+        TestDir(path)
+    }
+
+    #[test]
+    fn archive_replacements_remove_conflicting_entries_but_merge_directories() {
+        let tmp = test_dir();
+        let target = tmp.0.join("target");
+        fs::write(&target, b"old").unwrap();
+        prepare_copy_target(&tmp.0, &target, tar::EntryType::Directory, false).unwrap();
+        assert!(!target.exists());
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("kept"), b"old").unwrap();
+        prepare_copy_target(&tmp.0, &target, tar::EntryType::Directory, false).unwrap();
+        assert_eq!(fs::read(target.join("kept")).unwrap(), b"old");
+        prepare_copy_target(&tmp.0, &target, tar::EntryType::Regular, false).unwrap();
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn archive_type_guard_leaves_rejected_entries_intact() {
+        let tmp = test_dir();
+        let target = tmp.0.join("target");
+        fs::write(&target, b"old").unwrap();
+        let err = prepare_copy_target(&tmp.0, &target, tar::EntryType::Directory, true).unwrap_err();
+        assert!(err.to_string().starts_with("overwrite: "));
+        assert_eq!(fs::read(&target).unwrap(), b"old");
+        fs::remove_file(&target).unwrap();
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("kept"), b"old").unwrap();
+        assert!(prepare_copy_target(&tmp.0, &target, tar::EntryType::Regular, true).is_err());
+        assert_eq!(fs::read(target.join("kept")).unwrap(), b"old");
+    }
+
+    #[test]
+    fn archive_replacement_does_not_delete_through_a_symlink_outside_destination() {
+        let tmp = test_dir();
+        let dest = tmp.0.join("dest");
+        let outside = tmp.0.join("outside");
+        fs::create_dir(&dest).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("kept"), b"untouched").unwrap();
+        std::os::unix::fs::symlink(&outside, dest.join("link")).unwrap();
+        let err = prepare_copy_target(&dest, &dest.join("link/kept"), tar::EntryType::Regular, false).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::read(outside.join("kept")).unwrap(), b"untouched");
+        // Replacing the link itself is allowed and must not remove its target.
+        prepare_copy_target(&dest, &dest.join("link"), tar::EntryType::Directory, false).unwrap();
+        assert!(!dest.join("link").exists());
+        assert_eq!(fs::read(outside.join("kept")).unwrap(), b"untouched");
+    }
 
     #[test]
     fn ownership_targets_stay_under_the_extraction_directory() {
