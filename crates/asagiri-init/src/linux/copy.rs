@@ -135,6 +135,7 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     let source: Box<dyn Read + '_> = if spec.flags & copy_flags::CHUNKED != 0 { Box::new(Chunks::new(&mut *conn)) } else { Box::new(&mut *conn) };
     let mut reader = BufReader::with_capacity(256 * 1024, source);
     {
+        let mut directory_times = Vec::new();
         let mut archive = tar::Archive::new(&mut reader);
         archive.set_preserve_permissions(true);
         archive.set_preserve_mtime(true);
@@ -145,14 +146,25 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
             let mut entry = entry?;
             let target = copy_target(dest, &entry.path()?);
             let kind = entry.header().entry_type();
+            let mtime = if kind.is_dir() { Some(entry.header().mtime()?) } else { None };
             if let Some(target) = &target {
                 prepare_copy_target(dest, target, kind, spec.flags & copy_flags::NO_OVERWRITE_DIR_NON_DIR != 0)?;
             }
             if entry.unpack_in(dest)? {
-                if let (Some(owner), Some(target)) = (owner, target) {
-                    chown_entry(&target, kind, owner)?;
+                if let Some(target) = target {
+                    if let Some(owner) = owner {
+                        chown_entry(&target, kind, owner)?;
+                    }
+                    if let Some(mtime) = mtime {
+                        directory_times.push(DirectoryTime::capture(target, mtime)?);
+                    }
                 }
             }
+        }
+        // Creating children changes their parents' mtimes. Restore directory
+        // headers after extraction, without following a later replacement link.
+        for directory in directory_times {
+            directory.restore()?;
         }
     }
     // The archive's trailing padding: read it so the host's writes complete.
@@ -161,6 +173,49 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     let mut out = Vec::new();
     Msg::CopyDone.encode(&mut out);
     conn.write_all(&out)
+}
+
+struct DirectoryTime {
+    path: std::path::PathBuf,
+    dev: u64,
+    ino: u64,
+    mtime: libc::time_t,
+}
+
+impl DirectoryTime {
+    fn capture(path: std::path::PathBuf, mtime: u64) -> io::Result<Self> {
+        let metadata = fs::symlink_metadata(&path)?;
+        let mtime = mtime.try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "directory timestamp is out of range"))?;
+        Ok(Self { path, dev: metadata.dev(), ino: metadata.ino(), mtime })
+    }
+
+    fn restore(self) -> io::Result<()> {
+        let name = sys::cstr(&self.path)?;
+        // SAFETY: a valid path; O_NOFOLLOW prevents a replacement symlink from
+        // redirecting this update. O_DIRECTORY also rejects replacement files.
+        let fd = unsafe { libc::open(name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW) };
+        if fd < 0 {
+            let error = io::Error::last_os_error();
+            return match error.raw_os_error() {
+                Some(libc::ENOENT | libc::ENOTDIR | libc::ELOOP) => Ok(()),
+                _ => Err(error),
+            };
+        }
+        // SAFETY: open returned a fresh, owned descriptor.
+        let file = unsafe { fs::File::from_raw_fd(fd) };
+        let metadata = file.metadata()?;
+        // An entry later in this same archive can replace the directory.
+        if metadata.dev() != self.dev || metadata.ino() != self.ino {
+            return Ok(());
+        }
+        let times = [
+            libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_OMIT },
+            libc::timespec { tv_sec: self.mtime, tv_nsec: 0 },
+        ];
+        // SAFETY: a live directory descriptor and two initialized timespecs.
+        sys::check(unsafe { libc::futimens(file.as_raw_fd(), times.as_ptr()) } as _, "restore uploaded directory timestamp")?;
+        Ok(())
+    }
 }
 
 /// The path normalization used by tar::Entry::unpack_in. Never let an
@@ -628,6 +683,47 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         fs::create_dir(&path).unwrap();
         TestDir(path)
+    }
+
+    #[test]
+    fn directory_timestamps_are_restored_after_children_and_last_header_wins() {
+        let tmp = test_dir();
+        let first = DirectoryTime::capture(tmp.0.clone(), 1_000_000_000).unwrap();
+        let last = DirectoryTime::capture(tmp.0.clone(), 0).unwrap();
+        fs::write(tmp.0.join("child"), b"data").unwrap();
+        first.restore().unwrap();
+        assert_eq!(fs::metadata(&tmp.0).unwrap().mtime(), 1_000_000_000);
+        last.restore().unwrap();
+        assert_eq!(fs::metadata(&tmp.0).unwrap().mtime(), 0);
+    }
+
+    #[test]
+    fn directory_timestamp_does_not_follow_a_replacement_symlink() {
+        let tmp = test_dir();
+        let original = tmp.0.join("original");
+        let outside = tmp.0.join("outside");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let saved = DirectoryTime::capture(original.clone(), 1_000_000_000).unwrap();
+        let before = fs::metadata(&outside).unwrap();
+        fs::remove_dir(&original).unwrap();
+        std::os::unix::fs::symlink(&outside, &original).unwrap();
+        saved.restore().unwrap();
+        let after = fs::metadata(&outside).unwrap();
+        assert_eq!((before.mtime(), before.mtime_nsec()), (after.mtime(), after.mtime_nsec()));
+    }
+
+    #[test]
+    fn directory_timestamp_does_not_change_a_different_directory_at_the_same_path() {
+        let tmp = test_dir();
+        let original = tmp.0.join("original");
+        fs::create_dir(&original).unwrap();
+        let saved = DirectoryTime::capture(original.clone(), 1_000_000_000).unwrap();
+        // Keep the old inode alive so this also tests replacement deterministically.
+        fs::rename(&original, tmp.0.join("moved")).unwrap();
+        fs::create_dir(&original).unwrap();
+        saved.restore().unwrap();
+        assert_ne!(fs::metadata(&original).unwrap().mtime(), 1_000_000_000);
     }
 
     #[test]
