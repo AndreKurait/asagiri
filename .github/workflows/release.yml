@@ -175,7 +175,8 @@ jobs:
     name: macOS packages (${{ matrix.arch }})
     needs: [plan, guest]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # Leave time for both app and final-DMG notarization after compilation.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

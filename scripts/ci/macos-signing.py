@@ -53,7 +53,7 @@ def configuration():
     missing = [name for name, value in values.items() if not value]
     if missing:
         raise ValueError("Incomplete Apple signing configuration: " + ", ".join(missing))
-    if not re.fullmatch(r"[A-Z0-9]{10}", values["ASAGIRI_APPLE_API_KEY_ID"]):
+    if not re.fullmatch(r"[A-Za-z0-9]{10,64}", values["ASAGIRI_APPLE_API_KEY_ID"]):
         raise ValueError("Invalid App Store Connect API key ID")
     if not re.fullmatch(r"[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}",
                         values["ASAGIRI_APPLE_API_ISSUER_ID"]):
