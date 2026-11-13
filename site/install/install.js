@@ -25,8 +25,13 @@ const status = document.getElementById("release-status");
 let releases;
 const releasePage = "https://github.com/AndreKurait/asagiri/releases";
 const buildPage = "https://github.com/AndreKurait/asagiri/actions/workflows/release.yml";
+function setDownloadStatus(message) {
+  // A cached page may predate this status element.
+  const element = document.getElementById("download-status");
+  if (element) element.textContent = message;
+}
 function pendingDownloads(message, progress = false) {
-  document.getElementById("download-status").textContent = message;
+  setDownloadStatus(message);
   for (const arch of ["arm64", "x86_64"]) {
     const button = document.getElementById(`download-${arch}`);
     const platform = arch === "arm64" ? "Apple Silicon" : "Intel";
@@ -58,7 +63,7 @@ function render() {
     return;
   }
   status.textContent = `${release.version} · ${release.prerelease ? "Preview release" : "Stable release"}`;
-  document.getElementById("download-status").textContent = "Choose your Mac to download the installer.";
+  setDownloadStatus("Choose your Mac to download the installer.");
   for (const arch of ["arm64", "x86_64"]) {
     const url = release.downloads?.[`macos-${arch}`]?.url;
     const expected = `https://github.com/AndreKurait/asagiri/releases/download/v${release.version}/Asagiri-${release.version}-${arch}.dmg`;

@@ -199,6 +199,8 @@ def main():
             browser.load(origin + "/install/", 1440, 1100)
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Desktop install layout overflows"
             browser.js("""window.savedReleaseIndex = releases;
+              window.savedDownloadStatus = document.getElementById('download-status');
+              window.savedDownloadStatus.remove();
               document.getElementById('download-arm64').setAttribute('aria-disabled','true');
               document.getElementById('download-arm64').classList.add('disabled');
               releases = {channels:{latest:null,preview:null,stable:null}}; render()""")
@@ -213,7 +215,7 @@ def main():
             assert browser.js("document.getElementById('download-x86_64').textContent === 'Download for Intel ↓'")
             browser.js("releases.channels.latest.downloads['macos-arm64'].url = 'https://example.invalid/untrusted.dmg'; render()")
             assert browser.js("document.getElementById('download-arm64').href === releasePage")
-            browser.js("releases = window.savedReleaseIndex; render()")
+            browser.js("document.querySelector('.download-actions').after(window.savedDownloadStatus); releases = window.savedReleaseIndex; render()")
             print("PASS missing-release progress links, real DMG links, and untrusted download rejection", flush=True)
             browser.js("document.querySelector('[data-os=mac]').click()")
             assert browser.js("!document.getElementById('mac').hidden && document.getElementById('amazon').hidden")
