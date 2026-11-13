@@ -23,6 +23,19 @@ receive EOF, and empty command/entrypoint arrays follow Docker's image defaults.
 Windows usage accounting excludes unrelated processes with recycled parent PIDs.
 The MSI installation check normalizes native Windows paths before invocation.
 
+Archive uploads preserve numeric owners by default. With `copyUIDGID=true`,
+they use the configured container user, including named users and primary
+groups; an empty configured user keeps the archive owners. Regression tests
+compare Docker and Asagiri across running and stopped containers, gzip
+uploads, file modes, and links.
+
+Independent layer uploads can unpack concurrently while duplicate layers
+remain serialized. Truncated uploads and corrupt gzip tails cannot leave an
+installed layer. The [performance report](https://github.com/AndreKurait/asagiri/blob/main/docs/layer-transfer-performance.md)
+records the measured Linux workload and its limits. Engine inspection also
+reports the host name, preserves its daemon ID across restarts, returns
+uncompressed RootFS layer digests, and omits absent healthchecks.
+
 Choose the download for your system:
 
 - **Linux:** `.deb` or `.rpm` for amd64/x86_64 or arm64/aarch64. `asagiri`
