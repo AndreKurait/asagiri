@@ -309,6 +309,8 @@ impl Store {
         Ok(Some(removed))
     }
 
+    // Called only while the image-index lock is held. Readers see either the
+    // previous complete index or this complete replacement after rename.
     fn write_index(&self, images: &[Image]) -> io::Result<()> {
         let tmp = self.root.join(format!("tmp/images.{}.{}.json", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
         let bytes = serde_json::to_vec_pretty(images).map_err(io::Error::other)?;
@@ -485,6 +487,79 @@ mod tests {
         fs::write(root.join("images.json"), b"[{\"name\":\"incomplete").unwrap();
         assert_eq!(store.put_image(index_image("refused:latest".into())).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert_eq!(fs::read(root.join("images.json")).unwrap(), b"[{\"name\":\"incomplete");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn image_index_lock_serializes_processes() {
+        const CHILD_ROOT: &str = "ASAGIRI_IMAGE_LOCK_TEST_ROOT";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let store = Store::open(root).unwrap();
+            let _lock = store.lock_index().unwrap();
+            fs::write(store.root.join("child-acquired"), b"locked").unwrap();
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("asagiri-store-process-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let store = Store::open(&root).unwrap();
+        let lock = store.lock_index().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "store::tests::image_index_lock_serializes_processes"])
+            .env(CHILD_ROOT, &root).spawn().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(child.try_wait().unwrap().is_none(), "child acquired a held index lock");
+        assert!(!root.join("child-acquired").exists());
+        drop(lock);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("child did not acquire released index lock");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(root.join("child-acquired").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_image_writers_preserve_each_image() {
+        let root = std::env::temp_dir().join(format!("asagiri-store-concurrent-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        Store::open(&root).unwrap();
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|scope| {
+            let mut writers = Vec::new();
+            for writer in 0..16 {
+                let root = &root;
+                let barrier = &barrier;
+                writers.push(scope.spawn(move || {
+                    let store = Store::open(root).unwrap();
+                    barrier.wait();
+                    for version in 0..8 {
+                        store.put_image(Image {
+                            name: format!("writer-{writer}:{version}"),
+                            digest: format!("sha256:{writer:064x}"),
+                            index_digest: None,
+                            local_tag: false,
+                            config_digest: format!("sha256:{:064x}", writer * 8 + version),
+                            layers: Vec::new(), size: 0, platform: "linux/amd64".into(),
+                            created: String::new(), pulled_at: 0, config: RunConfig::default(),
+                        })?;
+                    }
+                    Ok::<_, io::Error>(())
+                }));
+            }
+            let results: Vec<_> = writers.into_iter().map(|writer| writer.join().unwrap()).collect();
+            assert!(results.iter().all(Result::is_ok), "index writes failed: {results:?}");
+        });
+        let images = Store::open(&root).unwrap().images().unwrap();
+        assert_eq!(images.len(), 128, "concurrent commits lost image entries");
         fs::remove_dir_all(root).unwrap();
     }
 
