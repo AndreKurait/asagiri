@@ -171,6 +171,16 @@ def main():
             assert browser.js("document.querySelectorAll('[data-mirrordel]').length===1 && document.querySelector('[data-savemirrors]').disabled")
             browser.js("document.querySelector('[data-mirrordel]').click(); document.querySelector('[data-savemirrors]').click()")
             assert browser.js("document.querySelectorAll('[data-mirrordel]').length===0 && document.querySelector('[data-savemirrors]').disabled")
+            browser.js("document.querySelector('[data-stab=network]').click()")
+            assert browser.js("document.getElementById('px-pool').value==='172.16.0.0/12'")
+            browser.js("{ const field=document.getElementById('px-pool'); field.value='8.8.0.0/16';"
+                       "field.dispatchEvent(new Event('input',{bubbles:true})); }")
+            assert browser.js("document.querySelector('[data-savepx]').disabled")
+            browser.js("{ const field=document.getElementById('px-pool'); field.value='10.200.0.0/16';"
+                       "field.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[data-savepx]').click(); }")
+            assert browser.js("ui.proxy.pool.pool==='10.200.0.0/16' && document.getElementById('px-pool').value==='10.200.0.0/16'")
+            browser.js("document.querySelector('[data-poolreset]').click(); document.querySelector('[data-savepx]').click()")
+            assert browser.js("ui.proxy.pool.pool==='172.16.0.0/12'")
             browser.js("prefs.tab='appearance'; show('settings')")
             browser.js("document.querySelector('[data-theme-pick=light]').click()")
             assert browser.js("getComputedStyle(document.documentElement).colorScheme === 'light'")

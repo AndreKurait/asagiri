@@ -32,7 +32,7 @@ t("the row shows the pool in a mono field after Pass to containers", () => {
 });
 t("the default that overlaps a VPN is amber and names it, with no reset link", () => {
   eq(hint().className, "pool-hint warn", "class");
-  if (!hint().textContent.includes("Clashes with VPN (utun4), 172.20.0.0/16: containers on a network there can't reach it.")) throw new Error(hint().textContent);
+  if (!hint().textContent.includes("Overlaps VPN (utun4), 172.20.0.0/16: Asagiri leaves those addresses out of new networks.")) throw new Error(hint().textContent);
   if (hint().querySelector("[data-poolreset]")) throw new Error("reset link on the default");
   if (save().disabled) throw new Error("Save blocked on amber");
 });
@@ -51,7 +51,7 @@ t("a free range is green, with the room it has and a reset link", () => {
 t("a range over Wi-Fi is amber", () => {
   put("192.168.0.0/16");
   eq(hint().className, "pool-hint warn", "class");
-  if (!hint().textContent.includes("Clashes with Wi-Fi (en0), 192.168.1.0/24")) throw new Error(hint().textContent);
+  if (!hint().textContent.includes("Overlaps Wi-Fi (en0), 192.168.1.0/24")) throw new Error(hint().textContent);
 });
 t("a range Asagiri can't use is red and blocks Save", () => {
   for (const bad of ["10.200.0.0", "10.200.0.0/25", "10.0.0.0/7", "300.1.0.0/16", "nonsense"]) {

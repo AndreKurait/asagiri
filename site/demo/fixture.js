@@ -44,6 +44,13 @@ const demoNetworks = ["morning_default", "jobs_default", "bridge"].map((Name, i)
 }));
 const demoLists = () => asagiri.on({ type: "lists", containers: demoContainers, images: demoImages, volumes: demoVolumes, networks: demoNetworks });
 let demoMirrors = [];
+const demoProxy = {
+  type: "proxy",
+  settings: { mode: "system", http: "", https: "", no_proxy: "", containers: false },
+  effective: { http: null, https: null, no_proxy: [], pac: false },
+  pool: { pool: "172.16.0.0/12", default: "172.16.0.0/12", bridge: "172.22.0.0/16",
+    host: [{ name: "Wi-Fi (en0)", net: "192.168.1.0/24" }] },
+};
 function demoInspect(id) {
   const c = demoContainers.find((item) => item.Id === id);
   if (!c) return;
@@ -101,6 +108,20 @@ function demoCommand(message) {
   if (cmd === "buildwith") return asagiri.on({ type: "buildwith", with: "asagiri", engine: null,
     ask: false, taken: false, ready: true, builder: "asagiri-build", context: "asagiri" });
   if (cmd === "mirrors") return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+  if (cmd === "proxy") return asagiri.on(structuredClone(demoProxy));
+  if (cmd === "setproxy") {
+    const value = message.value || {};
+    if (typeof value.pool === "string" && poolCheck(value.pool, demoProxy.pool).cls === "err")
+      return toast("error", "Choose a valid private address range.");
+    for (const key of ["mode", "http", "https", "no_proxy", "containers"])
+      if (Object.hasOwn(value, key)) demoProxy.settings[key] = value[key];
+    if (typeof value.pool === "string") demoProxy.pool.pool = value.pool;
+    demoProxy.effective = demoProxy.settings.mode === "custom"
+      ? { http: demoProxy.settings.http || null, https: demoProxy.settings.https || null,
+        no_proxy: demoProxy.settings.no_proxy.split(",").map((s) => s.trim()).filter(Boolean), pac: false }
+      : { http: null, https: null, no_proxy: [], pac: false };
+    return asagiri.on(structuredClone(demoProxy));
+  }
   if (cmd === "setmirrors") {
     demoMirrors = Array.isArray(message.value?.mirrors) ? message.value.mirrors.filter((m) => typeof m === "string") : [];
     return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
@@ -109,7 +130,7 @@ function demoCommand(message) {
   if (["stop", "start"].includes(cmd)) return asagiri.on({ type: "state", state: cmd === "start" ? "running" : "stopped" });
   // Navigation, preferences and inspectors work normally. Native operations
   // outside this fixture get an explicit response instead of pretending to run.
-  if (!["stats", "stats-stop", "logs-stop", "fonts", "domains", "usage", "needs", "tools", "about", "proxy", "window", "focus", "ready", "updatecheck", "langwords"].includes(cmd))
+  if (!["stats", "stats-stop", "logs-stop", "fonts", "domains", "usage", "needs", "tools", "about", "window", "focus", "ready", "updatecheck", "langwords"].includes(cmd))
     toast("ok", "This is sample data. Build Asagiri to use this action with real containers.");
 }
 window.webkit = { messageHandlers: { asagiri: { postMessage: (raw) => {
