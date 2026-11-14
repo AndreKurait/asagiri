@@ -319,6 +319,46 @@ def check(path, binary):
             assert not other_tls.requests
             http_model.upload_location = None
 
+            # BuildKit has its own resolver and trust configuration. Exercise
+            # real FROM resolution through the Docker driver, including the
+            # client's registry credentials and a later trust revocation.
+            build_root = directory / "build"
+            build_root.mkdir()
+            docker_config = directory / "docker"
+            docker_config.mkdir(mode=0o700)
+            (docker_config / "config.json").write_text(json.dumps({
+                "auths": {plain: {"auth": base64.b64encode(("registry-test:" + token).encode()).decode()}},
+            }))
+            env = {**os.environ, "DOCKER_CONFIG": str(docker_config), "DOCKER_HOST": "unix://" + path,
+                   "BUILDX_BUILDER": "default", "DOCKER_BUILDKIT": "1"}
+            env.pop("DOCKER_CONTEXT", None)
+            env.pop("BUILDX_CONFIG", None)
+
+            def build(host, suffix, success=True):
+                tag = "registry-build-" + token + ":" + suffix
+                (build_root / "Dockerfile").write_text(
+                    f"FROM {host}/buildkit-{token}-{suffix}:latest\nLABEL asagiri.registry-test={suffix}\n")
+                result = subprocess.run([
+                    "docker", "--host", "unix://" + path, "--config", str(docker_config),
+                    "buildx", "build", "--builder", "default", "--pull", "--progress", "plain",
+                    "-t", tag, ".",
+                ], cwd=build_root, env=env, text=True, capture_output=True, timeout=300)
+                if success:
+                    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-12000:]
+                    owned_images.append(tag)
+                    built = json.loads(api("GET", "/images/" + quote(tag, safe="") + "/json"))
+                    assert built["Config"]["Labels"]["asagiri.registry-test"] == suffix, built
+                else:
+                    assert result.returncode != 0 and "certificate" in result.stderr.lower(), result.stderr[-12000:]
+                print("PASS BuildKit private registry " + suffix, flush=True)
+
+            config({"insecure-registries": [plain, parallel, tls]})
+            build(parallel, "http")
+            build(plain, "http-auth")
+            build(tls, "self-signed")
+            config({"insecure-registries": [plain, parallel]})
+            build(tls, "revoked-tls", False)
+
             cli = subprocess.run([binary, "config", "set", "-"], input=b'{"max-concurrent-downloads":2}',
                                  capture_output=True, check=True, timeout=10)
             assert json.loads(cli.stdout)["max-concurrent-downloads"] == 2
@@ -326,7 +366,7 @@ def check(path, binary):
             saved = json.loads((Path.home() / ".asagiri" / "daemon.json").read_text())
             assert saved == config(), "persisted configuration differs from active settings"
 
-        print("PASS daemon config: atomic patches, mirror compatibility, HTTP/TLS opt-in, scoped redirects/revocation, CIDRs, authenticated push, 1/3-worker limits, CLI and persistence", flush=True)
+        print("PASS daemon config: atomic patches, mirror compatibility, HTTP/TLS opt-in, scoped redirects/revocation, CIDRs, authenticated push, 1/3-worker limits, BuildKit HTTP/auth/TLS/revocation, CLI and persistence", flush=True)
     finally:
         # This never addresses resources outside this disposable engine.
         config(original)
