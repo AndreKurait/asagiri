@@ -95,6 +95,15 @@ The publisher verifies the complete asset set, checksums, update metadata, and
 GitHub upload digests before making the draft public. Rerunning a failed
 Release workflow preserves its version and retries publication automatically.
 
+Completed source workflows also trigger release recovery. If the CI gate timed
+out before the final source check passed, recovery retries that failed
+publication job using its existing package artifacts and version. It requires
+all exact-source checks to pass, all package jobs to have succeeded, and the
+only failed step to be the CI gate. It does not retry package or upload failures
+or canceled runs, and it allows at most three attempts per release run.
+The recovery job checks out the trusted workflow revision, executes no event
+artifacts, and can request Actions retries without repository write permission.
+
 Linux releases also install both RPM variants on Amazon Linux 2023, configure
 an ordinary user's engine access, run a real container, and remove the package.
 The release matrix exercises native x86_64 and aarch64 binaries. A second check

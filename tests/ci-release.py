@@ -82,7 +82,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.checked_runs(runs, COMMIT)[1], [])
         for field, value in [("head_sha", "b" * 40), ("event", "pull_request"),
                              ("head_branch", "feature"), ("conclusion", "failure"),
-                             ("conclusion", None)]:
+                             ("conclusion", None), ("status", "in_progress")]:
             changed = copy.deepcopy(runs)
             changed[0][field] = value
             with self.subTest(field=field, value=value):
@@ -118,16 +118,142 @@ class ReleaseTests(unittest.TestCase):
                 self.assertRaises(SystemExit):
             release.require_checks(REPO, COMMIT, 0)
 
+    def retry_event(self):
+        return {"action": "completed", "repository": {"full_name": REPO},
+                "workflow_run": {**self.checks()[0], "head_repository": {"full_name": REPO}}}
+
+    def release_run(self):
+        return {"id": 123, "name": "Release", "path": release.RELEASE_WORKFLOW,
+                "head_sha": COMMIT, "head_branch": "main", "head_repository": {"full_name": REPO},
+                "event": "push", "status": "completed", "conclusion": "failure", "run_attempt": 1}
+
+    def release_jobs(self):
+        return [{"name": "Linux packages (x86_64)", "status": "completed", "conclusion": "success"},
+                {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                 "steps": [{"name": release.CHECK_STEP, "conclusion": "failure"}]}]
+
+    def retry(self, runs=None, jobs=None, current=None, event=None):
+        """Replay delayed CI completion without contacting or mutating GitHub."""
+        runs = [*self.checks(), self.release_run()] if runs is None else runs
+        jobs = self.release_jobs() if jobs is None else jobs
+        current = self.release_run() if current is None else current
+        event = self.retry_event() if event is None else event
+
+        def api(repo, path):
+            self.assertEqual(repo, REPO)
+            if path == f"actions/runs?head_sha={COMMIT}&per_page=100&page=1":
+                return {"workflow_runs": runs}
+            if path == "actions/runs/123":
+                return current
+            if path == "actions/runs/123/jobs?filter=latest&per_page=100&page=1":
+                return {"jobs": jobs}
+            self.fail(f"Unexpected retry API request: {path}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "event.json"
+            path.write_text(json.dumps(event))
+            with patch.dict(release.os.environ, {"GITHUB_EVENT_NAME": "workflow_run",
+                                                 "GITHUB_EVENT_PATH": str(path)}), \
+                    patch.object(release, "api", side_effect=api), patch.object(release, "run") as run:
+                release.retry(SimpleNamespace(repo=REPO))
+        return run
+
+    def test_delayed_success_resumes_only_failed_publication_and_keeps_the_release_run(self):
+        for event in (self.retry_event(), {**self.retry_event(), "workflow_run": self.release_run()}):
+            with self.subTest(trigger=event["workflow_run"]["name"]):
+                run = self.retry(event=event)
+                self.assertEqual(run.call_args_list[0].args,
+                                 ("git", "merge-base", "--is-ancestor", COMMIT, "origin/main"))
+                run.assert_called_with("gh", "api", "--method", "POST",
+                                       f"repos/{REPO}/actions/runs/123/rerun-failed-jobs")
+                self.assertEqual(run.call_count, 2)
+
+    def test_recovery_waits_for_all_checks_and_rejects_newer_failures(self):
+        for runs in ([self.release_run()], [*self.checks(), self.release_run(),
+                     {**self.checks()[0], "id": 200, "conclusion": "failure"}]):
+            with self.subTest(runs=runs):
+                self.assertEqual(self.retry(runs=runs).call_count, 1)
+
+    def test_recovery_does_not_retry_build_upload_or_cancelled_failures(self):
+        variants = []
+        for field, value in (("conclusion", "failure"), ("status", "queued")):
+            jobs = self.release_jobs()
+            jobs[0][field] = value
+            variants.append(jobs)
+        for step in ("Attest the release artifacts", "Upload, verify every GitHub digest, then publish"):
+            jobs = self.release_jobs()
+            jobs[1]["steps"][0]["name"] = step
+            variants.append(jobs)
+        jobs = self.release_jobs()
+        jobs[1]["conclusion"] = "cancelled"
+        variants.append(jobs)
+        variants += [[], self.release_jobs()[1:]]
+        for jobs in variants:
+            with self.subTest(jobs=jobs):
+                self.assertEqual(self.retry(jobs=jobs).call_count, 1)
+
+    def test_active_retries_and_attempt_limit_prevent_duplicate_or_endless_runs(self):
+        for current in ({**self.release_run(), "status": "in_progress", "conclusion": None},
+                        {**self.release_run(), "run_attempt": release.MAX_RELEASE_ATTEMPTS}):
+            with self.subTest(current=current):
+                self.assertEqual(self.retry(current=current).call_count, 1)
+
+    def test_untrusted_completion_events_and_release_candidates_cannot_retry(self):
+        for field, value in (("head_repository", {"full_name": "fork/asagiri"}),
+                             ("event", "pull_request"), ("head_branch", "feature"),
+                             ("head_sha", "invalid"), ("conclusion", "failure")):
+            event = self.retry_event()
+            event["workflow_run"][field] = value
+            with self.subTest(event_field=field), self.assertRaises(SystemExit):
+                self.retry(event=event)
+        for field, value in (("head_repository", {"full_name": "fork/asagiri"}),
+                             ("event", "pull_request"), ("head_branch", "feature"),
+                             ("head_sha", "b" * 40), ("path", ".github/workflows/other.yml"),
+                             ("conclusion", "cancelled"), ("conclusion", "success")):
+            candidate = {**self.release_run(), field: value}
+            with self.subTest(candidate_field=field, value=value):
+                self.assertEqual(self.retry(runs=[*self.checks(), candidate]).call_count, 1)
+        event = self.retry_event()
+        event["action"] = "requested"
+        with self.assertRaises(SystemExit):
+            self.retry(event=event)
+
+    def test_stable_release_retry_requires_a_valid_tag_and_main_checks(self):
+        candidate = {**self.release_run(), "head_branch": "v0.1.1"}
+        event = {**self.retry_event(), "workflow_run": candidate}
+        self.assertEqual(self.retry(runs=[*self.checks(), candidate], event=event).call_count, 2)
+        for branch in ("v01.1.1", "v0.1.1-dev.3", "feature"):
+            event["workflow_run"] = {**candidate, "head_branch": branch}
+            with self.subTest(branch=branch), self.assertRaises(SystemExit):
+                self.retry(event=event)
+
+    def test_check_pagination_does_not_hide_earlier_required_workflows(self):
+        with patch.object(release, "api", side_effect=[
+                {"workflow_runs": [self.release_run()] * 100},
+                {"workflow_runs": self.checks()}]) as api:
+            release.require_checks(REPO, COMMIT, 0)
+        self.assertEqual(api.call_count, 2)
+        self.assertIn("page=2", api.call_args.args[1])
+
     def test_provenance_distinguishes_source_from_a_newer_workflow(self):
         env = {"GITHUB_WORKFLOW_SHA": "b" * 40,
                "GITHUB_WORKFLOW_REF": REPO + "/.github/workflows/release.yml@refs/heads/main",
                "GITHUB_SERVER_URL": "https://github.com", "GITHUB_REF": "refs/heads/main",
-               "GITHUB_EVENT_NAME": "workflow_run", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}
+               "GITHUB_EVENT_NAME": "workflow_run", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
+               "GITHUB_REPOSITORY_ID": "456", "GITHUB_REPOSITORY_OWNER_ID": "789",
+               "RUNNER_ENVIRONMENT": "github-hosted"}
         predicate = release.provenance(REPO, COMMIT, "0.1.0-dev.12", env)
         dependencies = predicate["buildDefinition"]["resolvedDependencies"]
         self.assertEqual(dependencies[0]["digest"]["gitCommit"], COMMIT)
         self.assertEqual(dependencies[1]["digest"]["gitCommit"], "b" * 40)
         self.assertEqual(predicate["buildDefinition"]["externalParameters"]["source"]["commit"], COMMIT)
+        self.assertEqual(predicate["buildDefinition"]["internalParameters"]["github"], {
+            "event_name": "workflow_run", "repository_id": "456", "repository_owner_id": "789",
+            "runner_environment": "github-hosted"})
+        for field in ("GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "RUNNER_ENVIRONMENT"):
+            for value in ("", "untrusted"):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    release.provenance(REPO, COMMIT, "0.1.0-dev.12", {**env, field: value})
 
     def publication(self, root, *, existing=False, corruption=None):
         """Model GitHub's draft lifecycle: the tag endpoint sees only published releases."""

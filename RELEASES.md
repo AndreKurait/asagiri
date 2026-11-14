@@ -18,6 +18,15 @@ CI; the final publication job checks CI for that exact source commit. Rerunning
 a failed workflow preserves its version and skips an already published release.
 `workflow_dispatch` on main can start a new release attempt.
 
+If packaging finishes before a source check leaves the runner queue, the
+publication gate can time out. The Resume release publication workflow responds
+to completed source checks and failed Release runs. Once every required check
+passes for that source, it retries only a publication job that failed at the CI
+gate. Successful packages and the original version are retained. Recovery runs
+from the trusted default branch, requires the source in main's history, and
+stops after three release attempts. Package, integrity, upload, and canceled
+failures require investigation rather than an automatic retry.
+
 The pipeline builds Linux packages and static engines on native x86_64 and
 arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
 x86_64 and arm64 installers and ZIP bundles. It runs release-version unit
@@ -36,6 +45,8 @@ Published releases and assets are never overwritten. Prereleases do not
 replace the stable release selected by GitHub's `latest` link.
 The SLSA provenance records both the package source commit and the workflow
 commit, including when main advances while an earlier checked build is packaging.
+It also records GitHub's repository and owner IDs and requires a GitHub-hosted
+runner, as required by GitHub's workflow provenance format.
 
 ## Stable releases
 

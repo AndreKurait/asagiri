@@ -13,6 +13,10 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED = {"Platform builds", "UI tests", "Security", "Speed", "CodeQL"}
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-dev\.[1-9]\d*)?")
+RELEASE_WORKFLOW = ".github/workflows/release.yml"
+PUBLISH_JOB = "Verify uploads and publish"
+CHECK_STEP = "Require successful CI for this exact source commit"
+MAX_RELEASE_ATTEMPTS = 3
 
 
 def run(*args, check=True):
@@ -23,15 +27,106 @@ def api(repo, path):
     return json.loads(run("gh", "api", f"repos/{repo}/{path}").stdout)
 
 
+def pages(repo, path, key):
+    """Read every page so repeated CI runs cannot hide a source check."""
+    result = []
+    separator = "&" if "?" in path else "?"
+    page = 1
+    while True:
+        items = api(repo, f"{path}{separator}per_page=100&page={page}")[key]
+        result.extend(items)
+        if len(items) < 100:
+            return result
+        page += 1
+
+
 def checked_runs(runs, commit):
     latest = {}
     for item in sorted(runs, key=lambda item: item["id"], reverse=True):
         if (item["head_sha"] == commit and item["head_branch"] == "main"
                 and item["event"] in ("push", "workflow_dispatch") and item["name"] in REQUIRED):
             latest.setdefault(item["name"], item)
-    missing = sorted(name for name in REQUIRED
-                     if name not in latest or latest[name]["conclusion"] != "success")
+    missing = sorted(name for name in REQUIRED if name not in latest
+                     or latest[name]["status"] != "completed"
+                     or latest[name]["conclusion"] != "success")
     return latest, missing
+
+
+def retry_source(event, repo):
+    """Only a completed source check or failed official release can request a retry."""
+    trigger = event.get("workflow_run", {})
+    if (event.get("action") != "completed"
+            or event.get("repository", {}).get("full_name") != repo
+            or trigger.get("head_repository", {}).get("full_name") != repo
+            or trigger.get("status") != "completed"
+            or trigger.get("event") not in ("push", "workflow_dispatch")):
+        raise SystemExit("Release retries require a completed same-repository workflow")
+    branch = trigger.get("head_branch", "")
+    if trigger.get("name") in REQUIRED:
+        allowed = branch == "main" and trigger.get("conclusion") == "success"
+    else:
+        allowed = (trigger.get("name") == "Release" and trigger.get("path") == RELEASE_WORKFLOW
+                   and trigger.get("conclusion") == "failure"
+                   and (branch == "main" or (trigger["event"] == "push"
+                        and re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", branch))))
+    commit = trigger.get("head_sha", "")
+    if not allowed or not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise SystemExit("This workflow cannot request a release retry")
+    return commit
+
+
+def gate_only_failure(jobs):
+    """Successful native packages may be reused only after a failed CI gate."""
+    publishers = [job for job in jobs if job["name"] == PUBLISH_JOB]
+    if len(publishers) != 1 or len(jobs) < 2:
+        return False
+    publisher = publishers[0]
+    if (publisher["status"] != "completed" or publisher["conclusion"] != "failure"
+            or any(job["status"] != "completed" or job["conclusion"] != "success"
+                   for job in jobs if job is not publisher)):
+        return False
+    failures = [step["name"] for step in publisher["steps"] if step["conclusion"] == "failure"]
+    return failures == [CHECK_STEP]
+
+
+def retry(args):
+    if os.environ.get("GITHUB_EVENT_NAME") != "workflow_run":
+        raise SystemExit("Release retries require a workflow completion event")
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    commit = retry_source(event, args.repo)
+    # This checkout is the trusted workflow revision, never the event's source.
+    # Fetch-depth: 0 gives us main's history, including earlier tagged sources.
+    run("git", "merge-base", "--is-ancestor", commit, "origin/main")
+    runs = pages(args.repo, f"actions/runs?head_sha={commit}", "workflow_runs")
+    _, missing = checked_runs(runs, commit)
+    if missing:
+        print("No release retry: source checks are incomplete: " + ", ".join(missing))
+        return
+    for candidate in runs:
+        branch = candidate.get("head_branch", "")
+        if (candidate.get("name") != "Release" or candidate.get("path") != RELEASE_WORKFLOW
+                or candidate.get("head_sha") != commit
+                or candidate.get("head_repository", {}).get("full_name") != args.repo
+                or candidate.get("event") not in ("push", "workflow_dispatch")
+                or not (branch == "main" or (candidate["event"] == "push"
+                    and re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", branch)))
+                or candidate.get("status") != "completed" or candidate.get("conclusion") != "failure"):
+            continue
+        run_id = candidate["id"]
+        if type(run_id) is not int or run_id <= 0:
+            raise SystemExit("Invalid release run ID")
+        # Re-read after the list request: a manual retry might already be running.
+        current = api(args.repo, f"actions/runs/{run_id}")
+        if (current["status"] != "completed" or current["conclusion"] != "failure"
+                or current["run_attempt"] >= MAX_RELEASE_ATTEMPTS):
+            continue
+        jobs = pages(args.repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
+        if not gate_only_failure(jobs):
+            continue
+        run("gh", "api", "--method", "POST",
+            f"repos/{args.repo}/actions/runs/{run_id}/rerun-failed-jobs")
+        print(f"Resumed release run {run_id} for {commit}; successful packages and version retained",
+              flush=True)
 
 
 def emit(**outputs):
@@ -61,7 +156,7 @@ def require_checks(repo, commit, wait):
         raise SystemExit("Invalid source commit")
     deadline = time.monotonic() + wait
     while True:
-        runs = api(repo, f"actions/runs?head_sha={commit}&per_page=100")["workflow_runs"]
+        runs = pages(repo, f"actions/runs?head_sha={commit}", "workflow_runs")
         checked, missing = checked_runs(runs, commit)
         if not missing:
             print(f"All release checks passed for {commit}", flush=True)
@@ -166,6 +261,13 @@ def provenance(repo, commit, version, env):
         raise ValueError("Invalid build workflow commit")
     if not workflow_ref.startswith(repo + "/.github/workflows/"):
         raise ValueError("Build workflow belongs to a different repository")
+    repository_id = env.get("GITHUB_REPOSITORY_ID", "")
+    owner_id = env.get("GITHUB_REPOSITORY_OWNER_ID", "")
+    runner = env.get("RUNNER_ENVIRONMENT", "")
+    if not all(re.fullmatch(r"[1-9]\d*", value) for value in (repository_id, owner_id)):
+        raise ValueError("GitHub provenance requires repository and owner IDs")
+    if runner != "github-hosted":
+        raise ValueError("Release provenance requires a GitHub-hosted runner")
     return {
         "buildDefinition": {
             "buildType": "https://actions.github.io/buildtypes/workflow/v1",
@@ -174,7 +276,13 @@ def provenance(repo, commit, version, env):
                              "path": workflow_ref.split("@")[0].removeprefix(repo + "/")},
                 "source": {"commit": commit, "version": version},
             },
-            "internalParameters": {"github": {"event_name": env["GITHUB_EVENT_NAME"]}},
+            # GitHub's SLSA build type requires these identity fields even for
+            # a custom predicate. Omitting them makes attestation persistence fail.
+            "internalParameters": {
+                "github": {"event_name": env["GITHUB_EVENT_NAME"],
+                           "repository_id": repository_id, "repository_owner_id": owner_id,
+                           "runner_environment": runner},
+            },
             "resolvedDependencies": [
                 {"uri": f"git+{server}/{repo}@{commit}", "digest": {"gitCommit": commit},
                  "annotations": {"role": "package source"}},
@@ -302,6 +410,7 @@ def main():
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "AndreKurait/asagiri"))
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("plan")
+    commands.add_parser("retry")
     checks = commands.add_parser("checks")
     checks.add_argument("commit")
     checks.add_argument("--wait", type=int, default=2700)
@@ -317,6 +426,8 @@ def main():
     args = parser.parse_args()
     if args.command == "plan":
         plan(args)
+    elif args.command == "retry":
+        retry(args)
     elif args.command == "checks":
         require_checks(args.repo, args.commit, args.wait)
     elif args.command == "stamp":
