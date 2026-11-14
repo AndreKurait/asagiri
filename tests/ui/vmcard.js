@@ -17,8 +17,17 @@ const wordWidth = (el) => { const r = document.createRange(); r.selectNodeConten
 const splitWords = (el) => {
   const out = [], t = el.firstChild;
   if (!t || t.nodeType !== 3) return out;
+  // Words are what's between spaces. Thai, Lao, Khmer and Burmese write no spaces between words,
+  // so there a line may break between two words: split those runs into words with Intl.Segmenter.
+  const noSpace = /[\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF]/;
+  const seg = new Intl.Segmenter(document.documentElement.lang || undefined, { granularity: "word" });
+  const words = [];
   const re = /[^ ]+/g; let m;
   while ((m = re.exec(t.data))) {
+    if (!noSpace.test(m[0])) { words.push(m); continue; }
+    for (const w of seg.segment(m[0])) if (w.isWordLike) { const x = [w.segment]; x.index = m.index + w.index; words.push(x); }
+  }
+  for (m of words) {
     const r = document.createRange(); r.setStart(t, m.index); r.setEnd(t, m.index + m[0].length);
     const tops = new Set([...r.getClientRects()].filter((b) => b.width > 0).map((b) => Math.round(b.top)));
     if (tops.size > 1) out.push(m[0]);

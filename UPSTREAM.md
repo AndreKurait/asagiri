@@ -7,8 +7,8 @@ The rename does not change the authorship of inherited code.
 Upstream `main` was fetched on **2026-11-14** at
 `baa2d41c1ce660b7ee255efc4fec156af42a715d`. Its complete history is merged,
 including the GitHub and ECR registry sign-in work after the initial integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **154** public PRs
-as of that review: 85 merged, 37 closed without merging, and 32 open. Every
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **155** public PRs
+as of that review: 85 merged, 40 closed without merging, and 30 open. Every
 merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
 port, equivalence, supersession, or hold recorded with its reviewed head.
 The [issue verification inventory](docs/issue-verification.md) maps all 75
@@ -137,6 +137,11 @@ passes 569 unit tests, the new power and executable regressions, three actual
 agent crashes, and stopped-daemon restart/cancellation checks. Pure Mac USB
 state and bind-path tests pass; native Mac VM, physical USB and Windows WSL
 execution remain separate validation work.
+
+Replacement #238 has the same VM-card runtime patch as #235. Its new
+word-boundary test uses `Intl.Segmenter` for Thai, Lao, Khmer and Burmese,
+where spaces do not reliably separate words. That test is ported; the closed
+#219, #220 and #235 source heads and their earlier ports remain in the audit.
 
 The changed #122 head is reviewed through `944e72a`: its rebased initial trim
 implementation is already inherited, and its new worker-process fix is ported.

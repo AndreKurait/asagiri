@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-14T21:01:33.177110+00:00",
+  "reviewed_at": "2026-11-14T21:16:41.043513+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
   "asagiri_runtime_revision": "44fab19064b0dee6dd9d948dafe2167fd3866540",
   "counts": {
-    "total": 154,
+    "total": 155,
     "merged": 85,
-    "closed_unmerged": 37,
-    "open": 32
+    "closed_unmerged": 40,
+    "open": 30
   },
   "pulls": [
     {
@@ -1931,7 +1931,7 @@
     {
       "number": 219,
       "title": "UI: First start — a searchable language list instead of the tile wall",
-      "state": "open",
+      "state": "closed",
       "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
       "merge": null,
       "head_in_history": false,
@@ -1941,12 +1941,12 @@
         "f3349628c05b3f38791aac65d14541436d059bde"
       ],
       "disposition": "ported",
-      "reason": "Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests."
+      "reason": "Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests. Upstream closed this PR in favor of #236; its integrated changes remain in Asagiri history."
     },
     {
       "number": 220,
       "title": "UI: Sidebar — Linux VM stays short in seven languages",
-      "state": "open",
+      "state": "closed",
       "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
       "merge": null,
       "head_in_history": false,
@@ -1955,7 +1955,7 @@
         "04e3123734fb9f35fdb1d341c2ae634cfc9a2beb"
       ],
       "disposition": "ported",
-      "reason": "Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings."
+      "reason": "Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history."
     },
     {
       "number": 221,
@@ -2026,7 +2026,7 @@
     {
       "number": 235,
       "title": "UI: Sidebar — the Linux VM card fits in every language",
-      "state": "open",
+      "state": "closed",
       "head": "95022ff7564ed8a5269f20e27476cf5daa08aeeb",
       "merge": null,
       "head_in_history": false,
@@ -2035,7 +2035,7 @@
         "989f8c6951a41acca5df8230495b91289d465d6d"
       ],
       "disposition": "ported-and-improved",
-      "reason": "VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics."
+      "reason": "VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history."
     },
     {
       "number": 236,
@@ -2050,6 +2050,20 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified."
+    },
+    {
+      "number": 238,
+      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "state": "open",
+      "head": "a8f7b53a3e4ce1119fcad53c44af6cf5a836e250",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "b8f26d3feeb4dad701d5af2d520d98e87c0df1ed"
+      ],
+      "disposition": "ported-and-equivalent",
+      "reason": "Replacement for #220/#235. The UI runtime diff is identical to #235 and already ported in 989f8c6, including Asagiri Windows memory safeguards. Ported the only new delta: Intl.Segmenter word boundaries for Thai, Lao, Khmer and Burmese in the VM-card regression, so legitimate word wrapping is accepted. Native platform limits remain unchanged."
     }
   ]
 }
