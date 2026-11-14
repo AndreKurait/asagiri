@@ -6,6 +6,7 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import ssl
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
@@ -26,19 +27,37 @@ class Assets(HTMLParser):
             self.urls.append(attrs["href"])
 
 
-def fetch(url):
-    request = Request(url, headers={"User-Agent": "asagiri-pages-verifier", "Cache-Control": "no-cache"})
-    with urlopen(request, timeout=30) as response:
-        if response.status != 200:
-            raise RuntimeError(f"{url}: HTTP {response.status}")
-        return response.read()
+def fetch(url, *, method="GET"):
+    if method not in ("GET", "HEAD"):
+        raise ValueError("Page verification only supports GET and HEAD")
+    for attempt in range(4):
+        request = Request(url, method=method, headers={
+            "User-Agent": "asagiri-pages-verifier", "Cache-Control": "no-cache",
+        })
+        try:
+            with urlopen(request, timeout=30) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"{url}: HTTP {response.status}")
+                return response.read() if method == "GET" else b""
+        except (URLError, TimeoutError, ConnectionError) as error:
+            delay = 2 ** (attempt + 1)
+            if isinstance(error, HTTPError):
+                error.close()
+                if error.code not in (408, 429, 500, 502, 503, 504):
+                    raise
+                retry_after = error.headers.get("Retry-After", "") if error.headers else ""
+                if re.fullmatch(r"[0-9]{1,6}", retry_after):
+                    delay = max(delay, min(int(retry_after), 30))
+            elif isinstance(error, URLError) and isinstance(error.reason, ssl.SSLCertVerificationError):
+                raise
+            if attempt == 3:
+                raise
+            print(f"{method} {url}: {error}; retrying in {delay}s", flush=True)
+            time.sleep(delay)
 
 
 def available(url):
-    request = Request(url, method="HEAD", headers={"User-Agent": "asagiri-pages-verifier"})
-    with urlopen(request, timeout=30) as response:
-        if response.status != 200:
-            raise RuntimeError(f"{url}: HTTP {response.status}")
+    fetch(url, method="HEAD")
 
 
 def verify_downloads(base):

@@ -21,6 +21,7 @@ on:
       - 'tests/ci-browser.py'
       - 'tests/performance-browser.py'
       - 'tests/ci-performance.py'
+      - 'tests/ci-pages.py'
       - 'scripts/ci/performance.py'
       - '.github/actions/browser/**'
       - '.github/workflows/site.yml'
@@ -66,6 +67,7 @@ jobs:
           python3 tests/ci-distribution.py
           python3 tests/installer.py
           python3 tests/ci-browser.py
+          python3 tests/ci-pages.py
       - run: python3 scripts/check-site.py
       - uses: ./.github/actions/browser # zizmor: ignore[self-repository] use the trusted exact-SHA checkout, consistent with the other local actions and our actionlint
         id: browser
