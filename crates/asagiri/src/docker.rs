@@ -33,12 +33,15 @@ pub fn run(args: &[String]) -> io::Result<()> {
     }
     let mut cmd = std::process::Command::new(docker);
     cmd.args(args).env("DOCKER_HOST", format!("unix://{}", socket.display())).env_remove("DOCKER_CONTEXT");
-    // With DOCKER_HOST and no context, buildx would pick the endpoint's own
-    // docker-driver builder, which needs BuildKit inside the engine: name
-    // Asagiri's, if buildx knows it (the window sets it up) and the person
-    // hasn't picked one.
-    if std::env::var_os("BUILDX_BUILDER").is_none() && buildx_knows(crate::builds::BUILDER.get()) {
-        cmd.env("BUILDX_BUILDER", crate::builds::BUILDER.get());
+    // DOCKER_HOST makes `default` the connected engine's Docker driver.
+    // A global builder selected for plain docker must not redirect
+    // `asagiri build`. Explicit BUILDX_BUILDER remains the user's choice.
+    if std::env::var_os("BUILDX_BUILDER").is_none() {
+        if crate::buildwith::places().is_ok_and(|p| p.builtin()) {
+            cmd.env("BUILDX_BUILDER", "default");
+        } else if buildx_knows(crate::builds::BUILDER.get()) {
+            cmd.env("BUILDX_BUILDER", crate::builds::BUILDER.get());
+        }
     }
     Err(cmd.exec())
 }
@@ -50,8 +53,11 @@ pub fn run(args: &[String]) -> io::Result<()> {
 #[cfg(windows)]
 pub fn run(args: &[String]) -> io::Result<()> {
     let beside = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join("docker.exe"))).filter(|d| d.is_file());
-    let status = std::process::Command::new(beside.unwrap_or_else(|| "docker.exe".into()))
-        .args(["--context", crate::flavor::CONTEXT.get()])
+    let mut command = std::process::Command::new(beside.unwrap_or_else(|| "docker.exe".into()));
+    if std::env::var_os("BUILDX_BUILDER").is_none() {
+        command.env("BUILDX_BUILDER", crate::flavor::CONTEXT.get());
+    }
+    let status = command.args(["--context", crate::flavor::CONTEXT.get()])
         .args(args)
         .env_remove("DOCKER_HOST")
         .env_remove("DOCKER_CONTEXT")

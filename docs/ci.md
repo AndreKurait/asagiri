@@ -37,6 +37,12 @@ Release jobs additionally cache their Debian, Ubuntu, Fedora, and Amazon Linux
 2023 images.
 Test engines, their data directories, and their pulled test images stay fresh.
 
+The Linux live suite also runs Docker's actual BuildKit driver through
+`/grpc` and `/session`: contexts, secrets, image loading, cache, file exports,
+concurrent Bake builds, host-gateway, cancellation and builder preference
+migration. These checks run for platform CI and both Linux release
+architectures. They do not establish native Mac VM or Windows WSL behavior.
+
 ### Cache service choice
 
 | Option | Fit for this repository |

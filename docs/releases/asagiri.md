@@ -1,5 +1,11 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The engine now serves Docker's built-in BuildKit driver. Builds can load
+images directly, receive contexts and secrets, reuse cache, export files,
+resolve `host-gateway`, and cancel without blocking the next build. Setup
+preserves existing builder choices and cache while enabling the native driver
+for `asagiri build`. The build-history view includes the managed backend once.
+
 An optional local browser interface shows real containers, images, volumes,
 networks and recent logs. Set a password with `asagiri web password`, enable
 access with `asagiri web enable`, then run `asagiri web`. It listens on

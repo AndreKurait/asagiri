@@ -46,8 +46,16 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// 10 separates process exits from filesystem-cleanup completion so stop
 /// remains prompt while same-container restarts wait for cleanup.
 /// 11 reports the file working set and refaults for pressure-aware ballooning.
+/// 12 adds the private, framed BuildKit Unix-socket relay.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 11;
+pub const PROTOCOL: u16 = 12;
+
+/// Host-only transport to the managed BuildKit service. Containers cannot
+/// create AF_VSOCK sockets, including privileged containers.
+pub const BUILDKIT_PORT: u32 = 1042;
+/// Shared only with the managed backend at /run/buildkit. This contains no
+/// engine API socket, host directory or other service's credentials.
+pub const BUILDKIT_SOCKET_VOLUME: &str = "asagiri-buildkit-socket";
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.

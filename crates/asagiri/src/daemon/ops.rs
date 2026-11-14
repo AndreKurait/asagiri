@@ -387,7 +387,7 @@ fn container_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let f = filters(req, &["until", "label", "label!"])?;
     let doomed = engine.each(|c| {
         let labels = if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) };
-        (c.status != Status::Running && f.labels(&labels) && until_ok(&f, c.created)).then(|| c.id.clone())
+        (!c.spec.engine_service && c.status != Status::Running && f.labels(&labels) && until_ok(&f, c.created)).then(|| c.id.clone())
     });
     let mut deleted = Vec::new();
     for id in doomed {
@@ -498,6 +498,7 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
         })
         .collect();
     let containers = engine.each(|c| {
+        if c.spec.engine_service { return None; }
         let rw = du.as_ref().and_then(|d| d.containers.get(&c.id).copied()).unwrap_or(0);
         let image = images.iter().find(|i| i.config_digest == c.spec.image_id).map_or(0, image_size);
         Some(json!({

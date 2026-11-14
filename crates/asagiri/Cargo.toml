@@ -27,7 +27,7 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 hyper = { version = "1.12", features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 http-body-util = "0.1.5"
-tokio = { version = "1.54", features = ["rt-multi-thread", "net", "time", "sync"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
 argon2 = { version = "0.6", features = ["zeroize"] }
 base64 = "0.23"
 rpassword = "7.5"
@@ -38,6 +38,9 @@ libc = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 asagiri-vmm = { path = "../asagiri-vmm" }
+# Docker's BuildKit driver uses HTTP/2 over the existing local engine socket.
+h2 = "0.4"
+bytes = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes"] }

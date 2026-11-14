@@ -144,7 +144,7 @@
     },
     {
       "number": 15,
-      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -264,7 +264,7 @@
     },
     {
       "number": 31,
-      "title": "UI: window — built-in terminal panel",
+      "title": "UI: window \u2014 built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -728,13 +728,15 @@
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
-      "ports": [],
-      "disposition": "held",
-      "reason": "The built-in gRPC builder is incomplete: missing accept-loop routing/local export support, unbounded request buffering, premature END_STREAM, no empty-body terminator, and ACTIVE counter leaks on error. Retain the tested docker-container Buildx driver."
+      "ports": [
+        "e7f6a7316ee9dd0fe8bb5ebedc7c3723395d2b31"
+      ],
+      "disposition": "superseded-by-implementation",
+      "reason": "Superseded by Asagiri's bounded HTTP/2 BuildKit bridge: Docker-driver control/session RPCs, streamed local image loading, context/secret forwarding, explicit outputs, cache, concurrent Bake, host-gateway and cancellation pass against a private Linux engine. Existing docker-container builders and cache remain supported. Native Mac VM and Windows WSL execution remain unverified."
     },
     {
       "number": 95,
-      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -928,7 +930,7 @@
     },
     {
       "number": 115,
-      "title": "UI: Settings → Domains — choose the ports container names answer on",
+      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -1602,7 +1604,7 @@
     },
     {
       "number": 179,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1614,7 +1616,7 @@
     },
     {
       "number": 180,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1638,7 +1640,7 @@
     },
     {
       "number": 182,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -1741,7 +1743,7 @@
           "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
         }
       ],
-      "title": "UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page",
+      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
       "state": "merged",
       "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
       "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
@@ -1787,7 +1789,7 @@
     },
     {
       "number": 197,
-      "title": "UI: Linux VM card — show the engine's real state after any Start or Stop",
+      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
       "state": "merged",
       "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
       "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
@@ -1801,7 +1803,7 @@
     },
     {
       "number": 198,
-      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an…",
+      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
       "state": "open",
       "head": "d2bc825e00c661662cad0c44f70486ce98f31193",
       "merge": null,
@@ -1815,7 +1817,7 @@
     },
     {
       "number": 200,
-      "title": "UI: Settings → Appearance — 21 more languages, 37 in all",
+      "title": "UI: Settings \u2192 Appearance \u2014 21 more languages, 37 in all",
       "state": "merged",
       "head": "8f2507f1d6367928251d766358d159f9305addb9",
       "merge": "def2b5be30b4ea3849298d0ffa5f016483d47ff5",
@@ -1830,7 +1832,7 @@
     },
     {
       "number": 205,
-      "title": "UI: Settings → Appearance — Amharic, Kiri's first Ethiopian language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Amharic, Kiri's first Ethiopian language",
       "state": "merged",
       "head": "9cd28afe685747ec2286a6c1780b52d6abe5442b",
       "merge": "99b63c07fc003d3dcd8e03c76891ba747b5c984f",
@@ -1906,7 +1908,7 @@
     },
     {
       "number": 217,
-      "title": "Settings › Network: Container addresses",
+      "title": "Settings \u203a Network: Container addresses",
       "state": "open",
       "head": "9fa8ca02a719c02d2cf8e006b74f0f362a59e00a",
       "merge": null,
@@ -1923,7 +1925,7 @@
     },
     {
       "number": 219,
-      "title": "UI: First start — a searchable language list instead of the tile wall",
+      "title": "UI: First start \u2014 a searchable language list instead of the tile wall",
       "state": "open",
       "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
       "merge": null,
@@ -1938,7 +1940,7 @@
     },
     {
       "number": 220,
-      "title": "UI: Sidebar — Linux VM stays short in seven languages",
+      "title": "UI: Sidebar \u2014 Linux VM stays short in seven languages",
       "state": "open",
       "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
       "merge": null,

@@ -35,8 +35,8 @@ pub const IMAGE: &str = "moby/buildkit:buildx-stable-1";
 /// 0.2x), pinned so every Asagiri builds with the same BuildKit. Stored under
 /// [`IMAGE`]. Moving the pin changes nothing for an image already pulled.
 const PINNED: &str = "moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea";
-/// Marks the container as Asagiri's builder. It stays in `docker ps`, as
-/// buildx's does on any engine.
+/// Marks the managed backend. Its record stays inspectable by its existing
+/// Buildx name, but it is not listed or pruned as a user's container.
 const LABEL: &str = "dev.asagiri.builder";
 /// Per build: the context and registry logins, in the builder's own /tmp.
 const WORK: &str = "/tmp/asagiri-build";
@@ -202,7 +202,10 @@ fn create_body() -> Value {
         "HostConfig": {
             "Privileged": true,
             "CgroupParent": "/docker/buildx",
-            "Mounts": [{"Type": "volume", "Source": volume_name(), "Target": "/var/lib/buildkit"}],
+            "Mounts": [
+                {"Type": "volume", "Source": volume_name(), "Target": "/var/lib/buildkit"},
+                {"Type": "volume", "Source": asagiri_proto::BUILDKIT_SOCKET_VOLUME, "Target": "/run/buildkit"},
+            ],
             "RestartPolicy": {"Name": "no"},
         },
     })
@@ -212,7 +215,7 @@ fn create(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, Error> {
     ensure_image(engine, say)?;
     let name = container_name();
     let req = Request::internal("POST", "/containers/create", &[("name", &name)], create_body().to_string().into_bytes());
-    let made = api::create(&req, engine)?;
+    let made = api::create_service(&req, engine)?;
     crate::diag::info!("builder created", name = name);
     let id = made["Id"].as_str().unwrap_or_default().to_owned();
     // Before its first start, whoever starts it (buildx, for one).
@@ -394,10 +397,10 @@ pub fn watch(engine: Arc<Engine>) {
 }
 
 /// A build in progress, for the idle watch.
-struct Busy;
+pub(super) struct Busy;
 
 impl Busy {
-    fn new() -> Busy {
+    pub(super) fn new() -> Busy {
         BUILDS.fetch_add(1, Ordering::Relaxed);
         Busy
     }
@@ -408,6 +411,34 @@ impl Drop for Busy {
         LAST_USE.store(now_secs(), Ordering::Relaxed);
         BUILDS.fetch_sub(1, Ordering::Relaxed);
     }
+}
+
+/// Docker's built-in driver and the existing docker-container builder share
+/// one backend and cache. Old backends need the new private socket mount;
+/// replace only their disposable record, and only between builds.
+pub(super) fn connection(engine: &Engine) -> Result<(asagiri_vmm::VsockStream, Busy), Error> {
+    {
+        let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((id, status)) = find(engine) {
+            let current = engine.with(&id, |c| c.spec.engine_service && c.spec.mount_info.iter()
+                .any(|m| m["Destination"] == "/run/buildkit" && m["Name"] == asagiri_proto::BUILDKIT_SOCKET_VOLUME))?;
+            if !current {
+                if BUILDS.load(Ordering::Relaxed) != 0 || engine.running_execs(&id) != 0 {
+                    return Err(Error::Conflict("Finish the active build before upgrading the managed BuildKit connection".into()));
+                }
+                if status == Status::Running {
+                    if engine.is_paused(&id) { engine.pause(&id, false)?; }
+                    engine.stop(&id, Duration::from_secs(10))?;
+                }
+                // Both the cache and socket are named volumes, retained.
+                engine.remove(&id, false, false)?;
+            }
+        }
+    }
+    let busy = Busy::new();
+    ensure_running(engine, &mut |_| {})?;
+    let stream = engine.vm()?.connect(asagiri_proto::BUILDKIT_PORT)?;
+    Ok((stream, busy))
 }
 
 // --- In and out of the container -------------------------------------------

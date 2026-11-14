@@ -118,11 +118,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
     let m = req.method.as_str();
     match (m, p) {
         ("GET" | "HEAD", "/_ping") => {
-            // Builder-Version 1: the classic POST /build, which Asagiri serves
-            // with its managed BuildKit (builder.rs). "2" would tell older
-            // CLIs and Compose to use BuildKit inside the engine (/session,
-            // /grpc), which Asagiri doesn't have.
-            http::respond_with(w, 200, "text/plain; charset=utf-8", "Builder-Version: 1\r\n", if m == "HEAD" { b"" } else { b"OK" })?;
+            http::respond_with(w, 200, "text/plain; charset=utf-8", "Builder-Version: 2\r\n", if m == "HEAD" { b"" } else { b"OK" })?;
             return Ok(Next::KeepAlive);
         }
         ("GET", "/version") => return reply(w, Ok(version()), 200),
@@ -203,6 +199,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
             return Ok(Next::KeepAlive);
         }
         ("GET", "/info") => return reply(w, Ok(info(engine)), 200),
+        ("POST", "/grpc" | "/session") => return super::buildkit::upgrade(req, engine, w, r),
         ("POST", "/build") => return super::builder::build(req, engine, w, r),
         ("POST", "/build/cancel") => return reply(w, super::builder::cancel(req, engine), 200),
         ("POST", "/build/prune") => return reply(w, super::builder::prune(req, engine), 200),
@@ -429,7 +426,7 @@ fn version() -> Value {
 }
 
 fn info(engine: &Engine) -> Value {
-    let states = engine.each(|c| Some(c.status));
+    let states = engine.each(|c| (!c.spec.engine_service).then_some(c.status));
     let running = states.iter().filter(|s| **s == Status::Running).count();
     let images = engine.store.images().map(|v| v.len()).unwrap_or(0);
     let (memory_ceiling, memory_target) = engine.memory();
@@ -462,9 +459,7 @@ fn info(engine: &Engine) -> Value {
         "DefaultRuntime": "asagiri",
         "Runtimes": {"asagiri": {"path": "asagiri-init"}},
         "SecurityOptions": ["name=cgroupns"],
-        // Not in Docker's /info (the ping's Builder-Version header is), but
-        // tools print it: the classic builder API, served by builder.rs.
-        "BuilderVersion": "1",
+        "BuilderVersion": "2",
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
         "AsagiriVmAwake": engine.is_awake(),
         "AsagiriStopped": engine.is_stopped(),
@@ -1819,6 +1814,14 @@ pub(super) fn validate_isolation(host: &Value) -> Result<(), Error> {
 }
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
+    create_with_kind(req, engine, false)
+}
+
+pub(super) fn create_service(req: &Request, engine: &Engine) -> Result<Value, Error> {
+    create_with_kind(req, engine, true)
+}
+
+fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let image_name = body["Image"].as_str().unwrap_or_default();
     if image_name.is_empty() {
@@ -1953,6 +1956,7 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         _ => fallback.to_owned(),
     };
     let spec = Spec {
+        engine_service,
         image: image_name.to_owned(),
         image_id: image.config_digest.clone(),
         entrypoint,
@@ -2287,7 +2291,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let all = req.flag("all") || f.values("status").is_some() || f.values("exited").is_some();
     let networks: Vec<super::network::Network> = engine.lock_net().all().to_vec();
     let mut rows = engine.each(|c| {
-        if !all && c.status != Status::Running {
+        if c.spec.engine_service || (!all && c.status != Status::Running) {
             return None;
         }
         let labels = if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) };

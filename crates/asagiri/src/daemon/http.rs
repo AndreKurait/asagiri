@@ -104,6 +104,10 @@ impl Request {
         self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.as_str())
     }
 
+    pub(super) fn all_headers(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.headers.iter().map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+
     /// The client asked to close the connection after this response
     /// (`Connection: close`), as Docker.DotNet does on every request. Docker
     /// closes then; a client that reads a 204 to the end of the stream waits

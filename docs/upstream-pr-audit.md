@@ -41,13 +41,12 @@ unmerged work.
 ## Deliberate exclusions
 
 
-#89 still needs a complete BuildKit bridge. `session` increments `ACTIVE` before
-fallible operations but decrements it only on success. `capture` buffers an entire
-request before forwarding it, preventing bidirectional streaming. `send_all`
-closes the stream for each response chunk and emits nothing for an empty body,
-which also breaks trailers. The public diff does not connect the new server to
-the socket accept loop and has no complete local-export path. The working
-`docker-container` Buildx driver stays in use.
+#89's incomplete prototype is superseded by Asagiri's tested
+[BuildKit bridge](buildkit.md). The implementation handles Docker's HTTP
+upgrades, bounded bidirectional sessions, local image loading, explicit exports
+and cancellation. Private Linux Docker/Buildx tests pass; native Mac VM and
+Windows WSL execution remain unverified. The prototype's unbounded buffering
+and incomplete stream termination are not adopted.
 
 #55's image metadata fix is already covered by Asagiri's full-config inspect.
 Its UI prototype forces an extra dialog on every run, guesses one exposed port,
@@ -122,7 +121,7 @@ Runtime validation limits remain those in UPSTREAM.md.
 | [#84](https://github.com/libracoder/kiri/pull/84) — Images: Confluent and Temporal images show their logos | merged | `25a6bac1048f` | **inherited** — Merged upstream commit b6b3044437e1 is an ancestor of Asagiri. |
 | [#86](https://github.com/libracoder/kiri/pull/86) — feat(ui): add English and Simplified Chinese | closed | `3d7510ee8e3b` | **superseded** — English/Chinese prototype superseded by merged #95 multilingual UI. |
 | [#87](https://github.com/libracoder/kiri/pull/87) — Docs: Linux engine start, the docker.sock link and IPv6 networks | merged | `5e6ee6af9932` | **inherited** — Merged upstream commit a705eb16a643 is an ancestor of Asagiri. |
-| [#89](https://github.com/libracoder/kiri/pull/89) — Built-in builder: relay buildx's gRPC to buildkitd in the guest | open | `2dd9bde86300` | **held** — The built-in gRPC builder is incomplete: missing accept-loop routing/local export support, unbounded request buffering, premature END_STREAM, no empty-body terminator, and ACTIVE counter leaks on error. Retain the tested docker-container Buildx driver. |
+| [#89](https://github.com/libracoder/kiri/pull/89) — Built-in builder: relay buildx's gRPC to buildkitd in the guest | open | `2dd9bde86300` | **superseded-by-implementation** — Superseded by Asagiri's bounded HTTP/2 BuildKit bridge: Docker-driver control/session RPCs, streamed local image loading, context/secret forwarding, explicit outputs, cache, concurrent Bake, host-gateway and cancellation pass against a private Linux engine. Existing docker-container builders and cache remain supported. Native Mac VM and Windows WSL execution remain unverified. |
 | [#95](https://github.com/libracoder/kiri/pull/95) — UI: Settings → Appearance — Language, in 15 languages, chosen on first start | merged | `94b229d08316` | **inherited** — Merged upstream commit 0b518b898cbc is an ancestor of Asagiri. |
 | [#96](https://github.com/libracoder/kiri/pull/96) — USB passthrough (beta): USB devices in containers on macOS, Windows and Linux | merged | `8f5ff75741dd` | **inherited** — Merged upstream commit f28d227d709f is an ancestor of Asagiri. |
 | [#100](https://github.com/libracoder/kiri/pull/100) — Docs: README, features and development in Brazilian Portuguese | open | `c49e68005bbb` | **inherited-and-ported** — The two rebased translation commits are byte-identical in their three documentation files to the earlier inherited head. Ported the new signed c49e680 follow-up: language/Arabic guidance, real Portuguese UI labels, and existing kernel patch descriptions. Preserved Asagiri branding and accurate release limitations. |

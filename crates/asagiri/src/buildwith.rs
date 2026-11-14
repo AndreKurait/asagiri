@@ -11,12 +11,12 @@
 //! in which case buildx takes its current builder (`~/.docker/buildx/current`).
 //! Compose and `docker buildx build` take buildx's current builder.
 //!
-//! - Always: a buildx builder named after Asagiri's context (`asagiri`), a copy
-//!   of Asagiri's builder (`asagiri-build`: the same BuildKit and cache). A
-//!   builder in buildx's store wins over the context of the same name, so
-//!   `docker --context asagiri build` builds on Asagiri and loads into Asagiri,
-//!   where buildx would otherwise ask the engine for a BuildKit of its own,
-//!   which Asagiri doesn't have. No other context is touched.
+//! - The Asagiri context uses the engine's built-in BuildKit API. Older
+//!   engines used a copy of `asagiri-build` named after the context. Only
+//!   an exact copy made by Asagiri is removed when that API becomes available.
+//!   The explicit docker-container builder stays: buildx supports a global
+//!   selection across contexts only for an instance, not a context's implicit
+//!   Docker driver. Both use the same managed BuildKit and cache.
 //! - Build with Docker: nothing more. Builds follow docker's context, as
 //!   they did before Asagiri: OrbStack's builds stay OrbStack's, and once
 //!   docker uses Asagiri, builds run on Asagiri.
@@ -135,6 +135,21 @@ impl Places {
         self.instance(&self.builder).is_file()
     }
 
+    /// Setup verified the engine's BuildKit API, and no user-defined
+    /// instance shadows its context. Does not contact or wake the engine.
+    pub fn builtin(&self) -> bool {
+        self.state()["builtin"] == true && !self.instance(&self.context).exists()
+    }
+
+    /// Remember the API capability found by setup. Existing explicit global
+    /// selections and the original restore snapshot remain unchanged.
+    pub fn set_builtin(&self, enabled: bool) -> io::Result<()> {
+        let mut s = self.state();
+        s["builtin"] = enabled.into();
+        write_json(&self.state, &s)?;
+        self.shadow()
+    }
+
     /// Whether `docker build` goes to Asagiri's builder in every context now.
     pub fn taken(&self) -> bool {
         let cfg = read_json(&self.config()).unwrap_or_default();
@@ -146,13 +161,19 @@ impl Places {
     /// name. Left alone if one of that name is there that isn't a copy of
     /// Asagiri's.
     fn shadow(&self) -> io::Result<()> {
+        let path = self.instance(&self.context);
+        let theirs = read_json(&path)?;
+        if self.state()["builtin"] == true {
+            if self.copied(&theirs) {
+                std::fs::remove_file(path)?;
+            }
+            return Ok(());
+        }
         let ours = read_json(&self.instance(&self.builder))?;
         if ours.get("Name").is_none() {
             return Ok(()); // Not made yet.
         }
-        let path = self.instance(&self.context);
-        let theirs = read_json(&path)?;
-        if theirs.get("Name").is_some() && !self.copied(&theirs) {
+        if path.exists() && !self.copied(&theirs) {
             return Ok(());
         }
         let mut copy = ours;
@@ -163,10 +184,15 @@ impl Places {
         Ok(())
     }
 
-    /// Whether a builder is Asagiri's copy: its nodes are Asagiri's builder's.
+    /// Remove only the exact copy we made. A matching node-name prefix is
+    /// insufficient: the user may have changed the endpoint or driver.
     fn copied(&self, instance: &Value) -> bool {
-        let nodes = instance["Nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
-        !nodes.is_empty() && nodes.iter().all(|n| n["Name"].as_str().is_some_and(|name| name.starts_with(&self.builder)))
+        let Ok(mut ours) = read_json(&self.instance(&self.builder)) else { return false };
+        if ours["Name"] != self.builder.as_str() {
+            return false;
+        }
+        ours["Name"] = self.context.as_str().into();
+        *instance == ours
     }
 
     fn save(&self, with: With, auto: bool) -> io::Result<()> {
@@ -425,7 +451,7 @@ pub fn cli(args: &[String]) -> io::Result<()> {
     if let Some(a) = args.first() {
         let with = With::parse(a).ok_or_else(|| io::Error::other("usage: asagiri build-with [docker|asagiri]"))?;
         p.choose(with)?;
-        if with == With::Asagiri && !p.ready() {
+        if with == With::Asagiri {
             crate::builds::ensure_builder();
         }
     }
@@ -597,5 +623,45 @@ mod tests {
         p.uninstall().unwrap();
         assert_eq!(read_json(&p.config()).unwrap(), json!({}));
         assert!(!p.current().exists() && !p.instance("asagiri").exists() && !p.state.exists());
+    }
+
+    #[test]
+    fn builtin_removes_only_our_shadow_and_keeps_global_selection_and_restore_state() {
+        let d = scratch("builtin");
+        let p = places(&d);
+        builder(&p);
+        let previous = r#"{"Key":"orbstack","Name":"mine","Global":false}"#;
+        write_bytes(&p.current(), previous.as_bytes()).unwrap();
+        p.choose(With::Asagiri).unwrap();
+        let before = p.state()["before"].clone();
+        p.set_builtin(true).unwrap();
+        p.apply(Some("OrbStack")).unwrap();
+        assert!(p.builtin() && p.ready() && p.taken());
+        assert!(!p.instance("asagiri").exists());
+        assert!(p.instance("asagiri-build").exists(), "Explicit builders keep their cache and references");
+        assert_eq!(p.state()["before"], before);
+        p.choose(With::Docker).unwrap();
+        assert_eq!(read(&p.current()).as_deref(), Some(previous));
+        assert!(!p.instance("asagiri").exists(), "Switching global preference does not shadow the Docker driver");
+        // An older engine can still use its legacy builder.
+        p.set_builtin(false).unwrap();
+        assert!(!p.builtin());
+        assert!(p.copied(&read_json(&p.instance("asagiri")).unwrap()));
+    }
+
+    #[test]
+    fn builtin_and_uninstall_preserve_a_changed_shadow_even_with_matching_node_names() {
+        let d = scratch("changed-shadow");
+        let p = places(&d);
+        builder(&p);
+        p.apply(None).unwrap();
+        let mut foreign = read_json(&p.instance("asagiri")).unwrap();
+        foreign["Nodes"][0]["Endpoint"] = "my-other-engine".into();
+        write_json(&p.instance("asagiri"), &foreign).unwrap();
+        p.set_builtin(true).unwrap();
+        assert!(!p.builtin());
+        p.apply(None).unwrap();
+        p.uninstall().unwrap();
+        assert_eq!(read_json(&p.instance("asagiri")).unwrap(), foreign);
     }
 }

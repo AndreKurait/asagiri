@@ -304,36 +304,12 @@ pub(crate) fn ensure_daemon() -> io::Result<()> {
     Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
 }
 
-/// `docker build` through Asagiri, as on the Mac: BuildKit in an Asagiri container
-/// (buildx's docker-container driver), loading what it builds into Asagiri.
-/// That container is the daemon's managed builder, made when buildx first
-/// looks for it and stopped when idle (crates/asagiri/src/daemon/builder.rs);
-/// without buildx the CLI's classic POST /build uses the same BuildKit.
-/// asagiri.ps1 makes it the builder `docker build` uses (BUILDX_BUILDER) when
-/// Asagiri is the only engine; beside Docker Desktop, `buildx use` makes it the
-/// one for the `asagiri` context, and `buildx install` makes plain `docker
-/// build` use it, as on the Mac (crates/asagiri/src/setup.rs `builder`), or
-/// it builds with buildx's fallback for the context, which never loads the
-/// image into Asagiri. Needs the `asagiri` context, which asagiri.ps1 makes.
+/// Share the Mac/Linux builder setup and preference restoration. Reopening
+/// the window must not silently reinstall a global alias or select a
+/// builder after the user chose Docker or another instance.
 fn ensure_builder() {
-    const BUILDER: &str = "asagiri-build";
-    let docker = crate::detail::docker_cli();
-    let run = |args: &[&str]| {
-        let mut cmd = crate::win::tool(&docker);
-        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-        cmd.args(args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
-    };
-    if !run(&["context", "inspect", "asagiri"]) || !run(&["buildx", "version"]) {
-        return;
-    }
-    if !run(&["buildx", "inspect", BUILDER]) && !run(&["buildx", "create", "--name", BUILDER, "--driver", "docker-container", "--driver-opt", "default-load=true", "asagiri"]) {
-        crate::serve::log("docker buildx create failed");
-        return;
-    }
-    // `--default`: kept per context, so it stays the builder for `asagiri`
-    // whatever another context selects later.
-    if !run(&["--context", "asagiri", "buildx", "use", "--default", BUILDER]) || !run(&["buildx", "install"]) {
-        crate::serve::log("docker buildx use or install failed");
+    if let Err(e) = crate::builds::builder() {
+        crate::serve::log(&format!("docker build: {e}"));
     }
 }
 
