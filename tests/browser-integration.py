@@ -151,6 +151,10 @@ def browser_ui(chrome, api, password, cli, docker, cid, prefix):
             for width, height, name in ((1360, 900, "desktop"), (430, 900, "mobile")):
                 call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": width < 600})
                 assert evaluate("document.documentElement.scrollWidth <= innerWidth")
+                if width < 600:
+                    assert evaluate("document.querySelector('.table-scroll').scrollWidth > document.querySelector('.table-scroll').clientWidth")
+                    assert evaluate("Array.from(document.querySelectorAll('.badge')).every(b => b.getBoundingClientRect().height < 30)")
+                    assert evaluate("document.querySelector('#rows tr td:nth-child(2)').getBoundingClientRect().width >= 100")
                 image = call("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": False})
                 (screenshots / ("browser-" + name + ".png")).write_bytes(base64.b64decode(image["data"]))
             assert not errors, errors

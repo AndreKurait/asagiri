@@ -50,13 +50,13 @@ nav { display: flex; gap: 8px; padding: 0 25px; border-bottom: 1px solid var(--l
 nav button { border: 0; border-radius: 0; border-bottom: 2px solid transparent; padding: 14px 8px; background: none; color: var(--muted); font-size: 13px; }
 nav button[aria-current] { border-bottom-color: var(--accent); color: var(--accent); }
 .table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+table { width: 100%; min-width: 740px; border-collapse: collapse; font-size: 13px; text-align: left; }
 th { padding: 13px 25px; font-weight: 500; font-size: 11px; letter-spacing: .2px; background: var(--background); color: var(--muted); white-space: nowrap; }
 td { padding: 16px 25px; border-top: 1px solid var(--line); max-width: 360px; overflow-wrap: anywhere; }
 td:first-child { font-weight: 600; }
 td .name { max-width: 310px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td code { font-size: 11px; }
-.badge { display: inline-block; padding: 4px 8px; border-radius: 5px; background: var(--background); color: var(--muted); font-size: 11px; font-weight: 600; }
+.badge { display: inline-block; padding: 4px 8px; border-radius: 5px; background: var(--background); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge.running { background: var(--green-tint); color: var(--green); }
 .actions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 180px; }
 .actions button { padding: 5px 8px; font-size: 11px; font-weight: 500; }

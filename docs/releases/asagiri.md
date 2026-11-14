@@ -1,5 +1,12 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+An optional local browser interface shows real containers, images, volumes,
+networks and recent logs. Set a password with `asagiri web password`, enable
+access with `asagiri web enable`, then run `asagiri web`. It listens on
+loopback and checks the password, host and origin on requests. A separate
+permission allows start, stop and restart. Disabling access or rotating the
+password revokes existing access.
+
 AI clients can use a local stdio MCP server after access is enabled in
 Settings → AI integrations or with `asagiri mcp enable`. Seven read tools
 return bounded metadata and recent logs. Starting, stopping and restarting

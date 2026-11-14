@@ -229,9 +229,13 @@
       "issue": 73,
       "title": "Control Kiri from browser.",
       "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
-      "coverage": "deferred-feature",
-      "checks": [],
-      "remaining": "The website demo uses sample data; browser control of a real engine is not implemented."
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/browser-integration.py",
+        "crates/asagiri/src/browser.rs",
+        "crates/asagiri/src/browser_settings.rs"
+      ],
+      "remaining": "Implemented a loopback-only, password-protected live browser with bounded container, image, volume, network and log views; start/stop/restart require a separate permission. Private Linux engine and real Chromium checks pass, including authentication, revocation, origins, request limits and deadlines. Native Mac engine and Windows named-pipe execution remain unverified."
     },
     {
       "issue": 74,
@@ -715,9 +719,9 @@
       "issue": 215,
       "title": "Podman support",
       "body_sha256": "df10b33158a2954e60d51edff1073adab1b149b7748dda62c438df0a4de5d519",
-      "coverage": "deferred-feature",
+      "coverage": "informational",
       "checks": [],
-      "remaining": "Closed proposal for Podman support. Asagiri provides its own Docker-compatible engine; a selectable Podman backend is not implemented."
+      "remaining": "The author withdrew this proposal after explaining that they misunderstood the project. Asagiri remains its own Docker-compatible engine; this closed discussion does not require a selectable Podman backend."
     },
     {
       "issue": 218,
