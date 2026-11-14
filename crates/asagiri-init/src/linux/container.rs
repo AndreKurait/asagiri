@@ -1031,6 +1031,22 @@ fn parse_mounts(list: StrList<'_>) -> io::Result<Vec<Mount>> {
     Ok(out)
 }
 
+/// Mounts a stopped container's persistent volumes and binds for archive I/O.
+/// Called only in the copy worker's private mount namespace, before chroot.
+pub(super) fn mount_copy_filesystems(rootfs: &Path, list: StrList<'_>) -> io::Result<()> {
+    let mounts = parse_mounts(list)?;
+    std::env::set_current_dir(rootfs)?;
+    let root = inroot::open_root(Path::new("."))?;
+    let image = if mounts.iter().any(|m| m.copy_up) { image_tree() } else { None };
+    for m in &mounts {
+        // A stopped container has no live tmpfs contents to copy.
+        if m.tmpfs_opts.is_none() {
+            apply_mount(root.as_fd(), image.as_ref().map(|f| f.as_fd()), m)?;
+        }
+    }
+    Ok(())
+}
+
 /// How deep a mount target is: `.` is 0, `app` 1, `app/node_modules` 2.
 fn depth(target: &CStr) -> usize {
     let t = target.to_bytes();
