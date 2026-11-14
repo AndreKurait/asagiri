@@ -50,6 +50,11 @@ def pages(repo, path, key):
 def checked_runs(runs, commit):
     latest = {}
     for item in sorted(runs, key=lambda item: item["id"], reverse=True):
+        # Manual Speed runs can compare an arbitrary ancestor, including the
+        # same commit as a noise control. They are archived experiments, not
+        # substitutes for this main push's required regression comparison.
+        if item["name"] == "Speed" and item["event"] != "push":
+            continue
         if (item["head_sha"] == commit and item["head_branch"] == "main"
                 and item["event"] in ("push", "workflow_dispatch") and item["name"] in REQUIRED):
             latest.setdefault(item["name"], item)

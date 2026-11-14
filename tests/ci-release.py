@@ -113,6 +113,23 @@ class ReleaseTests(unittest.TestCase):
         rerun = {**runs[0], "id": 100, "conclusion": "failure"}
         self.assertEqual(release.checked_runs([*runs, rerun], COMMIT)[1], [rerun["name"]])
 
+    def test_manual_speed_experiments_cannot_replace_the_main_push_gate(self):
+        runs = self.checks()
+        speed = next(item for item in runs if item["name"] == "Speed")
+        for conclusion in ("success", "failure", None):
+            experiment = {**speed, "id": 100, "event": "workflow_dispatch", "conclusion": conclusion,
+                          "status": "in_progress" if conclusion is None else "completed"}
+            with self.subTest(manual_conclusion=conclusion):
+                checked, missing = release.checked_runs([*runs, experiment], COMMIT)
+                self.assertEqual(missing, [])
+                self.assertEqual(checked["Speed"]["id"], speed["id"])
+                failed = [dict(item, conclusion="failure") if item is speed else item for item in runs]
+                self.assertEqual(release.checked_runs([*failed, experiment], COMMIT)[1], ["Speed"])
+                absent = [item for item in runs if item is not speed]
+                self.assertEqual(release.checked_runs([*absent, experiment], COMMIT)[1], ["Speed"])
+        rerun = {**speed, "id": 101, "conclusion": "failure"}
+        self.assertEqual(release.checked_runs([*runs, rerun], COMMIT)[1], ["Speed"])
+
     def test_publication_waits_for_ci_and_ignores_website_deployment(self):
         complete = self.checks()
         queued = copy.deepcopy(complete)

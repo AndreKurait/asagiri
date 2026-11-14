@@ -158,6 +158,21 @@ class PerformanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 history.trusted_run({**valid, key: value})
 
+    def test_experiment_steps_are_archived_without_becoming_push_checks(self):
+        steps = [{"name": "Compare", "conclusion": "success"},
+                 {"name": "Record measurements and source identities", "conclusion": "success"}]
+        original = {"name": "speed", "steps": steps}
+        experiment = {"name": "speed experiment", "steps": steps}
+        expected = {step["name"]: step["conclusion"] for step in steps}
+        self.assertEqual(history.step_outcomes([original], "push"), expected)
+        self.assertEqual(history.step_outcomes([experiment], "push"), {})
+        for job in (original, experiment):
+            self.assertEqual(history.step_outcomes([job], "workflow_dispatch"), expected)
+        with self.assertRaises(ValueError):
+            history.step_outcomes([original, experiment], "workflow_dispatch")
+        with self.assertRaises(ValueError):
+            history.step_outcomes([dict(original, steps=[*steps, steps[0]])], "push")
+
     def test_history_is_ordered_idempotent_and_cannot_rewrite_a_run(self):
         first, _ = fixture()
         second = copy.deepcopy(first)

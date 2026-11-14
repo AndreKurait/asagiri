@@ -75,6 +75,11 @@ and measured failing main runs retain raw data in signed commits on the
 commit and separates hardware and workload series. See
 [performance tracking](performance.md) for metrics, gates, provenance,
 retention and same-commit noise controls.
+Only the main push's Speed run satisfies the release gate. Manual benchmark
+experiments are archived, but cannot replace a failing required comparison or
+block a passing one. They also use a separate `speed experiment` check name,
+which cannot satisfy the PR's required `speed` check. Retry the original push
+run to recheck its release gate.
 
 The UI check runs the app's page tests and translation checks. The website
 check also opens the assembled demo in Chrome and exercises navigation,

@@ -294,6 +294,17 @@ def trusted_run(run):
     return run
 
 
+def step_outcomes(jobs, event):
+    # Retain old manual archives whose job used the original name.
+    names = {"speed"} if event == "push" else {"speed", "speed experiment"}
+    selected = [job for job in jobs if job["name"] in names]
+    require(len(selected) <= 1, "Duplicate benchmark jobs")
+    steps = selected[0]["steps"] if selected else []
+    outcomes = {step["name"]: step["conclusion"] for step in steps}
+    require(len(outcomes) == len(steps), "Duplicate benchmark steps")
+    return outcomes
+
+
 def checked_run(run_id, attempt=None):
     require(re.fullmatch(r"[1-9]\d{0,14}", str(run_id)), "Invalid requested run")
     path = f"actions/runs/{run_id}"
@@ -304,8 +315,7 @@ def checked_run(run_id, attempt=None):
     require(api(f"compare/{sha(run['head_sha'])}...main")["merge_base_commit"]["sha"] == run["head_sha"],
             "Measured commit is not part of current main history")
     jobs = api(f"actions/runs/{run_id}/attempts/{run['run_attempt']}/jobs?per_page=100")["jobs"]
-    steps = [step for job in jobs if job["name"] == "speed" for step in job["steps"]]
-    outcomes = {step["name"]: step["conclusion"] for step in steps}
+    outcomes = step_outcomes(jobs, run["event"])
     if ("Record measurements and source identities" not in outcomes
             or outcomes.get("Compare") in (None, "skipped", "cancelled")):
         print("This run predates archived measurements or did not reach the comparison; no data is synthesized.")
