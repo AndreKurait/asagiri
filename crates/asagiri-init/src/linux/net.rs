@@ -809,9 +809,23 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     delete_retired(&mut host);
     let ifname = format!("eth{n}");
     match (macvlan, ipvlan) {
-        (Some(mode), _) => netlink::create_macvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mac, mode)?,
-        (None, Some((mode, flags))) => netlink::create_ipvlan(&mut host, parent, &netns, CONTAINER_MTU, &ifname, mode, flags)?,
+        (Some(mode), _) => netlink::create_macvlan(&mut host, parent, &netns, CONTAINER_MTU, host_ifname, mac, mode)?,
+        (None, Some((mode, flags))) => netlink::create_ipvlan(&mut host, parent, &netns, CONTAINER_MTU, host_ifname, mode, flags)?,
         (None, None) => netlink::create_veth(&mut host, host_ifname, parent, &netns, mtu.unwrap_or(CONTAINER_MTU), &ifname, mac)?,
+    }
+    if plug.own_link() {
+        // The kernel checks the new link's name in the parent's namespace
+        // before moving it. That host may already have eth0: use the unique
+        // per-start name there, then assign the container name after the move.
+        let rename = (|| {
+            let index = netlink::index_in(&netns, host_ifname)?;
+            let mut inner = Netlink::open_in(&netns)?;
+            netlink::rename_link(&mut inner, index, &ifname)
+        })();
+        if let Err(e) = rename {
+            let _ = unplug(&Macvlan { netns: netns.clone(), ifname: host_ifname.to_owned() });
+            return Err(e);
+        }
     }
     if no_icc && !plug.own_link() {
         // Traffic between two ports of a bridge is switched and never
