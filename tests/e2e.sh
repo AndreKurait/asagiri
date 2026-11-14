@@ -87,7 +87,7 @@ t pull-alpine "alpine:latest" $D pull alpine:latest
 t pull-busybox "busybox" $D pull busybox
 t pull-tag "3.21" $D pull alpine:3.21
 t images-list "alpine" $D images
-t image-inspect-arch "arm64" $D image inspect -f '{{.Architecture}}' alpine
+t image-inspect-arch "$($D version -f '{{.Server.Arch}}')" $D image inspect -f '{{.Architecture}}' alpine
 t image-inspect-cmd "/bin/sh" $D image inspect -f '{{.Config.Cmd}}' alpine
 code pull-missing 1 $D pull asagiri-does-not-exist/nope:none
 t rmi "Untagged" $D rmi alpine:3.21
@@ -461,7 +461,6 @@ fi
 # changes nothing. Asagiri Dev has no routers until given ports, so there the
 # move starts them, and its settings file goes afterwards.
 section "domain router ports"
-dpost() { curl -s --unix-socket "$SOCK" -X POST -H 'Content-Type: application/json' -d "$1" http://d/asagiri/domains; }
 dport() { curl -s --unix-socket "$SOCK" http://d/asagiri/domains | python3 -c "import json,sys; print(json.load(sys.stdin)['$1']['port'])"; }
 OLD_HTTP=$(dport http) OLD_HTTPS=$(dport https)
 $D run -d --name dmv nginx:alpine >/dev/null
@@ -485,7 +484,8 @@ t domain-ports-yield "Welcome to nginx" bash -c "$D run -d --name d18780 -p 1878
 $D rm -f d18780 >/dev/null
 t domain-ports-back "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.asagiri.localhost:18780 | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.asagiri.localhost:18780"
 if [ -z "$FEATURE" ]; then
-  t domain-ports-restore "\"port\":$OLD_HTTP" dpost "{\"http\":$OLD_HTTP,\"https\":$OLD_HTTPS}"
+  # t execs its command, so this is curl itself: a shell function there would never run.
+  t domain-ports-restore "\"port\":$OLD_HTTP" curl -s --unix-socket "$SOCK" -X POST -H 'Content-Type: application/json' -d "{\"http\":$OLD_HTTP,\"https\":$OLD_HTTPS}" http://d/asagiri/domains
   t domain-ports-restored "Welcome to nginx" bash -c "for i in \$(seq 20); do curl -s -m 2 http://dmv.asagiri.localhost:$OLD_HTTP | grep -q nginx && break; sleep 0.5; done; curl -s -m 5 http://dmv.asagiri.localhost:$OLD_HTTP"
 else
   rm -f "$HOME/.asagiri-$FEATURE/domains.json"
@@ -822,7 +822,14 @@ t rosetta-binary "x86-64" bash -c "$D run --rm --platform linux/amd64 alpine sh 
 t rosetta-inspect "linux/amd64" $D image inspect -f '{{.Os}}/{{.Architecture}}' alpine
 t rosetta-amd64-only-repo "x86_64" $D run --rm amd64/alpine:3.22 uname -m
 t rosetta-node "v22" $D run --rm --platform linux/amd64 node:22-alpine node --version
-t native-again "aarch64" bash -c "$D pull -q --platform linux/arm64 alpine >/dev/null && $D pull -q --platform linux/arm64 node:22-alpine >/dev/null && $D run --rm alpine uname -m"
+# Rosetta on macOS 15 stops on startup entries it doesn't know ("unhandled
+# auxillary vector type 29", #199): the kernel gives AT_HWCAP3 (29) only when
+# it says something, which it never does in Asagiri's VM. alpine is the amd64
+# image here, so on Apple silicon this reads what Rosetta was handed.
+t rosetta-no-auxv-29 "no type 29" $D run --rm alpine sh -c 'od -An -v -tu8 -w16 /proc/self/auxv | awk "\$1 == 29 { n++ } END { print n ? \"type 29 given\" : \"no type 29\" }"'
+# Back to the engine's own architecture for the rest (an Intel Mac's is amd64).
+ARCH=$($D version -f '{{.Server.Arch}}' 2>/dev/null)
+t native-again "$([ "$ARCH" = amd64 ] && echo x86_64 || echo aarch64)" bash -c "$D pull -q --platform linux/$ARCH alpine >/dev/null && $D pull -q --platform linux/$ARCH node:22-alpine >/dev/null && $D run --rm alpine uname -m"
 $D rmi amd64/alpine:3.22 >/dev/null 2>&1
 
 section "security: seccomp, capabilities, read-only"
@@ -876,10 +883,17 @@ $D rm -f dns >/dev/null
 code udp-port-free-after 0 bash -c "python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind((\"0.0.0.0\", 15354))'"
 
 section "Linux machines"
-# Absolute: machine-cwd runs it from another folder.
-ASAGIRI=${ASAGIRI:-$(cd "$(dirname "$0")/.." && pwd)/target/release/asagiri}
+# The `asagiri` CLI: $ASAGIRI, else a source build next to these tests, else the
+# binary of the engine under test (the process holding its socket), as on a
+# Mac that only has the app. Absolute: machine-cwd runs it from another folder.
+if [ -z "${ASAGIRI:-}" ]; then
+  ASAGIRI=$(cd "$(dirname "$0")/.." && pwd)/target/release/asagiri
+  [ -x "$ASAGIRI" ] || ASAGIRI=$(lsof -a -d txt -Fn -p "$(lsof -t "$SOCK" 2>/dev/null | head -1)" 2>/dev/null | sed -n 's/^n//p' | head -1)
+fi
+MACHINE_TESTS="machine-create machine-list machine-user machine-mac-files machine-cwd machine-hostname machine-sudo machine-stop machine-start machine-delete machine-bad-name"
 # The binary as one shell word, for commands passed to bash -c (app paths have spaces).
 KQ=$(printf %q "$ASAGIRI")
+if [ -x "$ASAGIRI" ]; then
 t machine-create "is running" "$ASAGIRI" machine create e2e-m --distro alpine
 t machine-list "e2e-m" "$ASAGIRI" machine list
 t machine-user "$(whoami) $(id -u)" bash -c "$KQ machine shell e2e-m -- sh -c 'echo \$(whoami) \$(id -u)' < /dev/null"
@@ -894,9 +908,12 @@ t machine-stop "Exited" bash -c "$KQ machine stop e2e-m && $KQ machine list"
 t machine-start "Up" bash -c "$KQ machine start e2e-m && $KQ machine list"
 t machine-delete "deleted" "$ASAGIRI" machine delete e2e-m
 code machine-bad-name 1 "$ASAGIRI" machine create 'bad_name!'
+else
+  for n in $MACHINE_TESTS; do skip "$n" "no asagiri CLI found: set ASAGIRI=/path/to/asagiri"; done
+fi
 t stop-signal "got USR1" bash -c "$D run -d --name sig --stop-signal USR1 alpine sh -c 'trap \"echo got USR1; exit 0\" USR1; while :; do sleep 0.1; done' >/dev/null; sleep 0.5; $D stop -t 5 sig >/dev/null; $D logs sig; $D rm -f sig >/dev/null"
 t stop-signal-inspect "exited (0)" bash -c "$D run -d --name sig2 --stop-signal SIGRTMIN+3 alpine sh -c 'trap \"exit 0\" 37; while :; do sleep 0.1; done' >/dev/null; sleep 0.5; $D stop -t 5 sig2 >/dev/null; $D ps -a --filter name=sig2 --format '{{.Status}}' | tr A-Z a-z | cut -c1-10; $D rm -f sig2 >/dev/null"
-if [ "${SLOW:-0}" = 1 ]; then
+if [ "${SLOW:-0}" = 1 ] && [ -x "$ASAGIRI" ]; then
   t machine-systemd "running" bash -c "$KQ machine create e2e-sd --distro ubuntu --systemd >/dev/null; for i in \$(seq 60); do st=\$($KQ machine shell e2e-sd -- systemctl is-system-running < /dev/null 2>/dev/null); case \"\$st\" in running|degraded) break;; esac; sleep 3; done; echo \$st"
   t machine-systemd-stop "Exited" bash -c "$KQ machine stop e2e-sd && $KQ machine list | grep e2e-sd"
   "$ASAGIRI" machine delete e2e-sd >/dev/null
