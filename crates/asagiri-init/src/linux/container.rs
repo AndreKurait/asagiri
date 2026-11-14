@@ -762,10 +762,13 @@ pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
                 continue;
             }
             kill_cgroup(&cg);
-            let _ = sys::umount_lazy(&paths.containers.join(id).join("rootfs"));
-            let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
             remove_cgroup(&cg);
         }
+        // A service manager may already have killed the old processes and
+        // removed their cgroups. The overlay still belongs to this data
+        // directory and must be reclaimed before its next start.
+        let _ = sys::umount_lazy(&paths.containers.join(id).join("rootfs"));
+        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
     }
     // Host-side veths are kv<9 characters of the id><4 hex digits>.
     let Ok(links) = fs::read_dir("/sys/class/net") else { return };

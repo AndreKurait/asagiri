@@ -61,6 +61,8 @@ jobs:
         # in tests/ against it: containers, archives, attach, networks,
         # limits and seccomp, on busybox and alpine.
         run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Restart the daemon with orphaned container mounts
+        run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Restore Java SDK dependencies
         id: maven_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

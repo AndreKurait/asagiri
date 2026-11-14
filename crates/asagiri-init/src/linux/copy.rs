@@ -30,10 +30,13 @@ pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&
         }
         // SAFETY: a fresh descriptor from accept4.
         let sock = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: getpid has no preconditions.
+        let parent = unsafe { libc::getpid() };
         // SAFETY: the agent is single-threaded, so the child is a consistent
         // copy. The child only uses what it inherited, then exits.
         match unsafe { libc::fork() } {
             0 => {
+                die_with_parent(parent);
                 let code = match job(sock, running, cleaning, paths) {
                     Ok(()) => 0,
                     Err(e) => {
@@ -74,22 +77,109 @@ fn job(sock: OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&str], paths:
     let result = match spec.op {
         // These read the writable layer itself, next to the image's layers.
         copy_op::DIFF | copy_op::COMMIT => layer_job(&mut conn, &spec, paths),
+        _ if !running.iter().any(|(id, _)| *id == spec.id) => stopped_job(&mut conn, &spec, paths),
         _ => {
             if let Err(e) = enter(&spec, running, paths) {
                 return reply_error(&mut conn, &format!("container {}: {e}", spec.id));
             }
-            match spec.op {
-                copy_op::IN => copy_in(&mut conn, &spec),
-                copy_op::OUT | copy_op::STAT => copy_out(&mut conn, &spec),
-                copy_op::EXPORT => export(&mut conn),
-                op => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unknown copy op {op}"))),
-            }
+            archive_job(&mut conn, &spec).and_then(|reply| conn.write_all(&reply))
         }
     };
     match result {
         Ok(()) => Ok(()),
         Err(e) => reply_error(&mut conn, &e.to_string()),
     }
+}
+
+/// No copy or private mount may outlive the agent that owns its paths.
+fn die_with_parent(parent: libc::pid_t) {
+    // SAFETY: setting this child's own death signal. The second check closes
+    // the race where its parent died between fork and prctl.
+    unsafe {
+        if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) < 0 || libc::getppid() != parent {
+            libc::_exit(1);
+        }
+    }
+}
+
+/// A stopped container's overlay must be gone before a successful copy or
+/// stat reply lets its caller start it. Closing the worker's socket alone is
+/// too early: descriptors close before the kernel releases its namespaces.
+/// This supervisor keeps the connection open and waits for the chrooted
+/// worker to exit. No descriptor pointing outside the chroot is kept there.
+fn stopped_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Result<()> {
+    const MAX_REPLY: u64 = 16 * 1024;
+    let (read, write) = sys::pipe()?;
+    // SAFETY: getpid has no preconditions; this copy process is single-threaded.
+    let parent = unsafe { libc::getpid() };
+    // SAFETY: the worker uses its inherited copy request and exits directly.
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if pid == 0 {
+        drop(read);
+        die_with_parent(parent);
+        let mut control = fs::File::from(write);
+        let result = enter(spec, &[], paths).and_then(|()| archive_job(conn, spec));
+        let reply = match result {
+            Ok(reply) if reply.len() <= MAX_REPLY as usize => reply,
+            result => {
+                let message = match result {
+                    Err(e) => e.to_string(),
+                    Ok(_) => "copy metadata exceeds the reply limit".to_owned(),
+                };
+                let bounded: String = message.chars().take(2048).collect();
+                let mut reply = Vec::new();
+                Msg::Error(&bounded).encode(&mut reply);
+                reply
+            }
+        };
+        let code = i32::from(control.write_all(&reply).is_err());
+        // SAFETY: exit the worker without any supervisor destructors.
+        unsafe { libc::_exit(code) }
+    }
+    drop(write);
+    let mut reply = Vec::new();
+    let read = fs::File::from(read).take(MAX_REPLY + 1).read_to_end(&mut reply);
+    if read.is_err() || reply.len() > MAX_REPLY as usize {
+        // SAFETY: this exact child has not been reaped, so its PID cannot be reused.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    let mut status = 0;
+    loop {
+        // SAFETY: our own child and a valid status pointer.
+        if unsafe { libc::waitpid(pid, &mut status, 0) } >= 0 {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    read?;
+    if reply.len() > MAX_REPLY as usize || !libc::WIFEXITED(status) || libc::WEXITSTATUS(status) != 0 {
+        return Err(io::Error::other("container filesystem copy worker did not complete"));
+    }
+    conn.write_all(&reply)
+}
+
+/// Metadata-only and upload replies are held until the private mount is
+/// released. Download/export bytes stream directly, with EOF held by the
+/// supervisor until that same point.
+fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> {
+    let mut reply = Vec::new();
+    match spec.op {
+        copy_op::IN => {
+            copy_in(conn, spec)?;
+            Msg::CopyDone.encode(&mut reply);
+        }
+        copy_op::STAT => copy_out(&mut reply, spec)?,
+        copy_op::OUT => copy_out(conn, spec)?,
+        copy_op::EXPORT => export(conn)?,
+        op => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unknown copy op {op}"))),
+    }
+    Ok(reply)
 }
 
 /// Makes the container's root this process's `/`.
@@ -183,10 +273,7 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
     }
     // The archive's trailing padding: read it so the host's writes complete.
     io::copy(&mut reader, &mut io::sink())?;
-    drop(reader);
-    let mut out = Vec::new();
-    Msg::CopyDone.encode(&mut out);
-    conn.write_all(&out)
+    Ok(())
 }
 
 struct DirectoryTime {
@@ -326,7 +413,7 @@ impl<R: Read> Read for Chunks<R> {
 }
 
 /// Answers with the path's metadata; for `OUT` an archive of it follows.
-fn copy_out(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
+fn copy_out(conn: &mut impl Write, spec: &CopySpec<'_>) -> io::Result<()> {
     // Docker archives a path with its "." and ".." resolved by name, but
     // stats it as given.
     let cleaned;
