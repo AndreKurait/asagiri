@@ -1199,7 +1199,7 @@ fn wait_root_ready(fd: OwnedFd) -> io::Result<()> {
     use std::io::Read;
     let mut byte = [0];
     fs::File::from(fd).read_exact(&mut byte)?;
-    if byte != [b'r'] {
+    if byte != *b"r" {
         return Err(io::Error::other("container root setup did not complete"));
     }
     Ok(())
