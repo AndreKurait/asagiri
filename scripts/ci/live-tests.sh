@@ -61,6 +61,8 @@ run container-addresses
 run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent
+run archive-completion alpine:3.21
+run kind-network alpine:3.21
 run mcp-integration alpine:3.21
 run mcp-sdk alpine:3.21
 run browser-integration alpine:3.21
@@ -124,6 +126,7 @@ fi
 
 run buildx-bootstrap
 run buildkit-driver alpine:3.21
+run kind-cluster alpine:3.21
 
 if [ "$failed" -ne 0 ]; then
   echo "$failed failed"; docker logs "$name" 2>&1; exit 1
