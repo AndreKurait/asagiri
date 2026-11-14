@@ -1,6 +1,6 @@
 # Upstream issue audit — 2026-11-14
 
-Reviewed all **75** public issue records alongside the 154-PR audit. Closed
+Reviewed all **75** public issue records alongside the 155-PR audit. Closed
 reports, prototypes and feature requests are included. Coverage identifies code
 and concrete regressions; it does not establish native Mac or Windows verification.
 
