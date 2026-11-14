@@ -90,16 +90,66 @@ fn keyed(text: &str, key: &str) -> u64 {
 /// and kernel memory from memory.stat. The page cache is left out (the
 /// kernel drops it when asked), and so are a balloon's pages, which belong
 /// to a driver and are charged nowhere: MemTotal minus MemAvailable counts
-/// both as used, which is why the window read nonsense. None when the
-/// cgroup has no memory.stat (the root's came with Linux 5.8).
-pub fn held(dir: &Path) -> Option<u64> {
+/// both as used, which is why the window read nonsense. The separate
+/// working-set reading adds the file pages the balloon should preserve.
+#[derive(Default)]
+pub struct Memory {
+    pub held: u64,
+    pub working_set: u64,
+    pub refaults: u64,
+}
+
+/// None when the cgroup has no memory.stat (the root's came with Linux 5.8).
+pub fn memory(dir: &Path) -> Option<Memory> {
     let stat = fs::read_to_string(dir.join("memory.stat")).ok()?;
+    Some(memory_from(&stat))
+}
+
+fn memory_from(stat: &str) -> Memory {
     // "kernel" sums the rest since 5.18; before that, add them up.
-    let kernel = match keyed(&stat, "kernel") {
-        0 => ["kernel_stack", "pagetables", "percpu", "sock", "vmalloc", "slab"].iter().map(|k| keyed(&stat, k)).sum(),
+    let kernel = match keyed(stat, "kernel") {
+        0 => ["kernel_stack", "pagetables", "percpu", "sock", "vmalloc", "slab"].iter()
+            .fold(0u64, |sum, k| sum.saturating_add(keyed(stat, k))),
         k => k,
     };
-    Some(keyed(&stat, "anon") + keyed(&stat, "shmem") + kernel)
+    let shmem = keyed(stat, "shmem");
+    let held = keyed(stat, "anon").saturating_add(shmem).saturating_add(kernel);
+    // file includes shmem, already in held. Active and mapped file pages
+    // overlap, so reserve their maximum rather than adding both. Mapped
+    // pages matter for databases even before they reach the active LRU.
+    // Bound that reservation by non-shmem file cache to avoid counting the
+    // full mapped/shmem totals twice. Cold, unmapped cache remains reclaimable.
+    let cache = keyed(stat, "file").saturating_sub(shmem);
+    let working_cache = keyed(stat, "active_file").max(keyed(stat, "file_mapped")).min(cache);
+    Memory {
+        held, working_set: held.saturating_add(working_cache),
+        refaults: keyed(stat, "workingset_refault_file"),
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn mapped_and_active_cache_are_reserved_without_double_counting() {
+        let memory = memory_from("anon 100\nshmem 50\nkernel 20\nfile 1000\nactive_file 200\nfile_mapped 700\nworkingset_refault_file 42\n");
+        assert_eq!(memory.held, 170);
+        assert_eq!(memory.working_set, 870);
+        assert_eq!(memory.refaults, 42);
+        let shared = memory_from("anon 100\nshmem 800\nkernel 20\nfile 1000\nactive_file 200\nfile_mapped 800\n");
+        assert_eq!(shared.held, 920);
+        assert_eq!(shared.working_set, 1120);
+    }
+
+    #[test]
+    fn cold_cache_is_reclaimable_and_old_kernel_counters_still_work() {
+        let memory = memory_from("anon 100\nshmem 20\nfile 10000\ninactive_file 9980\nkernel_stack 4\npagetables 5\nslab 6\n");
+        assert_eq!(memory.held, 135);
+        assert_eq!(memory.working_set, 135);
+        assert_eq!(memory.refaults, 0);
+        assert_eq!(memory_from("").working_set, 0);
+    }
 }
 
 /// Whether the kernel killed a process in the cgroup (or below it) for

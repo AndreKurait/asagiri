@@ -5,6 +5,7 @@
 #[cfg(target_os = "linux")]
 pub mod access;
 mod api;
+mod balloon;
 mod binds;
 mod builder;
 pub mod dns;

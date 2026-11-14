@@ -45,8 +45,9 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// mounts to copy requests so stopped-container archives cannot bypass them.
 /// 10 separates process exits from filesystem-cleanup completion so stop
 /// remains prompt while same-container restarts wait for cleanup.
+/// 11 reports the file working set and refaults for pressure-aware ballooning.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 10;
+pub const PROTOCOL: u16 = 11;
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.
@@ -345,6 +346,11 @@ pub struct Stats {
     pub mem_stall: u64,
     /// Processes the kernel has killed for memory since boot (/proc/vmstat oom_kill).
     pub oom_kills: u64,
+    /// Held memory plus active or mapped file-cache pages, for balloon sizing.
+    /// Separate from mem_used_kib, which remains the non-cache usage reading.
+    pub mem_working_set_kib: u64,
+    /// Cumulative cgroup file-cache refaults; a rise can indicate reclaim churn.
+    pub mem_refaults: u64,
 }
 
 /// What the guest knows about its own boot, in nanoseconds of CLOCK_BOOTTIME.
@@ -904,7 +910,8 @@ impl Msg<'_> {
             Msg::Error(s) => frame(out, kind::ERROR, |o| o.extend_from_slice(s.as_bytes())),
             Msg::StatsRequest => frame(out, kind::STATS_REQUEST, |_| {}),
             Msg::Stats(st) => frame(out, kind::STATS, |o| {
-                for v in [st.uptime_ns, st.mem_total_kib, st.mem_available_kib, st.agent_rss_kib, st.mem_used_kib, st.mem_stall, st.oom_kills] {
+                for v in [st.uptime_ns, st.mem_total_kib, st.mem_available_kib, st.agent_rss_kib, st.mem_used_kib,
+                    st.mem_stall, st.oom_kills, st.mem_working_set_kib, st.mem_refaults] {
                     put_u64(o, v);
                 }
             }),
@@ -1210,6 +1217,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             mem_used_kib: if r.remaining() >= 8 { r.u64()? } else { 0 },
             mem_stall: if r.remaining() >= 8 { r.u64()? } else { 0 },
             oom_kills: if r.remaining() >= 8 { r.u64()? } else { 0 },
+            mem_working_set_kib: if r.remaining() >= 8 { r.u64()? } else { 0 },
+            mem_refaults: if r.remaining() >= 8 { r.u64()? } else { 0 },
         }),
         kind::LAYER_QUERY => Msg::LayerQuery(r.str()?),
         kind::LAYER_STATUS => Msg::LayerStatus(r.u8()? != 0),
@@ -1373,14 +1382,17 @@ mod tests {
         round(Msg::Shutdown);
         round(Msg::Error("boom"));
         round(Msg::StatsRequest);
-        let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9, mem_stall: 9173, oom_kills: 2 };
+        let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
+            mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };
         round(Msg::Stats(full));
         // Older agents' Stats, without the later words, still decode.
         let mut buf = Vec::new();
         Msg::Stats(full).encode(&mut buf);
-        let no_memory_words = Stats { mem_stall: 0, oom_kills: 0, ..full };
-        assert_eq!(decode(&buf[..buf.len() - 16]).unwrap(), Msg::Stats(no_memory_words));
-        assert_eq!(decode(&buf[..buf.len() - 24]).unwrap(), Msg::Stats(Stats { mem_used_kib: 0, ..no_memory_words }));
+        let no_cache_words = Stats { mem_working_set_kib: 0, mem_refaults: 0, ..full };
+        assert_eq!(decode(&buf[..buf.len() - 16]).unwrap(), Msg::Stats(no_cache_words));
+        let no_memory_words = Stats { mem_stall: 0, oom_kills: 0, ..no_cache_words };
+        assert_eq!(decode(&buf[..buf.len() - 32]).unwrap(), Msg::Stats(no_memory_words));
+        assert_eq!(decode(&buf[..buf.len() - 40]).unwrap(), Msg::Stats(Stats { mem_used_kib: 0, ..no_memory_words }));
         round(Msg::LayerQuery("sha256:ab"));
         round(Msg::LayerStatus(true));
         round(Msg::LayerBegin(LayerBegin { digest: "sha256:ab", media_type: "x+gzip", size: 9 }));

@@ -380,7 +380,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     let (mem_total_kib, mem_available_kib) = meminfo();
                     let agent_rss_kib = self_rss_kib();
                     let (mem_stall, oom_kills) = super::cgroup::memory_trouble();
-                    Msg::Stats(Stats { uptime_ns: sys::boottime_ns(), mem_total_kib, mem_available_kib, agent_rss_kib, mem_used_kib: held_kib(paths, agent_rss_kib), mem_stall, oom_kills })
+                    let memory = memory_sample(paths, agent_rss_kib);
+                    Msg::Stats(Stats { uptime_ns: sys::boottime_ns(), mem_total_kib, mem_available_kib, agent_rss_kib,
+                        mem_used_kib: memory.held >> 10, mem_stall, oom_kills,
+                        mem_working_set_kib: memory.working_set >> 10, mem_refaults: memory.refaults })
                         .encode(&mut out)
                 }
                 Ok(Msg::LayerQuery(digest)) => Msg::LayerStatus(layers::present(&paths.layers, digest)).encode(&mut out),
@@ -812,13 +815,17 @@ fn flush_input(procs: &mut Procs, fd: RawFd, conn: &mut File, out: &mut Vec<u8>)
 /// What Asagiri's Linux holds, in KiB. In the VM, where this process is init,
 /// it is the root cgroup: the whole guest. On a Linux host it is the
 /// containers' cgroup and this process; the daemon adds itself.
-fn held_kib(paths: &Paths, agent_rss_kib: u64) -> u64 {
+fn memory_sample(paths: &Paths, agent_rss_kib: u64) -> super::cgroup::Memory {
     if std::process::id() == 1 {
-        return super::cgroup::held(std::path::Path::new("/sys/fs/cgroup")).unwrap_or(0) >> 10;
+        return super::cgroup::memory(std::path::Path::new("/sys/fs/cgroup")).unwrap_or_default();
     }
-    match super::cgroup::held(&paths.cgroup) {
-        Some(b) => (b >> 10) + agent_rss_kib,
-        None => 0,
+    match super::cgroup::memory(&paths.cgroup) {
+        Some(mut memory) => {
+            memory.held = memory.held.saturating_add(agent_rss_kib.saturating_mul(1024));
+            memory.working_set = memory.working_set.saturating_add(agent_rss_kib.saturating_mul(1024));
+            memory
+        }
+        None => super::cgroup::Memory::default(),
     }
 }
 
