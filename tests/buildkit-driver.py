@@ -139,7 +139,8 @@ def check(path, image):
             }
             bakefile = root / "docker-bake.json"
             bakefile.write_text(json.dumps(bake))
-            cli("buildx", "bake", "--builder", "default", "--progress", "plain", "-f", str(bakefile))
+            cli("buildx", "bake", "--builder", "default", "--progress", "plain",
+                "--allow", "fs.read=" + str(secret), "-f", str(bakefile))
             for i, name in enumerate(("one", "two"), 3):
                 assert cli("run", "--rm", "--network", "none", tags[i]).stdout == name
             print("PASS concurrent Bake targets keep their exports separate", flush=True)
