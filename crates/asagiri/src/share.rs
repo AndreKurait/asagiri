@@ -2283,6 +2283,7 @@ mod tests {
         assert!(!target_is_global(&port_or_addr("[::1]:3000").unwrap()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn traffic_files_are_user_only() {
         let dir = std::env::temp_dir().join(format!("asagiri-traffic-test-{}", std::process::id()));
