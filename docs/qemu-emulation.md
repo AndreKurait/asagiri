@@ -15,6 +15,12 @@ Native Intel Mac VM execution still needs hardware validation. The Linux
 emulator probe does not establish performance or compatibility for every
 application.
 
+## Verified source build
+
+The full build and ARM64 execution probe passed in [GitHub Actions run 43633676310](https://github.com/AndreKurait/asagiri/actions/runs/43633676310) from source `4b4aeab085c7fe17b21c4801825784676879dd09`. The downloaded artifact matched GitHub's ZIP digest. Independent inspection verified the static emulator, both archives, all 236 files and hardlinks in the source manifest, the source pins, configuration, six recipe files, and 44 target and host package entries. No code from the archive was executed during that inspection.
+
+The verified corresponding-source archive has SHA-256 `da2db0b713aa3a0febc517a47486e39def472f55b4c877662cdf2c9cc84af16d`. This identifies that build; future recipe changes have their own build records.
+
 ## Releases and source
 
 Every release with the emulator also includes `asagiri-qemu-source.tar.xz`.

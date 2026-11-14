@@ -200,7 +200,7 @@
         ".github/workflows/qemu.yml",
         "docs/qemu-emulation.md"
       ],
-      "remaining": "The release pipeline now builds QEMU 11.0.5 with an internal musl toolchain and requires its complete source archive and target licenses. Source/bundle boundary checks and the xtask compile pass; the full source build and ARM64 execution probe are still in progress. Native Intel Mac VM execution remains unverified."
+      "remaining": "The QEMU 11.0.5 full source build and ARM64 execution probe passed in hosted run 43633676310. All three build products and the corresponding source, including 44 target and host package entries, were independently verified. Source/bundle boundary checks and the xtask compile pass. Native Intel Mac VM execution remains unverified."
     },
     {
       "issue": 64,
@@ -803,7 +803,7 @@
     },
     {
       "issue": 227,
-      "title": "Linux: every `docker build` fails \u2014 Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
+      "title": "Linux: every `docker build` fails — Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
       "coverage": "automated",
       "checks": [
@@ -827,7 +827,7 @@
     },
     {
       "issue": 229,
-      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver \u2014 DNS inside the node times out",
+      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver — DNS inside the node times out",
       "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
       "coverage": "automated",
       "checks": [
@@ -839,7 +839,7 @@
     },
     {
       "issue": 230,
-      "title": "Linux: container overlay mounts leak across a daemon restart \u2014 nothing can start until manually unmounted",
+      "title": "Linux: container overlay mounts leak across a daemon restart — nothing can start until manually unmounted",
       "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
       "coverage": "automated",
       "checks": [
