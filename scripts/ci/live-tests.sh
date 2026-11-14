@@ -45,6 +45,7 @@ run http-connection-close
 run embedded-dns-port alpine:3.21
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
+run image-load-completion
 run layer-concurrency
 run container-addresses
 for img in busybox:stable alpine:3.21; do
