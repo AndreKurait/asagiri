@@ -4,6 +4,19 @@ This release includes the Asagiri identity and artwork, the container app,
 Docker import, registry mirrors, and the reviewed upstream changes recorded
 in `UPSTREAM.md`.
 
+The UI now includes 38 languages, a searchable language picker, and custom
+container address pools with overlap checks. USB devices can reconnect after
+returning to the bus; stopping the engine cancels pending reconnects and
+container restarts. The guest kernel includes the macOS 15 Rosetta fix.
+Screenshots and the interactive demo reflect these additions.
+
+Concurrent image-index changes are serialized, and a complete index with stale
+trailing bytes is backed up before recovery. Docker SDKs receive a compatible
+engine version while `AsagiriVersion` reports the actual product version.
+Live checks cover log-based readiness, container root setup before immediate
+execs, and macvlan/ipvlan link names. VM disk trimming now runs in its own
+process so the agent remains single-threaded when cloning containers.
+
 The full upstream PR audit also brings automatic guest recovery for running
 `always` and `unless-stopped` containers, with bounded backoff and manual-stop
 cancellation. Old VM resources and exit accounting finish before replacement.
@@ -51,8 +64,10 @@ Choose the download for your system:
   engine. These packages currently provide the command line interface.
   Static engine tarballs are also included.
 - **macOS:** the DMG for Apple Silicon (`arm64`) or Intel (`x86_64`).
-  Apps are ad hoc signed and are **not notarized by Apple**. Intel packages
-  run native x86_64 containers; the optional QEMU emulator is not bundled.
+  Default builds are ad hoc signed and are **not notarized by Apple**.
+  The release workflow supports Developer ID signing and notarization when
+  the required Apple credentials are configured. Intel packages run native
+  x86_64 containers; the optional QEMU emulator is not bundled.
 - **Windows:** the MSI for x86_64 or arm64. Windows packages are **not
   Authenticode signed**. A ZIP of the same bundle is also available.
   WSL2 is required to run containers. CI tests MSI installation and removal
