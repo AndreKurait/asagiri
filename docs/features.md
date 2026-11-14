@@ -64,8 +64,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Mac integration**: container files at `~/Asagiri` in Finder (read-only
   NFS, always current), SSH agent forwarding at
   `/run/host-services/ssh-auth.sock`
-- **Memory on macOS**: a balloon gives unused memory back while running, and
-  the VM sleeps after 60 s idle (the daemon stays at ~15 MB; waking takes
+- **Memory on macOS**: a balloon gives unused memory back while running,
+  reserves active and mapped file cache, and waits 30 seconds after memory
+  pressure or substantial cache refaults before shrinking again. Cold,
+  unmapped cache remains reclaimable. The
+  VM sleeps after 60 s idle (the daemon stays at ~15 MB; waking takes
   ~0.15 s). On Windows, Stop stops Asagiri's engine and containers; WSL can
   remain running and retain memory. The stopped engine's memory reading
   does not measure the resident WSL VM.
@@ -109,7 +112,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 Kubernetes LoadBalancer services are published on `localhost`, and
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
 
-Resource limits apply to individual containers. Aggregate parent cgroups
+Resource limits apply to individual containers. Buildx's default
+`/docker/buildx` parent groups its containers under `docker/buildx` inside
+Asagiri's delegated cgroup tree. Its aggregate counters and limits are
+available there; container updates, pause, exec and stats use their child
+cgroups. Other aggregate parent cgroups
 (`--cgroup-parent` / `HostConfig.CgroupParent`) and user namespace remapping
 (`--userns=private` or `auto`) are not implemented. Asagiri rejects those
 requests with HTTP 400. An omitted user namespace setting or `--userns=host`

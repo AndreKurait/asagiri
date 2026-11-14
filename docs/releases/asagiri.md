@@ -43,10 +43,19 @@ identity even after Linux reuses the old process ID. Stopped-container copies
 now honor persistent bind and volume mounts, including read-only mounts.
 Requested port bindings remain visible through create, start, and stop.
 Image loading waits for the complete HTTP body before publishing its contents.
+Cleanup workers are killed if their agent exits, before replacement resources
+can reuse their paths.
+
+The Mac memory balloon now reserves active and mapped file cache and waits
+30 seconds after pressure or substantial cache refaults before shrinking.
+Policy and protocol regressions cover the new accounting and gradual release;
+native Mac cache retention and throughput have not been measured.
 
 The embedded resolver leaves wildcard port 53 free for container DNS services.
 Default-bridge BuildKit DNS uses a reachable gateway for WSL/local host
-resolvers. Unsupported parent cgroups, user remapping, and bridge interface
+resolvers. Buildx's default parent cgroup now groups builder containers under
+Asagiri's delegated tree with aggregate accounting and limits. Unsupported
+custom parent cgroups, user remapping, and bridge interface
 names return clear errors. Windows publishing explains the WSL/Windows LAN
 boundary; it does not install Windows forwarding or firewall rules.
 

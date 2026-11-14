@@ -76,7 +76,9 @@ test_package() { # name full(0|1)
   fi
   if [ -n "${cli:-}" ]; then
     if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
-      step "$c" "packaged engine reports release version $ASAGIRI_EXPECTED_VERSION" "$cli version --format '{{.Server.Version}}' | grep -Fx '$ASAGIRI_EXPECTED_VERSION'"
+      # Docker's Version is a compatibility version. The Engine component
+      # preserves AsagiriVersion even when the CLI drops unknown root fields.
+      step "$c" "packaged engine reports release version $ASAGIRI_EXPECTED_VERSION" "$cli version --format '{{index (index .Server.Components 0).Details \"AsagiriVersion\"}}' | grep -Fx '$ASAGIRI_EXPECTED_VERSION'"
     fi
     step "$c" "docker run alpine on the packaged engine" "timeout -s KILL 120 $cli run --rm alpine:3.21 cat /etc/alpine-release | grep -q '^3\.'"
     # The Linux guest starts lazily; /version alone does not create its data.

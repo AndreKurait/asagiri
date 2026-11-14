@@ -201,6 +201,7 @@ fn create_body() -> Value {
         "Labels": {LABEL: "1"},
         "HostConfig": {
             "Privileged": true,
+            "CgroupParent": "/docker/buildx",
             "Mounts": [{"Type": "volume", "Source": volume_name(), "Target": "/var/lib/buildkit"}],
             "RestartPolicy": {"Name": "no"},
         },
@@ -296,9 +297,18 @@ fn hide_amd64_qemu(engine: &Engine, id: &str) {
 /// ls`, `inspect`, the window's Builds view) makes and pulls nothing, so a
 /// fresh Asagiri has no builder, image or cache volume until the first build.
 /// None for any other name, or when the builder exists (the usual 409).
-pub fn create_for_buildx(engine: &Engine, name: Option<&str>) -> Option<Result<Value, Error>> {
-    if name.map(|n| n.trim_start_matches('/')) != Some(container_name().as_str()) {
+pub fn create_for_buildx(engine: &Engine, req: &Request) -> Option<Result<Value, Error>> {
+    if req.query("name").map(|n| n.trim_start_matches('/')) != Some(container_name().as_str()) {
         return None;
+    }
+    // The managed container has its own defaults, but its special name must
+    // not silently accept isolation settings the ordinary create rejects.
+    let requested: Value = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(e) => return Some(Err(Error::BadRequest(format!("invalid JSON: {e}")))),
+    };
+    if let Err(error) = api::validate_isolation(&requested["HostConfig"]) {
+        return Some(Err(error));
     }
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
     if find(engine).is_some() {

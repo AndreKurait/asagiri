@@ -5,6 +5,7 @@ The supplied socket must belong to the private test engine. No host ports are
 published by the outer harness; this script's port stays inside that harness.
 Native macOS/WSL behavior is deliberately not inferred from these results.
 """
+import http.client
 import json
 import os
 from pathlib import Path
@@ -72,15 +73,26 @@ def check(path, image):
                 os.close(slave)
             print("PASS #26 privileged start preserves the test host's PTY devices", flush=True)
 
-            for flag, value, field in (
-                    ("--cgroup-parent", "/tenant", "CgroupParent"),
-                    ("--userns", "private", "UsernsMode")):
+            # Exercise the engine's refusals directly: Docker CLI rejects
+            # non-host --userns values before it sends an API request.
+            for field, value in (
+                    ("CgroupParent", "/tenant"), ("UsernsMode", "private")):
                 name = prefix + "-isolation"
-                result = subprocess.run(
-                    ["docker", "--host", "unix://" + path, "create", "--name", name,
-                     flag, value, image, "true"], env=env, capture_output=True, text=True, timeout=30)
-                assert result.returncode != 0 and field in result.stderr, result.stderr
-                assert "does not support" in result.stderr, result.stderr
+                connection = http.client.HTTPConnection("localhost", timeout=30)
+                connection.sock = socket.socket(socket.AF_UNIX)
+                connection.sock.settimeout(30)
+                connection.sock.connect(path)
+                try:
+                    connection.request("POST", "/containers/create?name=" + name,
+                                       json.dumps({"Image": image, "Cmd": ["true"],
+                                                   "HostConfig": {field: value}}),
+                                       {"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    message = json.loads(response.read())["message"]
+                    assert response.status == 400 and field in message, (response.status, message)
+                    assert "does not support" in message, message
+                finally:
+                    connection.close()
                 assert cli("ps", "-aq", "--filter", "name=" + name) == ""
             name = prefix + "-bridge"
             result = subprocess.run(

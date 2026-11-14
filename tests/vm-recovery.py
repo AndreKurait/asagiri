@@ -18,7 +18,7 @@ import uuid
 def process(pid):
     root = Path("/proc") / str(pid)
     fields = (root / "stat").read_text().rsplit(")", 1)[1].split()
-    return os.readlink(root / "exe"), int(fields[1]), int(fields[19])
+    return os.readlink(root / "exe"), int(fields[1]), int(fields[19]), (root / "comm").read_text().strip()
 
 
 def check(path, image):
@@ -52,7 +52,11 @@ def check(path, image):
                 identity = process(int(entry.name))
             except (FileNotFoundError, ProcessLookupError):
                 continue
-            if identity[0] == "/opt/asagiri/asagiri-init" and identity[1] == 1:
+            # Cleanup workers share the executable and briefly become PID 1's
+            # children while their parent-death SIGKILL completes. Their name
+            # is asagiri-clean; they are not a replacement engine. The separate
+            # cleanup-responsive crash test requires those workers to exit.
+            if identity[0] == "/opt/asagiri/asagiri-init" and identity[1] == 1 and identity[3] == "asagiri-init":
                 found.append((int(entry.name), identity))
         return found
 
@@ -124,7 +128,8 @@ def check(path, image):
             saved = state()
             assert all(saved[cid]["status"] == "exited" and saved[cid]["restart_count"] == 2 for cid in eligible)
             # Allow the killed child to be reaped; it must never be replaced.
-            assert not agents(), "an engine without eligible containers must remain asleep"
+            found = agents()
+            assert not found, ("an engine without eligible containers must remain asleep", found)
             assert process(1) == daemon
             time.sleep(0.05)
         print("PASS no eligible restart policies: the agent stays down and the daemon stays alive", flush=True)

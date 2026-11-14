@@ -67,6 +67,13 @@ def check(path):
 
         assert cli("container", "inspect", managed_container, ok=False).returncode != 0, \
             "use a disposable engine without an existing managed builder"
+        # The managed builder's special create path must honor the same
+        # explicit isolation refusals before pulling or creating resources.
+        for option, value in (("CgroupParent", "/tenant"), ("UsernsMode", "private")):
+            status, body = api("POST", "/containers/create?name=" + managed_container,
+                               {"Image": "moby/buildkit:buildx-stable-1", "HostConfig": {option: value}})
+            assert status == 400 and option in body.decode(), (status, body)
+            assert cli("container", "inspect", managed_container, ok=False).returncode != 0
         print(cli("version", "--format", "{{json .}}").stdout.strip(), flush=True)
         print(cli("buildx", "version").stdout.strip(), flush=True)
         try:
@@ -83,10 +90,32 @@ def check(path):
                     print(f"Retry {attempt + 1} succeeded", flush=True)
                 else:
                     print(f"PASS fresh bootstrap {attempt + 1}/6", flush=True)
+                inspected = json.loads(cli("inspect", "buildx_buildkit_" + builder + "0").stdout)[0]
+                assert inspected["HostConfig"]["CgroupParent"] == "/docker/buildx", inspected["HostConfig"]
                 remove(builder)
 
             make(managed)
             cli("buildx", "inspect", managed, "--bootstrap")
+            inspected = json.loads(cli("inspect", managed_container).stdout)[0]
+            assert inspected["HostConfig"]["CgroupParent"] == "/docker/buildx", inspected["HostConfig"]
+            cid = inspected["Id"]
+            cgroups = Path(f"/proc/{inspected['State']['Pid']}/cgroup").read_text()
+            relative = next(line[3:] for line in cgroups.splitlines() if line.startswith("0::"))
+            assert "/asagiri/docker/buildx/" + cid in relative, relative
+            parent = Path("/sys/fs/cgroup") / relative.lstrip("/").split("/" + cid, 1)[0]
+            group = parent / cid
+            assert int((parent / "pids.current").read_text()) > 0
+            assert int((parent / "memory.current").read_text()) > 0
+            cli("update", "--pids-limit", "256", managed_container)
+            assert (group / "pids.max").read_text().strip() == "256"
+            cli("pause", managed_container)
+            assert "frozen 1" in (group / "cgroup.events").read_text()
+            cli("unpause", managed_container)
+            assert "buildkit" in cli("top", managed_container).stdout
+            assert cli("stats", "--no-stream", "--format", "{{.PIDs}}", managed_container).stdout.strip().isdigit()
+            cli("update", "--pids-limit", "-1", managed_container)
+            assert (group / "pids.max").read_text().strip() == "max"
+            print("PASS Buildx parent cgroup, aggregate accounting, update, pause, top and stats", flush=True)
             print(cli("exec", managed_container, "buildkitd", "--version").stdout.strip(), flush=True)
             print(cli("image", "inspect", "moby/buildkit:buildx-stable-1",
                       "--format", "{{.Id}} {{json .RepoDigests}}").stdout.strip(), flush=True)

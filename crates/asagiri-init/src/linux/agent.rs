@@ -380,7 +380,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     let (mem_total_kib, mem_available_kib) = meminfo();
                     let agent_rss_kib = self_rss_kib();
                     let (mem_stall, oom_kills) = super::cgroup::memory_trouble();
-                    Msg::Stats(Stats { uptime_ns: sys::boottime_ns(), mem_total_kib, mem_available_kib, agent_rss_kib, mem_used_kib: held_kib(paths, agent_rss_kib), mem_stall, oom_kills })
+                    let memory = memory_sample(paths, agent_rss_kib);
+                    Msg::Stats(Stats { uptime_ns: sys::boottime_ns(), mem_total_kib, mem_available_kib, agent_rss_kib,
+                        mem_used_kib: memory.held >> 10, mem_stall, oom_kills,
+                        mem_working_set_kib: memory.working_set >> 10, mem_refaults: memory.refaults })
                         .encode(&mut out)
                 }
                 Ok(Msg::LayerQuery(digest)) => Msg::LayerStatus(layers::present(&paths.layers, digest)).encode(&mut out),
@@ -557,30 +560,30 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     }
                     continue;
                 }
-                Ok(Msg::Update { id, limits }) => match running_pid(&procs, id) {
-                    Some(_) => match super::cgroup::update_limits(&paths.cgroup.join(id), &limits) {
+                Ok(Msg::Update { id, limits }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => match super::cgroup::update_limits(path, &limits) {
                         Ok(()) => Msg::Ack.encode(&mut out),
                         Err(e) => Msg::Error(&format!("update: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::Freeze { id, frozen }) => match running_pid(&procs, id) {
-                    Some(_) => match super::cgroup::freeze(&paths.cgroup.join(id), frozen) {
+                Ok(Msg::Freeze { id, frozen }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => match super::cgroup::freeze(path, frozen) {
                         Ok(()) => Msg::Ack.encode(&mut out),
                         Err(e) => Msg::Error(&format!("freeze: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::StatsQuery { id }) => match running_pid(&procs, id) {
-                    Some(pid) => match super::cgroup::stats(&paths.cgroup.join(id), pid) {
+                Ok(Msg::StatsQuery { id }) => match running_cgroup(&procs, id) {
+                    Some((pid, path)) => match super::cgroup::stats(path, pid) {
                         Ok(s) => Msg::ContainerStats(s).encode(&mut out),
                         Err(e) => Msg::Error(&format!("stats: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::TopQuery { id }) => match running_pid(&procs, id) {
-                    Some(_) => {
-                        let lines = super::cgroup::top(&paths.cgroup.join(id));
+                Ok(Msg::TopQuery { id }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => {
+                        let lines = super::cgroup::top(path);
                         asagiri_proto::encode_top(&mut out, &lines);
                     }
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
@@ -758,6 +761,11 @@ fn memory_pressure_trigger() -> Option<std::fs::File> {
 }
 
 /// A running container's init (not an exec).
+fn running_cgroup<'a>(procs: &'a Procs, id: &str) -> Option<(libc::pid_t, &'a std::path::Path)> {
+    let pid = running_pid(procs, id)?;
+    Some((pid, container::cgroup(&procs.get(id)?.run)?))
+}
+
 fn running_pid(procs: &Procs, id: &str) -> Option<libc::pid_t> {
     procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| p.run.pid)
 }
@@ -812,13 +820,17 @@ fn flush_input(procs: &mut Procs, fd: RawFd, conn: &mut File, out: &mut Vec<u8>)
 /// What Asagiri's Linux holds, in KiB. In the VM, where this process is init,
 /// it is the root cgroup: the whole guest. On a Linux host it is the
 /// containers' cgroup and this process; the daemon adds itself.
-fn held_kib(paths: &Paths, agent_rss_kib: u64) -> u64 {
+fn memory_sample(paths: &Paths, agent_rss_kib: u64) -> super::cgroup::Memory {
     if std::process::id() == 1 {
-        return super::cgroup::held(std::path::Path::new("/sys/fs/cgroup")).unwrap_or(0) >> 10;
+        return super::cgroup::memory(std::path::Path::new("/sys/fs/cgroup")).unwrap_or_default();
     }
-    match super::cgroup::held(&paths.cgroup) {
-        Some(b) => (b >> 10) + agent_rss_kib,
-        None => 0,
+    match super::cgroup::memory(&paths.cgroup) {
+        Some(mut memory) => {
+            memory.held = memory.held.saturating_add(agent_rss_kib.saturating_mul(1024));
+            memory.working_set = memory.working_set.saturating_add(agent_rss_kib.saturating_mul(1024));
+            memory
+        }
+        None => super::cgroup::Memory::default(),
     }
 }
 
