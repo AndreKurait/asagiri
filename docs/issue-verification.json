@@ -162,11 +162,12 @@
       "issue": 49,
       "title": "Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver",
       "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
-      "coverage": "deferred-feature",
+      "coverage": "partial",
       "checks": [
-        "tests/buildx-bootstrap.py"
+        "tests/buildkit-driver.py",
+        "docs/buildkit.md"
       ],
-      "remaining": "The tested docker-container driver is supported; a built-in BuildKit gRPC driver is not implemented."
+      "remaining": "The native Docker-driver bridge passes private Linux probes with Docker 28 and 29: contexts, secrets, local image loading, IDs, cache, explicit exports, concurrent Bake, host-gateway, cancellation and builder preference migration. Native Mac VM and Windows WSL execution remain unverified."
     },
     {
       "issue": 50,
