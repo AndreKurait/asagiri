@@ -206,10 +206,56 @@ impl Store {
     }
 
     pub fn images(&self) -> io::Result<Vec<Image>> {
+        match self.read_index() {
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                let _index = self.lock_index()?;
+                self.read_or_repair_index()
+            }
+            result => result,
+        }
+    }
+
+    fn read_index(&self) -> io::Result<Vec<Image>> {
         match fs::read(self.root.join("images.json")) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e),
+        }
+    }
+
+    /// Separate handles, including another process using this store, share
+    /// one lock for the entire read/modify/replace operation.
+    fn lock_index(&self) -> io::Result<File> {
+        let file = File::options().read(true).write(true).create(true).truncate(false).open(self.root.join("images.lock"))?;
+        file.lock()?;
+        Ok(file)
+    }
+
+    /// Called under the index lock. Old concurrent writers could leave the
+    /// tail of a longer document after a complete array. Recover only that
+    /// complete, typed array, and preserve every original byte in a backup.
+    fn read_or_repair_index(&self) -> io::Result<Vec<Image>> {
+        let path = self.root.join("images.json");
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(images) => Ok(images),
+            Err(error) => {
+                let mut records = serde_json::Deserializer::from_slice(&bytes).into_iter::<Vec<Image>>();
+                let Some(Ok(images)) = records.next() else {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{}: {error}; the original index is unchanged", path.display())));
+                };
+                let backup = self.root.join(format!("images.json.corrupt.{}.{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+                let mut file = File::options().write(true).create_new(true).open(&backup)?;
+                file.write_all(&bytes)?;
+                file.sync_all()?;
+                self.write_index(&images)?;
+                eprintln!("Asagiri recovered the image index; the original is saved at {}", backup.display());
+                Ok(images)
+            }
         }
     }
 
@@ -220,7 +266,8 @@ impl Store {
 
     /// Adds `image`, replacing any image with the same name.
     pub fn put_image(&self, image: Image) -> io::Result<()> {
-        let mut images = self.images()?;
+        let _index = self.lock_index()?;
+        let mut images = self.read_or_repair_index()?;
         images.retain(|i| i.name != image.name);
         images.push(image);
         self.write_index(&images)
@@ -231,7 +278,8 @@ impl Store {
     /// pin to it. Every tag of the image in that repository gets it, as there.
     /// Not if `name` became another image during the push.
     pub fn set_pushed(&self, name: &str, config_digest: &str, digest: &str) -> io::Result<()> {
-        let mut images = self.images()?;
+        let _index = self.lock_index()?;
+        let mut images = self.read_or_repair_index()?;
         let Some(repo) = images.iter().find(|i| i.name == name && i.config_digest == config_digest).map(|i| i.repo().to_owned()) else { return Ok(()) };
         for i in images.iter_mut().filter(|i| i.config_digest == config_digest && i.repo() == repo) {
             // Publishing one tag does not publish the other local names.
@@ -245,7 +293,8 @@ impl Store {
 
     /// Removes the image and deletes blobs no remaining image uses.
     pub fn remove_image(&self, name: &str) -> io::Result<Option<Image>> {
-        let mut images = self.images()?;
+        let _index = self.lock_index()?;
+        let mut images = self.read_or_repair_index()?;
         let Some(pos) = images.iter().position(|i| i.name == name) else { return Ok(None) };
         let removed = images.remove(pos);
         self.write_index(&images)?;
@@ -261,10 +310,16 @@ impl Store {
     }
 
     fn write_index(&self, images: &[Image]) -> io::Result<()> {
-        let tmp = self.root.join("tmp/images.json");
+        let tmp = self.root.join(format!("tmp/images.{}.{}.json", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
         let bytes = serde_json::to_vec_pretty(images).map_err(io::Error::other)?;
-        fs::write(&tmp, bytes)?;
-        fs::rename(tmp, self.root.join("images.json"))
+        let result = (|| {
+            let mut file = File::options().write(true).create_new(true).open(&tmp)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&tmp, self.root.join("images.json"))
+        })();
+        if result.is_err() { let _ = fs::remove_file(&tmp); }
+        result
     }
 }
 
@@ -374,6 +429,64 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn index_image(name: String) -> Image {
+        Image {
+            name, digest: format!("sha256:{}", "1".repeat(64)), config_digest: format!("sha256:{}", "2".repeat(64)),
+            index_digest: None, local_tag: true, layers: Vec::new(), size: 0, platform: "linux/arm64".into(),
+            created: String::new(), pulled_at: 0, config: RunConfig::default(),
+        }
+    }
+
+    #[test]
+    fn independent_store_handles_preserve_concurrent_updates_and_shorter_rewrites() {
+        let root = std::env::temp_dir().join(format!("asagiri-store-concurrent-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        let store = Store::open(&root).unwrap();
+        let start = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            for worker in 0..8 {
+                let (root, start) = (&root, &start);
+                scope.spawn(move || {
+                    let store = Store::open(root).unwrap();
+                    start.wait();
+                    for n in 0..8 {
+                        let name = format!("worker-{worker}:tag-{n}");
+                        let mut image = index_image(name.clone());
+                        image.config.env = vec!["LONG=".to_owned() + &"x".repeat(1024)];
+                        store.put_image(image).unwrap();
+                        store.put_image(index_image(name)).unwrap();
+                        assert!(!store.images().unwrap().is_empty());
+                    }
+                });
+            }
+        });
+        let images = store.images().unwrap();
+        assert_eq!(images.len(), 64, "no completed tag may be lost to another writer");
+        assert!(images.iter().all(|i| i.config.env.is_empty()));
+        assert_eq!(fs::read_dir(root.join("tmp")).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_complete_index_with_stale_trailing_bytes_is_backed_up_and_recovered() {
+        let root = std::env::temp_dir().join(format!("asagiri-store-recover-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        let store = Store::open(&root).unwrap();
+        let mut corrupt = serde_json::to_vec(&vec![index_image("recovered:latest".into())]).unwrap();
+        corrupt.extend_from_slice(b",\n      \"user\": \"\"\n    }\n  }\n]");
+        fs::write(root.join("images.json"), &corrupt).unwrap();
+        assert_eq!(store.images().unwrap()[0].name, "recovered:latest");
+        let backups: Vec<_> = fs::read_dir(&root).unwrap().map(Result::unwrap)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("images.json.corrupt.")).collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(fs::read(backups[0].path()).unwrap(), corrupt);
+        store.put_image(index_image("new:latest".into())).unwrap();
+        assert_eq!(store.images().unwrap().len(), 2);
+        // Incomplete records cannot be reconstructed safely; never erase them.
+        fs::write(root.join("images.json"), b"[{\"name\":\"incomplete").unwrap();
+        assert_eq!(store.put_image(index_image("refused:latest".into())).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(root.join("images.json")).unwrap(), b"[{\"name\":\"incomplete");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn rejects_paths_instead_of_digests() {
