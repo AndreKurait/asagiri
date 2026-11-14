@@ -42,6 +42,14 @@ mod diag;
 mod docker;
 mod flavor;
 mod images;
+#[cfg(any(unix, windows))]
+mod integrations;
+#[cfg(any(unix, windows))]
+mod local_api;
+#[cfg(any(unix, windows))]
+mod mcp;
+#[cfg(any(unix, windows))]
+mod tooling;
 #[cfg(unix)]
 mod guest;
 #[cfg(target_os = "linux")]
@@ -89,6 +97,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri setup [--use] [--no-agent] | asagiri setup --uninstall
        asagiri build-with [docker|asagiri]   which builder docker build uses
        asagiri registry-mirror list | add ADDRESS | remove ADDRESS   Docker Hub mirrors
+       asagiri mcp [enable|disable|allow-changes on|off|status|config]   local AI integration
        asagiri update [--check]
        asagiri diag logs [-f] [--ui|--engine|--cli] [--errors] [-n N]
        asagiri diag report [--out PATH] [--send]   (a file to send us, tokens taken out)
@@ -106,6 +115,15 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
 fn main() -> ExitCode {
     flavor::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Stdio belongs entirely to JSON-RPC; do not install diagnostic pipe
+    // redirection or run engine-version checks for an MCP client.
+    #[cfg(any(unix, windows))]
+    if args.first().map(String::as_str) == Some("mcp") {
+        return match mcp::run(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => { eprintln!("asagiri: {e}"); ExitCode::FAILURE }
+        };
+    }
     // Which process this is, for its log and crash reports.
     #[cfg(unix)]
     diag::init(match args.first().map(String::as_str) {

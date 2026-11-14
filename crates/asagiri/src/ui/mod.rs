@@ -1875,6 +1875,15 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             Ok(())
         }
         // Settings → Registry mirrors.
+        "integrations" => {
+            std::thread::spawn(|| emit(crate::integrations::report(None).to_string()));
+            Ok(())
+        }
+        "setintegrations" => {
+            let body = msg.value;
+            std::thread::spawn(move || emit(crate::integrations::report(Some(body)).to_string()));
+            Ok(())
+        }
         "mirrors" => {
             std::thread::spawn(|| registry_mirrors(None));
             Ok(())

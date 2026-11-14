@@ -1687,5 +1687,13 @@
   "— the log stream ended —": "— 日志流已结束 —",
   "‹ Back": "‹ 返回",
   "★ Star on GitHub": "★ 在 GitHub 上 Star",
-  "✓ Installed": "✓ 已安装"
+  "✓ Installed": "✓ 已安装",
+  "AI integrations": "AI 集成",
+  "Allow clients to start, stop and restart existing containers. Shell execution, creation and deletion are unavailable.": "允许客户端启动、停止和重启现有容器。不提供命令执行、创建或删除功能。",
+  "Allow container changes": "允许更改容器",
+  "Connect an AI client to Asagiri through its local MCP command. Access is off until you enable it.": "通过 Asagiri 的本地 MCP 命令连接 AI 客户端。启用前访问权限保持关闭。",
+  "Copy connection configuration": "复制连接配置",
+  "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "关闭访问权限后，已连接的客户端将无法发起新请求。已发送到引擎的操作仍可能完成。",
+  "Enable MCP access": "启用 MCP 访问",
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "读取引擎状态、容器、最近日志、镜像、卷和网络。应用日志可能包含机密信息。"
 }

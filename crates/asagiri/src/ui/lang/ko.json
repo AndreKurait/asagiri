@@ -1687,5 +1687,13 @@
   "— the log stream ended —": "— 로그 스트림이 끝났습니다 —",
   "‹ Back": "‹ 뒤로",
   "★ Star on GitHub": "★ GitHub에서 별 주기",
-  "✓ Installed": "✓ 설치됨"
+  "✓ Installed": "✓ 설치됨",
+  "AI integrations": "AI integrations",
+  "Allow clients to start, stop and restart existing containers. Shell execution, creation and deletion are unavailable.": "Allow clients to start, stop and restart existing containers. Shell execution, creation and deletion are unavailable.",
+  "Allow container changes": "Allow container changes",
+  "Connect an AI client to Asagiri through its local MCP command. Access is off until you enable it.": "Connect an AI client to Asagiri through its local MCP command. Access is off until you enable it.",
+  "Copy connection configuration": "Copy connection configuration",
+  "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.",
+  "Enable MCP access": "Enable MCP access",
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets."
 }

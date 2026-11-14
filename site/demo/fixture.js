@@ -44,6 +44,11 @@ const demoNetworks = ["morning_default", "jobs_default", "bridge"].map((Name, i)
 }));
 const demoLists = () => asagiri.on({ type: "lists", containers: demoContainers, images: demoImages, volumes: demoVolumes, networks: demoNetworks });
 let demoMirrors = [];
+let demoMcpPermissions = { enabled: false, allowContainerChanges: false };
+const demoIntegrations = () => asagiri.on({
+  type: "integrations", permissions: { ...demoMcpPermissions },
+  config: { mcpServers: { asagiri: { command: "/usr/local/bin/asagiri", args: ["mcp"] } } },
+});
 const demoProxy = {
   type: "proxy",
   settings: { mode: "system", http: "", https: "", no_proxy: "", containers: false },
@@ -108,6 +113,12 @@ function demoCommand(message) {
   if (cmd === "buildwith") return asagiri.on({ type: "buildwith", with: "asagiri", engine: null,
     ask: false, taken: false, ready: true, builder: "asagiri-build", context: "asagiri" });
   if (cmd === "mirrors") return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+  if (cmd === "integrations") return demoIntegrations();
+  if (cmd === "setintegrations") {
+    demoMcpPermissions = { enabled: message.value?.enabled === true,
+      allowContainerChanges: message.value?.enabled === true && message.value?.allowContainerChanges === true };
+    return demoIntegrations();
+  }
   if (cmd === "proxy") return asagiri.on(structuredClone(demoProxy));
   if (cmd === "setproxy") {
     const value = message.value || {};
