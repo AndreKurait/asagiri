@@ -76,9 +76,21 @@ try:
     fields=pathlib.Path('/proc',str(blocked),'stat').read_text().rsplit(')',1)[1].split()
     assert int(fields[1])==init[0] and os.readlink('/proc/'+str(blocked)+'/exe')=='/opt/asagiri/asagiri-init'
     signal.pidfd_send_signal(agent_fd,signal.SIGKILL)
-    for descriptor in (agent_fd,worker_fd):
-     poll=select.poll();poll.register(descriptor,select.POLLIN)
-     assert poll.poll(3000),'Cleanup worker outlived the agent and could modify replacement paths'
+    poll=select.poll();poll.register(agent_fd,select.POLLIN)
+    assert poll.poll(3000),'Agent did not exit'
+    poll=select.poll();poll.register(worker_fd,select.POLLIN)
+    if not poll.poll(100):
+     # strace can retain its injected syscall-entry delay even for SIGKILL
+     # (a tracing stop with "delayed wait data set already"). Verify the
+     # parent's death really sent SIGKILL before releasing our own tracer.
+     status=dict(line.split(':',1) for line in pathlib.Path('/proc',str(blocked),'status').read_text().splitlines() if ':' in line)
+     assert int(status['TracerPid'])==trace.pid,status
+     pending=int(status['SigPnd'],16)|int(status['ShdPnd'],16)
+     assert pending & (1 << (signal.SIGKILL-1)),'Parent death did not terminate the cleanup worker'
+     report['deathSignalPendingWhileTraced']=True
+    if trace.poll() is None:trace.kill()
+    trace.wait(timeout=3);trace=None
+    assert poll.poll(3000),'Cleanup worker did not exit after releasing the tracer'
     report['workerStoppedOnAgentLoss']=True
    finally:os.close(worker_fd);os.close(agent_fd)
   else:
@@ -93,8 +105,10 @@ try:
    if a.copy:assert pathlib.Path('/tmp/cleanup-proof-result').read_bytes()==b'preserved'
  if a.expect_blocked:
   out,err=stop.communicate(timeout=25);report['stopSeconds']=time.monotonic()-began;assert stop.returncode==0,(out,err)
- if trace.poll() is None:trace.send_signal(signal.SIGINT)
- trace.wait(timeout=10);trace=None;log.close()
+ if trace is not None:
+  if trace.poll() is None:trace.send_signal(signal.SIGINT)
+  trace.wait(timeout=10);trace=None
+ log.close()
  call('start',victim);assert call('exec',victim,'echo','restarted').strip()==b'restarted'
  assert call('exec',victim,'cat','/cleanup-proof')==b'preserved'
  call('rm','-f',victim);ids.remove(victim)

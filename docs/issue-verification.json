@@ -677,12 +677,13 @@
       "issue": 210,
       "title": "macOS: containers report hundreds of GB of block reads while the guest has no page cache",
       "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
-      "coverage": "known-limitation",
+      "coverage": "partial",
       "checks": [
-        "crates/asagiri/src/daemon/engine.rs",
-        "crates/asagiri-init/src/linux/cgroup.rs"
+        "crates/asagiri/src/daemon/balloon.rs",
+        "crates/asagiri-init/src/linux/cgroup.rs",
+        "crates/asagiri-proto/src/lib.rs"
       ],
-      "remaining": "The balloon target currently excludes file working-set cache and can shrink after pressure growth. Working-set protection and hysteresis still require implementation; no native Mac VM was launched."
+      "remaining": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified."
     },
     {
       "issue": 213,
@@ -692,10 +693,11 @@
       "checks": [
         "tests/network-bridge-icc.py",
         "tests/reported-runtime-regressions.py",
+        "tests/buildx-bootstrap.py",
         "crates/asagiri/src/daemon/api.rs",
         "docs/features.md"
       ],
-      "remaining": "Implemented the report's explicit-rejection alternative: unsupported CgroupParent, user remapping, and custom bridge names return HTTP 400 before resource creation. Per-container limits and bridge ICC remain supported. Aggregate tenant cgroups and user namespace remapping are not claimed."
+      "remaining": "Implemented the report's explicit-rejection alternative for unsupported parent cgroups, user remapping, and custom bridge names before resource creation. Buildx's default /docker/buildx parent is supported inside Asagiri's delegated tree, with aggregate accounting and per-container controls; arbitrary tenant parents and UID remapping remain unsupported."
     },
     {
       "issue": 215,

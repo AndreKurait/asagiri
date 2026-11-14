@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.request
 
 REPO = "AndreKurait/asagiri"
@@ -101,7 +102,6 @@ def verified_release(release, cache):
     verified = json.loads(command(
         "gh", "attestation", "verify", str(folder / "SHA256SUMS"),
         "--repo", REPO, "--signer-workflow", REPO + "/.github/workflows/release.yml",
-        "--signer-digest", manifest["commit"], "--source-digest", manifest["commit"],
         "--deny-self-hosted-runners", "--bundle", str(folder / "attestation.sigstore.json"),
         "--format", "json",
     ))
@@ -112,11 +112,64 @@ def verified_release(release, cache):
                       == {"commit": manifest["commit"], "version": manifest["version"]}), None)
     if statement is None:
         raise ValueError("Build provenance does not identify this source and version")
+    workflow_commit, run_id = publication_identity(statement, manifest)
+    # Release publication can trigger Pages just before its workflow finishes.
+    # Wait for that exact run, never substitute a newer green main run.
+    for attempt in range(12):
+        publisher = api(f"actions/runs/{run_id}")
+        if publisher["status"] == "completed":
+            break
+        if attempt < 11:
+            time.sleep(5)
+    if (publisher["path"] != ".github/workflows/release.yml"
+            or publisher["repository"]["full_name"] != REPO
+            or publisher["head_sha"] != workflow_commit or publisher["conclusion"] != "success"):
+        raise ValueError("The attested release publisher has not completed successfully")
+    if api(f"compare/{manifest['commit']}...{workflow_commit}")["merge_base_commit"]["sha"] != manifest["commit"]:
+        raise ValueError("Package source is not an ancestor of the publishing workflow")
+    # Recovery uses a newer trusted workflow to publish previously tested
+    # packages. Its certificate identifies the workflow SHA, while the signed
+    # package-source dependency identifies the release tag's original SHA.
+    command(
+        "gh", "attestation", "verify", str(folder / "SHA256SUMS"),
+        "--repo", REPO, "--signer-workflow", REPO + "/.github/workflows/release.yml",
+        "--signer-digest", workflow_commit, "--source-digest", workflow_commit,
+        "--deny-self-hosted-runners", "--bundle", str(folder / "attestation.sigstore.json"),
+        "--format", "json",
+    )
     subjects = {Path(item["name"]).name: item["digest"]["sha256"] for item in statement["subject"]}
     for name in [*listed, "release-manifest.json", "SHA256SUMS"]:
         if subjects.get(name) != assets[name]["digest"][7:]:
             raise ValueError(f"Build provenance does not cover the published asset: {name}")
     return manifest, assets, folder
+
+
+def publication_identity(statement, manifest):
+    """Read identities only after gh has verified the statement's signature."""
+    predicate = statement["predicate"]
+    definition = predicate["buildDefinition"]
+    dependencies = definition["resolvedDependencies"]
+    roles = {item.get("annotations", {}).get("role"): item for item in dependencies}
+    if len(dependencies) != 2 or set(roles) != {"build workflow", "package source"}:
+        raise ValueError("Provenance must identify one workflow and one package source")
+    workflow = definition["externalParameters"]["workflow"]
+    source = roles["package source"]
+    commit = roles["build workflow"]["digest"]["gitCommit"]
+    origin = f"https://github.com/{REPO}"
+    if (not re.fullmatch(r"[a-f0-9]{40}", commit)
+            or workflow["path"] != ".github/workflows/release.yml"
+            or workflow["repository"] != origin
+            or not (workflow["ref"] == "refs/heads/main"
+                    or workflow["ref"] == "refs/tags/v" + manifest["version"])
+            or roles["build workflow"]["uri"] != f"git+{origin}@{workflow['ref']}"
+            or source["uri"] != f"git+{origin}@{manifest['commit']}"
+            or source["digest"]["gitCommit"] != manifest["commit"]):
+        raise ValueError("Provenance workflow or package identity does not match the release")
+    invocation = predicate["runDetails"]["metadata"]["invocationId"]
+    match = re.fullmatch(re.escape(origin) + r"/actions/runs/([1-9]\d*)/attempts/([1-9]\d*)", invocation)
+    if not match:
+        raise ValueError("Provenance names an invalid publication run")
+    return commit, match[1]
 
 
 def signing_key():

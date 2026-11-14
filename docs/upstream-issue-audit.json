@@ -568,8 +568,8 @@
       "state": "open",
       "updated_at": "2026-11-14T12:20:38Z",
       "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
-      "disposition": "known-limitation",
-      "reason": "The balloon target currently excludes file working-set cache and can shrink after pressure growth. Working-set protection and hysteresis still require implementation; no native Mac VM was launched."
+      "disposition": "partial",
+      "reason": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified."
     },
     {
       "number": 213,
@@ -578,7 +578,7 @@
       "updated_at": "2026-11-14T11:28:54Z",
       "body_sha256": "d2bd38b7f07b942e157cac05d87e37da6d6e117717fcc109c99cfe1ef901a2be",
       "disposition": "covered",
-      "reason": "Implemented the report's explicit-rejection alternative: unsupported CgroupParent, user remapping, and custom bridge names return HTTP 400 before resource creation. Per-container limits and bridge ICC remain supported. Aggregate tenant cgroups and user namespace remapping are not claimed."
+      "reason": "Implemented the report's explicit-rejection alternative for unsupported parent cgroups, user remapping, and custom bridge names before resource creation. Buildx's default /docker/buildx parent is supported inside Asagiri's delegated tree, with aggregate accounting and per-container controls; arbitrary tenant parents and UID remapping remain unsupported."
     },
     {
       "number": 215,

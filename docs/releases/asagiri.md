@@ -36,6 +36,13 @@ identity even after Linux reuses the old process ID. Stopped-container copies
 now honor persistent bind and volume mounts, including read-only mounts.
 Requested port bindings remain visible through create, start, and stop.
 Image loading waits for the complete HTTP body before publishing its contents.
+Cleanup workers are killed if their agent exits, before replacement resources
+can reuse their paths.
+
+The Mac memory balloon now reserves active and mapped file cache and waits
+30 seconds after pressure or substantial cache refaults before shrinking.
+Policy and protocol regressions cover the new accounting and gradual release;
+native Mac cache retention and throughput have not been measured.
 
 The embedded resolver leaves wildcard port 53 free for container DNS services.
 Default-bridge BuildKit DNS uses a reachable gateway for WSL/local host

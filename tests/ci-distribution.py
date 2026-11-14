@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise release selection and distribution integrity boundaries."""
 import importlib.util
+import copy
 import json
 from pathlib import Path
 import tempfile
@@ -19,6 +20,34 @@ def release(tag, *, draft=False, prerelease=None):
 
 
 class DistributionTests(unittest.TestCase):
+    def test_recovery_distinguishes_signed_workflow_and_package_identities(self):
+        source, publisher = "a" * 40, "b" * 40
+        origin = "https://github.com/" + distribution.REPO
+        manifest = {"commit": source, "version": "0.1.1-dev.62"}
+        statement = {"predicate": {
+            "buildDefinition": {
+                "externalParameters": {"workflow": {"repository": origin, "path": ".github/workflows/release.yml", "ref": "refs/heads/main"}},
+                "resolvedDependencies": [
+                    {"uri": "git+" + origin + "@refs/heads/main", "digest": {"gitCommit": publisher}, "annotations": {"role": "build workflow"}},
+                    {"uri": "git+" + origin + "@" + source, "digest": {"gitCommit": source}, "annotations": {"role": "package source"}},
+                ],
+            },
+            "runDetails": {"metadata": {"invocationId": origin + "/actions/runs/123/attempts/1"}},
+        }}
+        self.assertEqual(distribution.publication_identity(statement, manifest), (publisher, "123"))
+        changes = [
+            lambda d: d["buildDefinition"]["resolvedDependencies"][1]["digest"].update(gitCommit=publisher),
+            lambda d: d["buildDefinition"]["resolvedDependencies"].append(d["buildDefinition"]["resolvedDependencies"][0]),
+            lambda d: d["buildDefinition"]["externalParameters"]["workflow"].update(repository="https://github.com/other/fork"),
+            lambda d: d["buildDefinition"]["externalParameters"]["workflow"].update(ref="refs/heads/unreviewed"),
+            lambda d: d["runDetails"]["metadata"].update(invocationId="https://github.com/other/fork/actions/runs/123/attempts/1"),
+        ]
+        for change in changes:
+            bad = copy.deepcopy(statement)
+            change(bad["predicate"])
+            with self.assertRaises(ValueError):
+                distribution.publication_identity(bad, manifest)
+
     def test_empty_repository_has_no_fake_downloads(self):
         self.assertEqual(distribution.channels([]), {"latest": None, "stable": None, "preview": None})
 
