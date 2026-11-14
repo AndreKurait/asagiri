@@ -4855,7 +4855,7 @@ function renderVolumes() {
    Windows prompt per device, the first time); on Linux containers already see
    every device, so each row says where to find it. */
 ui.usb = { items: null, busy: new Map(), note: "", can: "", error: "", missing: false, timer: 0, open: "", opening: "", tab: "run" };
-const usbState = (s) => ({ asagiri: [tr("In Asagiri"), "running"], host: [WIN ? tr("On this PC") : tr("On this Mac"), ""], shared: [tr("Containers see it"), "running"] })[s];
+const usbState = (s) => ({ asagiri: [tr("In Asagiri"), "running"], waiting: [tr("Waiting to come back"), "paused"], host: [WIN ? tr("On this PC") : tr("On this Mac"), ""], shared: [tr("Containers see it"), "running"] })[s];
 /* Each device's icon: its kind as the engine read it from the device's
    interfaces, or, where it can't (Windows), from its name and vendor. A
    kind once known stays with the device: one in Asagiri hides its interfaces. */
@@ -4935,6 +4935,7 @@ function renderUsbBody() {
     const busy = u.busy.get(d.key);
     if (busy) return `<button class="btn sm usb-busy" disabled aria-busy="true"><span class="spin" aria-hidden="true"></span>${busy}</button>`;
     if (u.can !== "attach") return d.path ? copyBtn(`--device ${d.path}`, "docker flag") : "";
+    if (d.state === "waiting") return `<button class="btn sm" data-usbgo="detach" data-key="${esc(d.key)}" title="${tr("Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.")}">${tr("Stop waiting")}</button>`;
     return d.state === "asagiri" ? `<button class="btn sm" data-usbgo="detach" data-key="${esc(d.key)}" title="${tr("Give it back to this computer")}"><svg class="i" viewBox="0 0 256 256" aria-hidden="true"><path d="${PH.eject}"/></svg>${tr("Detach")}</button>`
       : `<button class="btn sm primary" data-usbgo="attach" data-key="${esc(d.key)}" title="${tr("Hand it to Asagiri's containers")}"><svg class="i" viewBox="0 0 256 256" aria-hidden="true"><path d="${PH.plug}"/></svg>${tr("Attach")}</button>`;
   };
@@ -4985,6 +4986,7 @@ function usbUse(d, kind) {
   const paths = (d.paths || []).filter((p) => p && p.path);
   const head = `<div class="h4">${tr("In a container")}</div>`;
   if (d.state === "host") return `${head}<p class="usb-note">${tr("Attach it to see where it shows up in Linux.")}</p>`;
+  if (d.state === "waiting") return `${head}<p class="usb-note">${tr("Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.")}</p>`;
   if (kind === "audio" || kind === "camera") return `${head}<p class="usb-note">${tr("Nothing to pass to a container yet.")}</p>${usbPaths(paths)}`;
   const dev = paths.find((p) => p.path.startsWith("/dev/"))?.path || d.path;
   if (!dev) return `${head}<p class="usb-note">${paths.length ? tr("It's a network interface inside Linux, not a device file.") : tr("Linux hasn't made a device for it yet.")}</p>${usbPaths(paths)}`;

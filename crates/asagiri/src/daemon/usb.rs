@@ -61,11 +61,19 @@ pub fn list(engine: &Engine) -> Value {
         SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|s| (s.location.clone(), s.name.clone(), s.port, s.since)).collect();
     // A device is attached only to a running VM: never boot one to ask.
     let lines = if rows.is_empty() { Vec::new() } else { engine.vm().and_then(|vm| vm.usb_nodes()).unwrap_or_default() };
-    Value::Array(
-        rows.into_iter()
-            .map(|(location, name, port, since)| json!({"Location": location, "Name": name, "Port": port, "Since": since, "Nodes": nodes_on(&lines, port)}))
-            .collect(),
-    )
+    let mut out: Vec<Value> =
+        rows.into_iter().map(|(location, name, port, since)| json!({"Location": location, "Name": name, "Port": port, "Since": since, "Nodes": nodes_on(&lines, port)})).collect();
+    // Devices that left and are waited for: listed, so they can be let go
+    // (`DELETE /asagiri/usb/<location>`) before they come back.
+    out.extend(waiting().into_iter().map(|(location, name)| json!({"Location": location, "Name": name, "Waiting": true, "Nodes": []})));
+    Value::Array(out)
+}
+
+/// The devices waited for and not attached, as (location, name): where
+/// each was when it left.
+fn waiting() -> Vec<(String, String)> {
+    let busy: Vec<Ident> = SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().filter_map(|s| s.ident.clone()).collect();
+    WANTED.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|x| x.is_waiting(&busy)).map(|x| (x.ident.location.clone(), x.name.clone())).collect()
 }
 
 /// The `{Path, What}` of the guest's `PORT\tPATH\tWHAT` lines for one port.
@@ -205,7 +213,7 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, rejoin: Op
     let ident = Ident::of(&location);
     {
         let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
-        let wanted = WANTED.lock().unwrap_or_else(|e| e.into_inner());
+        let mut wanted = WANTED.lock().unwrap_or_else(|e| e.into_inner());
         // Detach may have canceled this request while the guest prepared its
         // port. Registering the session and that final check are indivisible.
         if rejoin.is_some_and(|id| !rejoin_current(&wanted, id) || engine.is_stopped()) {
@@ -214,15 +222,21 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, rejoin: Op
         }
         http::upgrade(w)?;
         sessions.push(Session {
-        ident: ident.clone(),
-        location: location.clone(),
-        name: name.clone(),
-        port,
-        since: super::time::unix(std::time::SystemTime::now()),
-        helper: w.try_clone()?,
-        guest: stream.fd.try_clone()?,
-        asked: asked.clone(),
+            ident: ident.clone(),
+            location: location.clone(),
+            name: name.clone(),
+            port,
+            since: super::time::unix(std::time::SystemTime::now()),
+            helper: w.try_clone()?,
+            guest: stream.fd.try_clone()?,
+            asked: asked.clone(),
         });
+        // Back in Asagiri: no longer waited for. Marked here, as the session
+        // starts and before it can end, so a board that leaves again at once
+        // is waited for again (`note_left` clears it) rather than lost.
+        if let Some(ident) = &ident {
+            mark_back(&mut wanted, ident);
+        }
     }
     engine.touch();
     crate::diag::info!("USB device attached", location = location, name = name, port = port);
@@ -255,8 +269,14 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, rejoin: Op
     let asked = {
         let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
         let asked = asked.load(Ordering::SeqCst);
-        if let Some(ident) = ident.filter(|_| helper_first && !asked && !engine.is_stopped()) {
-            left(ident, &name, started.elapsed());
+        match ident {
+            Some(ident) if helper_first && !asked && !engine.is_stopped() => left(ident, &name, started.elapsed()),
+            // A detach or the VM closing its side ends waiting too. Keep
+            // this atomic with session removal and Detach's cancellation.
+            Some(ident) => {
+                forget(|w| w.ident.same(&ident));
+            }
+            None => {}
         }
         sessions.retain(|s| s.location != location);
         asked
@@ -303,6 +323,12 @@ struct Wanted {
     ident: Ident,
     /// A new queue entry cannot revive a request canceled by Detach or Stop.
     rejoin: u64,
+    /// Its name, for the list while it is away.
+    name: String,
+    /// Came back and was attached again. Kept while that session lasts, so
+    /// that leaving again right away still counts towards `MAX_QUICK`, but
+    /// not waited for.
+    back: bool,
     /// Sessions in a row that ended within `QUICK` of starting.
     quick: u32,
     /// Failed attaches in a row since it came back, and when to try next.
@@ -313,6 +339,13 @@ struct Wanted {
 /// A session shorter than this that ends on its own counts against the
 /// device: one that leaves as soon as it is attached (a board in a boot
 /// loop, a device that can't work in the VM) is not attached forever.
+impl Wanted {
+    /// Waited for: away, or back but not attached yet.
+    fn is_waiting(&self, busy: &[Ident]) -> bool {
+        !self.back && !busy.iter().any(|b| b.same(&self.ident))
+    }
+}
+
 const QUICK: Duration = Duration::from_secs(5);
 const MAX_QUICK: u32 = 5;
 /// Attaches that fail in a row before Asagiri leaves the device to the Mac.
@@ -338,7 +371,7 @@ fn forget(which: impl Fn(&Wanted) -> bool) -> bool {
 /// it: wait for it to come back, and attach it again then.
 fn left(ident: Ident, name: &str, lasted: Duration) {
     let mut w = WANTED.lock().unwrap_or_else(|e| e.into_inner());
-    if !note_left(&mut w, ident, lasted) {
+    if !note_left(&mut w, ident, name, lasted) {
         crate::diag::warn!("USB device keeps leaving as soon as it is attached; it stays on the Mac", name = name);
         return;
     }
@@ -349,19 +382,19 @@ fn left(ident: Ident, name: &str, lasted: Duration) {
 
 /// Records a device that left. False when it has left too often right
 /// after being attached, and is no longer waited for.
-fn note_left(w: &mut Vec<Wanted>, ident: Ident, lasted: Duration) -> bool {
+fn note_left(w: &mut Vec<Wanted>, ident: Ident, name: &str, lasted: Duration) -> bool {
     let quick = u32::from(lasted < QUICK);
     let rejoin = NEXT_REJOIN.fetch_add(1, Ordering::Relaxed);
     let i = match w.iter().position(|x| x.ident.same(&ident)) {
         Some(i) => {
             let x = &mut w[i];
             x.quick = if quick == 1 { x.quick + 1 } else { 0 };
-            (x.failures, x.next, x.ident) = (0, Instant::now(), ident);
+            (x.failures, x.next, x.ident, x.back) = (0, Instant::now(), ident, false);
             x.rejoin = rejoin;
             i
         }
         None => {
-            w.push(Wanted { ident, rejoin, quick, failures: 0, next: Instant::now() });
+            w.push(Wanted { ident, rejoin, name: name.to_owned(), back: false, quick, failures: 0, next: Instant::now() });
             w.len() - 1
         }
     };
@@ -372,13 +405,21 @@ fn note_left(w: &mut Vec<Wanted>, ident: Ident, lasted: Duration) -> bool {
     true
 }
 
+/// A device's session started: not waited for while it lasts, but kept, so
+/// that leaving again right away still counts towards `MAX_QUICK`.
+fn mark_back(w: &mut [Wanted], ident: &Ident) {
+    if let Some(x) = w.iter_mut().find(|x| x.ident.same(ident)) {
+        (x.back, x.failures) = (true, 0);
+    }
+}
+
 /// The devices to attach now: waited for, back on the bus, not attached
 /// or being attached, and not waiting out a failed try. (index in `w`,
 /// the device as it is now.)
 fn due<'a>(w: &[Wanted], seen: &'a [crate::usb::mac::Device], busy: &[Ident], pending: &[String], now: Instant) -> Vec<(usize, &'a crate::usb::mac::Device)> {
     w.iter()
         .enumerate()
-        .filter(|(_, x)| x.next <= now && !busy.iter().any(|b| b.same(&x.ident)))
+        .filter(|(_, x)| x.next <= now && x.is_waiting(busy))
         .filter_map(|(i, x)| seen.iter().find(|d| x.ident.same(&Ident::from(*d)) && !pending.contains(&d.location())).map(|d| (i, d)))
         .collect()
 }
@@ -394,12 +435,12 @@ fn watch() {
         loop {
             std::thread::sleep(Duration::from_millis(500));
             let busy: Vec<Ident> = SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().filter_map(|s| s.ident.clone()).collect();
-            let waiting = WANTED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|x| !busy.iter().any(|b| b.same(&x.ident)));
+            let waiting = WANTED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|x| x.is_waiting(&busy));
             if !waiting {
                 WATCHING.store(false, Ordering::SeqCst);
                 // One may have left meanwhile, its `watch` seeing this one
                 // still running: keep going for it.
-                let again = WANTED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|x| !busy.iter().any(|b| b.same(&x.ident)));
+                let again = WANTED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|x| x.is_waiting(&busy));
                 if !again || WATCHING.swap(true, Ordering::SeqCst) {
                     return;
                 }
@@ -413,6 +454,7 @@ fn watch() {
             };
             for (ident, rejoin, location, speed, devid, name) in todo {
                 match crate::usb::helper::reattach(&location, &name, speed, devid, rejoin) {
+                    // The session marked it back as it started (`attach`).
                     Ok(()) => crate::diag::info!("USB device came back and is attached again", name = name, location = location),
                     Err(e) => {
                         let mut w = WANTED.lock().unwrap_or_else(|e| e.into_inner());
@@ -494,25 +536,25 @@ mod tests {
         let mut w = Vec::new();
         let esp = ident(0x0110_0000, 0x303a, 0x1001, "A");
         // A long session that ends (a reset during flashing): waited for.
-        assert!(note_left(&mut w, esp.clone(), Duration::from_secs(600)));
+        assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(600)));
         assert_eq!((w.len(), w[0].quick), (1, 0));
         for n in 1..MAX_QUICK {
-            assert!(note_left(&mut w, esp.clone(), Duration::from_secs(1)), "quick drop {n}");
+            assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(1)), "quick drop {n}");
         }
         // A longer one in between starts the count again.
-        assert!(note_left(&mut w, esp.clone(), Duration::from_secs(60)));
+        assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(60)));
         assert_eq!(w[0].quick, 0);
         for _ in 1..MAX_QUICK {
-            assert!(note_left(&mut w, esp.clone(), Duration::from_secs(1)));
+            assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(1)));
         }
-        assert!(!note_left(&mut w, esp, Duration::from_secs(1)));
+        assert!(!note_left(&mut w, esp, "esp", Duration::from_secs(1)));
         assert!(w.is_empty());
     }
 
     #[test]
     fn only_devices_back_on_the_bus_and_free_are_attached_again() {
         let now = Instant::now();
-        let want = |i: Ident| Wanted { ident: i, rejoin: 1, quick: 0, failures: 0, next: now };
+        let want = |i: Ident| Wanted { ident: i, rejoin: 1, name: String::new(), back: false, quick: 0, failures: 0, next: now };
         let w = vec![want(ident(0x0110_0000, 0x303a, 0x1001, "A")), want(ident(0x0120_0000, 0x1a86, 0x7523, "")), want(ident(0x0130_0000, 0x10c4, 0xea60, "C"))];
         // A back in another port; the CH340 not back; C back but attached already.
         let seen = [device(0x0140_0000, 0x303a, 0x1001, "A"), device(0x0130_0000, 0x10c4, 0xea60, "C"), device(0x0150_0000, 0x1a86, 0x7523, "")];
@@ -525,6 +567,39 @@ mod tests {
         later[0].next = now + Duration::from_secs(2);
         assert!(due(&later, &seen, &busy, &[], now).is_empty());
         assert_eq!(due(&later, &seen, &busy, &[], now + Duration::from_secs(3)).len(), 1);
+        // Back and attached again: not waited for, though still listed.
+        later[0].back = true;
+        assert!(due(&later, &seen, &busy, &[], now + Duration::from_secs(3)).is_empty());
+        assert!(!later[0].is_waiting(&[]));
+    }
+
+    #[test]
+    fn a_session_that_ends_before_the_watcher_looks_is_waited_for_again() {
+        // The order that lost a device: re-attached (the session marks it
+        // back as it starts), the board leaves again at once (note_left),
+        // then the watcher gets its "ok". It must still be waited for.
+        let mut w = Vec::new();
+        let esp = ident(0x0110_0000, 0x303a, 0x1001, "A");
+        assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(600)));
+        let queued = w[0].rejoin;
+        mark_back(&mut w, &esp);
+        assert!(!w[0].is_waiting(&[]));
+        assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(1)));
+        assert!(w[0].is_waiting(&[]), "waited for again");
+        assert!(!rejoin_current(&w, queued), "the watcher cannot revive the previous session");
+        assert!(rejoin_current(&w, w[0].rejoin), "the new wait has its own reconnect");
+        let seen = [device(0x0110_0000, 0x303a, 0x1001, "A")];
+        assert_eq!(due(&w, &seen, &[], &[], Instant::now()).len(), 1, "due to attach");
+    }
+
+    #[test]
+    fn leaving_again_after_coming_back_waits_again() {
+        let mut w = Vec::new();
+        let esp = ident(0x0110_0000, 0x303a, 0x1001, "A");
+        assert!(note_left(&mut w, esp.clone(), "esp", Duration::from_secs(1)));
+        w[0].back = true;
+        assert!(note_left(&mut w, esp, "esp", Duration::from_secs(1)));
+        assert_eq!((w.len(), w[0].back, w[0].quick), (1, false, 2));
     }
 
     #[test]
@@ -538,12 +613,12 @@ mod tests {
     fn a_canceled_reconnect_cannot_claim_a_later_attachment() {
         let mut wanted = Vec::new();
         let device = ident(0x0110_0000, 0x303a, 0x1001, "A");
-        assert!(note_left(&mut wanted, device.clone(), Duration::from_secs(60)));
+        assert!(note_left(&mut wanted, device.clone(), "esp", Duration::from_secs(60)));
         let queued = wanted[0].rejoin;
         assert!(rejoin_current(&wanted, queued));
         wanted.clear(); // Detach or Stop after the watcher took its snapshot.
         assert!(!rejoin_current(&wanted, queued));
-        assert!(note_left(&mut wanted, device, Duration::from_secs(60)));
+        assert!(note_left(&mut wanted, device, "esp", Duration::from_secs(60)));
         assert!(!rejoin_current(&wanted, queued), "a later manual attachment has its own reconnect");
         assert!(rejoin_current(&wanted, wanted[0].rejoin));
     }

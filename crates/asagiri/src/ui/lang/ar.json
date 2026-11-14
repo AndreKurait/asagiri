@@ -1695,5 +1695,8 @@
   "Copy connection configuration": "نسخ إعدادات الاتصال",
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "يمنع تعطيل الوصول الطلبات الجديدة من العملاء المتصلين. قد تكتمل الإجراءات التي أُرسلت بالفعل إلى المحرك.",
   "Enable MCP access": "تفعيل الوصول عبر MCP",
-  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "قراءة حالة المحرك والحاويات والسجلات الحديثة والصور ووحدات التخزين والشبكات. قد تتضمن سجلات التطبيقات معلومات سرية."
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "قراءة حالة المحرك والحاويات والسجلات الحديثة والصور ووحدات التخزين والشبكات. قد تتضمن سجلات التطبيقات معلومات سرية.",
+  "Stop waiting": "إيقاف الانتظار",
+  "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "يوصله Asagiri مجددًا عند عودته. أوقف الانتظار لتتركه على هذا الكمبيوتر.",
+  "Waiting to come back": "بانتظار عودته"
 }

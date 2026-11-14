@@ -1695,5 +1695,8 @@
   "Copy connection configuration": "复制连接配置",
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "关闭访问权限后，已连接的客户端将无法发起新请求。已发送到引擎的操作仍可能完成。",
   "Enable MCP access": "启用 MCP 访问",
-  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "读取引擎状态、容器、最近日志、镜像、卷和网络。应用日志可能包含机密信息。"
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "读取引擎状态、容器、最近日志、镜像、卷和网络。应用日志可能包含机密信息。",
+  "Stop waiting": "停止等待",
+  "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "设备回来后 Asagiri 会再次接入。停止等待即可把它留在这台电脑上。",
+  "Waiting to come back": "等待重新接入"
 }

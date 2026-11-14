@@ -54,16 +54,27 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a String> {
 #[cfg(target_os = "macos")]
 fn list() -> io::Result<()> {
     let attached = attached();
+    let waiting = waiting();
     let devices = mac::devices()?;
-    if devices.is_empty() {
+    if devices.is_empty() && waiting.is_empty() {
         println!("No USB devices.");
         return Ok(());
     }
     println!("{:<12} {:<10} {:<6} {:<10} {:<9} NAME", "LOCATION", "ID", "SPEED", "STATE", "KIND");
-    for d in devices {
-        let state = if attached.iter().any(|a| a == &d.location()) { "in Asagiri" } else { "on the Mac" };
+    for d in &devices {
+        let state = if attached.iter().any(|a| a == &d.location()) {
+            "in Asagiri"
+        } else if waiting.iter().any(|(l, _)| l == &d.location()) {
+            "waiting"
+        } else {
+            "on the Mac"
+        };
         let kind = match d.kind() { "" => "usb", k => k };
         println!("{:<12} {:04x}:{:04x}  {:<6} {:<10} {:<9} {}", d.location(), d.vendor, d.product, d.speed_name(), state, kind, d.name);
+    }
+    // Left the bus: Asagiri attaches them again when they come back.
+    for (l, name) in waiting.iter().filter(|(l, _)| !devices.iter().any(|d| &d.location() == l)) {
+        println!("{:<12} {:<10} {:<6} {:<10} {:<9} {}", l, "-", "-", "waiting", "-", name);
     }
     Ok(())
 }
@@ -75,7 +86,22 @@ pub fn attached() -> Vec<String> {
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default()
         .iter()
+        .filter(|s| s["Waiting"] != true)
         .filter_map(|s| s["Location"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The devices that left and that Asagiri attaches again when they come back,
+/// as (location, name).
+#[cfg(target_os = "macos")]
+fn waiting() -> Vec<(String, String)> {
+    crate::client::get("/asagiri/usb")
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter(|s| s["Waiting"] == true)
+        .filter_map(|s| Some((s["Location"].as_str()?.to_owned(), s["Name"].as_str().unwrap_or_default().to_owned())))
         .collect()
 }
 
@@ -113,7 +139,16 @@ pub fn detach_location(location: &str) -> io::Result<()> {
 
 #[cfg(target_os = "macos")]
 fn detach(which: &str) -> io::Result<()> {
-    let d = mac::find(which)?;
+    let d = match mac::find(which) {
+        Ok(d) => d,
+        // Away from the bus and waited for: `asagiri usb ls` gives its location.
+        Err(e) => {
+            return match waiting().into_iter().find(|(l, _)| l == which) {
+                Some((l, name)) => detach_location(&l).map(|()| println!("Asagiri stops waiting for {name}; it stays on the Mac when it comes back.")),
+                None => Err(e),
+            };
+        }
+    };
     detach_location(&d.location())?;
     println!("{} is back on the Mac.", d.name);
     Ok(())
@@ -259,20 +294,32 @@ pub fn ui_list() -> serde_json::Value {
         let inside = daemon.iter().find(|a| a["Location"].as_str() == Some(&loc));
         rows.push(serde_json::json!({
             "key": loc, "name": d.name, "id": format!("{:04x}:{:04x}", d.vendor, d.product),
-            "speed": d.speed_name(), "state": if inside.is_some() { "asagiri" } else { "host" }, "path": "", "kind": d.kind(),
+            "speed": d.speed_name(), "state": state_of(inside), "path": "", "kind": d.kind(),
             "maker": d.maker, "serial": d.serial, "bus": d.bus(), "dev": d.address,
             "since": inside.and_then(|a| a["Since"].as_i64()), "paths": inside.map(paths).unwrap_or_default(),
         }));
     }
-    // In the VM but not on the Mac's bus (a test device): listed all the same.
+    // In the VM but not on the Mac's bus (a test device), or away and waited
+    // for: listed all the same.
     for a in &daemon {
         let loc = a["Location"].as_str().unwrap_or_default();
         if !loc.is_empty() && !rows.iter().any(|r| r["key"] == loc) {
-            rows.push(serde_json::json!({"key": loc, "name": a["Name"], "id": "", "speed": "", "state": "asagiri", "path": "", "since": a["Since"], "paths": paths(a)}));
+            rows.push(serde_json::json!({"key": loc, "name": a["Name"], "id": "", "speed": "", "state": state_of(Some(a)), "path": "", "since": a["Since"], "paths": paths(a)}));
         }
     }
     serde_json::json!({"type": "usb", "devices": rows, "can": "attach",
         "note": "A device in Asagiri is gone from the Mac until you detach it. In a container: --device /dev/ttyUSB0 (serial), /dev/input (HID) or /dev/bus/usb (raw)."})
+}
+
+/// A device's `state` from its row in the daemon's list: "waiting" when it
+/// left and Asagiri attaches it again when it comes back.
+#[cfg(target_os = "macos")]
+fn state_of(inside: Option<&serde_json::Value>) -> &'static str {
+    match inside {
+        Some(a) if a["Waiting"] == true => "waiting",
+        Some(_) => "asagiri",
+        None => "host",
+    }
 }
 
 /// The daemon's `Nodes` as the page's `paths`: `[{path, what}]`.

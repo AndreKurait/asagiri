@@ -2,7 +2,8 @@
 // Detach say what they're doing and come back with a toast; Linux rows say
 // where containers find the device; Windows without usbipd-win offers it.
 // A row opens its details (one at a time); the device just attached opens
-// by itself; the Attached column says since when.
+// by itself; the Attached column says since when. A device that left and
+// is waited for says so and can be let go.
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(m + ": got " + JSON.stringify(a) + " want " + JSON.stringify(b)); };
@@ -162,6 +163,18 @@ t("Linux: no attach; the row says where containers find it, with a copy button",
   eq(rows()[0].querySelector("[data-copy]")?.dataset.copy, "--device /dev/ttyUSB0", "copy");
   eq(rows()[0].querySelector(".pill").textContent, "Containers see it", "state");
 });
+
+// A board that left the Mac's bus while in Asagiri: waited for, and can be let go.
+asagiri.on({ type: "usb", can: "attach", devices: [{ key: "0x01300000", name: "ESP32-S3", id: "", speed: "", state: "waiting", kind: "" }] });
+t("a device waited for says so, and offers Stop waiting", () => {
+  const r = rows()[0];
+  eq([r.querySelector(".pill").textContent, r.querySelector("[data-usbgo]")?.dataset.usbgo, r.querySelector("[data-usbgo]")?.textContent], ["Waiting to come back", "detach", "Stop waiting"], "row");
+  eq($("n-usb").textContent, "", "not counted as in Asagiri");
+});
+sent.length = 0;
+rows()[0].querySelector("[data-usbgo]").click();
+t("Stop waiting sends a detach for it", () => eq(sent.filter((m) => m.type === "usbdetach").map((m) => m.name), ["0x01300000"], "sent"));
+asagiri.on({ type: "usbdone", key: "0x01300000", text: "Given back to the Mac" });
 
 asagiri.on({ type: "usb", devices: [], missing: true });
 sent.length = 0;
