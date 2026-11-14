@@ -64,6 +64,7 @@ pub struct Paths {
 
 /// A process the agent started: a container's PID 1, or an exec.
 #[derive(Debug)]
+#[cfg_attr(test, derive(Default))]
 pub struct Process {
     /// Container id, or exec id for an exec.
     pub id: String,
@@ -98,6 +99,13 @@ pub struct Process {
     pub netns: u64,
     /// What to undo when a container exits; None for execs.
     teardown: Option<Teardown>,
+}
+
+#[cfg(test)]
+impl Process {
+    pub(super) fn test_process(id: &str, pid: libc::pid_t) -> Self {
+        Self { id: id.to_owned(), pid, ..Self::default() }
+    }
 }
 
 #[derive(Debug)]
@@ -310,7 +318,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
     // Small, short-lived files: kept in memory (/run is tmpfs), not on the data disk.
     let etc_dir = PathBuf::from("/run/asagiri").join(spec.id);
     let embedded_dns = embedded_dns(spec, net.upstream_dns, net.dns.relay);
-    let nameserver = embedded_dns.then(|| embedded_address(spec, net.dns.relay));
+    let nameserver = embedded_dns.then(|| embedded_address(spec));
     prepared.etc_files = write_etc_files(spec, &etc_dir, net.upstream_dns, nameserver).map_err(cleanup)?;
     prepared.mounts = parse_mounts(spec.mounts).map_err(cleanup)?;
     // A network namespace of its own gets Docker's two defaults: any port
@@ -913,14 +921,15 @@ fn embedded_dns(spec: &RunSpec<'_>, upstream: &[[u8; 4]], relay: bool) -> bool {
 
 /// The address a container that uses the agent's resolver names in its
 /// resolv.conf: 127.0.0.11 on a user network, as Docker's embedded DNS;
-/// on the default bridge in the VM, the bridge's gateway, where the agent
+/// on the default bridge, the bridge's gateway, where the agent
 /// answers too. Not a loopback address there, because what runs builds
 /// in a container takes loopback nameservers out of the copy it gives
 /// each step and puts Google's in their place (BuildKit does, for every
 /// step that isn't `--network=host`): those steps would ask 8.8.8.8, not
-/// the Mac's resolver, and VPN and company names would stop resolving.
-fn embedded_address(spec: &RunSpec<'_>, relay: bool) -> [u8; 4] {
-    if relay && spec.flags & run_flags::DNS_GATEWAY == 0 && spec.net.gateway != [0; 4] { spec.net.gateway } else { super::dns::EMBEDDED }
+/// the host's resolver, and VPN and company names would stop resolving.
+/// This also applies to WSL and Linux hosts with a local upstream resolver.
+fn embedded_address(spec: &RunSpec<'_>) -> [u8; 4] {
+    if spec.flags & run_flags::DNS_GATEWAY == 0 && spec.net.gateway != [0; 4] { spec.net.gateway } else { super::dns::EMBEDDED }
 }
 
 /// A container on the default bridge asks the host's resolvers, or its own
@@ -2038,11 +2047,17 @@ mod tests {
         spec_with(run_flags::NET_HOST, &[], &|s| assert!(!super::embedded_dns(s, &gateway, true), "host networking keeps the VM's resolv.conf"));
         // Named by the bridge's gateway, not 127.0.0.11: builders keep it
         // for their steps rather than swapping in 8.8.8.8.
-        spec_with(0, &[], &|s| assert_eq!(super::embedded_address(s, true), [172, 17, 0, 1]));
-        spec_with(0, &[], &|s| assert_eq!(super::resolv_conf(s, &gateway, Some(super::embedded_address(s, true))), "nameserver 172.17.0.1\n"));
-        // A user network keeps Docker's 127.0.0.11, as does a Linux host.
-        spec_with(run_flags::DNS_GATEWAY, &[], &|s| assert_eq!(super::embedded_address(s, true), super::super::dns::EMBEDDED));
-        spec_with(0, &[], &|s| assert_eq!(super::embedded_address(s, false), super::super::dns::EMBEDDED));
+        spec_with(0, &[], &|s| assert_eq!(super::embedded_address(s), [172, 17, 0, 1]));
+        spec_with(0, &[], &|s| assert_eq!(super::resolv_conf(s, &gateway, Some(super::embedded_address(s))), "nameserver 172.17.0.1\n"));
+        // A user network keeps Docker's 127.0.0.11 on every platform.
+        spec_with(run_flags::DNS_GATEWAY, &[], &|s| assert_eq!(super::embedded_address(s), super::super::dns::EMBEDDED));
+        // A local WSL/Linux resolver needs the same BuildKit-safe gateway,
+        // even though these platforms do not use the Mac's DNS relay.
+        spec_with(0, &[], &|s| {
+            assert!(super::embedded_dns(s, &[[127, 0, 0, 53]], false));
+            assert_eq!(super::resolv_conf(s, &[[127, 0, 0, 53]], Some(super::embedded_address(s))),
+                "nameserver 172.17.0.1\n");
+        });
     }
 
     #[test]

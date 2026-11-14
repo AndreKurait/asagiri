@@ -72,6 +72,25 @@ def check(path, image):
                 os.close(slave)
             print("PASS #26 privileged start preserves the test host's PTY devices", flush=True)
 
+            for flag, value, field in (
+                    ("--cgroup-parent", "/tenant", "CgroupParent"),
+                    ("--userns", "private", "UsernsMode")):
+                name = prefix + "-isolation"
+                result = subprocess.run(
+                    ["docker", "--host", "unix://" + path, "create", "--name", name,
+                     flag, value, image, "true"], env=env, capture_output=True, text=True, timeout=30)
+                assert result.returncode != 0 and field in result.stderr, result.stderr
+                assert "does not support" in result.stderr, result.stderr
+                assert cli("ps", "-aq", "--filter", "name=" + name) == ""
+            name = prefix + "-bridge"
+            result = subprocess.run(
+                ["docker", "--host", "unix://" + path, "network", "create", "--opt",
+                 "com.docker.network.bridge.name=tenant0", name],
+                env=env, capture_output=True, text=True, timeout=30)
+            assert result.returncode != 0 and "does not support com.docker.network.bridge.name" in result.stderr, result.stderr
+            assert cli("network", "ls", "-q", "--filter", "name=" + name) == ""
+            print("PASS #213 unsupported parent cgroups, user remapping, and bridge names fail without creating resources", flush=True)
+
             source = Path(directory) / "source"
             source.mkdir()
             (source / "sentinel").write_text("through-symlink")

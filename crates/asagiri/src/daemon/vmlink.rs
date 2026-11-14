@@ -108,9 +108,19 @@ impl CleanupBarrier {
         self.changed.notify_all();
     }
     fn wait(&self, id: &str) -> io::Result<()> {
+        self.wait_for(id, std::time::Duration::from_secs(30))
+    }
+    fn wait_for(&self, id: &str, timeout: std::time::Duration) -> io::Result<()> {
+        let deadline = std::time::Instant::now() + timeout;
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         while state.0.contains(id) && !state.1 {
-            state = self.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                // Keep the barrier: a later request may retry, but no request
+                // may reuse these paths until the agent confirms completion.
+                return Err(io::Error::new(io::ErrorKind::TimedOut,
+                    format!("container {id} is still completing filesystem cleanup; retry shortly")));
+            };
+            state = self.changed.wait_timeout(state, remaining).unwrap_or_else(|e| e.into_inner()).0;
         }
         if state.1 { Err(io::Error::new(io::ErrorKind::BrokenPipe, "VM stopped during filesystem cleanup")) } else { Ok(()) }
     }
@@ -804,5 +814,18 @@ mod cleanup_tests {
         assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap(), std::io::ErrorKind::BrokenPipe);
         assert!(barrier.wait("unrelated").is_err());
         thread.join().unwrap();
+    }
+
+    #[test]
+    fn timeout_retains_the_barrier_until_cleanup_really_finishes() {
+        let barrier = CleanupBarrier::default();
+        barrier.pending("slow");
+        for _ in 0..2 {
+            assert_eq!(barrier.wait_for("slow", Duration::from_millis(1)).unwrap_err().kind(),
+                std::io::ErrorKind::TimedOut);
+            barrier.wait("unrelated").unwrap();
+        }
+        barrier.done("slow");
+        barrier.wait("slow").unwrap();
     }
 }

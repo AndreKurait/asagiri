@@ -349,6 +349,30 @@ fn listen_addrs(b: &Binding) -> Vec<(String, bool)> {
     }
 }
 
+pub const WSL_PUBLISH_WARNING: &str =
+    "Published ports bind inside WSL. Wildcard bindings do not configure Windows LAN access; Windows forwarding depends on your WSL network settings.";
+
+/// The daemon cannot bind an address owned by Windows from WSL's network
+/// namespace. Refuse that request explicitly before any listener is created.
+pub fn check_host_addresses(bindings: &[Binding], wsl: bool) -> io::Result<bool> {
+    if !wsl { return Ok(false); }
+    let mut wildcard = false;
+    for binding in bindings {
+        if binding.host_ip.is_empty() {
+            wildcard = true;
+            continue;
+        }
+        let addr = host_addr(&binding.host_ip, binding.host_port)?.ip();
+        if !addr.is_loopback() && !addr.is_unspecified() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                format!("Asagiri cannot publish on Windows host address {} from WSL; use a loopback address or configure Windows forwarding separately",
+                    binding.host_ip)));
+        }
+        wildcard |= addr.is_unspecified();
+    }
+    Ok(wildcard)
+}
+
 /// The program that has `port` on this Mac, when it is another program:
 /// an engine left running beside Asagiri (the one containers were imported
 /// from) or a server on the Mac holds the port, and "already allocated"
@@ -381,6 +405,9 @@ fn holder_in(lsof: &str) -> Option<String> {
 /// Binds every port first (so a clash fails the start cleanly), then starts
 /// one accept thread per listener.
 pub fn start(vm: Arc<VmLink>, id: &str, bindings: &[Binding], target_ip: [u8; 4]) -> io::Result<Forwards> {
+    if check_host_addresses(bindings, super::binds::wsl().is_some())? {
+        crate::diag::warn!("published ports are inside WSL", detail = WSL_PUBLISH_WARNING);
+    }
     let mut listeners = Vec::with_capacity(bindings.len());
     let mut udp = Vec::new();
     for b in bindings {
@@ -1080,6 +1107,26 @@ mod tests {
     use super::{MAX_PEER_SESSIONS, MAX_REMOTE_SESSIONS, MAX_TCP_SESSIONS, NAT_PORTS, REMOTE_SESSIONS, TCP_SESSIONS, kernel_forwards, kernel_host_ip, listening, nat_port, relays_too, tcp_permit};
     use std::net::IpAddr;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn wsl_host_addresses_fail_clearly_and_wildcards_warn() {
+        let binding = |ip: &str| super::Binding {
+            container_port: 80, proto: "tcp".into(), host_ip: ip.into(), host_port: 8080,
+        };
+        for ip in ["192.168.1.10", "10.0.0.4", "2001:db8::1"] {
+            let bindings = [binding(ip)];
+            assert!(!super::check_host_addresses(&bindings, false).unwrap());
+            let error = super::check_host_addresses(&bindings, true).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+            assert!(error.to_string().contains("Windows host address"));
+        }
+        for ip in ["", "0.0.0.0", "::", "[::]"] {
+            assert!(super::check_host_addresses(&[binding(ip)], true).unwrap());
+        }
+        for ip in ["127.0.0.1", "::1", "[::1]"] {
+            assert!(!super::check_host_addresses(&[binding(ip)], true).unwrap());
+        }
+    }
 
     /// A clash names the other program holding the port, never Asagiri itself.
     #[test]

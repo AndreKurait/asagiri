@@ -38,6 +38,10 @@ struct Proc {
     exit_announced: bool,
 }
 
+// Linux can reuse a reaped PID while its output is draining or its filesystem
+// worker is still running. Container/exec IDs remain reserved until cleanup.
+type Procs = HashMap<String, Proc>;
+
 /// How long a hung-up terminal waits before it's polled again.
 const TTY_HUP_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -98,7 +102,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let (usage_tx, usage_rx) = std::sync::mpsc::channel::<Vec<String>>();
     let mut measuring = false;
     let mut relays: Vec<super::relay::Relay> = Vec::new();
-    let mut procs: HashMap<libc::pid_t, Proc> = HashMap::new();
+    let mut procs = Procs::new();
     let mut fds: Vec<libc::pollfd> = Vec::with_capacity(16);
     let mut frame = Vec::with_capacity(4096);
     let mut out = Vec::with_capacity(4096);
@@ -192,7 +196,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 continue;
             }
             if term.as_ref().is_some_and(|t| t.as_raw_fd() == pfd.fd) {
-                stop_containers(&mut procs);
+                stop_containers(&mut procs, &mut dns);
                 return Ok(());
             }
             if pfd.fd == usage_wake.as_raw_fd() {
@@ -241,7 +245,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             }
             if pfd.fd == copies.as_raw_fd() {
                 let running: Vec<(&str, libc::pid_t)> =
-                    procs.iter().filter(|(_, p)| p.run.container.is_none() && p.exited.is_none()).map(|(pid, p)| (p.run.id.as_str(), *pid)).collect();
+                    procs.values().filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| (p.run.id.as_str(), p.run.pid)).collect();
                 let cleaning: Vec<&str> = procs.values().filter(|p| p.run.container.is_none() && p.exited.is_some()).map(|p| p.run.id.as_str()).collect();
                 super::copy::accept(&copies, &running, &cleaning, paths);
                 continue;
@@ -278,8 +282,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 flush_input(&mut procs, pfd.fd, &mut conn, &mut out)?;
                 continue;
             }
-            let Some((pid, stream)) = owner(&procs, pfd.fd) else { continue };
-            let p = procs.get_mut(&pid).expect("owner found it");
+            let Some((p, stream)) = owner(&mut procs, pfd.fd) else { continue };
             let slot = if stream == Stream::Stdout { &mut p.run.stdout } else { &mut p.run.stderr };
             let fd = slot.as_ref().expect("polled fd is open").as_raw_fd();
             // SAFETY: reading into a buffer we own from a descriptor we own.
@@ -306,24 +309,23 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
         if fds[1].revents != 0 {
             drain_signals(&sigfd);
-            reap(&mut procs);
+            reap(&mut procs, &mut dns);
         }
 
         // Announce the process exit promptly. A separate per-ID cleanup barrier
         // prevents restart/removal from racing the filesystem worker, without
         // making stop or unrelated control requests wait for overlay writeback.
-        let done: Vec<libc::pid_t> = procs.iter()
+        let done: Vec<String> = procs.iter()
             .filter(|(_, p)| p.exited.is_some() && p.run.stdout.is_none() && p.run.stderr.is_none())
-            .map(|(pid, _)| *pid).collect();
-        for pid in done {
+            .map(|(id, _)| id.clone()).collect();
+        for id in done {
             let shared = {
-                let p = &procs[&pid];
+                let p = &procs[&id];
                 p.run.netns != 0 && procs.values().any(|o| o.exited.is_none() && o.run.netns == p.run.netns)
             };
-            let p = procs.get_mut(&pid).expect("listed above");
+            let p = procs.get_mut(&id).expect("listed above");
             if !p.exit_announced {
                 for (bridge, ip) in &p.run.dns_entries { dns.unregister(bridge, *ip); }
-                dns.drop_container(pid);
                 container::teardown_network(&p.run, shared);
                 let (code, reaped_ns) = p.exited.expect("filtered on exited");
                 out.clear();
@@ -340,7 +342,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 p.cleanup = container::begin_teardown(&p.run);
                 if p.cleanup.is_some() { continue; }
             }
-            let p = procs.remove(&pid).expect("listed above");
+            let p = procs.remove(&id).expect("listed above");
             if container::has_filesystem_teardown(&p.run) {
                 out.clear();
                 Msg::CleanupDone(&p.run.id).encode(&mut out);
@@ -353,7 +355,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 // The host went away: on a Linux host, the daemon died. Its
                 // containers do not outlive it (there is no live restore).
                 if host_process {
-                    stop_containers(&mut procs);
+                    stop_containers(&mut procs, &mut dns);
                 }
                 return Ok(());
             }
@@ -365,7 +367,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     if host_process {
                         // The daemon has stopped them Docker's way already;
                         // what is left is killed and torn down.
-                        stop_containers(&mut procs);
+                        stop_containers(&mut procs, &mut dns);
                     } else {
                         for p in procs.values().filter(|p| p.exited.is_none()) {
                             // SAFETY: signalling a child we started and have not reaped.
@@ -387,7 +389,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(stored) => Msg::LayerStored(stored).encode(&mut out),
                     Err(e) => Msg::Error(&format!("unpack {}: {e}", begin.digest)).encode(&mut out),
                 },
-                Ok(Msg::Run(spec)) if procs.values().any(|p| p.run.id == spec.id) => {
+                Ok(Msg::Run(spec)) if procs.contains_key(spec.id) => {
                     Msg::Error(&format!("container {} is running or being cleaned up", spec.id)).encode(&mut out);
                 }
                 Ok(Msg::Run(spec)) => match {
@@ -407,10 +409,13 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(run) => {
                         let cloned_ns = sys::boottime_ns();
                         Msg::Started { id: &run.id, pid: run.pid as u32 }.encode(&mut out);
-                        procs.insert(run.pid, new_proc(run, received_ns, cloned_ns));
+                        procs.insert(run.id.clone(), new_proc(run, received_ns, cloned_ns));
                     }
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
+                Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {
+                    Msg::Error(&format!("exec {} is running or being cleaned up", spec.exec_id)).encode(&mut out);
+                }
                 Ok(Msg::Exec(spec)) => {
                     let target = procs.values().find(|p| p.run.container.is_none() && p.run.id == spec.container_id && p.exited.is_none());
                     match target.map(|p| p.run.pid) {
@@ -419,7 +424,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                             Ok(run) => {
                                 let cloned_ns = sys::boottime_ns();
                                 Msg::Started { id: &run.id, pid: run.pid as u32 }.encode(&mut out);
-                                procs.insert(run.pid, new_proc(run, received_ns, cloned_ns));
+                                procs.insert(run.id.clone(), new_proc(run, received_ns, cloned_ns));
                             }
                             Err(e) => Msg::Error(&format!("exec in {}: {e}", spec.container_id)).encode(&mut out),
                         },
@@ -597,7 +602,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         let plug = net::Plug::from_opts(n.opts);
                         // A container that started on the default bridge takes up
                         // the embedded DNS with its first user network.
-                        let late = procs.get(&pid).and_then(|p| p.run.late_dns.as_ref());
+                        let late = procs.get(id).and_then(|p| p.run.late_dns.as_ref());
                         let owner = late.map_or(n.ip, |l| l.ip);
                         // A macvlan or ipvlan network has no gateway address to answer on.
                         let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug).and_then(|link| {
@@ -618,7 +623,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                 if let Some(v) = v6 {
                                     dns.register6(n.bridge, n.dns_names.iter(), n.ip, v.ip);
                                 }
-                                if let Some(p) = procs.get_mut(&pid) {
+                                if let Some(p) = procs.get_mut(id) {
                                     if let Some(late) = p.run.late_dns.take() {
                                         // The network is joined either way: a file
                                         // that cannot be written is not its failure.
@@ -667,7 +672,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         dns.leave(pid, bridge);
                         let host_if = extra_veth(id, num);
                         let mut macvlan = None;
-                        if let Some(p) = procs.get_mut(&pid) {
+                        if let Some(p) = procs.get_mut(id) {
                             p.run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
                             p.run.veths.retain(|v| *v != host_if);
                             p.run.ways_out.retain(|w| w.ifname != ifname);
@@ -678,7 +683,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         // left. A default route that is still there stays, and a
                         // route that cannot be given back is not the disconnect's
                         // failure.
-                        if let Some(p) = procs.get(&pid) {
+                        if let Some(p) = procs.get(id) {
                             let _ = net::restore_default_routes(pid, &p.run.ways_out);
                         }
                         match detached {
@@ -753,8 +758,8 @@ fn memory_pressure_trigger() -> Option<std::fs::File> {
 }
 
 /// A running container's init (not an exec).
-fn running_pid(procs: &HashMap<libc::pid_t, Proc>, id: &str) -> Option<libc::pid_t> {
-    procs.iter().find(|(_, p)| p.run.container.is_none() && p.run.id == id && p.exited.is_none()).map(|(pid, _)| *pid)
+fn running_pid(procs: &Procs, id: &str) -> Option<libc::pid_t> {
+    procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| p.run.pid)
 }
 
 /// The host side of a container's `eth{n}` for n > 0: 15 characters at most.
@@ -763,7 +768,7 @@ fn extra_veth(id: &str, n: u32) -> String {
 }
 
 /// The mounted root of a running container (not an exec).
-fn running_rootfs(procs: &HashMap<libc::pid_t, Proc>, paths: &Paths, id: &str) -> Option<std::path::PathBuf> {
+fn running_rootfs(procs: &Procs, paths: &Paths, id: &str) -> Option<std::path::PathBuf> {
     procs.values().any(|p| p.run.container.is_none() && p.run.id == id && p.exited.is_none()).then(|| paths.containers.join(id).join("rootfs"))
 }
 
@@ -773,7 +778,7 @@ fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
 
 /// Writes as much pending input as the process will take without blocking,
 /// and tells the host how much, so it can send that much more.
-fn flush_input(procs: &mut HashMap<libc::pid_t, Proc>, fd: RawFd, conn: &mut File, out: &mut Vec<u8>) -> io::Result<()> {
+fn flush_input(procs: &mut Procs, fd: RawFd, conn: &mut File, out: &mut Vec<u8>) -> io::Result<()> {
     let Some(p) = procs.values_mut().find(|p| p.run.stdin.as_ref().is_some_and(|f| f.as_raw_fd() == fd)) else { return Ok(()) };
     let mut consumed = 0usize;
     while !p.input.is_empty() {
@@ -849,15 +854,16 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<bool> {
     Ok(true)
 }
 
-fn owner(procs: &HashMap<libc::pid_t, Proc>, fd: RawFd) -> Option<(libc::pid_t, Stream)> {
-    procs.iter().find_map(|(pid, p)| {
-        if p.run.stdout.as_ref().is_some_and(|f| f.as_raw_fd() == fd) {
-            Some((*pid, Stream::Stdout))
+fn owner(procs: &mut Procs, fd: RawFd) -> Option<(&mut Proc, Stream)> {
+    procs.values_mut().find_map(|p| {
+        let stream = if p.run.stdout.as_ref().is_some_and(|f| f.as_raw_fd() == fd) {
+            Stream::Stdout
         } else if p.run.stderr.as_ref().is_some_and(|f| f.as_raw_fd() == fd) {
-            Some((*pid, Stream::Stderr))
+            Stream::Stderr
         } else {
-            None
-        }
+            return None;
+        };
+        Some((p, stream))
     })
 }
 
@@ -877,14 +883,14 @@ fn child_signals() -> io::Result<OwnedFd> {
 /// Linux host: every process still running is killed and reaped (a few
 /// seconds at most), and each container torn down: mounts, cgroup, and the
 /// writable layer of a `--rm` one. Veths go with their network namespaces.
-fn stop_containers(procs: &mut HashMap<libc::pid_t, Proc>) {
+fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns) {
     for p in procs.values().filter(|p| p.exited.is_none()) {
         // SAFETY: signalling a child we started and have not reaped.
         unsafe { libc::kill(p.run.pid, libc::SIGKILL) };
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs);
+        reap(procs, dns);
         if procs.values().all(|p| p.exited.is_some()) || std::time::Instant::now() >= deadline {
             break;
         }
@@ -892,7 +898,7 @@ fn stop_containers(procs: &mut HashMap<libc::pid_t, Proc>) {
     }
     // A worker shares these paths/mounts. Join it before shutdown touches them.
     while procs.values().any(|p| p.cleanup.is_some()) {
-        reap(procs);
+        reap(procs, dns);
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     for p in procs.values().filter(|p| !p.cleanup_finished) {
@@ -944,7 +950,7 @@ fn drain_signals(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), info.as_mut_ptr().cast(), info.len()) } > 0 {}
 }
 
-fn reap(procs: &mut HashMap<libc::pid_t, Proc>) {
+fn reap(procs: &mut Procs, dns: &mut super::dns::Dns) {
     loop {
         let mut status = 0;
         // SAFETY: plain waitpid on any child.
@@ -959,20 +965,50 @@ fn reap(procs: &mut HashMap<libc::pid_t, Proc>) {
         } else {
             continue;
         };
-        if let Some(p) = procs.values_mut().find(|p| p.cleanup == Some(pid)) {
-            p.cleanup = None;
-            // An interrupted worker did not complete its contract; retry before
-            // announcing the exit or permitting a restart on the same paths.
-            p.cleanup_finished = code == 0;
-            if code != 0 {
-                eprintln!("asagiri-init: cleanup {} exited {code}; retrying", p.run.id);
-            }
-        } else if let Some(p) = procs.get_mut(&pid) {
-            p.exited = Some((code, sys::boottime_ns()));
-            // Nobody will read input any more.
-            p.input.clear();
-            p.run.stdin = None;
+        if record_exit(procs, pid, code) {
+            // Drop the PID-owned resolver before another spawn can reuse this
+            // PID. Output and filesystem cleanup retain the stable ID only.
+            dns.drop_container(pid);
         }
+    }
+}
+
+fn record_exit(procs: &mut Procs, pid: libc::pid_t, code: i32) -> bool {
+    if let Some(p) = procs.values_mut().find(|p| p.cleanup == Some(pid)) {
+        p.cleanup = None;
+        p.cleanup_finished = code == 0;
+        if code != 0 {
+            eprintln!("asagiri-init: cleanup {} exited {code}; retrying", p.run.id);
+        }
+    } else if let Some(p) = procs.values_mut().find(|p| p.run.pid == pid && p.exited.is_none()) {
+        p.exited = Some((code, sys::boottime_ns()));
+        p.input.clear();
+        p.run.stdin = None;
+        return p.run.container.is_none();
+    }
+    false
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn reused_pid_cannot_replace_cleanup_or_receive_its_exit() {
+        let mut procs = Procs::new();
+        let old = new_proc(Process::test_process("old", 42), 0, 0);
+        procs.insert("old".into(), old);
+        assert!(record_exit(&mut procs, 42, 0));
+        procs.get_mut("old").unwrap().cleanup = Some(43);
+        procs.insert("new".into(), new_proc(Process::test_process("new", 42), 0, 0));
+        assert_eq!(running_pid(&procs, "new"), Some(42));
+        assert_eq!(running_pid(&procs, "old"), None);
+        assert!(!record_exit(&mut procs, 43, 0));
+        assert!(procs["old"].cleanup_finished);
+        assert!(procs["new"].exited.is_none());
+        assert!(record_exit(&mut procs, 42, 7));
+        assert_eq!(procs["new"].exited.unwrap().0, 7);
+        assert_eq!(procs["old"].exited.unwrap().0, 0);
     }
 }
 

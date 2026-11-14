@@ -757,6 +757,11 @@ impl Networks {
         if s.no_ipv4 && s.ipam.is_some() {
             return Err("invalid network config: an IPv4 subnet was given, but IPv4 is disabled (--ipv4=false)".into());
         }
+        if let Some(value) = s.options.get("com.docker.network.bridge.name") {
+            if value.as_str() != Some("") {
+                return Err("Asagiri does not support com.docker.network.bridge.name; bridge interface names are managed by the engine".into());
+            }
+        }
         if s.macvlan {
             check_macvlan(&s.options)?;
         } else {

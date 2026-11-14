@@ -21,8 +21,8 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   to the Mac) and no io_uring
 - **Networking**: a default bridge, user networks with DNS by name and
   alias, `network connect`/`disconnect`, `--network host|none`, `-p`/`-P`
-  (TCP and UDP) on all interfaces (as Docker does; `-p 127.0.0.1:8080:80`
-  keeps a port local), `--add-host`, `host.docker.internal`,
+  (TCP and UDP) on Linux and Mac interfaces (`-p 127.0.0.1:8080:80`
+  keeps a port local; Windows bindings are inside WSL, as described below), `--add-host`, `host.docker.internal`,
   `--network container:<name>` (Compose `network_mode: service:x`; as with
   Docker, if that container restarts, the ones sharing its network keep the
   old, now empty namespace until they are restarted too), IPAM (`--subnet`,
@@ -104,6 +104,22 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 
 Kubernetes LoadBalancer services are published on `localhost`, and
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
+
+Resource limits apply to individual containers. Aggregate parent cgroups
+(`--cgroup-parent` / `HostConfig.CgroupParent`) and user namespace remapping
+(`--userns=private` or `auto`) are not implemented. Asagiri rejects those
+requests with HTTP 400. An omitted user namespace setting or `--userns=host`
+uses the engine's existing user namespace. Container root is not remapped to
+an unprivileged host UID. Custom bridge interface names
+(`com.docker.network.bridge.name`) also return HTTP 400; the engine owns its
+bridge names. Inter-container communication controls (`enable_icc`) are
+supported on IPv4 and IPv6 bridge networks.
+
+On Windows, ports bind inside WSL. A wildcard binding (`0.0.0.0`, `::`, or
+an omitted address) produces a warning because it does not configure Windows
+LAN forwarding. Explicit non-loopback host addresses return a clear
+unsupported-address error. Windows reachability depends on WSL's networking
+configuration; Asagiri does not install Windows forwarding or firewall rules.
 
 ## Releases
 

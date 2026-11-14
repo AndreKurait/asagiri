@@ -1791,6 +1791,25 @@ pub(super) fn restart_policy(value: &Value, auto_remove: bool) -> Result<Restart
     Ok(RestartPolicy { name: name.to_owned(), max_retries })
 }
 
+fn validate_isolation(host: &Value) -> Result<(), Error> {
+    for key in ["CgroupParent", "UsernsMode"] {
+        let value = match &host[key] {
+            Value::Null => "",
+            Value::String(s) => s.as_str(),
+            _ => return Err(Error::BadRequest(format!("{key} must be a string"))),
+        };
+        if !value.is_empty() && !(key == "UsernsMode" && value == "host") {
+            let reason = if key == "CgroupParent" {
+                "aggregate parent cgroups are not implemented; use per-container resource limits"
+            } else {
+                "user namespace remapping is not implemented; omit UsernsMode or use host"
+            };
+            return Err(Error::BadRequest(format!("Asagiri does not support {key}: {reason}")));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let image_name = body["Image"].as_str().unwrap_or_default();
@@ -1798,7 +1817,8 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         return Err(Error::BadRequest("no image specified".into()));
     }
     let host = &body["HostConfig"];
-    let warnings = validate_limits(host, || engine.container_cpus(), false)?;
+    validate_isolation(host)?;
+    let mut warnings = validate_limits(host, || engine.container_cpus(), false)?;
     let mut limits = super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) };
     // Docker defaults the combined memory+swap limit to twice Memory; a
     // Memory too large to double is left without a swap limit.
@@ -1897,11 +1917,14 @@ pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let image_cfg: Value = engine.store.read_config(&image.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
     // Checked before mounts, which may create volumes.
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
-    let mounts = mounts(&body, engine, &image)?;
     let ports = port_bindings(&body, engine, &image)?;
+    if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
+        warnings.push(super::ports::WSL_PUBLISH_WARNING);
+    }
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
+    let mounts = mounts(&body, engine, &image)?;
     let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
@@ -3149,6 +3172,18 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_isolation_is_rejected_instead_of_silently_accepted() {
+        for host in [json!({}), json!({"CgroupParent": null}), json!({"CgroupParent": "", "UsernsMode": ""}),
+            json!({"UsernsMode": "host"})] {
+            validate_isolation(&host).unwrap();
+        }
+        for host in [json!({"CgroupParent": "/tenant"}), json!({"CgroupParent": false}),
+            json!({"UsernsMode": "private"}), json!({"UsernsMode": "auto"}), json!({"UsernsMode": 1})] {
+            assert!(matches!(validate_isolation(&host), Err(Error::BadRequest(_))), "{host}");
+        }
+    }
 
     #[test]
     fn requested_port_bindings_keep_addresses_protocols_and_ephemeral_requests() {
