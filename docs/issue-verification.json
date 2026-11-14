@@ -774,6 +774,30 @@
         "crates/asagiri-image/src/store.rs"
       ],
       "remaining": "Image-index read/modify/replace uses a cross-process lock and unique synced temporary files. Concurrent writers and shorter rewrites are tested; a complete typed array with a stale tail is recovered only after saving an exact backup. Incomplete corrupt records remain untouched and return an explicit error."
+    },
+    {
+      "issue": 225,
+      "title": "Windows: Docker API ignores Connection: close, so a body-less 204 (container start) hangs Testcontainers for .NET",
+      "body_sha256": "bc38e2f95826a6cf9d56cb699d9520e13a8dceddee9c33eb1b0d2d0ea012782b",
+      "coverage": "partial",
+      "checks": [
+        "tests/client-command-compatibility.py",
+        "crates/asagiri-win/src/serve.rs"
+      ],
+      "remaining": "Connection: close is honored by the engine and covered by live HTTP probes. A real Windows .NET byte-mode named-pipe regression for 201, 204, 304 and a large response passes the hosted Windows job. End-to-end Testcontainers for .NET with WSL and SQL Server remains unverified."
+    },
+    {
+      "issue": 226,
+      "title": "Colima vs Kiri vs Podman",
+      "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
+      "coverage": "partial",
+      "checks": [
+        "scripts/reference-bench.py",
+        "tests/ci-reference-performance.py",
+        ".github/workflows/reference-performance.yml",
+        "docs/engine-comparison.md"
+      ],
+      "remaining": "A portable Docker-compatible socket benchmark and a pinned private Linux Asagiri/Docker/Podman workflow are implemented. The first hosted comparison is pending; no Mac/Colima VM performance result is claimed."
     }
   ]
 }

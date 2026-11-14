@@ -26,6 +26,8 @@ The screenshot and browser demo use sample data in the real app UI.
 - Container names for local development, plus Kubernetes and Linux machines.
 - Cross-platform CI, live Docker API conformance tests, and
   [performance history by commit](https://andrekurait.github.io/asagiri/performance/).
+  The [engine comparison](docs/engine-comparison.md) measures Asagiri, Docker
+  and Podman on Linux and can also test a user-selected Colima socket.
 
 ## Downloads
 

@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-14T17:36:30.769761+00:00",
+  "reviewed_at": "2026-11-14T19:33:30.037704+00:00",
   "repository": "libracoder/kiri",
-  "count": 69,
+  "count": 71,
   "issues": [
     {
       "number": 10,
@@ -376,7 +376,7 @@
       "number": 121,
       "title": "Command is ignored when starting a container from testcontainers (using http api)",
       "state": "open",
-      "updated_at": "2026-11-10T08:41:36Z",
+      "updated_at": "2026-11-14T18:56:59Z",
       "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
       "disposition": "covered",
       "reason": "Empty Cmd/default Entrypoint rules expanded by #198 port; live SDK compatibility test."
@@ -624,6 +624,24 @@
       "body_sha256": "57ee8d55097ce2ace3d19ab521abe19ba88f7237b8e5894dcc1493efacb43022",
       "disposition": "automated",
       "reason": "Image-index read/modify/replace uses a cross-process lock and unique synced temporary files. Concurrent writers and shorter rewrites are tested; a complete typed array with a stale tail is recovered only after saving an exact backup. Incomplete corrupt records remain untouched and return an explicit error."
+    },
+    {
+      "number": 225,
+      "title": "Windows: Docker API ignores Connection: close, so a body-less 204 (container start) hangs Testcontainers for .NET",
+      "state": "open",
+      "updated_at": "2026-11-14T18:56:45Z",
+      "body_sha256": "bc38e2f95826a6cf9d56cb699d9520e13a8dceddee9c33eb1b0d2d0ea012782b",
+      "disposition": "implemented-unverified-platform",
+      "reason": "Connection: close is honored by the engine and covered by live HTTP probes. A real Windows .NET byte-mode named-pipe regression for 201, 204, 304 and a large response passes the hosted Windows job. End-to-end Testcontainers for .NET with WSL and SQL Server remains unverified."
+    },
+    {
+      "number": 226,
+      "title": "Colima vs Kiri vs Podman",
+      "state": "open",
+      "updated_at": "2026-11-14T19:08:24Z",
+      "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
+      "disposition": "partially-covered",
+      "reason": "A portable Docker-compatible socket benchmark and a pinned private Linux Asagiri/Docker/Podman workflow are implemented. The first hosted comparison is pending; no Mac/Colima VM performance result is claimed."
     }
   ]
 }

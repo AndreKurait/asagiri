@@ -1,0 +1,5 @@
+{
+  "docker": "docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b",
+  "podman": "quay.io/podman/stable@sha256:03af9a31e5bc973371614e496b5dae558491a3e93ee7cecfc98dd49755be19ac",
+  "asagiri_host": "docker:28.0.4-cli@sha256:2bccc79fc5fed23d876bf244fa5fbe78c54bf6b6145a9483604306fd797237d5"
+}
