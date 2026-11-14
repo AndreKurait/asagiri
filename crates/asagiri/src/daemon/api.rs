@@ -22,6 +22,10 @@ use super::time;
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
+    // Bound an idle connection's next request. Streams, hijacked execs and
+    // uploads clear the timeout before the route reads their bodies.
+    const HEADER_TIMEOUT: Duration = Duration::from_secs(300);
+    let _ = r.get_ref().set_read_timeout(Some(HEADER_TIMEOUT));
     loop {
         let req = match http::read_request(&mut r, streams_body) {
             Ok(Some(req)) => req,
@@ -36,6 +40,7 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
                 return Ok(());
             }
         };
+        let _ = r.get_ref().set_read_timeout(None);
         // The window's action this request is part of: the engine's lines
         // for it carry the same op.
         let _op = req.header("X-Asagiri-Op").filter(|o| crate::diag::valid_op(o)).map(|o| crate::diag::enter_op(o.to_owned()));
@@ -58,6 +63,8 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
                 return Ok(());
             }
         }
+        // Re-arm the idle timeout for the next request on this connection.
+        let _ = r.get_ref().set_read_timeout(Some(HEADER_TIMEOUT));
     }
 }
 
