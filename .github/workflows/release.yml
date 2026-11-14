@@ -17,8 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}-${{ inputs.recover_run || github.sha }}
-  cancel-in-progress: false
+  # Keep only the newest automatic main build. Stable tags and explicit
+  # recovery/manual runs have their own groups and are never superseded.
+  group: release-${{ github.ref }}-${{ inputs.recover_run || (github.event_name == 'workflow_dispatch' && github.run_id) || 'current' }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.1
