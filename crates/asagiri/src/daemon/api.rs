@@ -1241,6 +1241,28 @@ fn guest_bind_source(src: &str) -> String {
     mac_source(src).map_or_else(|| src.to_owned(), |real| format!("{MAC_ROOT}{real}"))
 }
 
+/// The guest mount lines with each Mac bind source followed again from the
+/// path the person gave (kept in `info`, one entry per line). Links are
+/// resolved when the container is made; this redoes it at start, so a link
+/// re-pointed since then leads to its new target. Lines that aren't a bind
+/// of the Mac's files stay as they are.
+pub(super) fn fresh_bind_sources(guest: &[String], info: &[Value]) -> Vec<String> {
+    if !cfg!(target_os = "macos") || guest.len() != info.len() {
+        return guest.to_vec();
+    }
+    guest
+        .iter()
+        .zip(info)
+        .map(|(line, i)| {
+            let (Some(src), Some((old, rest))) = (i["Source"].as_str().filter(|_| i["Type"] == "bind"), line.split_once('\t')) else { return line.clone() };
+            if !old.strip_prefix(MAC_ROOT).is_some_and(|p| p.starts_with('/')) || super::binds::engine_socket(src).is_some() {
+                return line.clone();
+            }
+            format!("{}\t{rest}", guest_bind_source(src))
+        })
+        .collect()
+}
+
 /// An NFS or CIFS server name as an address the guest kernel can use.
 /// `host.docker.internal` is the Mac, as it is for containers.
 fn resolve_server(host: &str) -> Option<String> {
@@ -3659,6 +3681,33 @@ mod tests {
         let real = std::fs::canonicalize(dir.join("real")).unwrap();
         assert_eq!(mac_source(dir.join("link").to_str().unwrap()).as_deref(), real.to_str());
         assert_eq!(mac_source("/tmp/asagiri-no-such-path").as_deref(), Some("/tmp/asagiri-no-such-path"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A linked bind source is followed again at each start: re-pointing the
+    /// link (a `current` release link) mounts the new target.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bind_links_are_followed_again_at_start() {
+        let dir = std::env::temp_dir().join(format!("asagiri-fresh-binds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for r in ["r1", "r2"] {
+            std::fs::create_dir_all(dir.join(r)).unwrap();
+        }
+        let link = dir.join("current");
+        std::os::unix::fs::symlink("r1", &link).unwrap();
+        let src = link.to_str().unwrap().to_owned();
+        let at = |r: &str| format!("/mnt/mac{}\t/app\t", std::fs::canonicalize(dir.join(r)).unwrap().display());
+        let made = format!("{}\t/app\t", guest_bind_source(&src));
+        assert_eq!(made, at("r1"));
+        let guest = vec![made, "tmpfs\t/t\tnoexec".to_owned()];
+        let info = vec![json!({"Type": "bind", "Source": src}), json!({"Type": "tmpfs", "Source": ""})];
+        // Unchanged link: the same lines.
+        assert_eq!(fresh_bind_sources(&guest, &info), guest);
+        // Re-pointed: the new target; other mounts as they were.
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink("r2", &link).unwrap();
+        assert_eq!(fresh_bind_sources(&guest, &info), [at("r2"), guest[1].clone()]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

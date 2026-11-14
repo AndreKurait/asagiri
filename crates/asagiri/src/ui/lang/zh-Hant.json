@@ -1695,5 +1695,9 @@
   "Copy connection configuration": "複製連線設定",
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "關閉存取權限後，已連接的用戶端將無法發起新請求。已傳送至引擎的操作仍可能完成。",
   "Enable MCP access": "啟用 MCP 存取",
-  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "讀取引擎狀態、容器、最近日誌、映像檔、磁碟區和網路。應用程式日誌可能包含機密資訊。"
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "讀取引擎狀態、容器、最近日誌、映像檔、磁碟區和網路。應用程式日誌可能包含機密資訊。",
+  "Stop waiting": "停止等待",
+  "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "裝置回來後 Asagiri 會再次接上。停止等待即可把它留在這台電腦上。",
+  "Waiting to come back": "等待重新接上",
+  "No languages match": "沒有符合的語言"
 }

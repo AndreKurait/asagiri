@@ -21,6 +21,17 @@ hosts, with private sockets and no published outer ports:
   host mount namespace, then kills it, removes its empty owned cgroups, and leaves
   four orphaned mount layers. Source `6f7ac86` retains the old mounts; `2fa4f56`
   reclaims them. Manual and restart-always containers preserve their writable data.
+- The same probe also restarts a daemon while its engine is explicitly stopped,
+  verifies that it stays stopped, then checks held `always`/`unless-stopped`
+  policies, a canceled restart and a rapid Start/Stop pair. Requested stops are
+  not logged as crashes. These checks pass on runtime source `44fab19`.
+- `tests/engine-power.py` verifies parallel Stop, Sleep/Wake and repeated
+  Start/Stop races. Nine containers with two-second stop timeouts take 18.115
+  seconds on the prior build and 2.095 seconds on `44fab19`. Both measurements
+  use the same probe in a private Linux host; the CI regression allows 12 seconds.
+- `tests/exec-errors.py` checks 12 actual Docker CLI run/exec cases: denied and
+  missing executables, directories, invalid scripts and `--init` shell fallback.
+  All cases pass on `44fab19`; the prior build fails this regression.
 - The stopped volume/bind archive, ownership and `/proc` symlink checks pass,
   along with the real BuildKit Docker driver, concurrent builds and cancellation.
 

@@ -1695,5 +1695,9 @@
   "Copy connection configuration": "Copy connection configuration",
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.",
   "Enable MCP access": "Enable MCP access",
-  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets."
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
+  "Stop waiting": "ຢຸດລໍຖ້າ",
+  "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ຈະເຊື່ອມຕໍ່ມັນອີກເມື່ອກັບມາ. ຢຸດລໍຖ້າເພື່ອປະມັນໄວ້ໃນຄອມພິວເຕີນີ້.",
+  "Waiting to come back": "ກຳລັງລໍຖ້າໃຫ້ກັບມາ",
+  "No languages match": "ບໍ່ມີພາສາທີ່ກົງກັນ"
 }

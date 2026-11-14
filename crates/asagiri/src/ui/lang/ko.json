@@ -1695,5 +1695,9 @@
   "Copy connection configuration": "Copy connection configuration",
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.",
   "Enable MCP access": "Enable MCP access",
-  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets."
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
+  "Stop waiting": "기다리지 않기",
+  "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "돌아오면 Asagiri가 다시 연결합니다. 이 컴퓨터에 두려면 기다리기를 멈추세요.",
+  "Waiting to come back": "돌아오기를 기다리는 중",
+  "No languages match": "일치하는 언어가 없습니다"
 }

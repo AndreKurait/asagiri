@@ -82,12 +82,13 @@ h1.l{font-size:36px}
 .card{border-radius:18px;background:var(--surface);border:1px solid var(--line);padding:26px;display:flex;flex-direction:column;gap:22px}
 .card.tight{gap:18px}
 .foot{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:auto;padding-top:4px}
-/* The language step: a header that says hello in the language picked, over a
-   faint cloud of the others; then a tile for each language, four across, each its
-   greeting in its own script over its name. The page scrolls; neither the header nor
-   the tiles shrink to fit (37 tiles would crush the header), and Continue stays
-   in view (main.choose's foot). */
-.lhead{position:relative;overflow:hidden;flex:none;max-width:720px;padding:22px 24px 20px;border-radius:16px;border:1px solid var(--line);
+/* The language step (langstep.js, as in the main window): a header that says
+   hello in the language picked, over a faint cloud of the others; then a search
+   field and one list, a line for each language: its own name, its English name,
+   its hello. The list takes the height left and scrolls; the header and the
+   foot with Continue stay. */
+main.lang{gap:14px;padding-bottom:20px}
+.lhead{position:relative;overflow:hidden;flex:none;max-width:720px;padding:20px 24px 18px;border-radius:16px;border:1px solid var(--line);
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in srgb,var(--ember) 16%,transparent),transparent 55%),radial-gradient(120% 140% at 100% 100%,rgba(59,130,246,.16),transparent 60%),var(--rail)}
 .lcloud{position:absolute;inset:0;pointer-events:none;opacity:.06}
 .lcloud span{position:absolute;white-space:nowrap;font:700 1em var(--f-display);color:var(--ink)}
@@ -95,16 +96,34 @@ h1.l{font-size:36px}
 @keyframes lhello{from{opacity:.2;transform:translateY(3px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.lhello{animation:none}}
 .lhead h1{position:relative;margin-top:6px;font:600 20px/1.25 var(--f-display);color:var(--ink)}
-.lhead .lede{position:relative;margin-top:4px}
-.langs{display:grid;flex:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;max-width:720px}
-.lang{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:4px;padding:10px 12px 9px;min-height:70px;border-radius:12px;background:var(--surface);border:2px solid var(--line);color:var(--text-2);font:inherit;font-family:var(--f-text);text-align:left;cursor:pointer;transition:border-color .15s,transform .15s}
-.lang:hover{border-color:var(--stroke);transform:translateY(-1px)}
-.lang b{font:650 18px/1.2 var(--f-display);color:var(--ink);overflow-wrap:anywhere}
-.lang span{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
-.lang em{font-style:normal;font-size:12px;color:var(--moss)}
-.lang[aria-checked=true]{border-color:var(--ember);background:color-mix(in srgb,var(--ember) 8%,var(--surface))}
-.lang:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-@media (max-width:900px){.langs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.lbody{position:relative;flex:1 1 auto;min-height:0;max-width:720px;width:100%;display:flex;flex-direction:column;gap:12px}
+.lfind{display:flex;align-items:center;gap:9px;flex:none;height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:text}
+.lfind:focus-within{border-color:var(--ember)}
+.lfind svg{width:15px;height:15px;flex:none}
+.lfind input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--ink);font:15px var(--f-text)}
+.lfind input::placeholder{color:var(--muted)}
+.llist{position:relative;flex:1 1 auto;min-height:132px;overflow-y:auto;overscroll-behavior:contain;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.lsect{position:sticky;top:0;z-index:1;padding:9px 16px 6px;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ember-text);background:var(--rail);border-bottom:1px solid var(--line-2)}
+.lrow{display:grid;grid-template-columns:minmax(0,1fr) auto 16px;align-items:center;gap:12px;padding:9px 16px;cursor:pointer;border-top:1px solid var(--line-2)}
+.lsect+.lrow{border-top:0}
+.lrow:hover{background:var(--line-2)}
+.lrow.act{background:color-mix(in srgb,var(--ember) 7%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ember) 55%,transparent)}
+.lrow[aria-selected=true]{background:color-mix(in srgb,var(--ember) 14%,transparent)}
+.lnm{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;min-width:0;overflow-wrap:anywhere}
+.ln{font-weight:600;color:var(--ink)}
+.le{font-size:13.5px;color:var(--muted)}
+.lrow .sys{min-width:0;font-size:12.5px;color:var(--moss)}
+.lh{font-size:14px;color:var(--text-2);white-space:nowrap}
+.lck{width:16px;height:16px;color:var(--ember);visibility:hidden}
+.lrow[aria-selected=true] .lck{visibility:visible}
+.lnone{padding:18px 16px;color:var(--muted)}
+/* Each name and hello in its own language's face (the [lang|=…] rules above). */
+.lrow bdi[lang]{font-family:var(--f-text)}
+[dir=rtl] .lnm{unicode-bidi:isolate}
+.lfoot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex:none}
+.lfoot p{margin:0;font-size:13px;line-height:1.5;color:var(--muted)}
+.lfoot .btn{flex:none}
+@media (max-height:700px){.lhead{padding:12px 20px}.lhello{font-size:30px}.lhead h1{font-size:17px;margin-top:2px}.lcloud{display:none}.llist{min-height:96px}}
 .grow{flex:1}
 
 .btn{height:40px;padding:0 18px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--ink);font:500 14px var(--f-text);cursor:pointer;white-space:nowrap}
@@ -265,6 +284,9 @@ main.choose .foot{position:sticky;bottom:-24px;margin-bottom:-24px;padding:14px 
 </div>
 
 <script>
+/* The languages and the first start's language step, shared with the main
+   window (crates/asagiri/src/ui/langstep.js, spliced in by assemble.rs). */
+/*LANGSTEP*/
 /* The page's words: English is the key, lang/<tag>.json (spliced in by
    assemble.rs, as for the main window) gives the system's language, or the
    one Settings picked on a setup run again. scripts/i18n-check.py checks them. */
@@ -302,7 +324,7 @@ addWords(/*STRINGS*/{});
 /* As the main window's langFor: the first of the system's languages Asagiri has
    (zh-TW, zh-HK, zh-MO and zh-Hant… read Traditional Chinese, any other Chinese
    Simplified, any Portuguese Brazilian, "in" Indonesian), else English. */
-var LANG_IDS = ['en', 'id', 'ca', 'cs', 'de', 'es', 'fr', 'it', 'lt', 'hu', 'nb', 'pl', 'pt-BR', 'ro', 'sq', 'sl', 'fi', 'vi', 'tr', 'el', 'bg', 'ru', 'uk', 'kk', 'ar', 'fa', 'ckb', 'am', 'hi', 'bn', 'ta', 'te', 'th', 'lo', 'ja', 'ko', 'zh-Hans', 'zh-Hant'];
+var LANG_IDS = LANGS.map(function (l) { return l[0]; });
 function langFor(tag) {
   var t = String(tag || '').toLowerCase().replace(/_/g, '-');
   var is = function (id) { return t === id || t.indexOf(id + '-') === 0; };
@@ -418,32 +440,36 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
   };
 
   /* ---------- screens (structure; live values are filled by update()) ---------- */
-  /* The first start: the language, before Welcome. Each tile in its own
-     language, the system's picked and marked; a pick redraws the page at once. */
-  var LANGS = [['en', 'English', 'Hello'], ['id', 'Bahasa Indonesia', 'Halo'], ['ca', 'Català', 'Hola'], ['cs', 'Čeština', 'Ahoj'], ['de', 'Deutsch', 'Hallo'],
-    ['es', 'Español', 'Hola'], ['fr', 'Français', 'Bonjour'], ['it', 'Italiano', 'Ciao'], ['lt', 'Lietuvių', 'Labas'], ['hu', 'Magyar', 'Szia'],
-    ['nb', 'Norsk bokmål', 'Hei'], ['pl', 'Polski', 'Cześć'], ['pt-BR', 'Português (Brasil)', 'Olá'], ['ro', 'Română', 'Salut'], ['sq', 'Shqip', 'Përshëndetje'],
-    ['sl', 'Slovenščina', 'Živjo'], ['fi', 'Suomi', 'Hei'], ['vi', 'Tiếng Việt', 'Xin chào'], ['tr', 'Türkçe', 'Merhaba'], ['el', 'Ελληνικά', 'Γεια σου'],
-    ['bg', 'Български', 'Здравей'], ['ru', 'Русский', 'Привет'], ['uk', 'Українська', 'Привіт'], ['kk', 'Қазақша', 'Сәлем'], ['ar', 'العربية', 'مرحبًا'],
-    ['fa', 'فارسی', 'سلام'], ['ckb', 'کوردیی ناوەندی', 'سڵاو'], ['am', 'አማርኛ', 'ሰላም'], ['hi', 'हिन्दी', 'नमस्ते'], ['bn', 'বাংলা', 'নমস্কার'], ['ta', 'தமிழ்', 'வணக்கம்'],
-    ['te', 'తెలుగు', 'నమస్కారం'], ['th', 'ไทย', 'สวัสดี'], ['lo', 'ລາວ', 'ສະບາຍດີ'], ['ja', '日本語', 'こんにちは'], ['ko', '한국어', '안녕하세요'],
-    ['zh-Hans', '简体中文', '你好'], ['zh-Hant', '繁體中文', '你好']];
-  var langDone = false, sysLang = langId('system');
+  /* The first start: the language, before Welcome, as the main window asks it
+     (langStep, langstep.js): a search field and one list, the system's
+     language picked and marked; a pick redraws the page at once. The screen is
+     built once and langStep redraws its words in place, so a search and the
+     focus stay as the language changes. */
+  var langDone = false, sysLang = langId('system'), langUI = null, langShown = '';
   // Every hello, faint and scattered behind the header, in fixed places.
   var LANG_CLOUD = LANGS.concat(LANGS).slice(0, 22).map(function (l, i) {
-    return '<span style="left:' + (i * 37) % 100 + '%;top:' + (i * 53) % 100 + '%;font-size:' + (14 + (i * 7) % 22) + 'px;transform:rotate(' + (((i * 13) % 14) - 7) + 'deg)">' + l[2] + '</span>';
+    return '<span style="left:' + (i * 37) % 100 + '%;top:' + (i * 53) % 100 + '%;font-size:' + (14 + (i * 7) % 22) + 'px;transform:rotate(' + (((i * 13) % 14) - 7) + 'deg)">' + (HELLO[l[0]] || '') + '</span>';
   }).join('');
   function langScreen() {
-    var cur = langId(PICK), hello = LANGS.filter(function (l) { return l[0] === cur; })[0] || LANGS[0];
-    return { cls: 'choose', html:
+    return { cls: 'choose lang', html:
       '<div class="lhead"><div class="lcloud" aria-hidden="true">' + LANG_CLOUD + '</div>' +
-        '<div class="lhello" lang="' + cur + '" aria-hidden="true">' + hello[2] + (/^(ja|ko|zh)/.test(cur) ? '' : '!') + '</div>' +
-        '<h1 tabindex="-1">' + tr("Choose your language") + '</h1><p class="lede md">' + tr("You can change it later in Settings → Appearance.") + '</p></div>' +
-      '<div class="langs" role="radiogroup" aria-label="' + tr("Language") + '">' + LANGS.map(function (l) {
-        return '<button type="button" class="lang" role="radio" data-lang="' + l[0] + '" lang="' + l[0] + '" aria-checked="' + (l[0] === cur) + '"><b>' + l[2] + '</b><span>' + l[1] + '</span>' +
-          (l[0] === sysLang ? '<em>' + tr("Same as {os}", { os: 'Windows' }) + '</em>' : '') + '</button>';
-      }).join('') + '</div>' +
-      '<div class="foot"><button type="button" class="btn primary" data-act="lang-done">' + tr("Continue") + '</button></div>' };
+        '<div class="lhello" aria-hidden="true"></div><h1 id="lang-title" tabindex="-1"></h1></div>' +
+      '<div class="lbody"></div>' };
+  }
+  function langMount() {
+    langUI = langStep(main, {
+      sysId: sysLang, os: 'Windows', ctrl: true,
+      tags: (window.ASAGIRI_LANG || {}).os && window.ASAGIRI_LANG.os.length ? window.ASAGIRI_LANG.os : navigator.languages || [],
+      current: function () { return langId(PICK); },
+      pick: function (id) {
+        var v = id === sysLang ? 'system' : id;
+        send('setpref', { name: 'lang', value: v });
+        pickLang(v); render();
+      },
+      // Continue, Enter on the row picked, or Escape: the language shown stays.
+      done: function () { langUI = null; langDone = true; send('setpref', { name: 'langAsked', value: true }); render(); }
+    });
+    langUI.open();
   }
   function screen(s) {
     var sz = s.sizes || {};
@@ -686,7 +712,9 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
   function render() {
     var s = Object.assign({ step: 'welcome' }, S || {});
     if (STEPS.indexOf(s.step) < 0) s.step = 'welcome';
-    var key = JSON.stringify([s.step, s.step === 'linux' || s.step === 'engine' ? s.linux : null, s.existingUbuntu, s.otherDocker, s.sizes, !!s.askLang && !langDone, LANG, langId(PICK)]);
+    var asking = !!s.askLang && !langDone;
+    // The language step stays as it is built; a new language redraws it in place.
+    var key = asking ? '["lang"]' : JSON.stringify([s.step, s.step === 'linux' || s.step === 'engine' ? s.linux : null, s.existingUbuntu, s.otherDocker, s.sizes, false, LANG, langId(PICK)]);
     if (key !== builtKey) {
       var first = builtKey === null || !hadState, prevStep = builtKey && JSON.parse(builtKey)[0];
       var sc = screen(s);
@@ -694,8 +722,10 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
       main.innerHTML = sc.html;
       main.scrollTop = 0;
       builtKey = key;
-      if (!first && prevStep !== s.step) { var h = main.querySelector('h1'); if (h) h.focus({ preventScroll: true }); }
-    }
+      if (langUI && !asking) { langUI.close(); langUI = null; }
+      if (asking) { langMount(); langShown = LANG; }
+      else if (!first && prevStep !== s.step) { var h = main.querySelector('h1'); if (h) h.focus({ preventScroll: true }); }
+    } else if (langUI && langShown !== LANG) { langShown = LANG; langUI.draw(); }
     hadState = !!S;
     rail(s);
     var q = function (sel) { return main.querySelector(sel); };
@@ -718,9 +748,8 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
   var queued = false;
   function schedule() { if (!queued) { queued = true; requestAnimationFrame(function () { queued = false; render(); }); } }
 
-  /* The picked tile keeps the focus as the page redraws in its language. */
-  function focusLang() { var f = main.querySelector('[data-lang="' + langId(PICK) + '"]'); if (f) f.focus(); }
-  onRelang = function () { var had = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.lang; render(); if (had) focusLang(); };
+  /* A language whose words came from the host: the page, and the language step in place. */
+  onRelang = function () { render(); };
 
   /* ---------- input ---------- */
   /* As in the Asagiri window: "Copied" in a bubble above the button, which stays as it is. */
@@ -742,13 +771,6 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
     var b = ev.target.closest('button');
     if (!b || b.disabled) return;
     if (b.dataset.cmd) { send(b.dataset.cmd, b.dataset.value ? { value: b.dataset.value } : null); return; }
-    if (b.dataset.lang) {
-      var v = b.dataset.lang === sysLang ? 'system' : b.dataset.lang;
-      send('setpref', { name: 'lang', value: v });
-      pickLang(v); render(); focusLang();
-      return;
-    }
-    if (b.dataset.act === 'lang-done') { langDone = true; send('setpref', { name: 'langAsked', value: true }); render(); return; }
     if (b.dataset.act === 'choose') send('setup-choose', { value: choice });
     else if (b.dataset.act === 'copy') {
       send('copy', { value: 'docker run --rm alpine echo hello' });

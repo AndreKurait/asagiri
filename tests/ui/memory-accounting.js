@@ -11,13 +11,15 @@ const eq = (actual, expected) => {
 const state = (value) => asagiri.on({ type: "state", state: value });
 const vm = (awake) => asagiri.on({ type: "vm", awake, used_mib: 512, target_mib: 1024, ceiling_mib: 6144, running: 0, cpus: 4 });
 const row = () => document.getElementById("vm-mem");
+// Nonbreaking spaces keep each number and unit together in a narrow card.
+const reading = () => row().textContent.replace(/\u00a0/g, " ");
 state("running");
 vm(true);
-check("running memory is displayed", () => eq(row().textContent, "512 MB / 6 GB"));
+check("running memory is displayed", () => eq(reading(), "512 MB / 6 GB"));
 vm(false);
 state("asleep");
 check("idle memory respects the host backend", () => {
-  eq(row().textContent, WIN ? "—" : "0 MB / 6 GB");
+  eq(reading(), WIN ? "—" : "0 MB / 6 GB");
   if (WIN) {
     eq(row().title.includes("does not shut down WSL"), true);
     eq(row().title.includes("holds no memory"), false);
@@ -30,7 +32,7 @@ check("Stop clears stale memory", () => eq(row().textContent, "—"));
 state("stopped");
 vm(false);
 check("stopped memory events do not imply WSL released its memory", () => {
-  eq(row().textContent, WIN ? "—" : "0 MB / 6 GB");
+  eq(reading(), WIN ? "—" : "0 MB / 6 GB");
   if (WIN) {
     eq(VM, "Engine");
     eq(document.getElementById("statusbar").textContent.includes("Engine off"), true);
@@ -43,5 +45,5 @@ check("Windows ignores stale running memory after Stop", () => {
 });
 state("running");
 vm(true);
-check("Start restores measured memory", () => eq(row().textContent, "512 MB / 6 GB"));
+check("Start restores measured memory", () => eq(reading(), "512 MB / 6 GB"));
 report(results);

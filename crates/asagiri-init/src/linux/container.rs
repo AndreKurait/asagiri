@@ -1550,7 +1550,7 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     }
     // SAFETY: NULL-terminated arrays of valid C strings that outlive the call.
     unsafe { libc::execve(exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
-    fail("exec", io::Error::last_os_error())
+    sys::exec_fail(2, &exe, io::Error::last_os_error(), false)
 }
 
 /// The container's /proc, /sys, /dev (with the standard device nodes),

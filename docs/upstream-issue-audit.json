@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-11-14T20:31:07.644810+00:00",
+  "reviewed_at": "2026-11-14T21:01:33.177110+00:00",
   "repository": "libracoder/kiri",
   "count": 75,
   "issues": [
@@ -460,7 +460,7 @@
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
       "disposition": "partially-covered",
-      "reason": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. Pure configuration/path and Linux regressions exist; native Mac reproduction remains unverified.",
+      "reason": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. The #231 port re-resolves linked sources on each start; its pure Mac filesystem regression passes on 44fab19 while retaining lifecycle locks and original inspect paths. Native Mac lifecycle, VM bind restart and published-port reproduction remain unverified.",
       "attachment_sha256": "2e56f3d47c3565b061f25ca8db005e753a2b97ff4478a1b6cd984a532a77821c"
     },
     {
@@ -524,7 +524,7 @@
       "updated_at": "2026-11-14T11:42:33Z",
       "body_sha256": "401c286ebd8280cdda6fc9d10c4200fb60457678eafbb53e21ab38c912f0bf77",
       "disposition": "partial",
-      "reason": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Added detach/Stop cancellation generations. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
+      "reason": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Waiting devices are visible and cancelable in API/CLI/UI; reconnect generations and immediate-drop registration are covered by eight passing Mac state tests on 44fab19. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
     },
     {
       "number": 203,

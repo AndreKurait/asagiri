@@ -7,11 +7,11 @@ The rename does not change the authorship of inherited code.
 Upstream `main` was fetched on **2026-11-14** at
 `baa2d41c1ce660b7ee255efc4fec156af42a715d`. Its complete history is merged,
 including the GitHub and ECR registry sign-in work after the initial integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **148** public PRs
-as of that review: 85 merged, 37 closed without merging, and 26 open. Every
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **154** public PRs
+as of that review: 85 merged, 37 closed without merging, and 32 open. Every
 merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
 port, equivalence, supersession, or hold recorded with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all 69
+The [issue verification inventory](docs/issue-verification.md) maps all 75
 reported issues to checks and remaining gaps. Closed upstream issues are not
 automatically considered verified on Asagiri.
 
@@ -74,7 +74,7 @@ fix is preserved in the performance runner's flavor-dependent socket setting.
 | #53: `ca8a6e5`, `99ea574`, `968cf67` | Bounded guest console recording, rotation failure handling, and documentation. The key-redaction latch also follows delimiters across reads and beyond an omitted line's cap. |
 | #119: `a0b8d90`, `79ee480`, `4ac9cdd` | Registry mirrors, translated settings, Windows setup continuation, and neutral examples. Origin credentials are kept off mirror manifests and blobs; refreshing settings preserves active Buildx execs. Windows setup treats pull failures separately from container execution failures. |
 | #54 through `508ba7e` | Automatic recovery for running `always`/`unless-stopped` containers, backoff, cancellation and confirmed VM retirement. Asagiri also waits for old-reader exit accounting, cancels and joins Linux listener threads, and preserves stop/remove responses and startup exit codes. Private Linux tests crash the agent and verify persisted recovery without API-triggered boots. |
-| #116: `783de87`, `ba7fd94` | Intel macOS arm64 emulation and registry-owned remote tags. The emulator share is read-only and the platform exception is limited to Linux arm64. Asagiri records local tag provenance so local `FROM` tags in the same repository still work; OCI export checks the requested architecture's ELF. QEMU is excluded from release bundles until its complete corresponding-source bundle is ready. |
+| #116: `783de87`, `ba7fd94` | Intel macOS arm64 emulation and registry-owned remote tags. The emulator share is read-only and the platform exception is limited to Linux arm64. Asagiri records local tag provenance so local `FROM` tags in the same repository still work; OCI export checks the requested architecture's ELF. Release packaging builds a pinned static QEMU with its complete corresponding source and verifies ARM64 execution on a native Linux x86_64 runner. Intel Mac VM execution remains unverified. |
 | #131: `11f698a` | A container's own changes to `/.dockerenv` remain visible in diff and commit. |
 | #142 reviewed stop/sleep follow-up | Stop waits for the run it was asked to stop; sleep attempts every container before returning its first error. |
 
@@ -120,6 +120,24 @@ restart handling (#216), and #207's share/API/agent hardening. Asagiri additiona
 serializes settings writes, cancels stale USB reconnect tokens without waking
 the VM, and releases connection slots when a thread cannot start.
 
+The next scan reviewed #231–#236. Linked Mac bind folders are resolved again
+on each start (#231), waiting USB devices remain visible and cancelable even
+after a quick drop (#233), and engine Start/Stop transitions preserve held
+restart policies while stopping containers in parallel (#234). Failed
+executables now report Docker-compatible exit codes and messages. Asagiri's
+lifecycle locks, canceled-restart generations and automatic crash recovery
+remain intact. Its broader interface reservation code already covers #232;
+all seven live scenarios pass with Alpine and BusyBox.
+
+The VM card fits all 38 languages (#235), and the first-start language picker
+is shared with Windows setup, with a searchable Settings menu (#236).
+Browser checks cover keyboard and IME input, compact windows, 125% text
+scaling, and truthful unknown Windows memory readings. Linux source `44fab19`
+passes 569 unit tests, the new power and executable regressions, three actual
+agent crashes, and stopped-daemon restart/cancellation checks. Pure Mac USB
+state and bind-path tests pass; native Mac VM, physical USB and Windows WSL
+execution remain separate validation work.
+
 The changed #122 head is reviewed through `944e72a`: its rebased initial trim
 implementation is already inherited, and its new worker-process fix is ported.
 The agent stays single-threaded for container cloning, while the trim child
@@ -137,15 +155,22 @@ disk reclamation remains a platform validation gap.
 | #48 | Linux tests cover bind-mount inotify, default and custom seccomp, Buildx, and container persistence after restarting the daemon. These do not verify macOS updater/launchd behavior or host notifications through Virtualization.framework virtiofs. |
 | #50 | Guest console retention and #54 recovery are included. Private Linux agent-crash tests cover automatic recovery, policies, counters and writable layers. The reported macOS guest-kernel crash and recovery under its original load remain unverified. |
 | #168 | WebView2 suspend/unload behavior remains unverified and unchanged. |
-| #73, #74 | Browser control of a real engine and an MCP server are not implemented. The website demo uses sample data in memory. |
+| #73, #74 | Implemented an explicitly enabled, password-protected loopback browser and a local stdio MCP server with bounded read tools and separate control permission. Real private Linux engine/Chromium checks and official MCP Python SDK 2.3.0 checks pass. Native Mac and Windows named-pipe execution remain unverified. The public website demo continues to use sample data. |
+| #226 | A pinned GHA comparison retains 3,600 raw samples for Asagiri, Docker 29.9.3 and Podman 6.1.3. The per-commit performance workflow tracks timings, memory and syscalls with a public history. Native Mac/Colima VM comparisons remain unmeasured. See [engine comparison](docs/engine-comparison.md). |
+| #230 | Private Linux tests restart the actual daemon in a persistent mount namespace and recover four orphaned mount layers after a crash, preserving writable data. They also verify Stop/Start policy retention and user cancellation across a daemon restart. The reporter's exact CachyOS kernel/systemd combination remains unverified. |
 
 ## Work intentionally held
 
 | Upstream work | Reason |
 | --- | --- |
-| #89 | Missing accept-loop/local-export integration, unbounded request buffering, premature or absent stream termination, and an active-session counter leak on error. Keep the working docker-container Buildx path until a complete implementation passes compatibility tests. |
+| #89 prototype | Superseded by Asagiri's tested BuildKit bridge with bounded sessions, local image loading, explicit exports and cancellation. The earlier incomplete buffering and stream-termination implementation is not adopted. |
 | #55 UI prototype | Its image metadata is already preserved by Asagiri's full-config inspect. The UI forces an extra dialog, guesses one port, reuses colliding default names and predates localization; existing rename/port editors and Docker create options remain available. |
-| #69 `daemon.json` prototype | Its translations are superseded by #95 and mirrors by #119. The additional insecure-registry/concurrency configuration surface and HTTP behavior need a dedicated design and runtime review. |
+
+#69's remaining registry configuration behavior is implemented with atomic
+`daemon.json` updates, explicit HTTP/self-signed authority policy, bounded
+transfer workers and credential/redirect boundaries. Private Linux tests
+exercise real pull, push and BuildKit builds; see the
+[registry configuration guide](docs/registry-configuration.md).
 
 Intel macOS emulation and Windows WebView2 lifecycle behavior need their
 respective hardware and operating systems for runtime verification. A passing

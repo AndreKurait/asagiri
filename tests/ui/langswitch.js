@@ -22,6 +22,8 @@ const PLACES = [["containers"], ["images"], ["volumes"], ["networks"], ["builds"
 for (const id of ["appearance", "resources", "network", "builds", "kubernetes", "import", "domains", "diagnostics", "about"])
   PLACES.push([`settings ${id}`, () => { show("settings"); document.querySelector(`[data-stab="${id}"]`).click(); }]);
 const visit = ([name, go]) => (go ? go() : show(name));
+// Back to the setting it started with at the end: Appearance shows the choice (System or English) on its Language button.
+const was = prefs.lang || "system";
 const before = new Map(PLACES.map((p) => { visit(p); return [p[0], words()]; }));
 for (const round of ["zh-Hans", "system", "zh-Hans", "en", "zh-Hans"]) {
   pick(round);
@@ -31,7 +33,7 @@ for (const round of ["zh-Hans", "system", "zh-Hans", "en", "zh-Hans"]) {
     if (round === "zh-Hans") { const left = english(document.body); if (left.length) R.push(`FAIL ${p[0]} in Chinese (switched to, round ${R.length}): English left: ${left.slice(0, 5).map((x) => JSON.stringify(x)).join(", ")}`); }
   }
 }
-pick("en");
+pick(was);
 for (const p of PLACES) t(`${p[0]} reads as before after the round trip`, () => {
   visit(p);
   const now = words(), was = before.get(p[0]);
