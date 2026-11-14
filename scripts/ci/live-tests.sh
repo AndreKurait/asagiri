@@ -56,7 +56,6 @@ run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run image-load-completion
 run layer-concurrency
-run registry-config
 run container-addresses
 run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
@@ -124,7 +123,9 @@ else
   failed=$((failed + 1)); echo "[1] daemon-restart: restart or persistence failed"
 fi
 
+# Cold bootstrap must precede probes that start the managed BuildKit backend.
 run buildx-bootstrap
+run registry-config
 run buildkit-driver alpine:3.21
 run kind-cluster alpine:3.21
 
