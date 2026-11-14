@@ -75,3 +75,15 @@ Docker Hub credentials are never forwarded to a mirror.
 The local Docker API exposes these settings through
 `GET /asagiri/daemon-config` and `POST /asagiri/daemon-config`. The POST body
 is the same JSON object accepted by `asagiri config set`.
+
+## Verification
+
+The private Linux probe in `tests/registry-config.py` verifies authenticated
+pull/push, one- and three-worker transfers, concurrent configuration patches,
+legacy mirror compatibility, certificate scope and revocation, redirect and
+upload credential boundaries, CLI updates and persistence. It also builds
+images through the real BuildKit Docker driver using HTTP, authenticated HTTP
+and self-signed HTTPS registries. It rejects an unlisted self-signed endpoint
+and resumes certificate validation after an exception is removed.
+These checks pass on Linux runtime source `700fbd2b97e130d83c766e493b141551a18b7ac8`.
+The Linux platform workflow runs the probe for subsequent changes.

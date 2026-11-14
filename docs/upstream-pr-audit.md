@@ -4,7 +4,7 @@ Reviewed every public pull request in `libracoder/kiri`, open and closed:
 **148 total: 85 merged, 37 closed without merging, and 26 open**.
 Upstream main is `baa2d41c1ce660b7ee255efc4fec156af42a715d`.
 Every merged PR's merge commit and the complete main history are ancestors of
-Asagiri. The runtime revision for this audit is `66cab68f280360bc36b5c630682d382aff2d8308`.
+Asagiri. The runtime revision for this audit is `700fbd2b97e130d83c766e493b141551a18b7ac8`.
 
 [Machine-readable evidence](upstream-pr-audit.json) records every reviewed head,
 merged commit, ancestry result and source-to-port mapping. [UPSTREAM.md](../UPSTREAM.md)
@@ -26,7 +26,7 @@ unmerged work.
   trim now runs in a separate child process so container user switching remains
   safe. A standalone Linux regression checks that the agent stays single-threaded,
   the child releases inherited descriptors, and unsupported trim exits cleanly.
-- Reviewed all 69 reported issues in the [issue inventory](issue-verification.md).
+- Reviewed the reported issues in the [issue inventory](issue-verification.md).
   Added image-index locking and safe complete-index recovery, Docker SDK version
   compatibility with a separate product version, and live checks for logs,
   image config metadata and network address pools.
@@ -53,11 +53,13 @@ Its UI prototype forces an extra dialog on every run, guesses one exposed port,
 uses a repeated default name, and predates localization. The existing container
 rename, port editor and Docker create options remain available.
 
-#69's language work is superseded by #95 and mirrors by #119. Its additional
-`daemon.json`, insecure-registry and concurrency prototype is not silently
-classified as a translation change: it would add another configuration surface
-and change HTTP transport selection. It remains held for a dedicated design and
-runtime review. Older Arabic prototypes #179/#180 are replaced by merged #182.
+#69's language work is superseded by #95 and mirrors by #119. Its remaining
+registry configuration features are now implemented and covered by
+[private registry tests](../tests/registry-config.py): atomic `daemon.json`
+updates, explicit HTTP/self-signed endpoints, bounded pull/push workers,
+credential boundaries, and real BuildKit builds. The [configuration guide](registry-configuration.md)
+explains authority/CIDR scope and the separate BuildKit worker limits.
+Older Arabic prototypes #179/#180 are replaced by merged #182.
 
 ## Complete inventory
 
@@ -113,7 +115,7 @@ Runtime validation limits remain those in UPSTREAM.md.
 | [#63](https://github.com/libracoder/kiri/pull/63) — Guest kernel: per-process I/O accounting, so Typesense starts | merged | `07003a637a1d` | **inherited** — Merged upstream commit d4e361b5bac3 is an ancestor of Asagiri. |
 | [#65](https://github.com/libracoder/kiri/pull/65) — Security: only root may load BPF programs in the guest kernel | merged | `f59555cf70b1` | **inherited** — Merged upstream commit 8295c185edd2 is an ancestor of Asagiri. |
 | [#67](https://github.com/libracoder/kiri/pull/67) — docker push: RepoDigests names what the registry has, as with Docker | merged | `e21c7811fbe1` | **inherited** — Merged upstream commit 5981b2be32d3 is an ancestor of Asagiri. |
-| [#69](https://github.com/libracoder/kiri/pull/69) — UI: multi-language window (System/Custom + mainstream locales) | closed | `fb6078507781` | **partly-superseded-and-held** — Multilingual UI is superseded by #95; the Images column sizing and regression test are inherited through #56; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage. |
+| [#69](https://github.com/libracoder/kiri/pull/69) — UI: multi-language window (System/Custom + mainstream locales) | closed | `fb6078507781` | **partly-superseded-and-ported** — Languages are covered by #95, Images column sizing by #56, and mirrors by #119. The remaining daemon.json, explicit HTTP/self-signed registry policy and bounded transfer workers are implemented with atomic updates, credential/redirect boundaries, CLI controls and real pull/push/BuildKit coverage. Linux source 700fbd2 passes the private registry suite; hostname authorities and literal-IP CIDRs have documented scope. |
 | [#70](https://github.com/libracoder/kiri/pull/70) — Builds: amd64 steps run through Rosetta on Apple silicon, not QEMU | merged | `f65c89f7278c` | **inherited** — Merged upstream commit 2af64d88689b is an ancestor of Asagiri. |
 | [#71](https://github.com/libracoder/kiri/pull/71) — Security: run CodeQL on every pull request, forks included | merged | `82d3bdf19032` | **inherited** — Merged upstream commit 108dac0748f0 is an ancestor of Asagiri. |
 | [#75](https://github.com/libracoder/kiri/pull/75) — Mac: the Finder mount never covers your files or another mount at ~/Kiri | merged | `5005b1d3ef0d` | **inherited** — Merged upstream commit 6327712d3cbd is an ancestor of Asagiri. |

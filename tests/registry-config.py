@@ -360,21 +360,20 @@ def check(path, binary):
                     "buildx", "build", "--builder", "default", "--pull", "--progress", "plain",
                     "-t", tag, ".",
                 ], cwd=build_root, env=env, text=True, capture_output=True, timeout=300)
-                if result.returncode != 0:
+                if result.returncode != 0 and success:
                     print(json.dumps({"build": suffix, "registryRequests": {
                         host: [row for row in model.requests if "/buildkit-" in row[1]][-20:]
                         for host, model in zip(hosts, models)
                     }}), flush=True)
-                    if success:
-                        import re
-                        backend = json.loads(api("GET", "/asagiri/builder"))["container"]
-                        for arguments in (["exec", backend, "cat", "/etc/buildkit/buildkitd.toml"],
-                                          ["exec", backend, "wget", "-S", "-O", "-", "http://" + parallel + "/v2/"],
-                                          ["logs", "--tail", "30", backend]):
-                            diagnostic = subprocess.run(["docker", "--host", "unix://" + path, *arguments],
-                                                        text=True, capture_output=True, timeout=20)
-                            text = diagnostic.stdout + diagnostic.stderr
-                            print(re.sub(r"/[a-f0-9]{32}/", "/<local-token>/", text)[-6000:], flush=True)
+                    import re
+                    backend = json.loads(api("GET", "/asagiri/builder"))["container"]
+                    for arguments in (["exec", backend, "cat", "/etc/buildkit/buildkitd.toml"],
+                                      ["exec", backend, "wget", "-S", "-O", "-", "http://" + parallel + "/v2/"],
+                                      ["logs", "--tail", "30", backend]):
+                        diagnostic = subprocess.run(["docker", "--host", "unix://" + path, *arguments],
+                                                    text=True, capture_output=True, timeout=20)
+                        text = diagnostic.stdout + diagnostic.stderr
+                        print(re.sub(r"/[a-f0-9]{32}/", "/<local-token>/", text)[-6000:], flush=True)
                 if success:
                     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-12000:]
                     owned_images.append(tag)
