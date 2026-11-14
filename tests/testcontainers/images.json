@@ -1,0 +1,5 @@
+{
+  "alpine": "alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab",
+  "mysql": "mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+  "ryuk": "testcontainers/ryuk:0.9.0@sha256:448beed1b3fd18e9411dd4b6a26a04f3aa0fccf229502c9665ebe8d628c7d2c5"
+}

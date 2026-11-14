@@ -5,6 +5,15 @@ runs its tests and uploads development binaries with SHA-256 hashes. Linux
 also runs the live Docker-compatible API tests inside a private test engine.
 These artifacts are development builds, not signed product releases.
 
+Linux PR/main checks and both Linux release architectures also run Java
+Testcontainers 1.20.3 against a fresh engine. The check keeps startup checks
+and Ryuk enabled, copies a file before container start, waits for two live
+readiness messages, executes a command, starts pinned MySQL 8.0, and makes a
+real JDBC query through its published port. A deliberately unclosed resource
+must be removed after the JVM exits. The outer test host publishes no ports.
+Maven artifacts are cached by the test POM and architecture; only successful
+main checks save them, and Maven requires repository checksums.
+
 Dependency caches are tied to the compiler, platform, lockfile, manifests,
 and Cargo configuration. Only pushes to `main` save caches; pull requests can
 restore them. Workspace crates are rebuilt. The Linux helper removes their
@@ -52,9 +61,14 @@ and [Distribution mirrors](https://distribution.github.io/distribution/recipes/m
 The speed check compares a PR's merge result with its base, or a main push
 with the previous main commit. It builds both revisions with the same pinned
 compiler. If both engine binaries match byte for byte, the check reports that
-equality and skips measurements. Otherwise it runs the alternating comparison
-with the baseline's limits. It does not silently substitute a retry for a
-failed measurement.
+equality and can skip a PR measurement. Main pushes and manual runs still
+collect measurements. The alternating comparison uses the baseline's limits;
+it does not silently substitute a retry for a failed measurement. Successful
+and measured failing main runs retain raw data in signed commits on the
+`performance-history` data branch. The public dashboard plots each source
+commit and separates hardware and workload series. See
+[performance tracking](performance.md) for metrics, gates, provenance,
+retention and same-commit noise controls.
 
 The UI check runs the app's page tests and translation checks. The website
 check also opens the assembled demo in Chrome and exercises navigation,
@@ -77,11 +91,11 @@ concurrency groups, so they cannot displace a pending website deployment.
 
 Security checks include dependency advisories, licenses and sources,
 ShellCheck, workflow auditing, and CodeQL. Advisory failures remain failures
-on PRs as well as main. Superseded PR checks are canceled. Main workflows
-finish their active run before handling the newest pending push, so repeated
-pushes do not discard progress toward a verified build or deployment. GitHub
-keeps one pending run per workflow group; a newer push can replace that
-pending run. Every main build that completes all required checks successfully
+on PRs as well as main. Superseded PR checks are canceled. Automatic platform
+and release builds cancel obsolete main runs to prioritize current source;
+manual checks, stable tags and explicit release recovery retain their own
+runs. Speed keeps every main run so performance history is not lost during
+rapid pushes. Every main build that completes all required checks successfully
 can publish its own prerelease.
 
 Release packaging starts on each push to main, alongside those checks.
@@ -162,6 +176,7 @@ sh scripts/ci/build-linux.sh \
   "$PWD/target/ci-target" \
   "$PWD/target/ci-registry" tests
 sh scripts/ci/live-tests.sh "$PWD/target/ci-bin"
+sh scripts/ci/testcontainers.sh "$PWD/target/ci-bin" "$PWD/target/ci-maven"
 ```
 
 The build guard requires at least 3 GiB free. The tests use privileged Linux

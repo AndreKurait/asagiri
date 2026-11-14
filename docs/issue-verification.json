@@ -138,9 +138,12 @@
       "coverage": "partial",
       "checks": [
         "packaging/linux/test.sh",
-        "installer/windows/verify.ps1"
+        "installer/windows/verify.ps1",
+        "packaging/linux/test-amazon-systemd.sh",
+        "tests/installer.py",
+        "scripts/ci/verify-pages.py"
       ],
-      "remaining": "Package checks cover bundled tools; final public installer verification is pending publication."
+      "remaining": "Published v0.1.1-dev.62 passes the public signed RPM installer, ordinary-user Docker/Compose/Buildx and restart checks in private Amazon Linux 2023. Both Mac DMGs pass signature/architecture inspection. Native Mac and Windows end-user installation still need platform execution."
     },
     {
       "issue": 48,
@@ -460,7 +463,8 @@
       "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
       "coverage": "automated",
       "checks": [
-        "tests/client-command-compatibility.py"
+        "tests/client-command-compatibility.py",
+        "tests/testcontainers-integration.py"
       ],
       "remaining": ""
     },
@@ -743,9 +747,10 @@
       "checks": [
         "tests/api-version.py",
         "tests/client-command-compatibility.py",
-        "tests/log-readiness.py"
+        "tests/log-readiness.py",
+        "tests/testcontainers-integration.py"
       ],
-      "remaining": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. The live regression subscribes before start and checks two delayed readiness lines and stream filters. A full Java/MySQL Testcontainers run and native Mac execution remain unverified."
+      "remaining": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. Real Java Testcontainers 1.20.3 passes default startup checks, pre-start copy, command execution, two delayed log messages, MySQL 8.0 double readiness, a JDBC query and Ryuk cleanup on the private Linux engine. The check is included in Linux PR/main and both Linux release architectures. Native Mac execution remains unverified."
     },
     {
       "issue": 223,

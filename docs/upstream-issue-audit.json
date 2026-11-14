@@ -605,7 +605,7 @@
       "updated_at": "2026-11-14T16:44:51Z",
       "body_sha256": "d5dc3c9c513b6ee7fc86e0f61dd44ab1b367d8e33616279ab57854e9e9f58f16",
       "disposition": "automated",
-      "reason": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. The live regression subscribes before start and checks two delayed readiness lines and stream filters. A full Java/MySQL Testcontainers run and native Mac execution remain unverified."
+      "reason": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. Real Java Testcontainers 1.20.3 passes default startup checks, pre-start copy, command execution, two delayed log messages, MySQL 8.0 double readiness, a JDBC query and Ryuk cleanup on the private Linux engine. The check is included in Linux PR/main and both Linux release architectures. Native Mac execution remains unverified."
     },
     {
       "number": 223,

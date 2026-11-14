@@ -107,6 +107,21 @@ jobs:
         run: |
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Restore Java SDK dependencies
+        id: maven_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/maven
+          key: testcontainers-java-v1-${{ runner.arch }}-${{ hashFiles('tests/testcontainers/pom.xml') }}
+      - name: Test Java Testcontainers and MySQL
+        run: sh scripts/ci/testcontainers.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/maven"
+      - name: Cache verified Java SDK dependencies from main
+        if: github.ref == 'refs/heads/main' && steps.maven_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # zizmor: ignore[cache-poisoning] verified main source and the real SDK/MySQL checks must pass before saving dependencies
+        with:
+          path: ${{ runner.temp }}/maven
+          key: ${{ steps.maven_cache.outputs.cache-primary-key }}
       - name: Build and install-test the Linux packages
         run: |
           sudo apt-get update -qq
