@@ -37,30 +37,48 @@ fn values(s: &str) -> Vec<Value> {
     serde_json::Deserializer::from_str(s).into_iter::<Value>().map_while(Result::ok).collect()
 }
 
-/// The docker-container builders on Asagiri's context whose BuildKit container exists.
+/// Existing builders on Asagiri, with its managed backend listed only once.
 /// No buildx plugin (a distribution's plain docker CLI) means no builds yet, not an error.
 fn builders() -> io::Result<Vec<String>> {
+    // Determine whether any history can exist before buildx ls: querying the
+    // Docker driver can start BuildKit, and a fresh engine must stay empty.
+    let managed = crate::client::get_background("/asagiri/builder")?;
+    let have = crate::client::get_background("/containers/json?all=1")?;
+    let have: Vec<String> = have.as_array().into_iter().flatten()
+        .flat_map(|c| c["Names"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(|n| n.trim_start_matches('/').to_owned())))
+        .collect();
+    let existing = managed["state"].as_str().is_some_and(|s| s != "none");
+    if !existing && !have.iter().any(|name| name.starts_with("buildx_buildkit_")) {
+        return Ok(Vec::new());
+    }
     // Without the plugin, docker reads `buildx` as an unknown command or flag.
     if buildx(&["version"]).is_err() {
         return Ok(Vec::new());
     }
     let (out, _) = buildx(&["ls", "--format", "json"])?;
-    let have: Vec<String> = crate::client::get_background("/containers/json?all=1")?
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|c| c["Names"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(|n| n.trim_start_matches('/').to_owned())))
-        .collect();
-    Ok(values(&out)
+    let builtin = crate::buildwith::places().is_ok_and(|p| p.builtin());
+    Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get()))
+}
+
+fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str) -> Vec<String> {
+    let mut names: Vec<String> = values(out)
         .into_iter()
         .filter(|b| b["Driver"] == "docker-container")
         .filter(|b| {
             b["Nodes"].as_array().into_iter().flatten().any(|n| {
-                n["Endpoint"] == CONTEXT.get() && n["Name"].as_str().is_some_and(|name| have.iter().any(|c| *c == format!("buildx_buildkit_{name}")))
+                n["Endpoint"] == context && n["Name"].as_str().is_some_and(|name| {
+                    name != format!("{legacy}0") && have.iter().any(|c| *c == format!("buildx_buildkit_{name}"))
+                })
             })
         })
         .filter_map(|b| b["Name"].as_str().map(str::to_owned))
-        .collect())
+        .collect();
+    if managed {
+        names.push(if builtin { context } else { legacy }.to_owned());
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The newest builds first, from every builder: {builder, id, name, status,
@@ -328,6 +346,9 @@ pub fn builder() -> io::Result<bool> {
         println!("docker build: no buildx plugin here, so docker builds with Asagiri's classic builder API (the same BuildKit, run by the daemon)");
         return Ok(false);
     }
+    ensure_context(&docker)?;
+    let native = crate::client::get_background("/info")?["BuilderVersion"] == "2";
+    crate::buildwith::places()?.set_builtin(native)?;
     let inspect = Command::new(&docker).args(["buildx", "inspect", BUILDER.get()]).stderr(quiet()).output()?;
     let mut exists = inspect.status.success();
     // Without default-load a docker-container builder keeps what it builds
@@ -341,7 +362,6 @@ pub fn builder() -> io::Result<bool> {
         // buildx create takes the Asagiri context's name; without that context
         // (Linux makes it only in the optional "docker uses Asagiri" step) buildx
         // reads the name as a host and fails on tcp://asagiri:2375.
-        ensure_context(&docker)?;
         let made = Command::new(&docker)
             .args(["buildx", "create", "--name", BUILDER.get(), "--driver", "docker-container", "--driver-opt", "default-load=true", CONTEXT.get()])
             .stdout(quiet())
@@ -363,18 +383,33 @@ pub fn builder() -> io::Result<bool> {
 /// uses stays the user's choice.
 /// On Windows, setup (asagiri.ps1) makes the context, on the pipe.
 #[cfg(not(unix))]
-fn ensure_context(_docker: impl AsRef<std::ffi::OsStr>) -> io::Result<()> {
-    Ok(())
+fn ensure_context(docker: impl AsRef<std::ffi::OsStr>) -> io::Result<()> {
+    let mut command = Command::new(docker);
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+    let result = command.args(["context", "inspect", CONTEXT.get(), "--format", "{{.Endpoints.docker.Host}}"]).stderr(Stdio::null()).output()?;
+    let endpoint = format!("npipe://{}", crate::client::pipe().replace('\\', "/"));
+    if result.status.success() && String::from_utf8_lossy(&result.stdout).trim() == endpoint {
+        Ok(())
+    } else {
+        Err(io::Error::other("Asagiri's Docker context does not point to its named pipe; run Asagiri setup"))
+    }
 }
 
 #[cfg(unix)]
 fn ensure_context(docker: impl AsRef<std::ffi::OsStr>) -> io::Result<()> {
     let docker = docker.as_ref();
     let quiet = || std::process::Stdio::null();
-    if Command::new(docker).args(["context", "inspect", CONTEXT.get()]).stdout(quiet()).stderr(quiet()).status()?.success() {
-        return Ok(());
+    let endpoint = format!("unix://{}", crate::client::socket()?.display());
+    let existing = Command::new(docker).args(["context", "inspect", CONTEXT.get(), "--format", "{{.Endpoints.docker.Host}}"]).stderr(quiet()).output()?;
+    if existing.status.success() {
+        let host = String::from_utf8_lossy(&existing.stdout);
+        let host = host.trim();
+        let same = host == endpoint || host.strip_prefix("unix://").is_some_and(|path| {
+            std::fs::canonicalize(path).is_ok_and(|real| crate::client::socket().and_then(std::fs::canonicalize).is_ok_and(|socket| socket == real))
+        });
+        return if same { Ok(()) } else { Err(io::Error::other(format!("Docker context {} points to another engine ({host})", CONTEXT.get()))) };
     }
-    let host = format!("host=unix://{}", crate::client::socket()?.display());
+    let host = format!("host={endpoint}");
     let out = Command::new(docker).args(["context", "create", CONTEXT.get(), "--description", "Asagiri", "--docker", &host]).stdout(quiet()).output()?;
     if out.status.success() { Ok(()) } else { Err(io::Error::other(failure("docker context create failed", &out.stderr))) }
 }
@@ -391,6 +426,21 @@ fn failure(what: &str, stderr: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_build_history_appears_once_and_other_existing_builders_stay() {
+        let out = [
+            json!({"Name": "asagiri", "Driver": "docker", "Nodes": [{"Name": "asagiri", "Endpoint": "asagiri"}]}),
+            json!({"Name": "asagiri-build", "Driver": "docker-container", "Nodes": [{"Name": "asagiri-build0", "Endpoint": "asagiri"}]}),
+            json!({"Name": "mine", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "asagiri"}]}),
+            json!({"Name": "not-made", "Driver": "docker-container", "Nodes": [{"Name": "not-made0", "Endpoint": "asagiri"}]}),
+            json!({"Name": "other", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "other-engine"}]}),
+        ].iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let have = vec!["buildx_buildkit_asagiri-build0".to_owned(), "buildx_buildkit_mine0".to_owned()];
+        assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build"), ["asagiri", "mine"]);
+        assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build"), ["asagiri-build", "mine"]);
+        assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build").is_empty());
+    }
 
     #[test]
     fn a_failure_carries_the_tools_last_error_line() {

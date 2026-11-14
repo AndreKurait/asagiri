@@ -254,11 +254,7 @@ pub mod onboarding {
     }
 
     fn builder_made() -> bool {
-        let dir = std::env::var_os("BUILDX_CONFIG").map(std::path::PathBuf::from).or_else(|| {
-            let config = std::env::var_os("DOCKER_CONFIG").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".docker")))?;
-            Some(config.join("buildx"))
-        });
-        dir.is_some_and(|d| d.join("instances").join(crate::builds::BUILDER.get()).exists())
+        crate::buildwith::places().is_ok_and(|p| p.ready())
     }
 
     /// In the asagiri group by /etc/group, but this process (this session) isn't.

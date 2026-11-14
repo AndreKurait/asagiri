@@ -31,7 +31,7 @@ def check(path, image):
     assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1", "Use only the private CI engine"
     assert Path(path).is_socket()
     token = uuid.uuid4().hex[:12]
-    tags = ["asagiri-buildkit-" + token + ":" + name for name in ("first", "alias", "plain", "one", "two", "cancel")]
+    tags = ["asagiri-buildkit-" + token + ":" + name for name in ("first", "alias", "plain", "one", "two", "cancel", "wrapper")]
     created = []
 
     def api(method, target, body=None, headers=None):
@@ -180,6 +180,51 @@ def check(path, image):
             assert cli("image", "inspect", tags[5], check=False).returncode != 0
             cli(*arguments, timeout=45)
             print("PASS cancellation does not publish an image or block the next build", flush=True)
+
+            # A real upgrade of the former context shadow. Keep the explicit
+            # global builder (Buildx cannot select an implicit context globally),
+            # but asagiri build must use the engine's own Docker driver.
+            cli("context", "create", "asagiri", "--docker", "host=unix://" + path)
+            cli("buildx", "create", "--name", "asagiri-build", "--driver", "docker-container",
+                "--driver-opt", "default-load=true", "asagiri")
+            instances = config / "buildx/instances"
+            shadow = json.loads((instances / "asagiri-build").read_text())
+            shadow["Name"] = "asagiri"
+            (instances / "asagiri").write_text(json.dumps(shadow))
+            before_config = json.loads((config / "config.json").read_text()) if (config / "config.json").exists() else {}
+            before_config["aliases"] = {"builder": "my-previous-builder"}
+            (config / "config.json").write_text(json.dumps(before_config))
+            previous = '{"Key":"other-engine","Name":"previous","Global":false}'
+            current = config / "buildx/current"
+            current.write_text(previous)
+            home = root / "home"
+            home.mkdir(mode=0o700)
+            asagiri_env = {**env, "HOME": str(home), "ASAGIRI_SOCKET": path}
+            asagiri_env.pop("BUILDX_BUILDER", None)
+
+            def asagiri(*args):
+                result = subprocess.run(["/opt/asagiri/asagiri", *args], cwd=context, env=asagiri_env,
+                                        text=True, capture_output=True, timeout=120)
+                assert result.returncode == 0, (args, result.stdout, result.stderr)
+                return result
+
+            asagiri("build-with", "asagiri")
+            assert not (instances / "asagiri").exists(), "Only Asagiri's exact shadow should be removed"
+            assert (instances / "asagiri-build").exists(), "Keep the explicit builder and cache"
+            state = json.loads((home / ".asagiri/build.json").read_text())
+            assert state["builtin"] is True and state["before"]["current"] == previous, state
+            assert json.loads(current.read_text())["Name"] == "asagiri-build"
+            wrapped = asagiri("build", "--progress", "plain", "--secret", "id=proof,src=" + str(secret), "-t", tags[6], ".")
+            assert 'using docker driver' in wrapped.stderr, wrapped.stderr[-8000:]
+            assert cli("run", "--rm", "--network", "none", tags[6]).stdout == "first"
+            # Buildx may update its current file while following an explicit
+            # builder. Selecting Asagiri again must keep the FIRST snapshot.
+            asagiri("build-with", "asagiri")
+            asagiri("build-with", "docker")
+            assert current.read_text() == previous
+            assert json.loads((config / "config.json").read_text())["aliases"] == before_config["aliases"]
+            assert not (instances / "asagiri").exists()
+            print("PASS real builder migration, native CLI builds, cache retention and exact preference restoration", flush=True)
         finally:
             if created:
                 cli("rm", "-f", *created, check=False)

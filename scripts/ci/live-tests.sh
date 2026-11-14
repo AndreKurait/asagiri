@@ -122,6 +122,7 @@ else
 fi
 
 run buildx-bootstrap
+run buildkit-driver alpine:3.21
 
 if [ "$failed" -ne 0 ]; then
   echo "$failed failed"; docker logs "$name" 2>&1; exit 1

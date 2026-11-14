@@ -14,7 +14,7 @@
     },
     {
       "number": 13,
-      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
       "state": "closed",
       "updated_at": "2026-11-06T11:14:54Z",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
@@ -135,8 +135,8 @@
       "state": "open",
       "updated_at": "2026-11-07T22:18:04Z",
       "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
-      "disposition": "deferred-feature",
-      "reason": "Built-in docker-driver BuildKit bridge remains incomplete; keep functional docker-container/classic-build support and do not advertise the incomplete bridge."
+      "disposition": "implemented-unverified-platform",
+      "reason": "Implemented the bounded Docker-driver BuildKit bridge with local image loading, contexts, secrets, cache, explicit exports, concurrent Bake, host-gateway and cancellation. Real private Linux Docker/Buildx probes pass; native Mac VM and Windows WSL execution remain unverified."
     },
     {
       "number": 50,
@@ -275,7 +275,7 @@
     },
     {
       "number": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
       "state": "open",
       "updated_at": "2026-11-12T02:37:32Z",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
@@ -284,7 +284,7 @@
     },
     {
       "number": 90,
-      "title": "【GUI】 图形界面能不能支持中文",
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
       "state": "closed",
       "updated_at": "2026-11-10T00:00:18Z",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
@@ -302,7 +302,7 @@
     },
     {
       "number": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
@@ -338,7 +338,7 @@
     },
     {
       "number": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
       "state": "closed",
       "updated_at": "2026-11-10T16:58:28Z",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
@@ -455,7 +455,7 @@
     },
     {
       "number": 170,
-      "title": "请看提交的报告",
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",

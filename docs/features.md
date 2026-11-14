@@ -53,8 +53,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   pulls (and Dockerfile `FROM`s) can go through pull-through mirrors, in
   order, from Settings → Registry mirrors or `asagiri registry-mirror`; other
   registries are pulled directly
-- **Builds**: `docker build` / `buildx build` through BuildKit running in a
-  Asagiri container (buildx's docker-container driver), stopped when idle;
+- **Builds**: `docker build` / `buildx build` through the
+  [built-in Docker driver](buildkit.md), with direct image loading, secrets,
+  caching, file exports and cancellation. The existing docker-container
+  builder shares the managed BuildKit and cache. BuildKit stops when idle;
   on Apple silicon, amd64 build steps run through Rosetta too
 - **Compose**: `up`, `down`, `ps`, `logs`, `exec`, multiple networks, events
 - **USB devices (beta)**: the USB tab hands a device (a serial adapter, a
@@ -165,12 +167,7 @@ published Mac release asset.
   "Prevent automatic sleeping when the display is off" in System Settings
   (Battery › Options on a laptop, Energy on a desktop Mac).
 
-- **`docker build --add-host name:host-gateway` with BuildKit fails** with
-  `host-gateway is not supported by the docker-container driver`. buildx
-  refuses `host-gateway` for every builder except Docker's built-in one, and
-  Asagiri's builder is a docker-container builder, so the build stops before
-  Asagiri sees it. Docker's own docker-container builders do the same. Until
-  Asagiri has a built-in builder (planned), use the address itself
-  (`--add-host name:172.18.0.1` on Windows and Linux, the default bridge's
-  gateway; `198.19.248.254` on a Mac) or `DOCKER_BUILDKIT=0`, where Asagiri
-  maps `host-gateway` itself.
+- **`host-gateway` requires the built-in Docker driver.** Use
+  `asagiri build --add-host name:host-gateway .` after setup, or explicitly
+  select the Asagiri context's Docker builder. Buildx still rejects this
+  special value for an explicitly selected docker-container builder.
