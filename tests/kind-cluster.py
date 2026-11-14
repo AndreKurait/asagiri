@@ -63,6 +63,8 @@ def check(path, _image):
                               "--retain", "--wait", "120s"], timeout=360)
             print(result[-4000:], flush=True)
             kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=120s", timeout=130)
+            kubectl("-n", "kube-system", "rollout", "status", "deployment/coredns",
+                    "--timeout=120s", timeout=130)
             resolver = command([*docker, "exec", node, "cat", "/etc/resolv.conf"])
             assert "nameserver" in resolver, resolver
             command([*docker, "exec", node, "getent", "ahostsv4", "registry-1.docker.io"], timeout=30)
@@ -73,10 +75,11 @@ def check(path, _image):
             address = inspected["NetworkSettings"]["Networks"]["kind"]["IPAddress"]
             assert address in command([*docker, "exec", node, "getent", "ahostsv4", "kind-registry"])
             # This image is pulled by the node's own containerd, and these
-            # queries use Kubernetes CoreDNS from a real pod.
+            # queries use Kubernetes CoreDNS from a real pod. The absolute
+            # external alias avoids Kubernetes' service search suffixes.
             kubectl("run", "registry-dns-proof", "--restart=Never", "--image=" + image,
                     "--command", "--", "sh", "-ec",
-                    "nslookup -type=a registry-1.docker.io; nslookup -type=a kind-registry; echo kind-dns-ok")
+                    "nslookup -type=a registry-1.docker.io; nslookup -type=a kind-registry.; echo kind-dns-ok")
             kubectl("wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/registry-dns-proof",
                     "--timeout=120s", timeout=130)
             output = kubectl("logs", "registry-dns-proof")
@@ -85,10 +88,13 @@ def check(path, _image):
             print(json.dumps({"probe": "kind-cluster", "kind": VERSION, "nodeImage": NODE,
                               "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
                               "nodeContainerdPull": "passed", "nodeAndPodExternalDNS": "passed",
-                              "nodeAndPodContainerAliasDNS": "passed"}), flush=True)
+                              "nodeBareContainerAliasDNS": "passed",
+                              "podAbsoluteContainerAliasDNS": "passed"}), flush=True)
         except BaseException:
             for arguments in (["logs", "--tail", "45", node],
-                              ["exec", node, "journalctl", "--no-pager", "-n", "45"]):
+                              ["exec", node, "journalctl", "--no-pager", "-n", "45"],
+                              ["exec", node, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
+                               "logs", "registry-dns-proof"]):
                 result = subprocess.run([*docker, *arguments], env=env, text=True, capture_output=True, timeout=20)
                 print((result.stdout + result.stderr)[-12000:], flush=True)
             raise
