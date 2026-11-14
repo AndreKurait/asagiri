@@ -196,9 +196,39 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  qemu:
+    name: Intel emulator and corresponding source
+    needs: plan
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.artifact_run == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    concurrency:
+      group: qemu-products-${{ github.repository }}-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - uses: ./.github/actions/qemu # zizmor: ignore[self-repository] verified release source and pinned recipe
+        with:
+          output: ${{ runner.temp }}/asagiri-qemu
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qemu-build-products
+          path: ${{ runner.temp }}/asagiri-qemu/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-qemu-source
+          path: ${{ runner.temp }}/asagiri-qemu/asagiri-qemu-source.tar.xz
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     name: macOS packages (${{ matrix.arch }})
-    needs: [plan, guest]
+    needs: [plan, guest, qemu]
     runs-on: ${{ matrix.runner }}
     # Leave time for both app and final-DMG notarization after compilation.
     timeout-minutes: 90
@@ -234,6 +264,17 @@ jobs:
         with:
           name: guest-assets
           path: ${{ runner.temp }}/guest
+      - name: Download the Intel emulator and matching source record
+        if: matrix.arch == 'x86_64'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: qemu-build-products
+          path: ${{ runner.temp }}/asagiri-qemu
+      - name: Install the verified Intel guest emulator
+        if: matrix.arch == 'x86_64'
+        run: |
+          python3 packaging/qemu/bundle.py install --products "$RUNNER_TEMP/asagiri-qemu" \
+            --destination guest/out/qemu
       - name: Prepare optional Developer ID signing
         env:
           ASAGIRI_APPLE_CERTIFICATE_BASE64: ${{ secrets.ASAGIRI_APPLE_CERTIFICATE_BASE64 }}
@@ -259,6 +300,9 @@ jobs:
           python3 scripts/ci/macos-signing.py finalize --app "$APP" --arch "$ARCH" --version "$VERSION"
           codesign --verify --deep --strict "$APP"
           hdiutil verify "target/Asagiri-$VERSION-$ARCH.dmg"
+          if [ "$ARCH" = x86_64 ]; then
+            python3 packaging/qemu/bundle.py verify --directory "$APP/Contents/Resources/qemu"
+          fi
           cp "target/Asagiri-$VERSION-$ARCH.tar.gz" "target/Asagiri-$VERSION-$ARCH.dmg" "target/latest-mac-$ARCH.json" "$RUNNER_TEMP/packages/"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -410,11 +454,11 @@ jobs:
 
   publish:
     name: Verify uploads and publish
-    needs: [plan, linux, guest, macos, windows, windows-arm-install]
+    needs: [plan, linux, guest, qemu, macos, windows, windows-arm-install]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.ready == 'true' &&
       (needs.plan.outputs.artifact_run != '' ||
-       (needs.linux.result == 'success' && needs.guest.result == 'success' &&
+       (needs.linux.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
         needs.macos.result == 'success' && needs.windows.result == 'success' &&
         needs.windows-arm-install.result == 'success'))
     runs-on: ubuntu-24.04

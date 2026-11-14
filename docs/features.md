@@ -47,9 +47,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Images**: `pull` (with `docker login` credentials), `push`, `tag`,
   `save`, `load`, [`import`](docker-import.md) (tar/gzip root filesystems, from a file, stdin or an
   HTTP(S) URL), `history`, `search`, `image prune`, `system df`;
-  **amd64 images run through Rosetta** on Apple silicon. Intel Macs can use
-  an optional QEMU emulator for arm64 images when built and configured from
-  source; release packages do not bundle it. `--platform` is honoured. Docker Hub
+  **amd64 images run through Rosetta** on Apple silicon. Intel release builds
+  package a [source-built QEMU emulator](qemu-emulation.md) for arm64 images,
+  with its matching source archive and dependency licenses. Native Intel Mac
+  VM execution remains unverified. `--platform` is honoured. Docker Hub
   pulls (and Dockerfile `FROM`s) can go through pull-through mirrors, in
   order, from Settings → Registry mirrors or `asagiri registry-mirror`; other
   registries are pulled directly

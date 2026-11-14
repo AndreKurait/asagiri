@@ -301,10 +301,10 @@ class ReleaseTests(unittest.TestCase):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     release.provenance(REPO, COMMIT, "0.1.0-dev.12", {**env, field: value})
 
-    def package_recovery(self, *, candidate=None, jobs=None, checks=None):
+    def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False):
         candidate = self.release_run() if candidate is None else candidate
         jobs = ([{"name": name, "status": "completed", "conclusion": "success"}
-                 for name in sorted(release.PACKAGE_JOBS)] + [
+                 for name in sorted(release.PACKAGE_JOBS | ({release.QEMU_JOB} if qemu else set()))] + [
                     {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
                      "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
                 if jobs is None else jobs)
@@ -319,7 +319,9 @@ class ReleaseTests(unittest.TestCase):
             self.fail(f"Unexpected package recovery request: {path}")
         with patch.object(release, "api", side_effect=api), \
                 patch.object(release, "run", side_effect=[
-                    SimpleNamespace(stdout=""), SimpleNamespace(stdout="0.1.0\n")]) as run:
+                    SimpleNamespace(stdout=""),
+                    SimpleNamespace(stdout=release.QEMU_RELEASE if qemu else ""),
+                    SimpleNamespace(stdout="0.1.0\n")]) as run:
             result = release.recover_packages(REPO, "123")
         self.assertEqual(run.call_args_list[0].args,
                          ("git", "merge-base", "--is-ancestor", COMMIT, "origin/main"))
@@ -327,6 +329,18 @@ class ReleaseTests(unittest.TestCase):
 
     def test_package_recovery_retains_original_version_and_source(self):
         self.assertEqual(self.package_recovery(), (COMMIT, "0.1.0-dev.62", True, 1))
+
+    def test_package_recovery_requires_emulator_job_when_the_source_ships_it(self):
+        self.assertEqual(self.package_recovery(qemu=True), (COMMIT, "0.1.0-dev.62", True, 1))
+        legacy = [{"name": name, "status": "completed", "conclusion": "success"}
+                  for name in sorted(release.PACKAGE_JOBS)] + [
+                      {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                       "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
+        with self.assertRaisesRegex(SystemExit, "every native"):
+            self.package_recovery(qemu=True, jobs=legacy)
+        unexpected = legacy + [{"name": release.QEMU_JOB, "status": "completed", "conclusion": "success"}]
+        with self.assertRaisesRegex(SystemExit, "every native"):
+            self.package_recovery(jobs=unexpected)
 
     def test_package_recovery_rejects_untrusted_or_active_runs(self):
         for field, value in (("head_repository", {"full_name": "fork/asagiri"}),
@@ -360,9 +374,11 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.package_recovery(checks=self.checks()[1:])
 
-    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False):
+    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False, qemu=True):
         package_version = version.replace("-", "." if normalized else "~", 1)
         names = {"asagiri-kernel-source.tar.xz"}
+        if qemu:
+            names.add(release.QEMU_SOURCE)
         for arch, deb in (("x86_64", "amd64"), ("aarch64", "arm64")):
             names.add(f"asagiri-{version}-linux-{arch}.tar.gz")
             for package in ("asagiri", "asagiri-lite"):
@@ -392,7 +408,7 @@ class ReleaseTests(unittest.TestCase):
                 manifest = json.loads((dist / "release-manifest.json").read_text())
                 self.assertEqual(manifest["commit"], COMMIT)
                 self.assertEqual(manifest["version"], version)
-                self.assertEqual(len(manifest["assets"]), 23)
+                self.assertEqual(len(manifest["assets"]), 24)
                 self.assertEqual({asset["name"] for asset in manifest["assets"]}, set(original))
                 self.assertNotIn("~", (dist / "SHA256SUMS").read_text())
                 for asset in manifest["assets"]:
@@ -400,6 +416,27 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(path.read_bytes(), original[path.name])
                     self.assertEqual(asset["sha256"], release.sha256(path))
                     self.assertIn(f"{asset['sha256']}  {path.name}\n", (dist / "SHA256SUMS").read_text())
+
+    def test_legacy_source_asset_contract_is_preserved_by_a_newer_publisher(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            dist = root / "dist"
+            dist.mkdir()
+            self.package_assets(dist, qemu=False)
+            with patch.dict(release.os.environ, {"GITHUB_ACTIONS": "false"}):
+                release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
+                                                commit=COMMIT, repo=REPO, source_root=root))
+            assets = json.loads((dist / "release-manifest.json").read_text())["assets"]
+            self.assertEqual(len(assets), 23)
+            self.assertNotIn(release.QEMU_SOURCE, {row["name"] for row in assets})
+
+    def test_emulator_cannot_publish_without_its_source_archive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dist = Path(folder)
+            self.package_assets(dist, qemu=False)
+            with self.assertRaisesRegex(SystemExit, release.QEMU_SOURCE):
+                release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
+                                                commit=COMMIT, repo=REPO))
 
     def test_asset_normalization_rejects_collisions_and_unexpected_aliases_without_mutating_inputs(self):
         for name in ("asagiri-0.1.0.dev.34-1.x86_64.rpm", "asagiri-0~1.0~dev.34-1.x86_64.rpm"):

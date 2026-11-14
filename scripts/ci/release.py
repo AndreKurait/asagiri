@@ -24,6 +24,9 @@ PACKAGE_JOBS = {
     "Windows packages (arm64)", "Windows packages (x86_64)",
     "Windows Arm installer check",
 }
+QEMU_JOB = "Intel emulator and corresponding source"
+QEMU_RELEASE = "packaging/qemu/release.json"
+QEMU_SOURCE = "asagiri-qemu-source.tar.xz"
 
 
 def run(*args, check=True):
@@ -214,7 +217,11 @@ def recover_packages(repo, run_id):
         raise SystemExit("Only a failed official main or version-tag release can supply packages")
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     jobs = pages(repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
-    if len(jobs) != len(PACKAGE_JOBS) + 1 or {job["name"] for job in jobs} != PACKAGE_JOBS | {PUBLISH_JOB}:
+    source_marker = run("git", "ls-tree", "--name-only", commit, QEMU_RELEASE).stdout.strip()
+    if source_marker not in ("", QEMU_RELEASE):
+        raise SystemExit("Unexpected QEMU release declaration")
+    expected_jobs = PACKAGE_JOBS | ({QEMU_JOB} if source_marker else set())
+    if len(jobs) != len(expected_jobs) + 1 or {job["name"] for job in jobs} != expected_jobs | {PUBLISH_JOB}:
         raise SystemExit("Recovery requires every native packaging and installer job")
     for job in jobs:
         expected = "failure" if job["name"] == PUBLISH_JOB else "success"
@@ -380,6 +387,13 @@ def collect(args):
                          f"Asagiri-{version}-{arch}.msi", f"Asagiri-{version}-windows-{arch}.zip",
                          f"latest-mac-{arch}.json"})
     expected.update({"latest-windows-x86_64.json", "latest-windows-arm64.json", "asagiri-kernel-source.tar.xz"})
+    # A newer publisher can recover an older source release. Its package
+    # contract comes from that source checkout, not the publisher's revision.
+    marker = getattr(args, "source_root", ROOT) / QEMU_RELEASE
+    if marker.exists():
+        if marker.is_symlink() or json.loads(marker.read_text()) != {"schema": 1, "source_asset": QEMU_SOURCE}:
+            raise SystemExit("Invalid QEMU release declaration")
+        expected.add(QEMU_SOURCE)
     # GitHub changes '~' to '.' in uploaded release filenames. Keep '~' in
     # the packages' own versions (where it sorts before a stable release),
     # but normalize filenames before hashing and attesting their names.
