@@ -2,11 +2,13 @@
 """Restart an actual Linux daemon in a persistent, private host mount namespace."""
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import platform
 import signal
+import socket
 import subprocess
 import time
 import uuid
@@ -21,6 +23,7 @@ def inner():
     log_path = Path("/tmp/asagiri-service-recovery.log")
     daemon = None
     ids = []
+    extra_ids = []
 
     def call(*args, timeout=30):
         return subprocess.check_output(docker + list(args), stderr=subprocess.STDOUT, timeout=timeout).decode().strip()
@@ -55,6 +58,19 @@ def inner():
 
     def state(cid):
         return json.loads(call("inspect", cid))[0]
+
+    def control(action):
+        connection = http.client.HTTPConnection("localhost", timeout=60)
+        connection.sock = socket.socket(socket.AF_UNIX)
+        connection.sock.settimeout(60)
+        connection.sock.connect("/run/asagiri/docker.sock")
+        try:
+            connection.request("POST", "/asagiri/" + action)
+            response = connection.getresponse()
+            body = response.read()
+            assert response.status == 204, (action, response.status, body)
+        finally:
+            connection.close()
 
     def restored():
         deadline = time.monotonic() + 30
@@ -93,6 +109,47 @@ def inner():
             print(json.dumps({"probe": "linux-service-recovery", "orderlyCycle": cycle + 1,
                               "persistentMountNamespace": os.readlink("/proc/self/ns/mnt"),
                               "restartAlwaysAndWritableData": "passed"}), flush=True)
+
+        # The window's Stop persists across a daemon restart. Containers held
+        # for Start retain their policy, while docker stop cancels one of them.
+        for _ in range(2):
+            extra_ids.append(call("run", "-d", "--network", "none", "--restart", "unless-stopped",
+                                  "--stop-timeout", "1", image, "sleep", "3600"))
+        control("stop")
+        assert not any(state(cid)["State"]["Running"] for cid in ids + extra_ids)
+        call("stop", extra_ids[1])
+        daemon.terminate()
+        daemon.wait(timeout=30)
+        reap()
+        assert not mounts(), ("mounts survived stopped daemon restart", mounts())
+        launch()
+        assert call("info", "--format", "{{.ID}}") == identity
+        assert not any(state(cid)["State"]["Running"] for cid in ids + extra_ids)
+        refused = subprocess.run(docker + ["start", ids[0]], capture_output=True, text=True, timeout=10)
+        assert refused.returncode != 0 and "Asagiri is stopped" in refused.stderr, refused
+
+        # A Start immediately followed by Stop must catch asynchronous held
+        # restarts even when they were reconstructed from containers.json.
+        control("wake")
+        control("stop")
+        for _ in range(5):
+            assert not any(state(cid)["State"]["Running"] for cid in ids + extra_ids)
+            time.sleep(.1)
+        control("wake")
+        deadline = time.monotonic() + 30
+        while not all(state(cid)["State"]["Running"] for cid in (ids[1], extra_ids[0])):
+            assert time.monotonic() < deadline, "held restart policies did not survive daemon restart"
+            time.sleep(.1)
+        assert not state(ids[0])["State"]["Running"]
+        assert not state(extra_ids[1])["State"]["Running"]
+        for cid in extra_ids:
+            call("rm", "-f", cid)
+        extra_ids.clear()
+        restored()
+        assert "stopped unexpectedly" not in log_path.read_text(), "an orderly engine stop was logged as a crash"
+        print(json.dumps({"probe": "linux-service-recovery", "stoppedDaemonRestart": "passed",
+                          "heldPoliciesAndUserCancellation": "passed", "rapidStartStop": "passed",
+                          "orderlyStopNotLoggedAsCrash": "passed"}), flush=True)
 
         # Reproduce systemd removing a dead service's cgroups before restart.
         # SIGSTOP prevents this old daemon from observing agent loss and
@@ -156,7 +213,7 @@ def inner():
     finally:
         if daemon is not None and daemon.poll() is None:
             daemon.send_signal(signal.SIGCONT)
-            for cid in ids:
+            for cid in ids + extra_ids:
                 subprocess.run(docker + ["rm", "-f", cid], capture_output=True, timeout=30)
             daemon.terminate()
             try:
