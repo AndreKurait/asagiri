@@ -138,6 +138,8 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         // Settings → Registry mirrors, and `asagiri registry-mirror`.
         ("GET", "/asagiri/registry-mirrors") => return reply(w, Ok(super::registry_mirrors::report()), 200),
         ("POST", "/asagiri/registry-mirrors") => return reply(w, set_registry_mirrors(req, engine), 200),
+        ("GET", "/asagiri/daemon-config") => return reply(w, Ok(super::registry_config::snapshot().report()), 200),
+        ("POST", "/asagiri/daemon-config") => return reply(w, set_daemon_config(req, engine), 200),
         // Settings → Network → Container addresses: the pool new networks' subnets come from.
         ("GET", "/asagiri/addresses") => return reply(w, Ok(addresses(engine)), 200),
         ("PUT", "/asagiri/addresses") => return reply(w, set_addresses(req).map(|()| addresses(engine)), 200),
@@ -451,7 +453,7 @@ fn info(engine: &Engine) -> Value {
         "OSType": "linux",
         "Architecture": std::env::consts::ARCH,
         "KernelVersion": kernel_version(),
-        "NCPU": engine.cpus(),
+        "NCPU": engine.container_cpus(),
         "MemTotal": mem_total,
         "DockerRootDir": "/var/lib/asagiri",
         "CgroupDriver": "cgroupfs",
@@ -835,6 +837,20 @@ fn set_registry_mirrors(req: &Request, engine: &Arc<Engine>) -> Result<Value, Er
     // BuildKit reads its mirrors from buildkitd.toml at each start; an
     // unchanged save leaves a running builder alone.
     if super::registry_mirrors::list() != before {
+        super::builder::refresh(engine);
+    }
+    Ok(report)
+}
+
+fn set_daemon_config(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error> {
+    if req.body.len() > 64 << 10 {
+        return Err(Error::BadRequest("daemon config exceeds 64 KiB".into()));
+    }
+    let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
+    let before = super::registry_config::snapshot();
+    let report = super::registry_config::set(&body).map_err(Error::BadRequest)?;
+    let after = super::registry_config::snapshot();
+    if before.mirrors != after.mirrors || before.settings.insecure_registries() != after.settings.insecure_registries() {
         super::builder::refresh(engine);
     }
     Ok(report)

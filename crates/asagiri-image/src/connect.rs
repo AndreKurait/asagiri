@@ -49,6 +49,47 @@ pub(crate) fn connector_with(stall: Duration) -> impl Connector<(), Out = impl T
     ().chain(ConnectProxyConnector::default()).chain(HappyConnector { stall }).chain(RustlsConnector::default())
 }
 
+/// Certificate exceptions are selected for each actual TLS destination,
+/// including redirects and token servers. They are never an agent-wide
+/// disable switch. The caller creates a new pool when this policy changes.
+pub(crate) fn registry_connector(settings: crate::RegistrySettings) -> impl Connector<(), Out = impl Transport> {
+    ().chain(ConnectProxyConnector::default()).chain(HappyConnector { stall: STALL }).chain(RegistryTls {
+        settings,
+        secure: RustlsConnector::default(),
+        insecure: RustlsConnector::default(),
+        insecure_config: ureq::Agent::config_builder()
+            .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build()).build(),
+    })
+}
+
+#[derive(Debug)]
+struct RegistryTls {
+    settings: crate::RegistrySettings,
+    secure: RustlsConnector,
+    insecure: RustlsConnector,
+    insecure_config: ureq::config::Config,
+}
+
+impl<In: Transport> Connector<In> for RegistryTls {
+    type Out = <RustlsConnector as Connector<In>>::Out;
+
+    fn connect(&self, details: &ConnectionDetails, chained: Option<In>) -> Result<Option<Self::Out>, Error> {
+        let allowed = details.uri.authority().is_some_and(|a| self.settings.allows_insecure(a.as_str()));
+        if !allowed {
+            return self.secure.connect(details, chained);
+        }
+        // A separate RustlsConnector has its own cached TLS config. Setting
+        // request_level=false cannot change the secure connector's cache.
+        let scoped = ConnectionDetails {
+            uri: details.uri, addrs: details.addrs.clone(), config: &self.insecure_config, request_level: false,
+            resolver: details.resolver, now: details.now, timeout: details.timeout,
+            current_time: details.current_time.clone(), run_connector: details.run_connector.clone(),
+            register_shutdown: details.register_shutdown.clone(),
+        };
+        self.insecure.connect(&scoped, chained)
+    }
+}
+
 /// The addresses in the order to try them: the family the resolver put
 /// first leads (it sorts by RFC 6724, so that is IPv6 where IPv6 looks
 /// usable), then the families take turns, each keeping its own order.

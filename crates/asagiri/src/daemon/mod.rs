@@ -33,6 +33,7 @@ mod pool;
 pub(crate) mod ports;
 mod pulls;
 mod registry_mirrors;
+mod registry_config;
 pub mod time;
 #[cfg(target_os = "macos")]
 mod usb;
@@ -169,6 +170,8 @@ pub fn run(_args: &[String]) -> io::Result<()> {
         None => None,
     };
 
+    registry_config::initialize()?;
+    asagiri_image::set_registry_settings_source(registry_config::image_settings);
     let store = asagiri_image::Store::open(asagiri_image::Store::default_root()?)?;
     let engine = engine::Engine::boot(store).inspect_err(|e| diag::error!("engine did not start", error = e))?;
     diag::info!("engine ready", version = env!("CARGO_PKG_VERSION"), ms = t0.elapsed().as_millis(), socket = format!("unix://{}", socket.display()));
@@ -179,8 +182,6 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     finder(&engine);
     asagiri_image::set_proxy_source(proxy::for_registry);
-    // Settings → Registry mirrors: Docker Hub pulls try these first.
-    asagiri_image::set_mirror_source(registry_mirrors::list);
     // The managed BuildKit stops itself when builds have been idle a while.
     builder::watch(engine.clone());
     // A Kubernetes node the engine restarted gets its kubectl context.

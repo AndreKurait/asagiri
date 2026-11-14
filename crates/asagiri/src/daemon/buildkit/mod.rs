@@ -354,7 +354,12 @@ async fn proxy(request: H2Request<RecvStream>, mut respond: SendResponse<Bytes>,
         _ => None,
     };
     if rewrite.is_some() { parts.headers.remove("content-length"); }
-    let mut output = respond.send_response(Response::from_parts(parts, ()), false).map_err(error)?;
+    // A gRPC error may be a single HEADERS frame carrying grpc-status and
+    // END_STREAM. Adding an empty DATA frame changes it from a trailers-only
+    // response into headers without final status, hiding the real error.
+    let ended = body.is_end_stream();
+    let mut output = respond.send_response(Response::from_parts(parts, ()), ended).map_err(error)?;
+    if ended { return Ok(()); }
     if let Some(gateway) = rewrite {
         let result = tokio::select! {
             result = transport::unary(body) => result,
@@ -446,6 +451,33 @@ async fn load_image(body: RecvStream, mut respond: SendResponse<Bytes>, engine: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn trailers_only_grpc_errors_survive_the_proxy() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (backend_io, proxy_backend) = tokio::io::duplex(4096);
+            let _backend = transport::spawn(async move {
+                let mut connection = transport::server(backend_io).await?;
+                while let Some(request) = connection.accept().await {
+                    let (_, mut respond) = request.map_err(error)?;
+                    status(&mut respond, 5, "registry image not found")?;
+                }
+                Ok::<(), io::Error>(())
+            });
+            let (upstream, _upstream_connection) = transport::client(proxy_backend).await.unwrap();
+            let (client_io, proxy_io) = tokio::io::duplex(4096);
+            let _proxy = transport::spawn(serve(proxy_io, upstream, Context::Control { gateway: "192.0.2.1".into() }));
+            let (client, _client_connection) = transport::client(client_io).await.unwrap();
+            let request = H2Request::builder().method("POST").uri("http://test/test.Registry/Resolve")
+                .header("content-type", "application/grpc").body(()).unwrap();
+            let (response, _) = client.ready().await.unwrap().send_request(request, true).unwrap();
+            let response = response.await.unwrap();
+            assert_eq!(response.headers()["grpc-status"], "5");
+            assert_eq!(response.headers()["grpc-message"], "registry image not found");
+            assert!(response.body().is_end_stream(), "gRPC status must end the response headers");
+            assert!(response.into_body().data().await.is_none(), "a trailers-only error has no DATA frame");
+        }).await.expect("proxy did not finish the gRPC error");
+    }
 
     #[test]
     fn an_interrupted_archive_is_not_a_clean_end() {

@@ -11,6 +11,7 @@ use crate::reference::is_local;
 pub struct Mirror {
     pub host: String,
     pub prefix: Option<String>,
+    pub http: bool,
 }
 
 impl Mirror {
@@ -21,9 +22,17 @@ impl Mirror {
     /// A mirror is HTTPS, as Docker's are; a loopback one is plain HTTP, as
     /// every local registry is. A trailing `/v2` is not part of the address.
     pub fn parse(input: &str) -> Result<Mirror, String> {
+        Self::parse_with(input, &crate::RegistrySettings::default())
+    }
+
+    /// HTTP on a nonlocal mirror requires the same explicit opt-in as pulls.
+    pub fn parse_with(input: &str, settings: &crate::RegistrySettings) -> Result<Mirror, String> {
         let text = input.trim();
         if text.is_empty() {
             return Err("a mirror address cannot be empty".into());
+        }
+        if text.len() > 2048 {
+            return Err("a mirror address must fit in 2048 bytes".into());
         }
         let with_scheme = if text.contains("://") { text.to_owned() } else { format!("https://{text}") };
         let uri: ureq::http::Uri = with_scheme.parse().map_err(|_| format!("not an address: {text}"))?;
@@ -32,12 +41,12 @@ impl Mirror {
         if authority.as_str().contains('@') {
             return Err(format!("a mirror address has no username or password: {text}"));
         }
-        let host = authority.as_str().to_ascii_lowercase();
-        if host.is_empty() || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b".-[]:_".contains(&b)) {
-            return Err(format!("not a host name: {host}"));
+        let host = crate::settings::authority(authority.as_str())?;
+        if scheme != "https" && !(scheme == "http" && (is_local(&host) || settings.allows_insecure(&host))) {
+            return Err(format!("a mirror must be https; add its exact authority to insecure-registries to allow http: {text}"));
         }
-        if scheme != "https" && !(scheme == "http" && is_local(&host)) {
-            return Err(format!("a mirror must be https (a local one may be http): {text}"));
+        if uri.query().is_some() || text.contains('#') {
+            return Err("a mirror address has no query or fragment".into());
         }
         // Both `https://host` and `https://host/v2` name the same service.
         let path = uri.path().trim_matches('/');
@@ -46,12 +55,13 @@ impl Mirror {
         if !path.is_empty() && !path.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_/".contains(&b)) {
             return Err(format!("not a mirror path: {path}"));
         }
-        Ok(Mirror { host, prefix: (!path.is_empty()).then(|| path.to_owned()) })
+        let http = scheme == "http" || is_local(&host);
+        Ok(Mirror { host, prefix: (!path.is_empty()).then(|| path.to_owned()), http })
     }
 
     /// What Settings shows and `asagiri registry-mirror list` prints.
     pub fn as_url(&self) -> String {
-        let scheme = if self.is_local() { "http" } else { "https" };
+        let scheme = if self.http { "http" } else { "https" };
         match &self.prefix {
             Some(prefix) => format!("{scheme}://{}/{prefix}", self.host),
             None => format!("{scheme}://{}", self.host),
