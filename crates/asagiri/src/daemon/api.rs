@@ -432,7 +432,13 @@ fn info(engine: &Engine) -> Value {
     let states = engine.each(|c| Some(c.status));
     let running = states.iter().filter(|s| **s == Status::Running).count();
     let images = engine.store.images().map(|v| v.len()).unwrap_or(0);
-    let (mem_total, _) = engine.guest_memory().unwrap_or((0, 0));
+    let (memory_ceiling, memory_target) = engine.memory();
+    // SDKs query capacity before starting their first container. Reporting
+    // zero while the guest sleeps makes a healthy engine look unusable.
+    // Read the configured capacity without waking it; prefer live guest
+    // memory once available (the VM kernel reserves some of its allocation).
+    let mem_total = engine.guest_memory().map(|(total, _)| total)
+        .filter(|total| *total > 0).unwrap_or(memory_ceiling);
     json!({
         "ID": engine.id,
         "Name": super::identity::hostname(),
@@ -462,8 +468,8 @@ fn info(engine: &Engine) -> Value {
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
         "AsagiriVmAwake": engine.is_awake(),
         "AsagiriStopped": engine.is_stopped(),
-        "AsagiriMemoryCeiling": engine.memory().0,
-        "AsagiriMemoryTarget": engine.memory().1,
+        "AsagiriMemoryCeiling": memory_ceiling,
+        "AsagiriMemoryTarget": memory_target,
         "AsagiriMemoryUsed": engine.memory_used(),
         "AsagiriMemoryStall": engine.memory_trouble().0,
         "AsagiriOomKills": engine.memory_trouble().1,

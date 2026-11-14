@@ -27,6 +27,8 @@ Screenshots and the interactive demo reflect these additions.
 Concurrent image-index changes are serialized, and a complete index with stale
 trailing bytes is backed up before recovery. Docker SDKs receive a compatible
 engine version while `AsagiriVersion` reports the actual product version.
+Engine information reports available memory capacity before the first
+container starts, without waking a sleeping guest.
 Live checks cover log-based readiness, container root setup before immediate
 execs, and macvlan/ipvlan link names. VM disk trimming now runs in its own
 process so the agent remains single-threaded when cloning containers.

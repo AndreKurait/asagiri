@@ -17,7 +17,7 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def check(path):
+def check(path, cold=False):
     def request(target):
         connection = Connection(path)
         try:
@@ -48,6 +48,15 @@ def check(path):
         assert info["AsagiriVersion"] == version["AsagiriVersion"], info
         assert version["Components"][0]["Details"]["AsagiriVersion"] == version["AsagiriVersion"], version
         print("PASS Docker compatibility and Asagiri product versions are separate")
+        assert info["MemTotal"] > 0 and info["NCPU"] > 0, info
+        if cold:
+            assert not info["AsagiriVmAwake"], "Information requests must not boot a sleeping guest"
+            assert info["MemTotal"] == info["AsagiriMemoryCeiling"], info
+            status, second = request("/info")
+            second = json.loads(second)
+            assert status == 200 and not second["AsagiriVmAwake"], second
+            assert second["MemTotal"] == info["MemTotal"], (info, second)
+        print("PASS nonzero engine capacity" + (" without waking the guest" if cold else ""))
     # Docker 28 and Asagiri start at 1.24, Docker 29 at 1.40.
     oldest, newest = version["MinAPIVersion"], version["ApiVersion"]
     older = "1.%d" % (int(oldest.split(".")[1]) - 1)
@@ -111,4 +120,4 @@ def check(path):
 
 
 if __name__ == "__main__":
-    check(sys.argv[1])
+    check(sys.argv[1], cold="--cold" in sys.argv[2:])

@@ -47,7 +47,7 @@ run() { # run <script> [image] [options]
   if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | sed 's/^/    /'; fi
 }
 
-run api-version
+run api-version --cold
 run engine-identity
 run http-connection-close
 run embedded-dns-port alpine:3.21
