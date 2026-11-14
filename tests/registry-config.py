@@ -90,6 +90,14 @@ def handler(model):
         def log_message(self, *_args):
             pass
 
+        def send_error(self, code, message=None, explain=None):
+            # A TLS ClientHello sent to a real plain-HTTP registry gets an
+            # HTTP error response. Python otherwise defaults malformed
+            # request lines to HTTP/0.9 and sends only HTML, which is not
+            # the HTTP/1.x signal BuildKit uses for its HTTPS fallback.
+            self.request_version = "HTTP/1.1"
+            super().send_error(code, message, explain)
+
         def reply(self, code, body=b"", **headers):
             self.send_response(code)
             self.send_header("Content-Length", str(len(body)))
@@ -320,6 +328,14 @@ def check(path, binary):
             http_model.upload_location = None
             print("PASS registry pulls/pushes: HTTP/TLS policy, credential boundaries, redirects/revocation, CIDRs and 1/3-worker limits", flush=True)
 
+            # Keep TLS resolution independent of the local-image mirror:
+            # a mirror's initial 404 can mask the registry's certificate
+            # error in containerd's final diagnostic.
+            for name in list(owned_images):
+                if name.startswith(tls + "/"):
+                    api("DELETE", "/images/" + quote(name, safe="") + "?force=true")
+                    owned_images.remove(name)
+
             # BuildKit has its own resolver and trust configuration. Exercise
             # real FROM resolution through the Docker driver, including the
             # client's registry credentials and a later trust revocation.
@@ -369,6 +385,7 @@ def check(path, binary):
                 print("PASS BuildKit private registry " + suffix, flush=True)
 
             config({"insecure-registries": [plain, parallel, tls]})
+            build(outside, "unlisted-self-signed", False)
             build(parallel, "http")
             build(plain, "http-auth")
             build(tls, "self-signed")
