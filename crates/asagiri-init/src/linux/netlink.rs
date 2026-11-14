@@ -507,6 +507,44 @@ fn nat_chain(name: &str, hook: u32, priority: i32) -> Msg {
     chain
 }
 
+/// Inside one container namespace, reserve the embedded DNS address without
+/// occupying UDP port 53, which the container's own DNS server may need.
+/// The private table changes only traffic to/from this exact loopback address.
+pub fn install_embedded_dns(addr: [u8; 4], port: u16) -> io::Result<()> {
+    let name = "asagiri_dns";
+    let mut old = nft(NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
+    old.attr_str(1, name);
+    let mut delete = nft(NFT_MSG_DELTABLE, NLM_F_ACK);
+    delete.attr_str(1, name);
+    let mut table = nft(NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
+    table.attr_str(1, name);
+    let mut messages = vec![old, delete, table];
+    for (chain_name, hook, priority, reply) in [("output", 3, -100i32, false), ("postrouting", 4, 100, true)] {
+        let mut chain = nft(NFT_MSG_NEWCHAIN, NLM_F_ACK | NLM_F_CREATE);
+        chain.attr_str(1, name).attr_str(3, chain_name);
+        chain.nest(4).attr_be32(1, hook).attr_be32(2, priority as u32).end();
+        chain.attr_be32(5, 1).attr_str(7, "nat");
+        messages.push(chain);
+        let mut rule = nft(NFT_MSG_NEWRULE, NLM_F_ACK | NLM_F_CREATE | 0x800);
+        rule.attr_str(1, name).attr_str(2, chain_name).nest(4);
+        // Match UDP and the exact destination (request) or source (reply).
+        rule.nest(1).attr_str(1, "meta").nest(2).attr_be32(1, 1).attr_be32(2, 16).end().end();
+        rule.nest(1).attr_str(1, "cmp").nest(2).attr_be32(1, 1).attr_be32(2, 0).nest(3).attr(1, &[libc::IPPROTO_UDP as u8]).end().end().end();
+        rule.nest(1).attr_str(1, "payload").nest(2).attr_be32(1, 1).attr_be32(2, 1).attr_be32(3, if reply { 12 } else { 16 }).attr_be32(4, 4).end().end();
+        rule.nest(1).attr_str(1, "cmp").nest(2).attr_be32(1, 1).attr_be32(2, 0).nest(3).attr(1, &addr).end().end().end();
+        let from = if reply { port } else { 53u16 };
+        let to = if reply { 53u16 } else { port };
+        rule.nest(1).attr_str(1, "payload").nest(2).attr_be32(1, 1).attr_be32(2, 2).attr_be32(3, if reply { 0 } else { 2 }).attr_be32(4, 2).end().end();
+        rule.nest(1).attr_str(1, "cmp").nest(2).attr_be32(1, 1).attr_be32(2, 0).nest(3).attr(1, &from.to_be_bytes()).end().end().end();
+        rule.nest(1).attr_str(1, "immediate").nest(2).attr_be32(1, 1).nest(2).attr(1, &addr).end().end().end();
+        rule.nest(1).attr_str(1, "immediate").nest(2).attr_be32(1, 2).nest(2).attr(1, &to.to_be_bytes()).end().end().end();
+        rule.nest(1).attr_str(1, "nat").nest(2).attr_be32(1, if reply { 0 } else { 1 }).attr_be32(2, libc::AF_INET as u32).attr_be32(3, 1).attr_be32(5, 2).end().end();
+        rule.end();
+        messages.push(rule);
+    }
+    Netlink::open(libc::NETLINK_NETFILTER)?.request(&mut batch(messages))
+}
+
 /// Asagiri's container bridges are asagiri0, asagiri1, … (the daemon names them).
 const BRIDGE_PREFIX: &[u8] = b"asagiri";
 
