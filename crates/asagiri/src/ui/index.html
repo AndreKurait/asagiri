@@ -787,7 +787,7 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
    list, a line for each language: its own name, its English name, its hello.
    The dialog keeps its height while a search narrows the list; on a short
    window the list scrolls and the header and Continue stay. */
-.dialog.langdlg { width: min(540px, calc(100% - 32px)); height: min(620px, calc(100vh - 32px)); padding: 0; gap: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
+.dialog.langdlg { width: min(540px, calc(100% - 32px)); height: min(620px, calc(100% - 32px)); padding: 0; gap: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
 .langdlg .lhero { position: relative; overflow: hidden; padding: 20px 22px 18px; border-bottom: 1px solid var(--line);
   background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, #E0B420 15%, transparent), transparent 55%),
               radial-gradient(120% 140% at 100% 100%, color-mix(in srgb, var(--blue) 17%, transparent), transparent 60%), var(--side); }
