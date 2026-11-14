@@ -56,6 +56,20 @@ fn runtime_directory(root: &Path) -> PathBuf {
     root.join(format!("asagiri-agent-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))
 }
 
+/// Only a newly created private directory may hold the agent's root sockets.
+/// A PID can recur after an unclean daemon restart, leaving old names behind.
+fn private_runtime_directory(mut next: impl FnMut() -> PathBuf) -> io::Result<PathBuf> {
+    for _ in 0..64 {
+        let dir = next();
+        match std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a fresh agent runtime directory after 64 attempts"))
+}
+
 fn accept_until_closed(listener: &UnixListener, closing: &AtomicBool) -> io::Result<Option<UnixStream>> {
     loop {
         if closing.load(Ordering::Acquire) {
@@ -95,10 +109,9 @@ impl Vm {
         // The agent's sockets take root commands, so their folder must be
         // root's alone: /run, not an inherited XDG_RUNTIME_DIR (`sudo -E`
         // keeps the user's, where they could have put the folder first).
-        let dir = runtime_directory(Path::new("/run"));
-        // Made private in one step; an existing entry (a planted folder or
-        // link) fails it rather than being used.
-        std::os::unix::fs::DirBuilderExt::mode(&mut std::fs::DirBuilder::new(), 0o700).create(&dir)?;
+        // Made private in one step; never reuse or remove an existing entry,
+        // including a stale generation left behind when this PID last ran.
+        let dir = private_runtime_directory(|| runtime_directory(Path::new("/run")))?;
         let result = Self::start_in(cfg, dir.clone());
         if result.is_err() {
             let _ = std::fs::remove_dir_all(dir);
@@ -300,6 +313,54 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn a_reused_pid_allocates_a_new_private_generation_without_touching_old_entries() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let fixture = Fixture::new();
+        let old = fixture.0.join("agent-1-0");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("keep"), b"old generation").unwrap();
+        let linked = fixture.0.join("agent-1-1");
+        symlink(&old, &linked).unwrap();
+        let file = fixture.0.join("agent-1-2");
+        std::fs::write(&file, b"keep file").unwrap();
+        let allocate_after_restart = || {
+            let mut generation = 0;
+            private_runtime_directory(|| {
+                let path = fixture.0.join(format!("agent-1-{generation}"));
+                generation += 1;
+                path
+            }).unwrap()
+        };
+        let first = allocate_after_restart();
+        let second = allocate_after_restart();
+        assert_ne!(first, second);
+        assert_eq!(first, fixture.0.join("agent-1-3"));
+        assert_eq!(second, fixture.0.join("agent-1-4"));
+        for path in [&first, &second] {
+            assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
+        }
+        assert_eq!(std::fs::read(old.join("keep")).unwrap(), b"old generation");
+        assert_eq!(std::fs::read_link(linked).unwrap(), old);
+        assert_eq!(std::fs::read(file).unwrap(), b"keep file");
+    }
+
+    #[test]
+    fn runtime_directory_collision_retries_are_bounded_and_other_errors_are_preserved() {
+        let fixture = Fixture::new();
+        let mut attempts = 0;
+        let error = private_runtime_directory(|| {
+            attempts += 1;
+            fixture.0.clone()
+        }).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(attempts, 64);
+        assert!(fixture.0.is_dir());
+        let error = private_runtime_directory(|| fixture.0.join("missing/child")).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
 
     #[test]
