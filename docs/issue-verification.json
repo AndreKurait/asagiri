@@ -194,11 +194,13 @@
       "issue": 59,
       "title": "Allow running linux/arm64 containers on Intel Macs via QEMU user-mode emulation (currently hard-rejected with \"Kiri does not emulate Arm\")",
       "body_sha256": "ce5a33302f555483651ca5212a669d164c7a15f3c0cf1c5b695e9e5294e2f8dc",
-      "coverage": "deferred-feature",
+      "coverage": "partial",
       "checks": [
-        "crates/asagiri/src/guest.rs"
+        "tests/ci-qemu.py",
+        ".github/workflows/qemu.yml",
+        "docs/qemu-emulation.md"
       ],
-      "remaining": "Optional QEMU support is not shipped until its complete source/dependency bundle is available and validated."
+      "remaining": "The release pipeline now builds QEMU 11.0.5 with an internal musl toolchain and requires its complete source archive and target licenses. Source/bundle boundary checks and the xtask compile pass; the full source build and ARM64 execution probe are still in progress. Native Intel Mac VM execution remains unverified."
     },
     {
       "issue": 64,

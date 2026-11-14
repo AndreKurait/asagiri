@@ -1,0 +1,49 @@
+name: Verified Intel guest emulator
+description: Build or restore the pinned static emulator and its complete source bundle
+inputs:
+  output:
+    description: Directory for the two archives and build record
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate source and bundle boundaries
+      shell: bash
+      run: python3 tests/ci-qemu.py
+    - name: Restore verified emulator products
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.output }}
+        key: qemu-source-v1-${{ runner.arch }}-${{ hashFiles('packaging/qemu/build.py', 'packaging/qemu/sources.json', 'packaging/qemu/asagiri_x86_64_defconfig', 'packaging/qemu/probe.c', 'packaging/qemu/README.md', 'packaging/qemu/SOURCE.md') }}
+    - name: Install build prerequisites
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends build-essential bison flex gettext \
+          libncurses-dev rsync unzip file bc cpio wget libssl-dev python3 xz-utils \
+          gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+    - name: Build the emulator, exercise ARM64 code and collect sources
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        QEMU_OUTPUT: ${{ inputs.output }}
+      run: |
+        python3 packaging/qemu/build.py build \
+          --work "$RUNNER_TEMP/asagiri-qemu-build" --output "$QEMU_OUTPUT"
+    - name: Verify restored or freshly built products
+      shell: bash
+      env:
+        QEMU_OUTPUT: ${{ inputs.output }}
+      run: |
+        python3 packaging/qemu/build.py verify --output "$QEMU_OUTPUT"
+        python3 packaging/qemu/bundle.py install --products "$QEMU_OUTPUT" \
+          --destination "$RUNNER_TEMP/asagiri-qemu-inspection"
+    - name: Cache verified main products
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # zizmor: ignore[cache-poisoning] only main pushes save; PR cache scopes cannot replace main products
+      with:
+        path: ${{ inputs.output }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

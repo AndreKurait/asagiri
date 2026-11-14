@@ -14,17 +14,17 @@ third-party licence texts below.
 QEMU user-mode emulator (Intel macOS builds)
 ==========================================
 
-The optional qemu-aarch64 executable is QEMU 7.2.0, distributed by
-multiarch/qemu-user-static v7.2.0-1. It is a separate GPL-2.0 program,
+The qemu-aarch64 executable is QEMU 11.0.5, built from its official source
+with Buildroot 2026.08.1 and an internal musl toolchain. It is a separate GPL-2.0 program,
 copyright Fabrice Bellard and the QEMU contributors. QEMU is a trademark
 of Fabrice Bellard.
 
-QEMU source: https://gitlab.com/qemu-project/qemu/-/tree/v7.2.0
-Binary and build recipe: https://github.com/multiarch/qemu-user-static/tree/v7.2.0-1
-The pinned binary's SHA-256 is in crates/asagiri/src/cli_pins.rs.
-The complete GPL version 2 text is in packaging/qemu/COPYING and is copied
-beside the emulator in the Intel app bundle. Source and packaging notes
-are in packaging/qemu/README.md (also copied beside the emulator).
+QEMU source: https://download.qemu.org/qemu-11.0.5.tar.xz
+Source pins and the build recipe are in packaging/qemu. Each release includes
+asagiri-qemu-source.tar.xz with the exact QEMU, compiler, musl and dependency
+sources, licenses, patches and rebuild instructions. The emulator's build.json,
+COPYING, SOURCE.md and target dependency licenses are copied into the Intel app.
+The emulator SHA-256 in the app must match the corresponding source build record.
 
 Rust workspace and locked dependencies
 ======================================
@@ -7672,7 +7672,7 @@ The Asagiri guest kernel is Linux under GPL-2.0-only. For every Asagiri release,
 complete corresponding source for the bundled kernel is available from the
 same download site as the release:
 
-`https://download.runkiri.com/Asagiri-VERSION-kernel-source.tar.xz`
+`https://github.com/AndreKurait/asagiri/releases/download/vVERSION/asagiri-kernel-source.tar.xz`
 
 Replace `VERSION` with the Asagiri release version. The archive contains the exact
 upstream Linux release, all Asagiri patches already applied, the kernel
@@ -7680,7 +7680,7 @@ configuration, and the build inputs. It is also reproducible from this checkout
 with:
 
 ```sh
-scripts/ci/kernel-source.sh target/Asagiri-VERSION-kernel-source.tar.xz
+scripts/ci/kernel-source.sh target/asagiri-kernel-source.tar.xz
 ```
 
 This offer to provide the corresponding source is valid for three years from

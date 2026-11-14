@@ -112,7 +112,9 @@ Choose the download for your system:
   Default builds are ad hoc signed and are **not notarized by Apple**.
   The release workflow supports Developer ID signing and notarization when
   the required Apple credentials are configured. Intel packages run native
-  x86_64 containers; the optional QEMU emulator is not bundled.
+  x86_64 containers and include QEMU 11.0.5 for ARM64 Linux images, with its
+  licenses and complete source archive. Linux emulation probes and bundle
+  inspection run in CI; native Intel Mac VM execution remains unverified.
 - **Windows:** the MSI for x86_64 or arm64. Windows packages are **not
   Authenticode signed**. A ZIP of the same bundle is also available.
   WSL2 is required to run containers. CI tests MSI installation and removal

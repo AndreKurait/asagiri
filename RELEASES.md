@@ -66,8 +66,11 @@ its checkout; source checkouts continue to report `0.0.0`.
 
 macOS apps are ad hoc signed, without Apple notarization; Windows installers
 are not Authenticode signed. Checksums and GitHub build provenance accompany
-both channels. The optional Intel QEMU emulator is omitted until its complete
-corresponding source and static dependency sources are packaged for distribution.
+both channels. Intel packages include a source-built static QEMU emulator and
+its target dependency licenses. Every release also distributes the matching
+`asagiri-qemu-source.tar.xz` with the full corresponding source and build recipe.
+The Linux ARM64 probe and read-only bundle checks run in CI; native Intel Mac
+VM execution remains a separate hardware check.
 
 Regenerate branding and demos when they change, and third-party notices when
 dependencies change. The guest kernel's complete corresponding source is an

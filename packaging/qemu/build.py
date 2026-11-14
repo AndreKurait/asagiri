@@ -16,7 +16,7 @@ import urllib.request
 
 RECIPE = Path(__file__).resolve().parent
 PINS = json.loads((RECIPE / "sources.json").read_text())
-RECIPE_FILES = ("build.py", "sources.json", "asagiri_x86_64_defconfig", "probe.c", "README.md")
+RECIPE_FILES = ("build.py", "sources.json", "asagiri_x86_64_defconfig", "probe.c", "README.md", "SOURCE.md")
 MIN_FREE = 3 * 1024**3
 
 
@@ -80,13 +80,26 @@ def static_x86_64(path):
         offset = struct.unpack_from("<Q", header, 32)[0]
         size, count = struct.unpack_from("<HH", header, 54)
         require(size == 56 and 0 < count < 128, "Invalid ELF program headers")
+        length = os.fstat(source.fileno()).st_size
+        require(offset + size * count <= length, "Truncated ELF program headers")
         source.seek(offset)
+        dynamic = []
         for _ in range(count):
             program = source.read(size)
             require(len(program) == size, "Truncated ELF program header")
-            require(struct.unpack_from("<I", program)[0] != 3, "Emulator requires a dynamic interpreter")
-    dynamic = run("readelf", "-d", path, text=True, capture_output=True).stdout
-    require("(NEEDED)" not in dynamic, "Emulator requires shared libraries")
+            kind, _, start, _, _, length_on_disk, _, _ = struct.unpack("<IIQQQQQQ", program)
+            require(kind != 3, "Emulator requires a dynamic interpreter")
+            if kind == 2:
+                require(length_on_disk <= 1 << 20 and length_on_disk % 16 == 0
+                        and start + length_on_disk <= length, "Invalid ELF dynamic section")
+                dynamic.append((start, length_on_disk))
+        for start, length_on_disk in dynamic:
+            source.seek(start)
+            for _ in range(length_on_disk // 16):
+                tag, _ = struct.unpack("<QQ", source.read(16))
+                require(tag != 1, "Emulator requires shared libraries")
+                if tag == 0:
+                    break
 
 
 def legal_sources(directory, buildroot_archive):
@@ -241,6 +254,9 @@ def build(work, output, source_bundle=None):
     (source_dir / "build.json").write_text(json.dumps(record, indent=2) + "\n")
     shutil.copy2(build_dir / ("build/qemu-" + PINS["qemu"]["version"] + "/COPYING"), binary_dir / "COPYING")
     shutil.copy2(RECIPE / "README.md", binary_dir / "README.md")
+    shutil.copy2(RECIPE / "SOURCE.md", binary_dir / "SOURCE.md")
+    shutil.copy2(build_dir / "legal-info/manifest.csv", binary_dir / "manifest.csv")
+    shutil.copytree(build_dir / "legal-info/licenses", binary_dir / "licenses")
     (binary_dir / "build.json").write_text(json.dumps(record, indent=2) + "\n")
     checksums(binary_dir)
     checksums(source_dir)

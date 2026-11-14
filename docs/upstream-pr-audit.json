@@ -959,7 +959,7 @@
         }
       ],
       "disposition": "ported-and-improved",
-      "reason": "Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Optional Intel QEMU remains outside release bundles pending complete corresponding-source packaging. Refreshed head 27b7086 is patch-equivalent to previously ported ba7fd94 (git range-diff identical); preserve the improved local-tag tests."
+      "reason": "Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Intel release packaging now builds QEMU 11.0.5 from source and requires the corresponding source and dependency licenses; full build validation is in progress and native Intel Mac VM execution remains unverified. Refreshed head 27b7086 is patch-equivalent to previously ported ba7fd94 (git range-diff identical); preserve the improved local-tag tests."
     },
     {
       "number": 117,

@@ -14,7 +14,7 @@ build its own kernel: `DOCKER_CONTEXT=asagiri cargo xtask kernel`.
 cargo xtask kernel    # guest/out/Image
 cargo xtask disk      # guest/out/data.img (sparse 64 GiB ext4 template)
 cargo xtask guest     # guest/out/initramfs.cpio
-cargo xtask qemu      # guest/out/qemu/qemu-aarch64 (Intel: arm64 images)
+cargo xtask qemu      # import verified source-built Intel emulator products
 cargo xtask host      # target/release/asagiri, signed with the virtualization entitlement
 ```
 
@@ -27,7 +27,9 @@ buildx, released as `Asagiri-<version>-x86_64.dmg`/`.tar.gz` with its own feed,
 `latest-mac-x86_64.json`. Each Mac gets its own app rather than one universal
 app, which would carry both builds of the docker tools. On Intel there is
 no Rosetta for Linux: amd64 images run natively, and arm64 ones through the
-static qemu `cargo xtask qemu` fetches, which the app bundles as
+static QEMU that `cargo xtask qemu` imports from verified build products.
+See [Intel emulation](qemu-emulation.md) for the source build and product paths.
+The app bundles it as
 `Resources/qemu` and the daemon shares into the guest (`ASAGIRI_QEMU_DIR` points
 a checkout elsewhere). Without it, images with no amd64 build are refused
 with that reason rather than failing later with `exec format error`.

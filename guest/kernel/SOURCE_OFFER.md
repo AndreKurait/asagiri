@@ -4,7 +4,7 @@ The Asagiri guest kernel is Linux under GPL-2.0-only. For every Asagiri release,
 complete corresponding source for the bundled kernel is available from the
 same download site as the release:
 
-`https://download.runkiri.com/Asagiri-VERSION-kernel-source.tar.xz`
+`https://github.com/AndreKurait/asagiri/releases/download/vVERSION/asagiri-kernel-source.tar.xz`
 
 Replace `VERSION` with the Asagiri release version. The archive contains the exact
 upstream Linux release, all Asagiri patches already applied, the kernel
@@ -12,7 +12,7 @@ configuration, and the build inputs. It is also reproducible from this checkout
 with:
 
 ```sh
-scripts/ci/kernel-source.sh target/Asagiri-VERSION-kernel-source.tar.xz
+scripts/ci/kernel-source.sh target/asagiri-kernel-source.tar.xz
 ```
 
 This offer to provide the corresponding source is valid for three years from

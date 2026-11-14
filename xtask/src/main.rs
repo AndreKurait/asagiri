@@ -211,24 +211,23 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     Ok(())
 }
 
-/// The arm64 emulator an Intel Mac's guest needs: `guest/out/qemu/qemu-aarch64`
-/// from there on, which `xtask app` bundles as `Resources/qemu`. Static, so
-/// the guest needs nothing else. Apple silicon runs arm64 natively, so this
-/// does nothing there.
+/// Import the verified source-built emulator and licenses for the Intel guest.
+/// Apple silicon runs arm64 natively, so this does nothing there.
 fn qemu(root: &Path, arch: Arch) -> io::Result<()> {
     if arch != Arch::X86_64 {
         println!("arm64 is native on Apple silicon: no emulator needed");
         return Ok(());
     }
-    let (v, sum) = cli_pins::QEMU_AARCH64;
-    let cache = root.join("target/qemu-cache/x86_64");
-    let download = fetch(&cache, &format!("qemu-aarch64-{v}"), &cli_pins::qemu_aarch64_url(v))?;
-    verify(&download, sum)?;
+    let products = std::env::var_os("ASAGIRI_QEMU_PRODUCTS").map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target/qemu-products"));
+    if !products.join("build.json").is_file() {
+        return Err(io::Error::new(io::ErrorKind::NotFound,
+            "build the pinned emulator on x86_64 Linux with packaging/qemu/build.py, then set ASAGIRI_QEMU_PRODUCTS to its output directory; see docs/qemu-emulation.md"));
+    }
     let out = root.join("guest/out/qemu");
-    fs::create_dir_all(&out)?;
+    run(Command::new("python3").arg(root.join("packaging/qemu/bundle.py"))
+        .args(["install", "--products"]).arg(&products).arg("--destination").arg(&out))?;
     let bin = out.join("qemu-aarch64");
-    fs::copy(&download, &bin)?;
-    run(Command::new("chmod").arg("755").arg(&bin))?;
     println!("{} ({} KiB)", bin.display(), fs::metadata(&bin)?.len() / 1024);
     Ok(())
 }
@@ -773,11 +772,10 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     if arch == Arch::X86_64 {
         let bin = root.join("guest/out/qemu/qemu-aarch64");
         if bin.is_file() {
-            fs::create_dir_all(res.join("qemu"))?;
-            fs::copy(&bin, res.join("qemu/qemu-aarch64"))?;
-            for file in ["COPYING", "README.md"] {
-                fs::copy(root.join("packaging/qemu").join(file), res.join("qemu").join(file))?;
-            }
+            let source = root.join("guest/out/qemu");
+            run(Command::new("python3").arg(root.join("packaging/qemu/bundle.py"))
+                .args(["verify", "--directory"]).arg(&source))?;
+            run(Command::new("cp").arg("-R").arg(&source).arg(res.join("qemu")))?;
         } else {
             eprintln!("xtask app: no guest/out/qemu/qemu-aarch64: run `cargo xtask qemu` to run arm64 images");
         }

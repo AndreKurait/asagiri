@@ -5,19 +5,21 @@ on:
       - packaging/qemu/**
       - tests/ci-qemu.py
       - .github/workflows/qemu.yml
+      - .github/actions/qemu/**
   push:
     branches: [main]
     paths:
       - packaging/qemu/**
       - tests/ci-qemu.py
       - .github/workflows/qemu.yml
+      - .github/actions/qemu/**
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: qemu-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'latest' }}
+  group: qemu-source-v1-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'latest' }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
@@ -25,22 +27,17 @@ jobs:
     name: Static QEMU and corresponding source
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    concurrency:
+      # Main and Release share the cache: let one cold build finish first.
+      group: qemu-products-${{ github.repository }}-${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Validate source collection boundaries
-        run: python3 tests/ci-qemu.py
-      - name: Install build prerequisites
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends build-essential bison flex gettext \
-            libncurses-dev rsync unzip file bc cpio wget libssl-dev python3 xz-utils \
-            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-      - name: Build the emulator, exercise ARM64 code and collect sources
-        run: |
-          python3 packaging/qemu/build.py build \
-            --work "$RUNNER_TEMP/asagiri-qemu-build" --output "$RUNNER_TEMP/asagiri-qemu"
+      - uses: ./.github/actions/qemu # zizmor: ignore[self-repository] build recipe from the checked-out source
+        with:
+          output: ${{ runner.temp }}/asagiri-qemu
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qemu-build-products
