@@ -1073,6 +1073,12 @@ pub fn on_message(msg: &str) {
             std::thread::spawn(move || proxy(Some(body)));
         }
         // Settings → Registry mirrors.
+        "integrations" => {
+            std::thread::spawn(|| emit(crate::integrations::report(None).to_string()));
+        }
+        "setintegrations" => {
+            std::thread::spawn(move || emit(crate::integrations::report(Some(c.value)).to_string()));
+        }
         "mirrors" => {
             std::thread::spawn(|| registry_mirrors(None));
         }

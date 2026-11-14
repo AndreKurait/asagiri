@@ -1687,5 +1687,13 @@
   "— the log stream ended —": "— انتهى تدفق السجلات —",
   "‹ Back": "‹ رجوع",
   "★ Star on GitHub": "★ نجمة على GitHub",
-  "✓ Installed": "✓ مثبّت"
+  "✓ Installed": "✓ مثبّت",
+  "AI integrations": "تكاملات الذكاء الاصطناعي",
+  "Allow clients to start, stop and restart existing containers. Shell execution, creation and deletion are unavailable.": "السماح للعملاء بتشغيل الحاويات الموجودة وإيقافها وإعادة تشغيلها. تنفيذ أوامر الصدفة والإنشاء والحذف غير متاح.",
+  "Allow container changes": "السماح بتغيير الحاويات",
+  "Connect an AI client to Asagiri through its local MCP command. Access is off until you enable it.": "اربط عميل ذكاء اصطناعي بـ Asagiri عبر أمر MCP المحلي. يظل الوصول معطلاً حتى تفعّله.",
+  "Copy connection configuration": "نسخ إعدادات الاتصال",
+  "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "يمنع تعطيل الوصول الطلبات الجديدة من العملاء المتصلين. قد تكتمل الإجراءات التي أُرسلت بالفعل إلى المحرك.",
+  "Enable MCP access": "تفعيل الوصول عبر MCP",
+  "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "قراءة حالة المحرك والحاويات والسجلات الحديثة والصور ووحدات التخزين والشبكات. قد تتضمن سجلات التطبيقات معلومات سرية."
 }

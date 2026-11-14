@@ -169,6 +169,17 @@ impl io::Read for &Pipe {
 }
 
 impl Pipe {
+    /// One bounded client write. The caller owns any remaining bytes after a
+    /// partial write; cancellation and deadlines also apply to request headers.
+    pub fn write_client_within(&self, data: &[u8], timeout: std::time::Duration) -> io::Result<usize> {
+        let len = data.len().min(u32::MAX as usize) as u32;
+        // SAFETY: data remains valid until overlapped_within completes or
+        // cancels and joins the operation before returning.
+        overlapped_within(self.h, Some(timeout), |ov| unsafe {
+            WriteFile(self.h, data.as_ptr(), len, ptr::null_mut(), ov)
+        }).map(|n| n as usize)
+    }
+
     /// A client's read, as above, giving up (TimedOut) when nothing arrives
     /// within `timeout`.
     pub fn read_client(&self, buf: &mut [u8], timeout: Option<std::time::Duration>) -> io::Result<usize> {

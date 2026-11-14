@@ -1,5 +1,12 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+AI clients can use a local stdio MCP server after access is enabled in
+Settings → AI integrations or with `asagiri mcp enable`. Seven read tools
+return bounded metadata and recent logs. Starting, stopping and restarting
+existing containers requires a separate permission. Connected clients honor
+revocation, cancellation and request deadlines. Mac, Windows and Linux share
+the permission controls and connection configuration.
+
 This release includes the Asagiri identity and artwork, the container app,
 Docker import, registry mirrors, and the reviewed upstream changes recorded
 in `UPSTREAM.md`.

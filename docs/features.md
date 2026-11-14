@@ -76,6 +76,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   (preview, Save to Downloads, Show in Finder); Settings for fonts, text
   size, the VM's CPUs and memory (`~/.asagiri/vm.json`, used from the VM's
   next start; `ASAGIRI_CPUS` and `ASAGIRI_MEMORY_MIB` override it) and local names
+- **AI clients**: an [MCP server over local stdio](integrations.md), disabled
+  until enabled in Settings or the CLI. Read permissions cover bounded
+  container information and recent logs; starting, stopping and restarting
+  existing containers requires a separate permission.
 - **Menu bar**: Asagiri stays in the menu bar when its window closes, with the
   VM's state, running containers (click one to open it) and Start/Stop
 - **Kubernetes**: `asagiri k8s start` — a single-node k3s cluster in one

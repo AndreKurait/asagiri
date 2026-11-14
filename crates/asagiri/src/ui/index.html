@@ -3873,9 +3873,26 @@ function networkPane() {
   </div>`;
 }
 
-/* Settings → Registry mirrors: the Docker Hub pull-through mirrors, in the
-   order a pull tries them. docker build reads them too (buildkitd.toml);
-   pushes never go through them. */
+/* Local AI client access is separate from engine availability and power. */
+function integrationsPane() {
+  const data = ui.integrations;
+  const title = `<h3>${tr("AI integrations")}</h3>`;
+  if (!data) return `<div class="pane">${title}<p class="muted">${tr("Loading…")}</p></div>`;
+  if (data.error) return `<div class="pane">${title}<p class="muted">${esc(data.error)}</p></div>`;
+  const p = data.permissions || {}, disabled = ui.integrationPending ? " disabled" : "";
+  const choose = (key, label, on, blocked = false) => `<div class="seg" role="group" aria-label="${label}"><button data-mcp="${key}" data-value="0" aria-pressed="${!on}"${disabled}${blocked ? " disabled" : ""}>${tr("Off")}</button><button data-mcp="${key}" data-value="1" aria-pressed="${!!on}"${disabled}${blocked ? " disabled" : ""}>${tr("On")}</button></div>`;
+  return `<div class="pane">${title}
+    <p class="muted">${tr("Connect an AI client to Asagiri through its local MCP command. Access is off until you enable it.")}</p>
+    <div class="pref"><span class="t">${tr("Enable MCP access")}</span><span class="d">${tr("Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.")}</span>${choose("enabled", tr("Enable MCP access"), p.enabled)}</div>
+    <div class="pref"><span class="t">${tr("Allow container changes")}</span><span class="d">${tr("Allow clients to start, stop and restart existing containers. Shell execution, creation and deletion are unavailable.")}</span>${choose("allowContainerChanges", tr("Allow container changes"), p.allowContainerChanges, !p.enabled)}</div>
+    <p class="muted">${tr("Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.")}</p>
+    <button class="btn" data-mcpcopy>${tr("Copy connection configuration")}</button>
+    <pre class="mono" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(data.config || {}, null, 2))}</pre>
+  </div>`;
+}
+
+/* Settings → Registry mirrors: Docker Hub pull-through mirrors, in order.
+   docker build reads them too; pushes never go through them. */
 function mirrorsPane() {
   const m = ui.mirrors;
   if (!m) return `<div class="pane"><h3>${tr("Registry mirrors")}</h3><p class="muted">${tr("Loading…")}</p></div>`;
@@ -4091,8 +4108,8 @@ function renderSettings() {
       <dt>${tr("Made by")}</dt><dd><a data-open-site="https://github.com/AndreKurait">Asagiri contributors</a></dd>
     </dl>
     <p class="muted">${tr("The name comes from the Igbo word ntakịrị, “small”.")}</p></div>`;
-  const html = `<div class="settings"><div class="tabs">${tab("appearance", "textaa", tr("Appearance"))}${tab("resources", "stack", tr("Resources"))}${tab("network", "globe", tr("Network"))}${tab("builds", "hammer", tr("Builds"))}${tab("mirrors", "pull", tr("Registry mirrors"))}${loginsOn() ? tab("registries", "lock", tr("Registries")) : ""}${tab("kubernetes", "pods", "Kubernetes")}${tab("import", "stack", tr("Import"))}${tab("domains", "network", tr("Domains"))}${tab("diagnostics", "bug", tr("Diagnostics"))}${tab("about", "info", tr("About"))}</div>
-    ${prefs.tab === "diagnostics" ? diagPane() : prefs.tab === "about" ? aboutPane : prefs.tab === "domains" ? domainsPane : prefs.tab === "resources" ? `<div class="panes">${enginePane()}${resourcesPane()}</div>` : prefs.tab === "network" ? networkPane() : prefs.tab === "builds" ? buildsPane() : prefs.tab === "mirrors" ? mirrorsPane() : prefs.tab === "registries" && loginsOn() ? registriesPane() : prefs.tab === "kubernetes" ? kubernetesPane() : prefs.tab === "import" ? importPane() : appearance}</div>`;
+  const html = `<div class="settings"><div class="tabs">${tab("appearance", "textaa", tr("Appearance"))}${tab("resources", "stack", tr("Resources"))}${tab("network", "globe", tr("Network"))}${tab("builds", "hammer", tr("Builds"))}${tab("mirrors", "pull", tr("Registry mirrors"))}${tab("integrations", "lock", tr("AI integrations"))}${loginsOn() ? tab("registries", "lock", tr("Registries")) : ""}${tab("kubernetes", "pods", "Kubernetes")}${tab("import", "stack", tr("Import"))}${tab("domains", "network", tr("Domains"))}${tab("diagnostics", "bug", tr("Diagnostics"))}${tab("about", "info", tr("About"))}</div>
+    ${prefs.tab === "integrations" ? integrationsPane() : prefs.tab === "diagnostics" ? diagPane() : prefs.tab === "about" ? aboutPane : prefs.tab === "domains" ? domainsPane : prefs.tab === "resources" ? `<div class="panes">${enginePane()}${resourcesPane()}</div>` : prefs.tab === "network" ? networkPane() : prefs.tab === "builds" ? buildsPane() : prefs.tab === "mirrors" ? mirrorsPane() : prefs.tab === "registries" && loginsOn() ? registriesPane() : prefs.tab === "kubernetes" ? kubernetesPane() : prefs.tab === "import" ? importPane() : appearance}</div>`;
   // The container lists arrive every few seconds; rebuilding an unchanged page
   // closes an open menu. The font menus list names in the interface font: an
   // option in its own font made WebKit load every installed font (438 here)
@@ -4141,7 +4158,7 @@ function show(view) {
   if (view === "builds") send("builds");
   if (view === "usb") usbPoll();
   if (view === "share") { send("shares"); send("shareusage"); shPoll(); }
-  if (view === "settings") { if (!fontLists.families.length) send("fonts"); send("about"); send("logins"); send("resources"); send("proxy"); send("mirrors"); send("routerports"); if (!ui.imp.sources) send("importsources"); if (prefs.tab === "diagnostics") diagOpen(); }
+  if (view === "settings") { if (!fontLists.families.length) send("fonts"); send("about"); send("logins"); send("resources"); send("proxy"); send("mirrors"); send("integrations"); send("routerports"); if (!ui.imp.sources) send("importsources"); if (prefs.tab === "diagnostics") diagOpen(); }
   render();
   // From the top, as a container's or pod's page opens: leaving a page scrolled
   // down (a long Terminal or Logs tab) otherwise opened the next view below its rows.
@@ -6859,6 +6876,7 @@ window.asagiri = {
       case "routerports": ui.rports = e; ui.rpDraft = {}; render(); break;
       case "proxy": ui.proxy = e; ui.pxDraft = { ...(e.settings || {}), ...(e.pool ? { pool: e.pool.pool } : {}) }; if (ui.view === "settings") render(); break;
       case "mirrors": ui.mirrors = e; ui.mirrorDraft = [...(e.mirrors || [])]; ui.mirrorUrl = ""; if (ui.view === "settings") render(); break;
+      case "integrations": ui.integrations = e; ui.integrationPending = false; if (ui.view === "settings") render(); break;
       case "resources": ui.res = e; ui.resDraft = { cpus: e.cpus, memory_mib: e.memory_mib }; if (ui.view === "settings") render(); break;
       case "detail": if (ui.view !== "containers") show("containers"); openDetail(e.id); break;
       case "inspect":
@@ -6956,7 +6974,7 @@ $("content").addEventListener("click", (ev) => {
   else if ((el = t("[data-gmore]"))) openMenu(el, null, el.dataset.gmore);
   else if ((el = t("[data-g]"))) projectAsk(el.dataset.project, el.dataset.g);
   else if ((el = t("[data-group]"))) { const g = el.dataset.group; ui.collapsed.has(g) ? ui.collapsed.delete(g) : ui.collapsed.add(g); render(); }
-  else if ((el = t("[data-stab]"))) { prefs.tab = el.dataset.stab; if (prefs.tab === "about") send("about"); if (prefs.tab === "builds") send("buildwith"); if (prefs.tab === "mirrors") send("mirrors"); if (prefs.tab === "registries") send("logins"); if (prefs.tab === "diagnostics") diagOpen(); render(); }
+  else if ((el = t("[data-stab]"))) { prefs.tab = el.dataset.stab; if (prefs.tab === "about") send("about"); if (prefs.tab === "builds") send("buildwith"); if (prefs.tab === "mirrors") send("mirrors"); if (prefs.tab === "integrations") send("integrations"); if (prefs.tab === "registries") send("logins"); if (prefs.tab === "diagnostics") diagOpen(); render(); }
   else if (diagClick(t)) {}
   else if ((el = t("[data-scale]"))) setPref("scale", +el.dataset.scale);
   else if ((el = t("[data-logsize]"))) setPref("logSize", +el.dataset.logsize);
@@ -6979,6 +6997,14 @@ $("content").addEventListener("click", (ev) => {
   else if (t("[data-mirroradd]")) mirrorAdd();
   else if ((el = t("[data-mirrordel]"))) { ui.mirrorDraft.splice(+el.dataset.mirrordel, 1); render(); }
   else if (t("[data-savemirrors]")) send("setmirrors", { value: { mirrors: ui.mirrorDraft } });
+  else if ((el = t("[data-mcp]"))) {
+    if (!el.disabled && !ui.integrationPending && ui.integrations?.permissions) {
+      const value = { ...ui.integrations.permissions, [el.dataset.mcp]: el.dataset.value === "1" };
+      if (!value.enabled) value.allowContainerChanges = false;
+      ui.integrationPending = true; send("setintegrations", { value }); render();
+    }
+  }
+  else if ((el = t("[data-mcpcopy]"))) { send("copy", { name: JSON.stringify(ui.integrations?.config || {}, null, 2) }); copiedBtn(el); }
   else if ((el = t("[data-saverp]")) && ui.rports && !ui.rports.error) send("setrouterports", { value: { http: +(ui.rpDraft.http ?? ui.rports.http.port), https: +(ui.rpDraft.https ?? ui.rports.https.port) } });
   else if ((el = t("[data-saveres]"))) send("setresources", { value: ui.resDraft });
   else if ((el = t("[data-vmpower]"))) { el.disabled = true; powerEngine(el.dataset.vmpower); }

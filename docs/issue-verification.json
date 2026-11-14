@@ -237,9 +237,15 @@
       "issue": 74,
       "title": "Create an MCP server to allow agents to work smoother",
       "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
-      "coverage": "deferred-feature",
-      "checks": [],
-      "remaining": "An MCP server is not implemented."
+      "coverage": "partial",
+      "checks": [
+        "tests/mcp-integration.py",
+        "tests/ui/integrations.js",
+        "crates/asagiri/src/mcp.rs",
+        "crates/asagiri/src/local_api.rs",
+        "docs/integrations.md"
+      ],
+      "remaining": "The local stdio interface is implemented with permission and transport regressions. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
     },
     {
       "issue": 77,
@@ -638,9 +644,15 @@
       "issue": 203,
       "title": "Proposal for a Kiri MCP server (As suggested in Issue #74)",
       "body_sha256": "eb146f96c86e16289d3396889c852bad695d197487a5623459053401516c0dfa",
-      "coverage": "deferred-feature",
-      "checks": [],
-      "remaining": "Reviewed the proposed off-by-default, permission-gated MCP design. A stdio MCP server and its settings are not implemented yet; tracked with #74."
+      "coverage": "partial",
+      "checks": [
+        "tests/mcp-integration.py",
+        "tests/ui/integrations.js",
+        "crates/asagiri/src/mcp.rs",
+        "crates/asagiri/src/local_api.rs",
+        "docs/integrations.md"
+      ],
+      "remaining": "The local stdio interface is implemented with permission and transport regressions. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
     },
     {
       "issue": 204,

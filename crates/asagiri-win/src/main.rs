@@ -95,6 +95,9 @@ mod wslconfig;
 #[path = "../../asagiri/src/flavor.rs"]
 mod flavor;
 #[cfg(windows)]
+#[path = "../../asagiri/src/integrations.rs"]
+mod integrations;
+#[cfg(windows)]
 #[path = "../../asagiri/src/share.rs"]
 #[allow(dead_code)]
 mod share;
