@@ -1,0 +1,21 @@
+{
+  "run_id": 43632761522,
+  "run_attempt": 1,
+  "event": "pull_request",
+  "head_commit": "a50dc8f6bfdbdc73f3a4e36f09ad88d9303ccdf8",
+  "checkout_commit": "05a43f1c20331815acaecb440c78e895326b55f4",
+  "source_tree": "dbdab192c8696e0bdc582bb4a4f16c02319faf01",
+  "artifact_id": 14129076879,
+  "artifact_sha256": "7ac666aeaf6e0df77f80172784a86a37b899b445e0efb17774f0e935299fd634",
+  "raw_samples": 3600,
+  "image_layers_identical": true,
+  "source_hashes_verified": true,
+  "statistics_independently_recomputed": true,
+  "files": {
+    "asagiri-host.log": "fd4482f109024e8d5bcaa15c63351c7eead844924bab79fe7f7491124d2c5f0e",
+    "docker-host.log": "a31240ab3891c910e6653826107c9d6f21b00e41de72b133cd20275519eeb280",
+    "comparison.json": "67bfdafd0f4fd3f2813b80061100335f7839ab92c74b5d229f78bc287416708d",
+    "podman-host.log": "92b4f716df7572d59fe7f0879f39011e87e2c25c094e1773c813389ffecfcd2a",
+    "report.md": "9ed70589e2aef41c38e879687ff715588b41523915f390cfc2a36571cd9c9907"
+  }
+}

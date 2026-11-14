@@ -662,6 +662,77 @@ pub fn log(msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// The .NET client in upstream #225 reads the pipe in byte mode and
+    /// waits for EOF after a 204. Exercise the real Windows pipe adapter,
+    /// including its flush-before-empty-message behavior, without WSL.
+    #[test]
+    fn dotnet_byte_client_receives_eof_after_http_responses() {
+        use super::*;
+        use std::process::{Command, Stdio};
+
+        const CLIENT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$p = [IO.Pipes.NamedPipeClientStream]::new('.', $env:ASAGIRI_TEST_PIPE,
+    [IO.Pipes.PipeDirection]::InOut, [IO.Pipes.PipeOptions]::Asynchronous)
+$received = [IO.MemoryStream]::new()
+try {
+    $p.Connect(5000)
+    $request = [Text.Encoding]::ASCII.GetBytes("POST /containers/test/start HTTP/1.1`r`nHost: docker`r`nConnection: close`r`nContent-Length: 0`r`n`r`n")
+    $p.Write($request, 0, $request.Length)
+    $p.Flush()
+    $buffer = [byte[]]::new(65536)
+    while ($true) {
+        $read = $p.ReadAsync($buffer, 0, $buffer.Length)
+        if (-not $read.Wait(5000)) { throw 'Timed out waiting for the response EOF' }
+        $n = $read.GetAwaiter().GetResult()
+        if ($n -eq 0) { break }
+        $received.Write($buffer, 0, $n)
+    }
+    [Console]::Write([Text.Encoding]::ASCII.GetString($received.ToArray()))
+} finally {
+    $p.Dispose()
+    $received.Dispose()
+}
+"#;
+        for (status, body) in [
+            ("201 Created", b"{\"Id\":\"test\"}".to_vec()),
+            ("204 No Content", Vec::new()),
+            ("304 Not Modified", Vec::new()),
+            ("200 OK", vec![b'x'; 256 * 1024]),
+        ] {
+            let mut response = format!("HTTP/1.1 {status}\r\nApi-Version: 1.47\r\n").into_bytes();
+            if !body.is_empty() {
+                response.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
+            }
+            response.extend_from_slice(b"\r\n");
+            response.extend_from_slice(&body);
+            let name = format!("asagiri-dotnet-eof-{}-{}", std::process::id(), &status[..3]);
+            let pipe = Arc::new(Pipe::create(&format!(r"\\.\pipe\{name}"), true).unwrap());
+            let client = Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", CLIENT])
+                .env("ASAGIRI_TEST_PIPE", &name)
+                .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+                .spawn().unwrap();
+            pipe.connect_within(Some(Duration::from_secs(10))).unwrap();
+            let mut request = [0u8; 512];
+            let n = pipe.read_within(&mut request, Some(Duration::from_secs(5))).unwrap();
+            assert!(String::from_utf8_lossy(&request[..n]).contains("Connection: close"));
+            let (tx, rx) = channel();
+            for chunk in response.chunks(64 * 1024) {
+                tx.send(Reply::Data(chunk.to_vec())).unwrap();
+            }
+            tx.send(Reply::Eof).unwrap();
+            drop(tx);
+            let server = pipe.clone();
+            let queued = AtomicUsize::new(response.len());
+            let writer = thread::spawn(move || to_client(&server, &rx, &queued, None));
+            let result = client.wait_with_output().unwrap();
+            assert!(result.status.success(), "{status}: {}", String::from_utf8_lossy(&result.stderr));
+            assert_eq!(result.stdout, response, "{status}: the response must precede EOF");
+            assert!(writer.join().unwrap());
+        }
+    }
+
     #[test]
     fn frames_round_trip() {
         let mut wire = super::header(super::DATA, 7, 3).to_vec();
