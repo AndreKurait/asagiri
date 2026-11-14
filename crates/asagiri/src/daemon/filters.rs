@@ -2,17 +2,38 @@
 //! (or the old `{"label":{"a=b":true}}` form). Values of one key are ORed,
 //! keys are ANDed, as in Docker.
 
+use regex::Regex;
 use serde_json::Value;
 
 #[derive(Debug, Default)]
-pub struct Filters(Vec<(String, Vec<String>)>);
+pub struct Filters {
+    values: Vec<(String, Vec<String>)>,
+    names: Vec<NamePattern>,
+}
+
+#[derive(Debug)]
+struct NamePattern {
+    literal: String,
+    regex: Option<Regex>,
+}
+
+impl NamePattern {
+    fn new(pattern: &str) -> Self {
+        Self { literal: pattern.into(), regex: Regex::new(pattern).ok() }
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        // Moby tests exact strings before regex, including invalid patterns.
+        self.literal == name || self.regex.as_ref().is_some_and(|re| re.is_match(name))
+    }
+}
 
 impl Filters {
     pub fn parse(raw: Option<&str>) -> Result<Filters, String> {
         let Some(raw) = raw.filter(|r| !r.is_empty()) else { return Ok(Filters::default()) };
         let v: Value = serde_json::from_str(raw).map_err(|e| format!("invalid filters: {e}"))?;
         let Value::Object(map) = v else { return Err("invalid filters: not an object".into()) };
-        let mut out = Vec::with_capacity(map.len());
+        let mut out: Vec<(String, Vec<String>)> = Vec::with_capacity(map.len());
         for (k, v) in map {
             let values = match v {
                 Value::Array(a) => a.into_iter().filter_map(|s| s.as_str().map(str::to_owned)).collect(),
@@ -22,19 +43,21 @@ impl Filters {
             };
             out.push((k, values));
         }
-        Ok(Filters(out))
+        let names = out.iter().find(|(key, _)| key == "name")
+            .map(|(_, values)| values.iter().map(|p| NamePattern::new(p)).collect()).unwrap_or_default();
+        Ok(Filters { values: out, names })
     }
 
     /// Rejects keys this list does not understand, as Docker does.
     pub fn only(&self, known: &[&str]) -> Result<(), String> {
-        match self.0.iter().find(|(k, _)| !known.contains(&k.as_str())) {
+        match self.values.iter().find(|(k, _)| !known.contains(&k.as_str())) {
             Some((k, _)) => Err(format!("invalid filter '{k}'")),
             None => Ok(()),
         }
     }
 
     pub fn values(&self, key: &str) -> Option<&[String]> {
-        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_slice()).filter(|v| !v.is_empty())
+        self.values.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_slice()).filter(|v| !v.is_empty())
     }
 
     /// True when `key` is absent or any of its values satisfies `f`.
@@ -52,12 +75,16 @@ impl Filters {
         self.values("label").is_none_or(|v| v.iter().all(|w| has(w))) && self.values("label!").is_none_or(|v| !v.iter().any(|w| has(w)))
     }
 
-    /// The `name` filter, which Docker matches as a regular expression:
-    /// clients send `^kind$` to mean exactly "kind" (kind, Compose and
-    /// Testcontainers all do). Anchors are honoured; any other pattern is
-    /// matched as a substring, which is what an unanchored literal means.
+    /// Volumes and networks match their literal name. Patterns are compiled
+    /// once per request rather than once per listed resource.
     pub fn name(&self, name: &str) -> bool {
-        self.any("name", |p| name_matches(p, name))
+        self.names.is_empty() || self.names.iter().any(|p| p.matches(name))
+    }
+
+    /// Only containers also have Docker's slash-prefixed name alias.
+    pub fn container_name(&self, name: &str) -> bool {
+        let bare = name.strip_prefix('/').unwrap_or(name);
+        self.name(bare) || self.name(&format!("/{bare}"))
     }
 
     /// `true`/`1` or `false`/`0` for a boolean filter, if given.
@@ -66,26 +93,9 @@ impl Filters {
     }
 }
 
-/// `pattern` against `name` with Docker's `name` filter semantics for the
-/// patterns clients use: `^x$` exact, `^x` prefix, `x$` suffix, `x` substring.
-/// A leading `/` (container names) is optional on both sides.
-pub fn name_matches(pattern: &str, name: &str) -> bool {
-    let (start, rest) = match pattern.strip_prefix('^') {
-        Some(r) => (true, r),
-        None => (false, pattern),
-    };
-    let (end, lit) = match rest.strip_suffix('$') {
-        Some(r) => (true, r),
-        None => (false, rest),
-    };
-    let lit = lit.trim_start_matches('/');
-    let name = name.trim_start_matches('/');
-    match (start, end) {
-        (true, true) => name == lit,
-        (true, false) => name.starts_with(lit),
-        (false, true) => name.ends_with(lit),
-        (false, false) => name.contains(lit),
-    }
+#[cfg(test)]
+fn name_matches(pattern: &str, name: &str) -> bool {
+    Filters { values: vec![], names: vec![NamePattern::new(pattern)] }.container_name(name)
 }
 
 #[cfg(test)]
@@ -130,6 +140,51 @@ mod tests {
         let f = Filters::parse(Some(r#"{"name":["^kind$"]}"#)).unwrap();
         assert!(f.name("kind") && !f.name("kind-old"));
         assert!(f.any("status", |_| false));
+    }
+
+    #[test]
+    fn name_filter_supports_regex_and_container_slash_alias() {
+        let f = Filters::parse(Some(r#"{"name":["^/aoscp-(floci|localstack)-demo$"]}"#)).unwrap();
+        assert!(f.container_name("aoscp-floci-demo"));
+        assert!(f.container_name("/aoscp-localstack-demo"));
+        assert!(!f.container_name("aoscp-floci-demo-old"));
+        assert!(!f.container_name("aoscp-other-demo"));
+        for (pattern, yes, no) in [
+            (r"^worker-[0-9]{2}$", "worker-42", "worker-x2"),
+            (r"^app\.v[12]$", "app.v2", "appXv2"),
+            (r"^web(-old)?$", "web-old", "web-older"),
+            (r"api|worker", "my-worker-1", "database"),
+            (r"^/", "web", ""),
+        ] {
+            assert!(name_matches(pattern, yes), "{pattern} should match {yes}");
+            if !no.is_empty() {
+                assert!(!name_matches(pattern, no), "{pattern} should not match {no}");
+            }
+        }
+        assert!(name_matches(r"^(/web|worker)$", "web"));
+        assert!(name_matches(r"^(/web|worker)$", "/worker"));
+    }
+
+    #[test]
+    fn invalid_regex_is_ignored_but_exact_match_precedes_regex() {
+        assert!(!name_matches("[", "web"));
+        assert!(name_matches("[", "["));
+        let f = Filters::parse(Some(r#"{"name":["[","^worker-[0-9]+$"]}"#)).unwrap();
+        assert!(f.name("worker-12"));
+        assert!(!f.name("web"));
+        assert!(Filters::parse(Some(r#"{"name":[]}"#)).unwrap().name("anything"));
+    }
+
+    #[test]
+    fn volume_and_network_name_filters_do_not_add_a_slash_alias() {
+        let bare = Filters::parse(Some(r#"{"name":["^data-(one|two)$"]}"#)).unwrap();
+        assert!(bare.name("data-one"));
+        assert!(bare.name("data-two"));
+        assert!(!bare.name("data-three"));
+        let slash = Filters::parse(Some(r#"{"name":["^/data-(one|two)$"]}"#)).unwrap();
+        assert!(!slash.name("data-one"));
+        assert!(slash.container_name("data-one"));
+        assert!(!bare.name("/data-one"));
     }
 
     #[test]
