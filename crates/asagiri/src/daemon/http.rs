@@ -156,6 +156,7 @@ impl Request {
 pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -> bool) -> io::Result<Option<Request>> {
     // Until its request line is read, a request refused here is nobody's.
     serving("", "");
+    CLOSE_RESPONSE.with(|close| close.set(false));
     // The request line and headers are read through a cap, so a client
     // cannot exhaust memory with an endless line. The body is read after.
     let (method, path, api_version, query, headers) = {
@@ -223,6 +224,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     };
     let streamed = stream(&method, &path);
     let mut req = Request { method, path, api_version, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
+    CLOSE_RESPONSE.with(|close| close.set(req.wants_close()));
     validate_framing(&req)?;
     let length = req.header("content-length").and_then(|v| v.parse::<u64>().ok());
     if !streamed && length.is_some_and(|n| n > MAX_BODY as u64) {
@@ -419,6 +421,8 @@ fn reason(status: u16) -> &'static str {
 }
 
 thread_local! {
+    /// Mirror request closure in the response so clients do not reuse the socket.
+    static CLOSE_RESPONSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The request this connection thread is answering, for the log.
     static SERVING: std::cell::RefCell<(String, String)> = const { std::cell::RefCell::new((String::new(), String::new())) };
 }
@@ -446,9 +450,15 @@ fn head(w: &mut impl Write, status: u16, extra: &str) -> io::Result<()> {
     if status >= 400 {
         note_failure(status);
     }
+    let close = if status >= 200 && CLOSE_RESPONSE.with(|close| close.get())
+        && !extra.lines().any(|line| line.split_once(':').is_some_and(|(key, _)| key.eq_ignore_ascii_case("Connection"))) {
+        "Connection: close\r\n"
+    } else {
+        ""
+    };
     write!(
         w,
-        "HTTP/1.1 {status} {}\r\nApi-Version: {API_VERSION}\r\nDocker-Experimental: false\r\nOstype: linux\r\nServer: Asagiri/{} (linux)\r\n{extra}\r\n",
+        "HTTP/1.1 {status} {}\r\nApi-Version: {API_VERSION}\r\nDocker-Experimental: false\r\nOstype: linux\r\nServer: Asagiri/{} (linux)\r\n{close}{extra}\r\n",
         reason(status),
         env!("CARGO_PKG_VERSION")
     )
@@ -850,6 +860,23 @@ mod tests {
             assert_eq!(text.contains("Content-Length: 0\r\n"), length, "{text}");
             assert!(!text.contains("Content-Type:"), "{text}");
             assert!(text.ends_with("\r\n\r\n"), "{text}");
+        }
+    }
+
+    #[test]
+    fn response_closure_follows_each_request_without_breaking_upgrade() {
+        for header in ["Connection: close\r\n", "", "Connection: keep-alive, CLOSE\r\n", ""] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(format!("HEAD /_ping HTTP/1.1\r\n{header}\r\n").as_bytes()).unwrap();
+            let req = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            for (status, extra) in [(200, ""), (204, ""), (101, "Connection: Upgrade\r\nUpgrade: tcp\r\n"), (200, "Connection: close\r\n")] {
+                let mut out = Vec::new();
+                empty_with(&mut out, status, extra).unwrap();
+                let text = String::from_utf8(out).unwrap();
+                let closes = status != 101 && (req.wants_close() || !extra.is_empty());
+                assert_eq!(text.matches("Connection: close\r\n").count(), usize::from(closes), "{text}");
+                if status == 101 { assert!(text.contains("Connection: Upgrade\r\n"), "{text}"); }
+            }
         }
     }
 

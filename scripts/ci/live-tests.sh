@@ -41,6 +41,7 @@ run() { # run <script> [image]
 
 run api-version
 run engine-identity
+run http-connection-close
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run layer-concurrency
