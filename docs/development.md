@@ -2,6 +2,9 @@
 
 Building Asagiri from source, running it, and how it fits together.
 
+The [performance guide](performance.md) covers paired GHA benchmarks,
+regression limits, raw samples, and the public history by commit.
+
 ## Build
 
 Needs Rust and, for the kernel and disk template, a Docker engine. Asagiri can

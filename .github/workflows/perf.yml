@@ -18,6 +18,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      baseline:
+        description: Optional full main-ancestor commit to compare (same commit runs a noise control)
+        type: string
 
 permissions:
   contents: read
@@ -26,7 +30,8 @@ env:
   RUSTUP_TOOLCHAIN: 1.99.1
 
 concurrency:
-  group: speed-${{ github.event.pull_request.number || github.ref }}
+  # Keep every main measurement; only superseded PR measurements are canceled.
+  group: speed-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -46,8 +51,15 @@ jobs:
         id: main
         env:
           PREVIOUS_MAIN: ${{ github.event.before }}
+          REQUESTED_BASELINE: ${{ inputs.baseline }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
+          if [ -n "$REQUESTED_BASELINE" ]; then
+            [[ "$REQUESTED_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+            git -C head fetch --unshallow --no-tags origin main
+            git -C head fetch --no-tags origin "$REQUESTED_BASELINE"
+            git -C head merge-base --is-ancestor "$REQUESTED_BASELINE" HEAD
+            sha=$REQUESTED_BASELINE
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
             # A push can contain several commits. Compare the previous main,
             # not just the last commit on the new branch.
             [[ "$PREVIOUS_MAIN" =~ ^[0-9a-f]{40}$ ]]
@@ -87,20 +99,22 @@ jobs:
           if cmp -s "$RUNNER_TEMP/base-bin/asagiri" "$RUNNER_TEMP/head-bin/asagiri" &&
              cmp -s "$RUNNER_TEMP/base-bin/asagiri-init" "$RUNNER_TEMP/head-bin/asagiri-init"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Both freshly compiled engine binaries match the baseline byte for byte; no performance measurement is needed." >> "$GITHUB_STEP_SUMMARY"
+            echo "Both freshly compiled engine binaries match the baseline byte for byte. PR measurements can be skipped; main and manual runs still collect history." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Install strace
-        if: steps.binaries.outputs.changed == 'true'
+        if: steps.binaries.outputs.changed == 'true' || github.event_name != 'pull_request'
         run: sudo apt-get install -y -qq strace >/dev/null
       - name: Compare
-        if: steps.binaries.outputs.changed == 'true'
+        id: compare
+        if: steps.binaries.outputs.changed == 'true' || github.event_name != 'pull_request'
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
           scripts=base/scripts
           [ -f "$scripts/perf.py" ] || scripts=head/scripts
+          echo "harness=$(git -C "${scripts%/scripts}" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           set +e
           sh "$scripts/perf-run.sh" "$RUNNER_TEMP/base-bin" "$RUNNER_TEMP/head-bin" "$RUNNER_TEMP/perf"
           status=$?
@@ -109,3 +123,27 @@ jobs:
             cat "$RUNNER_TEMP/perf/report.md" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit $status
+      - name: Record measurements and source identities
+        if: ${{ !cancelled() && (steps.compare.outcome == 'success' || steps.compare.outcome == 'failure') }}
+        env:
+          BASE_COMMIT: ${{ steps.main.outputs.sha }}
+          HARNESS_COMMIT: ${{ steps.compare.outputs.harness }}
+          COMPARISON_OUTCOME: ${{ steps.compare.outcome }}
+          PERF_RUNNER_IMAGE: ${{ runner.os }}-${{ runner.arch }}
+        run: >-
+          python3 head/scripts/ci/performance.py record
+          --directory "$RUNNER_TEMP/perf"
+          --base-binaries "$RUNNER_TEMP/base-bin"
+          --head-binaries "$RUNNER_TEMP/head-bin"
+      - name: Keep benchmark data and report
+        if: ${{ !cancelled() && (steps.compare.outcome == 'success' || steps.compare.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/perf/record.json
+            ${{ runner.temp }}/perf/results.json
+            ${{ runner.temp }}/perf/sizes.json
+            ${{ runner.temp }}/perf/report.md
+          if-no-files-found: error
+          retention-days: 90

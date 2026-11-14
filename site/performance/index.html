@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Asagiri engine benchmarks, tracked by commit with paired comparisons and reproducible measurements.">
+  <meta name="theme-color" content="#161b33">
+  <title>Asagiri · Performance history</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="performance.css">
+  <script type="module" src="history.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="page performance-page">
+    <header>
+      <a class="identity" href="../" aria-label="Asagiri home"><img src="../assets/asagiri-horizontal-light.svg" alt="Asagiri" width="156" height="40"></a>
+      <nav aria-label="Main navigation"><a href="../install/">Install</a><a href="../demo/">Try the demo ↗</a><a href="https://github.com/AndreKurait/asagiri/actions/workflows/perf.yml">Speed runs ↗</a></nav>
+    </header>
+    <main id="main">
+      <section class="performance-intro">
+        <p class="eyebrow">MEASURED IN CI</p>
+        <h1>Every change, <em>measured.</em></h1>
+        <p class="intro">Container startup, API latency, memory, system calls and binary size. Every comparison runs both builds on the same machine.</p>
+        <div class="performance-links"><a href="https://github.com/AndreKurait/asagiri/blob/main/docs/performance.md">Method and limits ↗</a><a href="https://github.com/AndreKurait/asagiri/tree/performance-history/benchmarks/v1/runs">Raw measurements ↗</a></div>
+      </section>
+      <p id="load-state" role="status">Loading verified measurements…</p>
+      <section id="performance" hidden aria-label="Benchmark history">
+        <div class="performance-stats">
+          <article><span>Latest measured commit</span><a id="latest-commit"></a><small id="latest-time"></small></article>
+          <article><span>Paired regression check</span><strong id="latest-result"></strong><small>Both percentage and absolute limits apply</small></article>
+          <article><span>Matching measurements</span><strong id="sample-count"></strong><small id="sample-host"></small></article>
+        </div>
+        <div class="performance-controls">
+          <label>Metric<select id="metric">
+            <option value="run_ms">Container startup · median</option><option value="run_p95_ms">Container startup · p95</option>
+            <option value="ping_ms">API ping · median</option><option value="ping_p95_ms">API ping · p95</option>
+            <option value="list_ms">Container list · median</option><option value="list_p95_ms">Container list · p95</option>
+            <option value="rss_idle_kib">Idle daemon memory</option><option value="rss_after_kib">Daemon memory after runs</option>
+            <option value="syscalls">Daemon system calls per container</option><option value="engine_bytes">Engine binary size</option><option value="init_bytes">Agent binary size</option>
+          </select></label>
+          <label>View<select id="measurement"><option value="head">Measured value</option><option value="change">Change against paired baseline</option></select></label>
+          <label class="series-control">Runner and workload<select id="series"></select></label>
+          <label>History<select id="range"><option value="50">Last 50 runs</option><option value="100">Last 100 runs</option><option value="500">Last 500 runs</option></select></label>
+        </div>
+        <div class="performance-chart">
+          <div class="chart-heading"><h2 id="plot-title">Container startup</h2><span id="plot-unit"></span></div>
+          <svg id="plot" viewBox="0 0 960 310" role="group" aria-labelledby="plot-title plot-description">
+            <desc id="plot-description">Measured runs from oldest to newest. Select a point for its commit and comparison. The same data appears in the table below.</desc>
+          </svg>
+          <p id="selected-point" role="status"></p>
+          <p class="chart-caption">Runs, oldest to newest. Lower is better. Runner hardware and workload changes use separate series.</p>
+        </div>
+        <div class="results-heading"><h2>Measured commits</h2><a id="download-data" href="https://raw.githubusercontent.com/AndreKurait/asagiri/performance-history/benchmarks/v1/index.json">Download history JSON ↗</a></div>
+        <div class="performance-table" tabindex="0" role="region" aria-label="Scrollable benchmark measurements">
+          <table><thead><tr><th>Commit</th><th>Measured · UTC</th><th>Baseline</th><th>This commit</th><th>Change</th><th>Overall check</th><th>Evidence</th></tr></thead><tbody id="measurements"></tbody></table>
+        </div>
+      </section>
+      <aside class="performance-method">
+        <h2>What these numbers cover</h2>
+        <p>The Linux check warms both engines, then alternates 400 requests of each kind between the baseline and the tested commit. Daemon system calls use 20 additional container lifecycles; already-running agent processes are outside that trace. The gate compares medians, daemon memory and system calls against the paired baseline; p95 and binary size are tracked without a failure threshold.</p>
+        <p>Shared runners have noise. Absolute values are observations on that runner, and a failed comparison needs investigation. These checks do not measure Mac VM startup, Rosetta, Windows WSL, cold image downloads or application workloads.</p>
+        <p>The dashboard shows the latest 500 archived runs; the raw archive retains every published record. A main push measures its resulting commit. Intermediate commits in a multi-commit push are not measured separately. PR results remain in their GHA artifacts.</p>
+      </aside>
+    </main>
+    <footer><span>Asagiri <span lang="ja">朝霧</span></span><nav aria-label="Footer"><a href="../">Home</a><a href="https://github.com/AndreKurait/asagiri">GitHub ↗</a><a href="https://github.com/AndreKurait/asagiri/blob/main/docs/performance.md">Reproduce a benchmark</a></nav><span class="footer-note">Public data. No analytics.</span></footer>
+  </div>
+</body>
+</html>

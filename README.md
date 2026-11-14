@@ -22,7 +22,8 @@ The screenshot and browser demo use sample data in the real app UI.
 - A window and setup in 38 languages, including right-to-left Arabic, Persian, and Central Kurdish.
 - A Linux VM on macOS, WSL 2 on Windows, and native containers on Linux.
 - Container names for local development, plus Kubernetes and Linux machines.
-- Cross-platform CI, live Docker API conformance tests, and performance checks.
+- Cross-platform CI, live Docker API conformance tests, and
+  [performance history by commit](https://andrekurait.github.io/asagiri/performance/).
 
 ## Downloads
 

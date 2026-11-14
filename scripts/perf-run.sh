@@ -16,12 +16,16 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SUDO=; [ "$(id -u)" = 0 ] || SUDO=sudo
 mkdir -p "$WORK"; WORK=$(cd "$WORK" && pwd)
 
+PREFIX="asagiri-perf-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
 stop() {
-  docker rm -f asagiri-perf-base asagiri-perf-head >/dev/null 2>&1 || true
-  docker volume rm asagiri-perf-base-lib asagiri-perf-base-store asagiri-perf-head-lib asagiri-perf-head-store >/dev/null 2>&1 || true
+  # Each invocation owns its names, volumes and run directories.
+  for side in base head; do
+    docker logs "$PREFIX-$side" > "$WORK/$side-engine.log" 2>&1 || true
+  done
+  docker rm -f "$PREFIX-base" "$PREFIX-head" >/dev/null 2>&1 || true
+  docker volume rm "$PREFIX-base-lib" "$PREFIX-base-store" "$PREFIX-head-lib" "$PREFIX-head-store" >/dev/null 2>&1 || true
 }
 trap stop EXIT
-stop
 for e in base head; do
   bin=$BASE_BIN; [ $e = head ] && bin=$HEAD_BIN
   set -- "$bin/"*-init
@@ -29,25 +33,25 @@ for e in base head; do
   engine=$(basename "$1" -init)
   [ -x "$bin/$engine" ] || { echo "missing engine $bin/$engine"; exit 2; }
   socket_var=$(printf '%s_SOCKET' "$engine" | tr '[:lower:]' '[:upper:]')
-  $SUDO rm -rf "$WORK/$e-run"; mkdir -p "$WORK/$e-run"
+  mkdir "$WORK/$PREFIX-$e-run"
   # The socket is named, so both engines listen where the check looks even
   # when the two builds differ in where they would put it.
-  docker run -d --name asagiri-perf-$e --privileged --tmpfs /run \
-    -v "asagiri-perf-$e-lib:/var/lib/$engine" -v "asagiri-perf-$e-store:/root/.local/share/$engine" \
-    -v "$bin:/opt/engine:ro" -v "$WORK/$e-run:/bench" \
+  docker run -d --name "$PREFIX-$e" --privileged --tmpfs /run \
+    -v "$PREFIX-$e-lib:/var/lib/$engine" -v "$PREFIX-$e-store:/root/.local/share/$engine" \
+    -v "$bin:/opt/engine:ro" -v "$WORK/$PREFIX-$e-run:/bench" \
     -e "$socket_var=/bench/docker.sock" \
     "${ASAGIRI_CI_PERF_IMAGE:-alpine:3.21}" "/opt/engine/$engine" daemon >/dev/null
 done
-pid() { docker inspect -f '{{.State.Pid}}' "asagiri-perf-$1"; }
+pid() { docker inspect -f '{{.State.Pid}}' "$PREFIX-$1"; }
 for e in base head; do
-  i=0; while [ ! -S "$WORK/$e-run/docker.sock" ]; do
-    i=$((i + 1)); [ $i -gt 120 ] && { docker logs asagiri-perf-$e 2>&1 | tail -20; echo "the $e engine made no socket"; exit 2; }
+  i=0; while [ ! -S "$WORK/$PREFIX-$e-run/docker.sock" ]; do
+    i=$((i + 1)); [ $i -gt 120 ] && { docker logs "$PREFIX-$e" 2>&1 | tail -20; echo "the $e engine made no socket"; exit 2; }
     sleep 0.5
   done
 done
 python3 "$HERE/perf.py" sizes --base "$BASE_BIN" --head "$HEAD_BIN" --out "$WORK/sizes.json"
 $SUDO python3 "$HERE/perf.py" bench --runs "$RUNS" --out "$WORK/results.json" \
-  --base "$WORK/base-run/docker.sock:$(pid base)" --head "$WORK/head-run/docker.sock:$(pid head)"
+  --base "$WORK/$PREFIX-base-run/docker.sock:$(pid base)" --head "$WORK/$PREFIX-head-run/docker.sock:$(pid head)"
 status=0
 python3 "$HERE/perf.py" report "$WORK/results.json" "$WORK/sizes.json" > "$WORK/report.md" || status=$?
 cat "$WORK/report.md"

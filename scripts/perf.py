@@ -5,9 +5,8 @@ Two Linux engines run side by side, one built from main and one from the
 pull request, each in its own privileged container (see .github/workflows/
 perf.yml). Requests alternate between them, main then the change, so
 whatever else the machine is doing slows both alike, and the medians are
-compared. Some numbers don't wobble at all and are compared exactly: the
-binaries' size, the daemon's memory and the system calls one container
-costs.
+compared. Binary sizes are exact; memory and system-call counts can vary
+with scheduling and asynchronous cleanup and have their own tolerances.
 
   perf.py bench --base SOCK:PID --head SOCK:PID [--runs N] --out results.json
   perf.py sizes --base DIR --head DIR --out sizes.json
@@ -19,6 +18,7 @@ Only the standard library, so it runs on any machine with Python 3.
 import argparse
 import http.client
 import json
+import math
 import os
 import re
 import signal
@@ -28,7 +28,8 @@ import subprocess
 import sys
 import time
 
-IMAGE, TAG = "alpine", "3.21"
+IMAGE = "alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"
+WORKLOAD = "linux-engine-v2"
 
 # What fails a pull request: worse than main by more than both the share
 # and the amount. The amount keeps tiny numbers' noise from failing a
@@ -85,7 +86,7 @@ class Engine:
     def run_once(self):
         """docker run --rm alpine true, as its API calls: create, start,
         wait for the exit, remove."""
-        cid = json.loads(self.call("POST", "/containers/create", {"Image": f"{IMAGE}:{TAG}", "Cmd": ["true"]}))["Id"]
+        cid = json.loads(self.call("POST", "/containers/create", {"Image": IMAGE, "Cmd": ["true"]}))["Id"]
         self.call("POST", f"/containers/{cid}/start")
         self.call("POST", f"/containers/{cid}/wait")
         self.call("DELETE", f"/containers/{cid}?force=1")
@@ -93,7 +94,9 @@ class Engine:
     def rss_kib(self):
         with open(f"/proc/{self.pid}/status") as f:
             m = re.search(r"VmRSS:\s+(\d+)", f.read())
-        return int(m.group(1)) if m else 0
+        if not m:
+            raise RuntimeError(f"Cannot measure resident memory for daemon {self.pid}")
+        return int(m.group(1))
 
 
 def wait_ready(e, secs=60):
@@ -117,7 +120,9 @@ def timed(f):
 
 def summary(xs):
     xs = sorted(xs)
-    return {"median": statistics.median(xs), "p95": xs[int(len(xs) * 0.95) - 1], "n": len(xs)}
+    if not xs or any(not math.isfinite(x) or x < 0 for x in xs):
+        raise ValueError("Measurements must be finite, non-negative, and non-empty")
+    return {"median": statistics.median(xs), "p95": xs[math.ceil(len(xs) * 0.95) - 1], "n": len(xs)}
 
 
 def syscalls_per_run(e, runs):
@@ -125,12 +130,20 @@ def syscalls_per_run(e, runs):
     one container, from strace's count over `runs` of them."""
     out = f"/tmp/asagiri-strace-{e.pid}.txt"
     st = subprocess.Popen(["strace", "-f", "-c", "-o", out, "-p", str(e.pid)], stderr=subprocess.DEVNULL)
-    time.sleep(1.0)
-    for _ in range(runs):
-        e.run_once()
-    time.sleep(0.5)
-    st.send_signal(signal.SIGINT)
-    st.wait(timeout=30)
+    try:
+        time.sleep(1.0)
+        if st.poll() is not None:
+            raise RuntimeError("strace could not attach to the measured daemon")
+        for _ in range(runs):
+            e.run_once()
+        time.sleep(0.5)
+    finally:
+        st.send_signal(signal.SIGINT)
+        try:
+            st.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            st.kill()
+            st.wait(timeout=5)
     with open(out) as f:
         text = f.read()
     m = re.search(r"^\s*100\.00\s+\S+\s+\S+\s+(\d+)\s+(?:\d+\s+)?total\s*$", text, re.M)
@@ -143,11 +156,17 @@ def bench(a):
     base, head = Engine(a.base), Engine(a.head)
     for e in (base, head):
         wait_ready(e)
-        e.call("POST", f"/images/create?fromImage={IMAGE}&tag={TAG}")
+        pulled = e.call("POST", f"/images/create?fromImage={IMAGE}")
+        for line in pulled.splitlines():
+            if json.loads(line).get("error"):
+                raise RuntimeError(f"Benchmark image pull failed: {line!r}")
         for _ in range(10):  # warm: first runs fill caches
             e.run_once()
     time.sleep(3)
-    res = {"base": {}, "head": {}}
+    res = {"base": {}, "head": {}, "workload": {
+        "id": WORKLOAD, "image": IMAGE, "runs": a.runs, "warmup_runs": 10,
+        "syscall_runs": 20 if a.strace else 0,
+    }, "limits": LIMITS}
     for name, e in (("base", base), ("head", head)):
         res[name]["rss_idle"] = e.rss_kib()
     samples = {k: {"base": [], "head": []} for k in ("run", "ping", "list")}
@@ -166,6 +185,7 @@ def bench(a):
     if a.strace:
         for name, e in (("base", base), ("head", head)):
             res[name]["syscalls"] = syscalls_per_run(e, 20)
+    res["samples_ms"] = samples
     with open(a.out, "w") as f:
         json.dump(res, f, indent=2)
 
@@ -213,7 +233,7 @@ def report(a):
     row("Daemon memory at rest", "rss_idle", res["base"]["rss_idle"], res["head"]["rss_idle"], "MiB", mib)
     row("Daemon memory after the runs", "rss_after", res["base"]["rss_after"], res["head"]["rss_after"], "MiB", mib)
     if "syscalls" in res["base"]:
-        row("System calls per container", "syscalls", res["base"]["syscalls"], res["head"]["syscalls"], "", lambda v: f"{v:.0f}")
+        row("Daemon system calls per container", "syscalls", res["base"]["syscalls"], res["head"]["syscalls"], "", lambda v: f"{v:.0f}")
     for b in ("engine", "init"):
         if b in sz.get("base", {}):
             row(f"`{b}` binary", "size", sz["base"][b] / 1024, sz["head"][b] / 1024, "KiB", lambda v: f"{v:.0f}")
@@ -249,6 +269,8 @@ def main():
     r.add_argument("sizes", nargs="?")
     a = p.parse_args()
     if a.cmd == "bench":
+        if not 20 <= a.runs <= 4000:
+            p.error("--runs must be between 20 and 4000")
         bench(a)
     elif a.cmd == "sizes":
         sizes(a)

@@ -1,0 +1,56 @@
+.performance-intro { padding: 54px 0 36px; max-width: 900px; }
+.performance-intro h1 { font-size: clamp(40px, 4.5vw, 64px); line-height: 1.04; letter-spacing: -3px; margin: 15px 0 24px; }
+.performance-intro .intro { max-width: 680px; }
+.performance-links { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 25px; font-size: 13px; }
+#load-state { padding: 20px 0; font-size: 14px; }
+[hidden] { display: none !important; }
+.performance-stats { display: grid; grid-template-columns: repeat(3, 1fr); background: #fff; border: 1px solid #e0dfe5; border-radius: 14px; margin-bottom: 30px; }
+.performance-stats article { padding: 25px; min-width: 0; }
+.performance-stats article + article { border-left: 1px solid #e0dfe5; }
+.performance-stats span, .performance-stats small { display: block; color: #636779; font-size: 12px; line-height: 1.6; }
+.performance-stats strong, .performance-stats article > a { display: block; margin: 12px 0 8px; font-size: 25px; font-weight: 600; letter-spacing: -.6px; overflow-wrap: anywhere; }
+.performance-stats .pass { color: #176843; }
+.performance-stats .regression { color: #b5412b; }
+.performance-controls { display: grid; grid-template-columns: 1.2fr 1.1fr 1.5fr .7fr; gap: 16px; margin-bottom: 24px; }
+.performance-controls label { font-size: 11px; color: #636779; min-width: 0; }
+.performance-controls select { display: block; font: inherit; font-size: 13px; color: #161b33; background: #fff; border: 1px solid #d8d8e0; border-radius: 7px; width: 100%; padding: 11px 8px; margin-top: 8px; }
+.performance-chart { background: #fff; border: 1px solid #e0dfe5; border-radius: 14px; padding: 27px; }
+.chart-heading, .results-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.performance-page h2 { font-size: 20px; letter-spacing: -.5px; }
+#plot-unit { font-size: 12px; color: #636779; }
+#plot { display: block; width: 100%; overflow: visible; margin-top: 15px; }
+#plot .grid { stroke: #e7e6ec; stroke-width: 1; }
+#plot .axis { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; fill: #636779; }
+#plot .trend { fill: none; stroke: #d94e34; stroke-width: 2; }
+#plot .point { fill: #d94e34; stroke: white; stroke-width: 2; cursor: pointer; }
+#plot .point.regression { fill: #922b1c; }
+#plot .point:focus, #plot .point:hover { stroke: #161b33; stroke-width: 3; outline: none; }
+#selected-point { min-height: 22px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; color: #161b33; overflow-wrap: anywhere; }
+.chart-caption { font-size: 11px; line-height: 1.6; color: #636779; }
+.results-heading { margin: 35px 0 16px; }
+.results-heading a { font-size: 12px; }
+.performance-table { overflow-x: auto; border: 1px solid #e0dfe5; border-radius: 10px; background: #fff; }
+.performance-table table { width: 100%; min-width: 900px; border-collapse: collapse; text-align: left; font-size: 12px; }
+.performance-table th { font-weight: 500; color: #636779; background: #f1f0f4; padding: 14px 18px; white-space: nowrap; }
+.performance-table td { padding: 16px 18px; border-top: 1px solid #e7e6ec; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.performance-table tr.selected { background: #fdf0ec; }
+.result-badge { border-radius: 4px; padding: 4px 7px; background: #e8f5ed; color: #176843; white-space: nowrap; }
+.result-badge.regression { background: #fce9e4; color: #922b1c; }
+.performance-method { max-width: 850px; margin: 44px 0 65px; }
+.performance-method p { font-size: 13px; line-height: 1.8; color: #636779; }
+.performance-page :is(a, select, .performance-table):focus-visible { outline: 3px solid #d94e34; outline-offset: 3px; }
+@media (max-width: 900px) {
+  .performance-controls { grid-template-columns: 1fr 1fr; }
+  .performance-stats article { padding: 20px 15px; }
+  .performance-stats strong, .performance-stats article > a { font-size: 21px; }
+}
+@media (max-width: 600px) {
+  .performance-intro { padding-top: 42px; }
+  .performance-intro h1 { letter-spacing: -2px; }
+  .performance-stats { grid-template-columns: 1fr; }
+  .performance-stats article + article { border-left: 0; border-top: 1px solid #e0dfe5; }
+  .performance-controls { grid-template-columns: 1fr; }
+  .performance-chart { padding: 20px 12px; }
+  .results-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .performance-page h2 { font-size: 18px; }
+}

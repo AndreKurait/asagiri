@@ -19,6 +19,9 @@ on:
       - 'tests/ci-distribution.py'
       - 'tests/installer.py'
       - 'tests/ci-browser.py'
+      - 'tests/performance-browser.py'
+      - 'tests/ci-performance.py'
+      - 'scripts/ci/performance.py'
       - '.github/actions/browser/**'
       - '.github/workflows/site.yml'
   push:
@@ -71,6 +74,11 @@ jobs:
           CHROME: ${{ steps.browser.outputs.chrome }}
           SITE_PYTHON: ${{ steps.browser.outputs.python }}
         run: '"$SITE_PYTHON" scripts/render-demo.py --check'
+      - name: Check benchmark plots, filters, and responsive layouts
+        env:
+          CHROME: ${{ steps.browser.outputs.chrome }}
+          SITE_PYTHON: ${{ steps.browser.outputs.python }}
+        run: '"$SITE_PYTHON" tests/performance-browser.py'
       - name: Install repository publishing tools
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |

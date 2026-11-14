@@ -138,7 +138,8 @@ def main():
             raise SystemExit(f"Pages did not serve commit {args.commit} within {args.timeout}s")
         time.sleep(5)
     urls = set()
-    for path in ("", "install/", "demo/", "demo/window.html"):
+    pages = ("", "install/", "demo/", "demo/window.html", "performance/")
+    for path in pages:
         url = urljoin(base, path)
         html = fetch(url).decode()
         if "Asagiri" not in html:
@@ -155,7 +156,7 @@ def main():
         if not fetch(url):
             raise SystemExit(f"{url}: empty asset")
     verify_downloads(base)
-    print(f"PASS HTTPS, commit {args.commit}, 4 public pages, and {len(urls)} local assets")
+    print(f"PASS HTTPS, commit {args.commit}, {len(pages)} public pages, and {len(urls)} local assets")
 
 
 if __name__ == "__main__":

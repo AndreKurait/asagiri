@@ -1,0 +1,53 @@
+name: Performance history
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] only verified same-repository main Speed artifacts; bounded JSON, no downloaded code execution
+    workflows: [Speed]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed official main Speed run to archive
+        required: true
+        type: string
+      run_attempt:
+        description: Run attempt (defaults to the latest)
+        type: string
+
+permissions: {}
+
+concurrency:
+  # Different runs must not replace each other's pending publication.
+  group: performance-history-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    if: >-
+      github.repository == 'AndreKurait/asagiri' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')))
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check archive validation and regression rules
+        run: python3 tests/ci-performance.py
+      - name: Archive verified measurements
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PERF_RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          PERF_RUN_ATTEMPT: ${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+        run: |
+          args=(--run "$PERF_RUN_ID")
+          if [ -n "$PERF_RUN_ATTEMPT" ]; then args+=(--attempt "$PERF_RUN_ATTEMPT"); fi
+          python3 scripts/ci/performance.py publish "${args[@]}"
