@@ -12,7 +12,8 @@ const vbtn = () => document.getElementById("vm-toggle");
 const card = () => [document.getElementById("vm-state").textContent, vbtn().textContent];
 const bar = () => document.getElementById("statusbar").textContent;
 const main = () => document.getElementById("empty-start") ? "not running" : "list";
-const mem = () => document.getElementById("vm-mem").textContent;
+// Read as a person reads it: the card keeps a number with its unit by no-break spaces.
+const mem = () => document.getElementById("vm-mem").textContent.replace(/\u00a0/g, " ");
 const ON = ["Running", "Stop"], OFF = ["Off", "Start"];
 const state = (s) => asagiri.on({ type: "state", state: s });
 const vm = (awake) => asagiri.on({ type: "vm", awake, used_mib: awake ? 900 : 0, target_mib: awake ? 1200 : 0, ceiling_mib: 6144, running: 0, cpus: 4 });
