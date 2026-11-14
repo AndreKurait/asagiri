@@ -27,6 +27,7 @@ mod network;
 #[cfg(target_os = "macos")]
 pub(crate) mod nfs;
 mod ops;
+mod pool;
 pub(crate) mod ports;
 mod pulls;
 mod registry_mirrors;
