@@ -70,7 +70,11 @@ fn remove(address: Option<&String>) -> io::Result<()> {
 /// name the same mirror however it was typed.
 fn parse(address: Option<&String>) -> io::Result<String> {
     let address = address.ok_or_else(|| io::Error::other(USAGE))?;
-    Mirror::parse(address).map(|m| m.as_url()).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
+    let config = client::get("/asagiri/daemon-config")?;
+    let insecure: Vec<String> = config["insecure-registries"].as_array().into_iter().flatten()
+        .filter_map(|s| s.as_str().map(str::to_owned)).collect();
+    let settings = asagiri_image::RegistrySettings::new(&insecure, 4, 5).map_err(io::Error::other)?;
+    Mirror::parse_with(address, &settings).map(|m| m.as_url()).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
 }
 
 fn current() -> io::Result<Vec<String>> {

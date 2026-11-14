@@ -70,6 +70,8 @@ mod machine;
 #[cfg(unix)]
 mod registry_mirror;
 #[cfg(unix)]
+mod daemon_config;
+#[cfg(unix)]
 mod run;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -101,6 +103,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri setup [--use] [--no-agent] | asagiri setup --uninstall
        asagiri build-with [docker|asagiri]   which builder docker build uses
        asagiri registry-mirror list | add ADDRESS | remove ADDRESS   Docker Hub mirrors
+       asagiri config [show] | set JSON | set -   Registry and transfer settings
        asagiri mcp [enable|disable|allow-changes on|off|status|config]   local AI integration
        asagiri web [--port PORT]   local browser; set a password with asagiri web password
        asagiri web enable|disable|allow-changes on|off|status
@@ -189,6 +192,8 @@ fn main() -> ExitCode {
         Some("build-with") => buildwith::cli(&args[1..]),
         #[cfg(unix)]
         Some("registry-mirror") => registry_mirror::run(&args[1..]),
+        #[cfg(unix)]
+        Some("config") => daemon_config::run(&args[1..]),
         #[cfg(unix)]
         Some("k8s") => k8s::run(&args[1..]),
         #[cfg(unix)]

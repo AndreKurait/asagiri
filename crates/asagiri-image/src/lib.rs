@@ -9,11 +9,13 @@ mod connect;
 pub mod mirror;
 pub mod reference;
 pub mod registry;
+pub mod settings;
 pub mod store;
 pub mod tags;
 
 pub use cancel::Cancel;
 pub use mirror::Mirror;
 pub use reference::Reference;
-pub use registry::{Client, Credentials, MirrorSource, Platform, Progress, PushProgress, set_mirror_source, set_proxy_source};
+pub use registry::{Client, Credentials, MirrorSource, Platform, Progress, PushProgress, set_mirror_source, set_proxy_source, set_registry_settings_source};
+pub use settings::RegistrySettings;
 pub use store::{Image, Layer, RunConfig, Store};

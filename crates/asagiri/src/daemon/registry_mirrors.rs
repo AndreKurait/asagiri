@@ -1,5 +1,6 @@
 //! Registry mirrors: Settings → Registry mirrors
-//! (`~/.asagiri/registry-mirrors.json`). Docker Hub images are pulled through
+//! (saved with the other registry settings in `~/.asagiri/daemon.json`).
+//! The old `registry-mirrors.json` is read on first startup. Docker Hub images are pulled through
 //! these first, in the order they are listed, then from Docker Hub itself.
 //! As Docker's `registry-mirrors`, they apply to `docker.io` only: other
 //! registries are pulled from directly, and pushes never go through them.
@@ -7,24 +8,17 @@
 //! The list is the daemon's, not the window's, because pulls happen here;
 //! `asagiri registry-mirror` edits it through the same HTTP API.
 
-use std::path::PathBuf;
-
 use asagiri_image::Mirror;
 use serde_json::{Value, json};
 
 /// Enough to fail over a few times, few enough that a pull does not spend
 /// its time asking one dead address after another.
+#[cfg(test)]
 const MAX: usize = 16;
 
-pub fn path() -> Option<PathBuf> {
-    super::state_dir().ok().map(|d| d.join("registry-mirrors.json"))
-}
-
-/// The configured mirrors, in the order a pull tries them. A file that is
-/// not there, or not readable, is no mirrors.
+/// The validated configured mirrors, in the order a pull tries them.
 pub fn list() -> Vec<Mirror> {
-    let saved = path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
-    saved["mirrors"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).filter_map(|s| Mirror::parse(s).ok()).collect()
+    super::registry_config::snapshot().mirrors
 }
 
 /// What Settings shows: the saved addresses, normalized, and what they
@@ -37,17 +31,13 @@ pub fn report() -> Value {
 /// Returns what was saved, normalized.
 pub fn set(body: &Value) -> Result<Value, String> {
     let given = body["mirrors"].as_array().ok_or_else(|| "mirrors must be a list of addresses".to_owned())?;
-    let mirrors = normalize(given)?;
-    let urls: Vec<String> = mirrors.iter().map(Mirror::as_url).collect();
-    let path = path().ok_or_else(|| "HOME is not set".to_owned())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json!({"mirrors": urls}).to_string()).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    super::registry_config::set(&json!({"registry-mirrors": given}))?;
     Ok(report())
 }
 
 /// Checks and normalizes the addresses: each a mirror, in order, no
 /// duplicates.
+#[cfg(test)]
 fn normalize(given: &[Value]) -> Result<Vec<Mirror>, String> {
     if given.len() > MAX {
         return Err(format!("at most {MAX} mirrors"));

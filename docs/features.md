@@ -54,6 +54,9 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   pulls (and Dockerfile `FROM`s) can go through pull-through mirrors, in
   order, from Settings → Registry mirrors or `asagiri registry-mirror`; other
   registries are pulled directly
+- **Registry configuration** — `asagiri config` saves validated private-registry
+  exceptions, mirrors and per-pull/push transfer limits. See
+  [Registry configuration](registry-configuration.md).
 - **Builds**: `docker build` / `buildx build` through the
   [built-in Docker driver](buildkit.md), with direct image loading, secrets,
   caching, file exports and cancellation. The existing docker-container

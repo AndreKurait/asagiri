@@ -18,6 +18,10 @@ def check(path):
     assert first["Name"] == socket.gethostname(), (first["Name"], socket.gethostname())
     assert first["ID"] == second["ID"] and first["ID"] != "asagiri", (first["ID"], second["ID"])
     uuid.UUID(first["ID"])
+    if sys.platform == "linux" and os.environ.get("ASAGIRI_TEST_ENGINE") == "1":
+        # These private CI hosts have no CPU quota. /info must describe
+        # native Linux CPUs, rather than the saved preference for a Mac VM.
+        assert first["NCPU"] == len(os.sched_getaffinity(0)), (first["NCPU"], len(os.sched_getaffinity(0)))
     expected = os.environ.get("EXPECTED_ENGINE_ID")
     if expected:
         assert first["ID"] == expected, (first["ID"], expected)

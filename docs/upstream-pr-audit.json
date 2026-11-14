@@ -1,8 +1,8 @@
 {
-  "reviewed_at": "2026-11-14T17:39:41.580242+00:00",
+  "reviewed_at": "2026-11-14T20:08:05.427721+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
-  "asagiri_runtime_revision": "66cab68f280360bc36b5c630682d382aff2d8308",
+  "asagiri_runtime_revision": "700fbd2b97e130d83c766e493b141551a18b7ac8",
   "counts": {
     "total": 148,
     "merged": 85,
@@ -632,9 +632,14 @@
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
-      "ports": [],
-      "disposition": "partly-superseded-and-held",
-      "reason": "Multilingual UI is superseded by #95; the Images column sizing and regression test are inherited through #56; registry mirrors by the reviewed #119 implementation. Hold d01849287155 daemon.json/insecure-registry/concurrency prototype: its separate configuration API and HTTP transport behavior need dedicated design and runtime coverage."
+      "ports": [
+        {
+          "source": "d01849287155e23c11357183430ba6ac33ef58f4",
+          "asagiri": "da180c321ba3cdf5f812be83145850af60a24aa9"
+        }
+      ],
+      "disposition": "partly-superseded-and-ported",
+      "reason": "Languages are covered by #95, Images column sizing by #56, and mirrors by #119. The remaining daemon.json, explicit HTTP/self-signed registry policy and bounded transfer workers are implemented with atomic updates, credential/redirect boundaries, CLI controls and real pull/push/BuildKit coverage. Linux source 700fbd2 passes the private registry suite; hostname authorities and literal-IP CIDRs have documented scope."
     },
     {
       "number": 70,
