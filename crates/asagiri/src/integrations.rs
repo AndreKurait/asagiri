@@ -27,15 +27,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn current() -> io::Result<Self> {
-        #[cfg(unix)]
-        let directory = std::env::var_os("HOME").map(PathBuf::from)
-            .ok_or_else(|| io::Error::other("HOME is not set"))?
-            .join(crate::flavor::STATE.get()).join("integrations");
-        #[cfg(windows)]
-        let directory = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
-            .ok_or_else(|| io::Error::other("LOCALAPPDATA is not set"))?
-            .join("Asagiri").join("integrations");
-        Ok(Self { directory })
+        Ok(Self { directory: directory()? })
     }
 
     #[cfg(test)]
@@ -70,6 +62,18 @@ impl Settings {
     }
 }
 
+pub fn directory() -> io::Result<PathBuf> {
+    #[cfg(unix)]
+    let path = std::env::var_os("HOME").map(PathBuf::from)
+        .ok_or_else(|| io::Error::other("HOME is not set"))?
+        .join(crate::flavor::STATE.get()).join("integrations");
+    #[cfg(windows)]
+    let path = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+        .ok_or_else(|| io::Error::other("LOCALAPPDATA is not set"))?
+        .join("Asagiri").join("integrations");
+    Ok(path)
+}
+
 pub fn private_directory(path: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
@@ -94,7 +98,7 @@ pub fn private_directory(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn open(path: &Path, create: bool) -> io::Result<File> {
+pub(crate) fn open(path: &Path, create: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(create).create(create);
     #[cfg(unix)]

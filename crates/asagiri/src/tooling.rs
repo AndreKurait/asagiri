@@ -69,7 +69,7 @@ pub fn call(client: &Client, authorize: &dyn Fn() -> io::Result<Permissions>, na
     let allowed = || -> Result<(), String> {
         control.check().map_err(|e| e.to_string())?;
         let p = authorize().map_err(|e| format!("cannot read integration permissions: {e}"))?;
-        if !p.enabled { return Err("Asagiri integration access is disabled. Enable it in Settings or with `asagiri mcp enable`.".into()); }
+        if !p.enabled { return Err("Asagiri integration access is disabled. Enable this integration in Asagiri settings or its CLI command.".into()); }
         if changes(name) && !p.allow_container_changes { return Err("Container changes are disabled. Enable Allow container changes first.".into()); }
         Ok(())
     };

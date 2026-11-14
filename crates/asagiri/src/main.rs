@@ -45,6 +45,10 @@ mod images;
 #[cfg(any(unix, windows))]
 mod integrations;
 #[cfg(any(unix, windows))]
+mod browser_settings;
+#[cfg(any(unix, windows))]
+mod browser;
+#[cfg(any(unix, windows))]
 mod local_api;
 #[cfg(any(unix, windows))]
 mod mcp;
@@ -98,6 +102,8 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri build-with [docker|asagiri]   which builder docker build uses
        asagiri registry-mirror list | add ADDRESS | remove ADDRESS   Docker Hub mirrors
        asagiri mcp [enable|disable|allow-changes on|off|status|config]   local AI integration
+       asagiri web [--port PORT]   local browser; set a password with asagiri web password
+       asagiri web enable|disable|allow-changes on|off|status
        asagiri update [--check]
        asagiri diag logs [-f] [--ui|--engine|--cli] [--errors] [-n N]
        asagiri diag report [--out PATH] [--send]   (a file to send us, tokens taken out)
@@ -120,6 +126,14 @@ fn main() -> ExitCode {
     #[cfg(any(unix, windows))]
     if args.first().map(String::as_str) == Some("mcp") {
         return match mcp::run(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => { eprintln!("asagiri: {e}"); ExitCode::FAILURE }
+        };
+    }
+    // Browser setup and the foreground listener do not start the engine.
+    #[cfg(any(unix, windows))]
+    if args.first().map(String::as_str) == Some("web") {
+        return match browser::run(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => { eprintln!("asagiri: {e}"); ExitCode::FAILURE }
         };
