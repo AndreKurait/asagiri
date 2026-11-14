@@ -1435,6 +1435,19 @@ fn ports_list(c: &Container) -> Value {
     )
 }
 
+/// The requested bindings, independent of a running container's allocated ports.
+fn requested_ports_map(bindings: &[super::ports::Binding]) -> Value {
+    let mut m = serde_json::Map::new();
+    for binding in bindings {
+        let key = format!("{}/{}", binding.container_port, binding.proto);
+        let entry = m.entry(key).or_insert_with(|| json!([]));
+        if let Some(array) = entry.as_array_mut() {
+            array.push(json!({"HostIp": binding.host_ip, "HostPort": binding.host_port.to_string()}));
+        }
+    }
+    Value::Object(m)
+}
+
 /// Docker's `NetworkSettings.Ports` map for inspect and `docker port`.
 fn ports_map(c: &Container) -> Value {
     let mut m = serde_json::Map::new();
@@ -2284,6 +2297,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
         },
         "HostConfig": {
             "AutoRemove": c.spec.auto_remove,
+            "PortBindings": requested_ports_map(&c.spec.ports),
             "Privileged": c.spec.privileged,
             "CapAdd": c.spec.cap_add,
             "CapDrop": c.spec.cap_drop,
@@ -3084,6 +3098,21 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requested_port_bindings_keep_addresses_protocols_and_ephemeral_requests() {
+        use super::super::ports::Binding;
+        assert_eq!(requested_ports_map(&[]), json!({}));
+        let bindings = [
+            Binding { container_port: 80, proto: "tcp".into(), host_ip: "127.0.0.1".into(), host_port: 8080 },
+            Binding { container_port: 80, proto: "tcp".into(), host_ip: "127.0.0.2".into(), host_port: 0 },
+            Binding { container_port: 80, proto: "udp".into(), host_ip: "::1".into(), host_port: 9090 },
+        ];
+        assert_eq!(requested_ports_map(&bindings), json!({
+            "80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}, {"HostIp": "127.0.0.2", "HostPort": "0"}],
+            "80/udp": [{"HostIp": "::1", "HostPort": "9090"}],
+        }));
+    }
 
     #[test]
     fn image_inspection_reports_uncompressed_diff_ids_in_config_order() {
