@@ -99,7 +99,7 @@ def verify_downloads(base):
             if (provenance["source"] != release["commit"] or provenance["release"] != release_url
                     or provenance["rpm_signing_fingerprint"] != fingerprint):
                 raise SystemExit("The RPM repository does not identify the selected source and key")
-            rpm_version = version.replace("-", "~", 1)
+            rpm_version = version.replace("-", ".", 1)
             expected_names = {f"{name}-{rpm_version}-1.{arch}.rpm" for name in ("asagiri", "asagiri-lite")}
             packages = {item["name"]: item for item in provenance["packages"]}
             if set(packages) != expected_names:
