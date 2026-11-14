@@ -16,7 +16,7 @@ dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
-  "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
+  "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl strace && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
 trap 'docker rm -fv "$name" >/dev/null 2>&1' EXIT INT TERM
 
 i=0
@@ -41,6 +41,7 @@ run engine-identity
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run layer-concurrency
+run cleanup-responsive alpine:3.21
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"

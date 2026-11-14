@@ -21,7 +21,7 @@ pub fn listen() -> io::Result<OwnedFd> {
 
 /// Accepts every pending copy and forks a child for each. `running` maps
 /// container ids to their init pids.
-pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], paths: &Paths) {
+pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&str], paths: &Paths) {
     loop {
         // SAFETY: accept4 on a listening socket we own; the fd is owned immediately.
         let fd = unsafe { libc::accept4(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_CLOEXEC) };
@@ -34,7 +34,7 @@ pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], paths: &Paths
         // copy. The child only uses what it inherited, then exits.
         match unsafe { libc::fork() } {
             0 => {
-                let code = match job(sock, running, paths) {
+                let code = match job(sock, running, cleaning, paths) {
                     Ok(()) => 0,
                     Err(e) => {
                         eprintln!("asagiri-init: copy: {e}");
@@ -51,7 +51,7 @@ pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], paths: &Paths
     }
 }
 
-fn job(sock: OwnedFd, running: &[(&str, libc::pid_t)], paths: &Paths) -> io::Result<()> {
+fn job(sock: OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&str], paths: &Paths) -> io::Result<()> {
     let fd = sock.as_raw_fd();
     // Only the connection (and the console) stays open: the child must not
     // hold the agent's pipes, which would keep containers' stdin from closing.
@@ -68,6 +68,9 @@ fn job(sock: OwnedFd, running: &[(&str, libc::pid_t)], paths: &Paths) -> io::Res
         Ok(other) => return reply_error(&mut conn, &format!("expected a copy request, got {other:?}")),
         Err(e) => return reply_error(&mut conn, &format!("bad frame: {e:?}")),
     };
+    if cleaning.contains(&spec.id) {
+        return reply_error(&mut conn, "container filesystem cleanup is still in progress");
+    }
     let result = match spec.op {
         // These read the writable layer itself, next to the image's layers.
         copy_op::DIFF | copy_op::COMMIT => layer_job(&mut conn, &spec, paths),

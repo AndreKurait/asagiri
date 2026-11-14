@@ -43,8 +43,10 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// socket so unpacking does not block the control stream. 8 includes the
 /// configured user in copy requests for Docker's copyUIDGID option. 9 adds
 /// mounts to copy requests so stopped-container archives cannot bypass them.
+/// 10 separates process exits from filesystem-cleanup completion so stop
+/// remains prompt while same-container restarts wait for cleanup.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 9;
+pub const PROTOCOL: u16 = 10;
 
 // `Run` is far larger than the rest, but boxing it would cost `Msg` its
 // `Copy`, and a `Msg` only lives while its frame is handled.
@@ -77,6 +79,9 @@ pub enum Msg<'a> {
     Started { id: &'a str, pid: u32 },
     Output { id: &'a str, stream: Stream, data: &'a [u8] },
     Exited(Exited<'a>),
+    /// Filesystem teardown brackets the process exit; only this ID must wait.
+    CleanupPending(&'a str),
+    CleanupDone(&'a str),
     /// Host → guest: send `signal` to the container's process. No reply;
     /// the effect shows up as `Exited`.
     Kill { id: &'a str, signal: u32 },
@@ -715,6 +720,8 @@ mod kind {
     pub const USAGE: u16 = 75;
     pub const USB_NODES_QUERY: u16 = 76;
     pub const USB_NODES: u16 = 77;
+    pub const CLEANUP_PENDING: u16 = 78;
+    pub const CLEANUP_DONE: u16 = 79;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1092,6 +1099,8 @@ impl Msg<'_> {
                 put_u32(o, u32::from(p.to_port));
             }),
             Msg::Unpublish { id } => frame(out, kind::UNPUBLISH, |o| put_str(o, id)),
+            Msg::CleanupPending(id) => frame(out, kind::CLEANUP_PENDING, |o| put_str(o, id)),
+            Msg::CleanupDone(id) => frame(out, kind::CLEANUP_DONE, |o| put_str(o, id)),
             Msg::Exited(e) => frame(out, kind::EXITED, |o| {
                 put_str(o, e.id);
                 put_u32(o, e.code as u32);
@@ -1248,6 +1257,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             };
             Msg::Output { id, stream, data: r.bytes()? }
         }
+        kind::CLEANUP_PENDING => Msg::CleanupPending(r.str()?),
+        kind::CLEANUP_DONE => Msg::CleanupDone(r.str()?),
         kind::EXITED => Msg::Exited(Exited {
             id: r.str()?,
             code: r.u32()? as i32,
@@ -1376,6 +1387,8 @@ mod tests {
         round(Msg::LayerStored(LayerStored { unpacked_bytes: 1, elapsed_ns: 2 }));
         round(Msg::Started { id: "c1", pid: 42 });
         round(Msg::Output { id: "c1", stream: Stream::Stderr, data: b"hi\n" });
+        round(Msg::CleanupPending("c1"));
+        round(Msg::CleanupDone("c1"));
         round(Msg::Exited(Exited { id: "c1", code: -1, setup_ns: 3, run_ns: 4, oom_killed: false }));
         round(Msg::Exited(Exited { id: "c1", code: 137, setup_ns: 3, run_ns: 4, oom_killed: true }));
         // An older agent's Exited, without the flag, reads as not killed for memory.

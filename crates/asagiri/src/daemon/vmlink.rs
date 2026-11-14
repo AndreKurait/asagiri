@@ -8,7 +8,7 @@
 // The file-view replies serve the Finder view, which only macOS has.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -77,6 +77,7 @@ pub struct VmLink {
     /// The guest's latest `Usage` lines, for `usage`.
     usage: Arc<UsageSlot>,
     pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
+    cleanup: Arc<CleanupBarrier>,
     /// Owns the VM until retirement has confirmed shutdown and cleanup.
     _vm: Mutex<Vm>,
     /// Opens vsock streams without that mutex, so connects run side by side.
@@ -86,6 +87,32 @@ pub struct VmLink {
 impl std::fmt::Debug for VmLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("VmLink")
+    }
+}
+
+/// The transport reader never waits here: it installs the barrier before
+/// delivering Exited, then completes it independently of request replies.
+#[derive(Default)]
+struct CleanupBarrier {
+    state: Mutex<(HashSet<String>, bool)>,
+    changed: Condvar,
+}
+impl CleanupBarrier {
+    fn pending(&self, id: &str) { self.state.lock().unwrap_or_else(|e| e.into_inner()).0.insert(id.to_owned()); }
+    fn done(&self, id: &str) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).0.remove(id);
+        self.changed.notify_all();
+    }
+    fn lost(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+        self.changed.notify_all();
+    }
+    fn wait(&self, id: &str) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while state.0.contains(id) && !state.1 {
+            state = self.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+        if state.1 { Err(io::Error::new(io::ErrorKind::BrokenPipe, "VM stopped during filesystem cleanup")) } else { Ok(()) }
     }
 }
 
@@ -243,6 +270,8 @@ impl VmLink {
         let wins = windows.clone();
         let usage = Arc::new(UsageSlot::default());
         let slot = usage.clone();
+        let cleanup = Arc::new(CleanupBarrier::default());
+        let cleaning = cleanup.clone();
         std::thread::Builder::new().name("asa-vm-reader".into()).spawn(move || {
             let mut frame = Vec::with_capacity(64 * 1024);
             while read_frame(&mut reader, &mut frame).is_ok() {
@@ -262,6 +291,8 @@ impl VmLink {
                         slot.arrived.notify_all();
                         continue;
                     }
+                    Ok(Msg::CleanupPending(id)) => { cleaning.pending(id); continue; }
+                    Ok(Msg::CleanupDone(id)) => { cleaning.done(id); continue; }
                     Ok(Msg::Exited(e)) => {
                         wins.close(e.id);
                         on_event(Event::Exited { id: e.id, code: e.code, oom: e.oom_killed });
@@ -304,6 +335,7 @@ impl VmLink {
             // Publish loss before waking callers: a retry must not borrow
             // this dead link while the engine is still accounting exits.
             wins.lose();
+            cleaning.lost();
             for slot in queue.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
                 let _ = slot.send(Reply::Error("the VM stopped".into()));
             }
@@ -314,6 +346,7 @@ impl VmLink {
             writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
             control,
             pending,
+            cleanup,
             windows,
             usage,
             connector: vm.connector(),
@@ -408,6 +441,7 @@ impl VmLink {
         caps: u64,
         opts: &[String],
     ) -> io::Result<u32> {
+        self.wait_cleanup(id)?;
         self.windows.open(id);
         let r = self.call(|o| asagiri_proto::encode_run(o, id, layers, argv, env, cwd, user, hostname, flags, net, mounts, limits, caps, opts), None).and_then(started);
         if r.is_err() {
@@ -567,7 +601,10 @@ impl VmLink {
         self.send(|o| Msg::Kill { id, signal }.encode(o))
     }
 
+    pub fn wait_cleanup(&self, id: &str) -> io::Result<()> { self.cleanup.wait(id) }
+
     pub fn remove(&self, id: &str) -> io::Result<()> {
+        self.wait_cleanup(id)?;
         self.send(|o| Msg::Remove { id }.encode(o))
     }
 
@@ -730,5 +767,42 @@ mod tests {
         assert_eq!(windows.wait_for_loss(std::time::Duration::ZERO).unwrap_err().kind(), io::ErrorKind::TimedOut);
         windows.lose();
         assert_eq!(windows.wait_for_loss(std::time::Duration::ZERO).unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::CleanupBarrier;
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    #[test]
+    fn cleanup_blocks_only_its_container_and_completion_releases_waiters() {
+        let barrier = Arc::new(CleanupBarrier::default());
+        barrier.pending("cleaning");
+        barrier.wait("unrelated").unwrap();
+        let (sent, received) = mpsc::channel();
+        let worker = barrier.clone();
+        let thread = std::thread::spawn(move || { sent.send(worker.wait("cleaning").is_ok()).unwrap(); });
+        assert!(received.recv_timeout(Duration::from_millis(20)).is_err());
+        barrier.done("unrelated");
+        assert!(received.recv_timeout(Duration::from_millis(20)).is_err());
+        barrier.done("cleaning");
+        assert!(received.recv_timeout(Duration::from_secs(2)).unwrap());
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn transport_loss_fails_pending_and_future_lifecycle_requests() {
+        let barrier = Arc::new(CleanupBarrier::default());
+        barrier.pending("cleaning");
+        let (sent, received) = mpsc::channel();
+        let worker = barrier.clone();
+        let thread = std::thread::spawn(move || { sent.send(worker.wait("cleaning").unwrap_err().kind()).unwrap(); });
+        assert!(received.recv_timeout(Duration::from_millis(20)).is_err());
+        barrier.lost();
+        assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap(), std::io::ErrorKind::BrokenPipe);
+        assert!(barrier.wait("unrelated").is_err());
+        thread.join().unwrap();
     }
 }

@@ -2583,6 +2583,12 @@ impl Engine {
     /// Opens a `docker cp` session with the guest for a container, running
     /// or not: the request frame is sent, the caller does the rest.
     pub fn copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
+        // Lock order: container lifecycle, short state snapshot, then cleanup
+        // wait and frame submission with no state lock. The reader's Exited
+        // callback never takes this lifecycle lock. This serializes setup with
+        // start/remove; an already-open copy stream keeps its existing lifetime.
+        let lifecycle = self.lifecycle(key)?;
+        let _copying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let (id, layers, user, mounts) = {
             let st = self.lock();
             let id = resolve(&st, key)?;
@@ -2591,6 +2597,7 @@ impl Engine {
             (id, layers, user, mounts)
         };
         let vm = self.vm()?;
+        vm.wait_cleanup(&id)?;
         let stream = vm.connect(asagiri_proto::COPY_PORT)?;
         let mut out = Vec::new();
         asagiri_proto::encode_copy(&mut out, op, &id, path, flags, &layers, &user, &mounts);
