@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Archives see stopped-container volumes and binds without starting the process."""
+import io
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tarfile
+import tempfile
+import uuid
+
+
+def check(path, image):
+    assert os.environ.get('ASAGIRI_TEST_ENGINE') == '1', 'Use a disposable engine only'
+    docker = ['docker', '-H', 'unix://' + path]
+    def call(*args, input=None):
+        return subprocess.check_output(docker + list(args), input=input, timeout=30)
+    suffix = uuid.uuid4().hex[:12]
+    volume = 'archive-volume-' + suffix
+    containers = []
+    call('volume', 'create', volume)
+    try:
+        with tempfile.TemporaryDirectory(prefix='archive-bind-') as source:
+            payload = b'nameserver 127.0.0.11\n'
+            local = pathlib.Path(source) / 'input'
+            local.write_bytes(payload)
+            for kind, mount in [('volume', volume + ':/new-mount'), ('bind', source + ':/new-mount')]:
+                cid = call('create', '--network', 'none', '-v', mount, image, 'sleep', '120').decode().strip()
+                containers.append(cid)
+                call('cp', str(local), cid + ':/new-mount/resolv.conf')
+                row = json.loads(call('inspect', cid))[0]
+                assert row['State']['Status'] == 'created' and not row['State']['Running'], row['State']
+                archive = call('cp', cid + ':/new-mount/resolv.conf', '-')
+                with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+                    assert tar.extractfile(tar.getmembers()[0]).read() == payload
+                exported = call('export', cid)
+                with tarfile.open(fileobj=io.BytesIO(exported)) as tar:
+                    assert not any(m.name.lstrip('./') == 'new-mount/resolv.conf' for m in tar.getmembers())
+                call('start', cid)
+                assert call('exec', cid, 'cat', '/new-mount/resolv.conf') == payload
+                call('stop', '-t', '0', cid)
+                assert call('cp', cid + ':/new-mount/resolv.conf', '-')
+                readonly = call('create', '--network', 'none', '-v', mount + ':ro', image, 'sleep', '120').decode().strip()
+                containers.append(readonly)
+                assert call('cp', readonly + ':/new-mount/resolv.conf', '-')
+                denied = subprocess.run(docker + ['cp', str(local), readonly + ':/new-mount/denied'], capture_output=True, timeout=30)
+                assert denied.returncode != 0, denied.stdout
+                print('PASS stopped ' + kind + ' copy-in/out, runtime persistence, export exclusion, and read-only enforcement')
+    finally:
+        for cid in containers:
+            subprocess.run(docker + ['rm', '-fv', cid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        call('volume', 'rm', volume)
+
+
+if __name__ == '__main__':
+    check(sys.argv[1], sys.argv[2])

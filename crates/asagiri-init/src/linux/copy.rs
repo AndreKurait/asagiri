@@ -105,7 +105,13 @@ fn enter(spec: &CopySpec<'_>, running: &[(&str, libc::pid_t)], paths: &Paths) ->
             // SAFETY: unshare with a valid flag.
             sys::check(unsafe { libc::unshare(libc::CLONE_NEWNS) } as _, "unshare")?;
             sys::remount(c"/", libc::MS_REC | libc::MS_PRIVATE)?;
-            container::mount_rootfs(paths, spec.id, spec.layers)?
+            let root = container::mount_rootfs(paths, spec.id, spec.layers)?;
+            // Archive reads and writes see persistent mounts even before the
+            // container first starts. Export still excludes their contents.
+            if spec.op != copy_op::EXPORT {
+                container::mount_copy_filesystems(&root, spec.mounts)?;
+            }
+            root
         }
     };
     let c = sys::cstr(&root)?;
