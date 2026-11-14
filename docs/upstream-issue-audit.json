@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-14T19:33:30.037704+00:00",
+  "reviewed_at": "2026-11-14T20:11:17.821901+00:00",
   "repository": "libracoder/kiri",
-  "count": 71,
+  "count": 75,
   "issues": [
     {
       "number": 10,
@@ -642,6 +642,42 @@
       "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
       "disposition": "partially-covered",
       "reason": "A pinned private Linux comparison of Asagiri, Docker 29.9.3 and Podman 6.1.3 passed GHA run 43632761522. All 3,600 raw timings, summaries, artifact digest and source identities were independently checked and are retained in docs/benchmarks. The portable harness also accepts Colima sockets; native Mac/Colima VM performance remains unmeasured."
+    },
+    {
+      "number": 227,
+      "title": "Linux: every `docker build` fails \u2014 Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
+      "state": "open",
+      "updated_at": "2026-11-14T19:46:05Z",
+      "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
+      "disposition": "fix-and-regression",
+      "reason": "Stopped archive jobs now wait for the chrooted worker and its private mounts to exit before upload/stat completion or download EOF. The delayed-worker negative control reproduces premature completion on 6f7ac86; ce0eb4f passes the completion barrier and real BuildKit builds."
+    },
+    {
+      "number": 228,
+      "title": "Linux: `docker network create` without an explicit subnet always fails with \"no free subnet left\" (breaks kind)",
+      "state": "open",
+      "updated_at": "2026-11-14T19:45:30Z",
+      "body_sha256": "3967ca2b74e1ef7408073e7a5b9bd48f55bd52162c855e0c78f8ecd140ae0783",
+      "disposition": "runtime-regression-covered",
+      "reason": "Automatic IPv4 and kind dual-stack creation pass with distinct free subnets. A real kind v0.27.0/Kubernetes v1.32.2 cluster boots on ce0eb4f. The reported pool exhaustion was not reproduced on this private Linux host."
+    },
+    {
+      "number": 229,
+      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver \u2014 DNS inside the node times out",
+      "state": "open",
+      "updated_at": "2026-11-14T19:46:03Z",
+      "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
+      "disposition": "runtime-regression-covered",
+      "reason": "Gateway and embedded DNS resolve local A/AAAA and public names. A real kind v0.27.0/Kubernetes v1.32.2 node uses the gateway resolver, pulls a containerd image and resolves a peer alias; a pod resolves public DNS and an absolute peer alias through CoreDNS on ce0eb4f."
+    },
+    {
+      "number": 230,
+      "title": "Linux: container overlay mounts leak across a daemon restart \u2014 nothing can start until manually unmounted",
+      "state": "open",
+      "updated_at": "2026-11-14T19:46:01Z",
+      "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
+      "disposition": "fix-and-regression",
+      "reason": "Startup unmounts owned rootfs paths even after the old cgroup is removed, including stacked mounts. Two daemon restarts in the same host mount namespace and a four-mount orphan fixture preserve manual/restart-always containers and writable data on ce0eb4f; the old source retains the orphan mounts."
     }
   ]
 }
