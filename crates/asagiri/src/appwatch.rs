@@ -29,13 +29,17 @@ pub fn watch(on_gone: impl FnOnce(&Path) + Send + 'static) {
 
 fn watch_path(path: PathBuf, every: Duration, on_gone: impl FnOnce(&Path) + Send + 'static) {
     let _ = std::thread::Builder::new().name("asa-app-watch".into()).spawn(move || {
-        let mut missing = 0;
-        while missing < 2 {
-            std::thread::sleep(every);
-            missing = if path.exists() { 0 } else { missing + 1 };
-        }
+        wait_until_gone(&path, || std::thread::sleep(every));
         on_gone(&path);
     });
+}
+
+fn wait_until_gone(path: &Path, mut wait: impl FnMut()) {
+    let mut missing = 0;
+    while missing < 2 {
+        wait();
+        missing = if path.exists() { 0 } else { missing + 1 };
+    }
 }
 
 #[cfg(test)]
@@ -67,13 +71,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("asagiri");
         std::fs::write(&exe, b"old").unwrap();
-        let (tx, rx) = mpsc::channel();
-        super::watch_path(exe.clone(), Duration::from_millis(400), move |p| tx.send(p.to_owned()).unwrap());
-        // Gone for the first look (at 400 ms), back before the second (800 ms).
-        std::fs::remove_file(&exe).unwrap();
-        std::thread::sleep(Duration::from_millis(600));
-        std::fs::write(&exe, b"new").unwrap();
-        assert!(rx.recv_timeout(Duration::from_millis(1500)).is_err());
+        // Observe the replacement between checks without relying on the
+        // scheduler waking this test before the watcher's next deadline.
+        // A later removal must still take two more checks to be reported.
+        let mut polls = 0;
+        super::wait_until_gone(&exe, || {
+            match polls {
+                0 | 2 => std::fs::remove_file(&exe).unwrap(),
+                1 => std::fs::write(&exe, b"new").unwrap(),
+                3 => {}
+                _ => panic!("a missing program was not noticed"),
+            }
+            polls += 1;
+        });
+        assert_eq!(polls, 4);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
