@@ -589,7 +589,7 @@ pub fn oom_killed(p: &Process) -> bool {
 /// outside the namespace names one, so none can be noted for later without
 /// keeping the namespace, and with it a stopped container that still
 /// answers on the network.
-pub fn teardown(p: &Process, netns_shared: bool) {
+pub fn teardown_network(p: &Process, netns_shared: bool) {
     if netns_shared {
         for v in &p.veths {
             let _ = net::detach(v);
@@ -600,8 +600,43 @@ pub fn teardown(p: &Process, netns_shared: bool) {
     for m in &p.macvlans {
         let _ = net::unplug(m);
     }
+}
+
+/// Synchronous shutdown/fallback cleanup. Normal exit uses `begin_teardown`.
+pub fn teardown(p: &Process, netns_shared: bool) {
+    teardown_network(p, netns_shared);
     if let Some(t) = &p.teardown {
         undo_now(t, t.remove);
+    }
+}
+
+/// Keep network bookkeeping in the agent, but perform filesystem teardown in a
+/// child sharing its mount namespace. Even MNT_DETACH can wait for overlay
+/// writeback. The caller retains the container until this child is reaped so a
+/// restart cannot reuse paths while the child is unmounting/removing them.
+pub fn has_filesystem_teardown(p: &Process) -> bool { p.teardown.is_some() }
+
+pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
+    let t = p.teardown.as_ref()?;
+    // SAFETY: matches the agent's existing copy-worker fork model. This child
+    // uses inherited paths, shares the agent mount namespace, and exits without
+    // running parent destructors. It must NOT unshare CLONE_NEWNS: unmounting a
+    // private copy would leave the parent's overlay mounted.
+    let pid = unsafe { libc::fork() };
+    if pid == 0 {
+        // Do not keep control sockets, container pipes or namespace FDs alive.
+        // SAFETY: this affects only the child's descriptor table.
+        unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0); }
+        undo_now(t, t.remove);
+        // SAFETY: leave this fork without running the parent's destructors.
+        unsafe { libc::_exit(0) }
+    }
+    if pid < 0 {
+        eprintln!("asagiri-init: cleanup fork: {}; cleaning synchronously", io::Error::last_os_error());
+        undo_now(t, t.remove);
+        None
+    } else {
+        Some(pid)
     }
 }
 

@@ -32,6 +32,10 @@ struct Proc {
     /// held the pty open, as while systemd reopens /dev/console. Kept, and
     /// looked at again shortly, rather than taken for the end of output.
     tty_hup: Option<std::time::Instant>,
+    // A reaped container is retained until its filesystem worker finishes.
+    cleanup: Option<libc::pid_t>,
+    cleanup_finished: bool,
+    exit_announced: bool,
 }
 
 /// How long a hung-up terminal waits before it's polled again.
@@ -238,7 +242,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             if pfd.fd == copies.as_raw_fd() {
                 let running: Vec<(&str, libc::pid_t)> =
                     procs.iter().filter(|(_, p)| p.run.container.is_none() && p.exited.is_none()).map(|(pid, p)| (p.run.id.as_str(), *pid)).collect();
-                super::copy::accept(&copies, &running, paths);
+                let cleaning: Vec<&str> = procs.values().filter(|p| p.run.container.is_none() && p.exited.is_some()).map(|p| p.run.id.as_str()).collect();
+                super::copy::accept(&copies, &running, &cleaning, paths);
                 continue;
             }
             if pfd.fd == ssh_agent.as_raw_fd() {
@@ -304,29 +309,43 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             reap(&mut procs);
         }
 
-        // Report processes that have exited and whose output is fully read,
-        // then tear containers down after the host already has its answer.
-        let done: Vec<libc::pid_t> = procs
-            .iter()
+        // Announce the process exit promptly. A separate per-ID cleanup barrier
+        // prevents restart/removal from racing the filesystem worker, without
+        // making stop or unrelated control requests wait for overlay writeback.
+        let done: Vec<libc::pid_t> = procs.iter()
             .filter(|(_, p)| p.exited.is_some() && p.run.stdout.is_none() && p.run.stderr.is_none())
-            .map(|(pid, _)| *pid)
-            .collect();
+            .map(|(pid, _)| *pid).collect();
         for pid in done {
-            let p = procs.remove(&pid).expect("listed above");
-            let (code, reaped_ns) = p.exited.expect("filtered on exited");
-            out.clear();
-            let oom_killed = container::oom_killed(&p.run);
-            Msg::Exited(Exited { id: &p.run.id, code, setup_ns: p.cloned_ns - p.received_ns, run_ns: reaped_ns - p.cloned_ns, oom_killed })
-                .encode(&mut out);
-            conn.write_all(&out)?;
-            for (bridge, ip) in &p.run.dns_entries {
-                dns.unregister(bridge, *ip);
+            let shared = {
+                let p = &procs[&pid];
+                p.run.netns != 0 && procs.values().any(|o| o.exited.is_none() && o.run.netns == p.run.netns)
+            };
+            let p = procs.get_mut(&pid).expect("listed above");
+            if !p.exit_announced {
+                for (bridge, ip) in &p.run.dns_entries { dns.unregister(bridge, *ip); }
+                dns.drop_container(pid);
+                container::teardown_network(&p.run, shared);
+                let (code, reaped_ns) = p.exited.expect("filtered on exited");
+                out.clear();
+                if container::has_filesystem_teardown(&p.run) {
+                    Msg::CleanupPending(&p.run.id).encode(&mut out);
+                }
+                Msg::Exited(Exited { id: &p.run.id, code, setup_ns: p.cloned_ns - p.received_ns,
+                    run_ns: reaped_ns - p.cloned_ns, oom_killed: container::oom_killed(&p.run) }).encode(&mut out);
+                conn.write_all(&out)?;
+                p.exit_announced = true;
             }
-            dns.drop_container(pid);
-            // A container still running in its network namespace keeps that
-            // alive (its execs went with its PID namespace and count as 0).
-            let shared = p.run.netns != 0 && procs.values().any(|o| o.exited.is_none() && o.run.netns == p.run.netns);
-            container::teardown(&p.run, shared);
+            if p.cleanup.is_some() { continue; }
+            if !p.cleanup_finished {
+                p.cleanup = container::begin_teardown(&p.run);
+                if p.cleanup.is_some() { continue; }
+            }
+            let p = procs.remove(&pid).expect("listed above");
+            if container::has_filesystem_teardown(&p.run) {
+                out.clear();
+                Msg::CleanupDone(&p.run.id).encode(&mut out);
+                conn.write_all(&out)?;
+            }
         }
 
         if fds[0].revents != 0 {
@@ -348,8 +367,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         // what is left is killed and torn down.
                         stop_containers(&mut procs);
                     } else {
-                        for p in procs.values() {
-                            // SAFETY: signalling a child we started.
+                        for p in procs.values().filter(|p| p.exited.is_none()) {
+                            // SAFETY: signalling a child we started and have not reaped.
                             unsafe { libc::kill(p.run.pid, libc::SIGKILL) };
                         }
                     }
@@ -368,6 +387,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(stored) => Msg::LayerStored(stored).encode(&mut out),
                     Err(e) => Msg::Error(&format!("unpack {}: {e}", begin.digest)).encode(&mut out),
                 },
+                Ok(Msg::Run(spec)) if procs.values().any(|p| p.run.id == spec.id) => {
+                    Msg::Error(&format!("container {} is running or being cleaned up", spec.id)).encode(&mut out);
+                }
                 Ok(Msg::Run(spec)) => match {
                     // A container that wants the network must not start before the
                     // VM has it: right after boot the DHCP lease can be a few
@@ -390,7 +412,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
                 Ok(Msg::Exec(spec)) => {
-                    let target = procs.values().find(|p| p.run.container.is_none() && p.run.id == spec.container_id);
+                    let target = procs.values().find(|p| p.run.container.is_none() && p.run.id == spec.container_id && p.exited.is_none());
                     match target.map(|p| p.run.pid) {
                         None => Msg::Error(&format!("container {} is not running", spec.container_id)).encode(&mut out),
                         Some(pid) => match container::exec(&spec, pid, paths) {
@@ -441,7 +463,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Kill { id, signal }) => {
-                    if let Some(p) = procs.values().find(|p| p.run.id == id) {
+                    if let Some(p) = procs.values().find(|p| p.run.id == id && p.exited.is_none()) {
                         // SAFETY: signalling a child we started and have not reaped.
                         unsafe { libc::kill(p.run.pid, signal as libc::c_int) };
                     }
@@ -742,11 +764,11 @@ fn extra_veth(id: &str, n: u32) -> String {
 
 /// The mounted root of a running container (not an exec).
 fn running_rootfs(procs: &HashMap<libc::pid_t, Proc>, paths: &Paths, id: &str) -> Option<std::path::PathBuf> {
-    procs.values().any(|p| p.run.container.is_none() && p.run.id == id).then(|| paths.containers.join(id).join("rootfs"))
+    procs.values().any(|p| p.run.container.is_none() && p.run.id == id && p.exited.is_none()).then(|| paths.containers.join(id).join("rootfs"))
 }
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, exit_announced: false }
 }
 
 /// Writes as much pending input as the process will take without blocking,
@@ -868,7 +890,12 @@ fn stop_containers(procs: &mut HashMap<libc::pid_t, Proc>) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    for p in procs.values() {
+    // A worker shares these paths/mounts. Join it before shutdown touches them.
+    while procs.values().any(|p| p.cleanup.is_some()) {
+        reap(procs);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    for p in procs.values().filter(|p| !p.cleanup_finished) {
         container::teardown(&p.run, false);
     }
     procs.clear();
@@ -932,7 +959,15 @@ fn reap(procs: &mut HashMap<libc::pid_t, Proc>) {
         } else {
             continue;
         };
-        if let Some(p) = procs.get_mut(&pid) {
+        if let Some(p) = procs.values_mut().find(|p| p.cleanup == Some(pid)) {
+            p.cleanup = None;
+            // An interrupted worker did not complete its contract; retry before
+            // announcing the exit or permitting a restart on the same paths.
+            p.cleanup_finished = code == 0;
+            if code != 0 {
+                eprintln!("asagiri-init: cleanup {} exited {code}; retrying", p.run.id);
+            }
+        } else if let Some(p) = procs.get_mut(&pid) {
             p.exited = Some((code, sys::boottime_ns()));
             // Nobody will read input any more.
             p.input.clear();

@@ -278,17 +278,27 @@ impl Guest {
         );
         let t = Instant::now();
         self.conn.write_all(&self.out)?;
+        let mut cleaning = false;
+        let mut completed = None;
         loop {
             match self.read()? {
+                Msg::CleanupPending(_) => cleaning = true,
+                Msg::CleanupDone(_) => {
+                    if let Some(result) = completed.take() { return Ok(result); }
+                }
                 Msg::Started { .. } => {}
                 Msg::Output { stream, data, .. } => on_output(stream, data),
                 Msg::Exited(e) => {
-                    return Ok(RunResult {
+                    let result = RunResult {
                         code: e.code,
                         total: t.elapsed(),
                         guest_setup: Duration::from_nanos(e.setup_ns),
                         guest_run: Duration::from_nanos(e.run_ns),
-                    });
+                    };
+                    if !cleaning { return Ok(result); }
+                    // This client sends requests serially; finish the barrier
+                    // before a subsequent run can reuse the same filesystem.
+                    completed = Some(result);
                 }
                 Msg::Error(e) => return Err(io::Error::other(e.to_owned())),
                 other => return Err(unexpected("container output", &other)),
