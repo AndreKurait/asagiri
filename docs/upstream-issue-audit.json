@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-13T13:08:20.112622+00:00",
+  "reviewed_at": "2026-11-14T17:36:30.769761+00:00",
   "repository": "libracoder/kiri",
-  "count": 57,
+  "count": 69,
   "issues": [
     {
       "number": 10,
@@ -124,7 +124,7 @@
       "number": 48,
       "title": "Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
       "state": "open",
-      "updated_at": "2026-11-10T03:13:45Z",
+      "updated_at": "2026-11-14T16:10:25Z",
       "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
       "disposition": "partially-covered",
       "reason": "Builder repair, bind notifications, seccomp and lifecycle improvements retained; native Mac updater and VM behavior are not claimed reproduced."
@@ -511,12 +511,119 @@
     {
       "number": 199,
       "title": "Every linux/amd64 container crashes with \"rosetta error: unhandled auxillary vector type 29\" (SIGTRAP) on Apple Silicon",
-      "state": "open",
-      "updated_at": "2026-11-13T11:42:41Z",
+      "state": "closed",
+      "updated_at": "2026-11-14T11:42:25Z",
       "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
-      "disposition": "unverified-platform",
-      "reason": "Native Rosetta crash remains unverified. The pinned Linux v6.18.58 UAPI defines 29/30 as AT_HWCAP3/AT_HWCAP4, not the reported rseq identifiers; an ABI workaround requires native reproduction.",
-      "reference": "https://github.com/gregkh/linux/blob/v6.18.58/include/uapi/linux/auxvec.h"
+      "disposition": "partial",
+      "reason": "Ported upstream #208: omit zero HWCAP3/HWCAP4 auxv entries for older Rosetta. Kernel recipes include the patch; actual macOS 15 Rosetta execution remains unverified."
+    },
+    {
+      "number": 202,
+      "title": "USB device detaches by itself after ~8 minutes idle (ESP32-S3)",
+      "state": "closed",
+      "updated_at": "2026-11-14T11:42:33Z",
+      "body_sha256": "401c286ebd8280cdda6fc9d10c4200fb60457678eafbb53e21ab38c912f0bf77",
+      "disposition": "partial",
+      "reason": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Added detach/Stop cancellation generations. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
+    },
+    {
+      "number": 203,
+      "title": "Proposal for a Kiri MCP server (As suggested in Issue #74)",
+      "state": "open",
+      "updated_at": "2026-11-14T09:08:16Z",
+      "body_sha256": "eb146f96c86e16289d3396889c852bad695d197487a5623459053401516c0dfa",
+      "disposition": "deferred-feature",
+      "reason": "Reviewed the proposed off-by-default, permission-gated MCP design. A stdio MCP server and its settings are not implemented yet; tracked with #74."
+    },
+    {
+      "number": 204,
+      "title": "BuildKit host-gateway Subnet Note & BuildRun Micro-VM Startup Benchmark Guide (libracoder/kiri)",
+      "state": "closed",
+      "updated_at": "2026-11-14T09:58:28Z",
+      "body_sha256": "51077828661943da2138230e7831308daf7bf2e5d71fc2fc8d035669668f1a4b",
+      "disposition": "informational",
+      "reason": "A closed third-party guide announcement, not a reproducible bug report. Its external performance claims are not adopted as Asagiri measurements."
+    },
+    {
+      "number": 206,
+      "title": "Image inspect omits Config.Labels even though labels exist in the exported image config",
+      "state": "open",
+      "updated_at": "2026-11-14T01:24:02Z",
+      "body_sha256": "b9b3bab42fe1a2d67c2a0c7b8dd73c3441317e0a1691d38f144d68d83a027166",
+      "disposition": "automated",
+      "reason": "Full stored OCI config is retained by image inspect, including Labels, ExposedPorts and StopSignal. The metadata fixture checks those fields through the Docker CLI."
+    },
+    {
+      "number": 209,
+      "title": "Windows: docker build hangs when a RUN step needs network (BuildKit has no usable DNS)",
+      "state": "open",
+      "updated_at": "2026-11-14T06:32:43Z",
+      "body_sha256": "186afacad824393bcce424af2a34426472945a44c2751679260e4a0e8b488f9d",
+      "disposition": "known-limitation",
+      "reason": "Confirmed the reported distinction: only the Mac relay path substitutes a non-loopback default-bridge DNS address. WSL-local resolvers and BuildKit fallback require a follow-up; native Windows DNS has not been verified."
+    },
+    {
+      "number": 210,
+      "title": "macOS: containers report hundreds of GB of block reads while the guest has no page cache",
+      "state": "open",
+      "updated_at": "2026-11-14T12:20:38Z",
+      "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
+      "disposition": "known-limitation",
+      "reason": "The balloon target currently excludes file working-set cache and can shrink after pressure growth. Working-set protection and hysteresis still require implementation; no native Mac VM was launched."
+    },
+    {
+      "number": 213,
+      "title": "Support --cgroup-parent, bridge name option, enable_icc=false and user namespace remap for hosting multi-tenant apps Context",
+      "state": "open",
+      "updated_at": "2026-11-14T11:28:54Z",
+      "body_sha256": "d2bd38b7f07b942e157cac05d87e37da6d6e117717fcc109c99cfe1ef901a2be",
+      "disposition": "partial",
+      "reason": "Bridge inter-container isolation is implemented and has IPv4/IPv6 regressions. CgroupParent, a custom bridge name and user namespace remapping still need explicit supported behavior or rejection; do not claim multi-tenant isolation."
+    },
+    {
+      "number": 215,
+      "title": "Podman support",
+      "state": "closed",
+      "updated_at": "2026-11-14T14:02:59Z",
+      "body_sha256": "df10b33158a2954e60d51edff1073adab1b149b7748dda62c438df0a4de5d519",
+      "disposition": "deferred-feature",
+      "reason": "Closed proposal for Podman support. Asagiri provides its own Docker-compatible engine; a selectable Podman backend is not implemented."
+    },
+    {
+      "number": 218,
+      "title": "Windows: publishing a port on a host IP (-p IP:port:port) fails with 'Address not available (os error 99)'; 0.0.0.0 is loopback-only",
+      "state": "open",
+      "updated_at": "2026-11-14T15:51:17Z",
+      "body_sha256": "33f134b55f020d194ac5e9d4a84931a39e8ecc8a961c09b983f478dd4e8da644",
+      "disposition": "known-limitation",
+      "reason": "Windows host-IP publishing needs Windows-side bind/relay support or a clear unsupported-address response. Linux host publishing does not establish Windows LAN reachability."
+    },
+    {
+      "number": 222,
+      "title": "Testcontainers still unusable: /version reports 0.2.0, and wait strategies never see container logs",
+      "state": "open",
+      "updated_at": "2026-11-14T16:44:51Z",
+      "body_sha256": "d5dc3c9c513b6ee7fc86e0f61dd44ab1b367d8e33616279ab57854e9e9f58f16",
+      "disposition": "automated",
+      "reason": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. The live regression subscribes before start and checks two delayed readiness lines and stream filters. A full Java/MySQL Testcontainers run and native Mac execution remain unverified."
+    },
+    {
+      "number": 223,
+      "title": "Docker API image inspect returns 404 when the repository slash is URL-encoded",
+      "state": "open",
+      "updated_at": "2026-11-14T16:54:30Z",
+      "body_sha256": "e744da846780e8c893ab0a9a3ccf4129de541044e82ae0cb54237eb219cec1a6",
+      "disposition": "automated",
+      "reason": "Encoded repository slashes, mixed-case escapes, version prefixes and invalid escapes are already covered by the live API regression."
+    },
+    {
+      "number": 224,
+      "title": "image store: a shorter rewrite leaves trailing bytes in images.json, and every pull fails",
+      "state": "open",
+      "updated_at": "2026-11-14T17:15:13Z",
+      "body_sha256": "57ee8d55097ce2ace3d19ab521abe19ba88f7237b8e5894dcc1493efacb43022",
+      "disposition": "automated",
+      "reason": "Image-index read/modify/replace uses a cross-process lock and unique synced temporary files. Concurrent writers and shorter rewrites are tested; a complete typed array with a stale tail is recovered only after saving an exact backup. Incomplete corrupt records remain untouched and return an explicit error."
     }
   ]
 }
