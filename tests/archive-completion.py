@@ -98,11 +98,17 @@ def check(path, image, expect_race=False):
                     break
                 time.sleep(0.01)
             assert worker is not None, "No delayed private-mount worker exit was observed"
+            assert " - overlay " in Path("/proc", str(worker), "mountinfo").read_text()
             time.sleep(0.2)
+            early_start = None
             if expect_race:
                 assert future.result(timeout=1)[0] == 200
                 status, body = request("POST", f"/containers/{cid}/start")
-                assert status >= 400 and b"busy" in body.lower(), (status, body)
+                # Some kernels allow overlapping overlay mounts; others
+                # reject the same upper/work directories with EBUSY. The
+                # premature completion is observable on either kernel.
+                assert status == 204 or (status >= 400 and b"busy" in body.lower()), (status, body)
+                early_start = {"status": status, "error": body.decode(errors="replace")}
             else:
                 assert not future.done(), "Archive upload acknowledged while its overlay was still mounted"
                 assert request("GET", "/_ping") == (200, b"OK")
@@ -120,6 +126,7 @@ def check(path, image, expect_race=False):
                                        timeout=30) == b"preserved"
         print(json.dumps({"probe": "archive-completion", "delayedWorker": worker,
                           "expectedOldRace": expect_race, "uploadSeconds": time.monotonic() - began,
+                          "startBeforeWorkerExit": early_start,
                           "immediateStartAndWritableData": "passed"}), flush=True)
     finally:
         if tracer is not None and tracer.poll() is None:

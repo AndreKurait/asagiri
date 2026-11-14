@@ -106,7 +106,8 @@ fn die_with_parent(parent: libc::pid_t) {
 /// stat reply lets its caller start it. Closing the worker's socket alone is
 /// too early: descriptors close before the kernel releases its namespaces.
 /// This supervisor keeps the connection open and waits for the chrooted
-/// worker to exit. No descriptor pointing outside the chroot is kept there.
+/// worker to exit. No directory descriptor pointing outside the chroot is
+/// kept there.
 fn stopped_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Result<()> {
     const MAX_REPLY: u64 = 16 * 1024;
     let (read, write) = sys::pipe()?;

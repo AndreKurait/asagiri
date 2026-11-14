@@ -50,7 +50,7 @@ def inner():
                 break
 
     def mounts():
-        return {line.split()[4] for line in Path("/proc/self/mountinfo").read_text().splitlines()
+        return {line.split()[0]: line.split()[4] for line in Path("/proc/self/mountinfo").read_text().splitlines()
                 if line.split()[4].startswith("/var/lib/asagiri/containers/")}
 
     def state(cid):
@@ -68,7 +68,9 @@ def inner():
             call("start", ids[0])
         for cid in ids:
             assert call("exec", cid, "cat", "/service-proof") == "preserved"
-        assert {f"/var/lib/asagiri/containers/{cid}/rootfs" for cid in ids} <= mounts(), mounts()
+        current = mounts()
+        expected = {f"/var/lib/asagiri/containers/{cid}/rootfs" for cid in ids}
+        assert expected == set(current.values()) and len(current) == len(expected), ("old mounts were stacked instead of reclaimed", current)
 
     try:
         launch()
@@ -136,11 +138,18 @@ def inner():
             assert not owned.exists()
         reap()
         orphaned = {f"/var/lib/asagiri/containers/{cid}/rootfs" for cid in ids}
-        assert orphaned <= mounts(), ("fixture did not leave orphaned overlays", mounts())
+        assert orphaned <= set(mounts().values()), ("fixture did not leave orphaned overlays", mounts())
+        # A permissive overlay kernel can also leave a stack after an earlier
+        # recovery. An owned bind mount represents that additional mount layer.
+        for rootfs in sorted(orphaned):
+            subprocess.run(["mount", "--bind", rootfs, rootfs], check=True, timeout=10)
+        old_mount_ids = set(mounts())
+        assert len(old_mount_ids) == 2 * len(orphaned), mounts()
         # Deliberately do not unmount the fixture: the new agent must recover it.
         launch()
         assert call("info", "--format", "{{.ID}}") == identity
         restored()
+        assert not old_mount_ids.intersection(mounts()), "a previous mount survived recovery"
         print(json.dumps({"probe": "linux-service-recovery", "orphanedOverlays": len(orphaned),
                           "cgroupsRemovedBeforeRestart": True,
                           "restartAlwaysAndWritableData": "passed"}), flush=True)
