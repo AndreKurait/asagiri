@@ -641,7 +641,7 @@
       "updated_at": "2026-11-14T19:08:24Z",
       "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
       "disposition": "partially-covered",
-      "reason": "A portable Docker-compatible socket benchmark and a pinned private Linux Asagiri/Docker/Podman workflow are implemented. The first hosted comparison is pending; no Mac/Colima VM performance result is claimed."
+      "reason": "A pinned private Linux comparison of Asagiri, Docker 29.9.3 and Podman 6.1.3 passed GHA run 43632761522. All 3,600 raw timings, summaries, artifact digest and source identities were independently checked and are retained in docs/benchmarks. The portable harness also accepts Colima sockets; native Mac/Colima VM performance remains unmeasured."
     }
   ]
 }

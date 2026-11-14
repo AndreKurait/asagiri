@@ -27,7 +27,8 @@ The screenshot and browser demo use sample data in the real app UI.
 - Cross-platform CI, live Docker API conformance tests, and
   [performance history by commit](https://andrekurait.github.io/asagiri/performance/).
   The [engine comparison](docs/engine-comparison.md) measures Asagiri, Docker
-  and Podman on Linux and can also test a user-selected Colima socket.
+  and Podman on Linux, with raw results and reproduction steps, and can also
+  test a user-selected Colima socket.
 
 ## Downloads
 
