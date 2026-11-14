@@ -1,5 +1,8 @@
 # Performance by commit
 
+For Docker, Podman and user-selected Colima endpoints, see the separate
+[container engine comparison](engine-comparison.md).
+
 The [performance dashboard](https://andrekurait.github.io/asagiri/performance/)
 tracks completed main builds. The `Speed` GitHub Actions workflow compares each
 tested commit with its baseline on one GitHub-hosted Linux runner. Pull requests

@@ -122,8 +122,12 @@ impl Pipe {
 
     /// Waits for a client.
     pub fn connect(&self) -> io::Result<()> {
+        self.connect_within(None)
+    }
+
+    pub(crate) fn connect_within(&self, timeout: Option<std::time::Duration>) -> io::Result<()> {
         // SAFETY: the OVERLAPPED outlives the call, which overlapped() waits on.
-        match overlapped(self.h, |ov| unsafe { ConnectNamedPipe(self.h, ov) }) {
+        match overlapped_within(self.h, timeout, |ov| unsafe { ConnectNamedPipe(self.h, ov) }) {
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) => Ok(()),
             r => r.map(drop),
         }
