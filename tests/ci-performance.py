@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Regression gates, evidence integrity, and the untrusted artifact boundary."""
+import base64
 import copy
 import importlib.util
 import io
 import json
 from pathlib import Path
 import stat
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -116,6 +118,88 @@ class PerformanceTests(unittest.TestCase):
         item["workload"]["image"] = perf.IMAGE[:-1] + "0"
         self.assertNotEqual(history.series(item), original)
 
+    def test_chart_groups_page_sized_memory_variations_but_separates_capacities(self):
+        item, _ = fixture()
+        item["environment"]["memory_kib"] = 16078420
+        item["series"] = history.series(item)
+        original = copy.deepcopy(item)
+        second = copy.deepcopy(item)
+        second["environment"]["memory_kib"] += 4
+        second["series"] = history.series(second)
+        self.assertNotEqual(item["series"], second["series"])
+        self.assertEqual(history.summary(item)["series"], history.summary(second)["series"])
+        for field, value in (("cpus", 8), ("memory_kib", 8 * 1024**2),
+                             ("cpu_model", "different CPU"), ("architecture", "aarch64"),
+                             ("runner_image", "ubuntu26")):
+            changed = copy.deepcopy(item)
+            changed["environment"][field] = value
+            self.assertNotEqual(history.summary(item)["series"], history.summary(changed)["series"])
+        changed = copy.deepcopy(item)
+        changed["workload"]["id"] = "linux-engine-v1"
+        self.assertNotEqual(history.summary(item)["series"], history.summary(changed)["series"])
+        self.assertEqual(item, original)
+
+    def test_index_upgrade_checks_original_records_and_preserves_measurements(self):
+        first, _ = fixture()
+        first["environment"]["memory_kib"] = 16078420
+        first["series"] = history.series(first)
+        second = copy.deepcopy(first)
+        second.update(run_id=124, measured_at="2026-11-14T13:00:00+00:00")
+        second["environment"]["memory_kib"] += 4
+        second["series"] = history.series(second)
+        records = {history.summary(item)["path"]: item for item in (first, second)}
+        old = {"schema": 1, "repository": history.REPO,
+               "entries": [history.summary(item, legacy=True) for item in (first, second)]}
+        before = copy.deepcopy((old, records))
+        updated = history.update_index(old, second, records.__getitem__)
+        self.assertEqual(updated["schema"], 2)
+        self.assertEqual(len({row["series"] for row in updated["entries"]}), 1)
+        self.assertEqual([row["path"] for row in updated["entries"]], list(records))
+        self.assertEqual([row["metrics"] for row in updated["entries"]],
+                         [first["metrics"], second["metrics"]])
+        self.assertEqual((old, records), before)
+        self.assertEqual(history.update_index(updated, second), updated)
+        with self.assertRaises(ValueError):
+            history.update_index(old, second)
+        old["entries"][0]["metrics"]["run_ms"][0] += 1
+        with self.assertRaises(ValueError):
+            history.update_index(old, second, records.__getitem__)
+
+    def test_republishing_an_archived_run_upgrades_only_the_index(self):
+        item, _ = fixture()
+        path = history.summary(item)["path"]
+        raw = history.encoded(item)
+        files = {path: raw, history.INDEX: history.encoded({
+            "schema": 1, "repository": history.REPO,
+            "entries": [history.summary(item, legacy=True)]})}
+        writes = []
+
+        def command(args, **kwargs):
+            if args[2] == "graphql":
+                value = json.loads(kwargs["input"])
+                changes = value["variables"]["input"]["fileChanges"]["additions"]
+                writes.append(changes)
+                for change in changes:
+                    files[change["path"]] = base64.b64decode(change["contents"], validate=True)
+                response = {"data": {"createCommitOnBranch": {"commit": {
+                    "oid": "d" * 40, "url": "https://github.com/AndreKurait/asagiri/commit/" + "d" * 40,
+                    "signature": {"__typename": "GpgSignature", "isValid": True, "wasSignedByGitHub": True}}}}}
+                return SimpleNamespace(returncode=0, stdout=history.encoded(response), stderr=b"")
+            return SimpleNamespace(returncode=0, stdout=b"{}", stderr=b"")
+
+        environment = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": history.REPO,
+                       "GITHUB_REF": "refs/heads/main", "GITHUB_WORKFLOW": "Performance history"}
+        with patch.dict(history.os.environ, environment, clear=True), \
+                patch.object(history, "api", return_value={"object": {"sha": "d" * 40}}), \
+                patch.object(history, "remote_file", side_effect=lambda name, _revision: files.get(name)), \
+                patch.object(history.subprocess, "run", side_effect=command):
+            history.publish(item)
+            history.publish(item)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual([change["path"] for change in writes[0]], [history.INDEX])
+        self.assertEqual(json.loads(files[history.INDEX])["schema"], 2)
+        self.assertEqual(files[path], raw)
+
     def test_legacy_harness_is_labeled_without_inventing_raw_samples(self):
         item, _ = fixture()
         item["workload"].update(id="linux-engine-v1", image="alpine:3.21")
@@ -189,7 +273,7 @@ class PerformanceTests(unittest.TestCase):
     def test_history_limits_the_index_without_changing_archive_paths(self):
         item, _ = fixture()
         original = history.summary(item)
-        previous = {"schema": 1, "repository": history.REPO, "entries": []}
+        previous = {"schema": 2, "repository": history.REPO, "entries": []}
         for index in range(history.MAX_HISTORY):
             row = copy.deepcopy(original)
             row.update(run_id=index + 1, path=f"benchmarks/v1/runs/{index + 1}-1.json")

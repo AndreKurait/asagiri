@@ -6,7 +6,7 @@ const byId = id => document.getElementById(id);
 let entries = [];
 
 export function validateHistory(data) {
-  if (data?.schema !== 1 || data.repository !== 'AndreKurait/asagiri' ||
+  if (![1, 2].includes(data?.schema) || data.repository !== 'AndreKurait/asagiri' ||
       !Array.isArray(data.entries) || data.entries.length > 500) throw new Error('Invalid history index');
   const ids = new Set();
   for (const row of data.entries) {
@@ -22,6 +22,9 @@ export function validateHistory(data) {
     for (const field of ['architecture', 'cpu_model', 'runner_image']) {
       if (typeof row[field] !== 'string' || row[field].length > 256) throw new Error('Invalid runner metadata');
     }
+    if (data.schema === 2 && (!Number.isSafeInteger(row.cpus) || row.cpus <= 0 || row.cpus >= 1e12 ||
+        !Number.isSafeInteger(row.memory_mib) || row.memory_mib <= 0 || row.memory_mib >= 1e12 ||
+        row.memory_mib % 64 !== 0)) throw new Error('Invalid runner capacity');
     for (const field of fields) {
       const pair = row.metrics?.[field];
       if (!Array.isArray(pair) || pair.length !== 2 ||
@@ -80,7 +83,8 @@ function draw() {
   byId('latest-result').textContent = latest.status === 'regression' ? 'Investigate regression' : 'Within limits';
   byId('latest-result').className = latest.status === 'regression' ? 'regression' : 'pass';
   byId('sample-count').textContent = rows.length.toLocaleString();
-  byId('sample-host').textContent = `${latest.architecture} · ${latest.runner_image} · ${latest.workload}`;
+  const capacity = latest.cpus ? ` · ${latest.cpus} CPUs · ~${(latest.memory_mib / 1024).toFixed(1)} GiB` : '';
+  byId('sample-host').textContent = `${latest.architecture}${capacity} · ${latest.runner_image} · ${latest.workload}`;
   byId('plot-title').textContent = byId('metric').selectedOptions[0].textContent;
   byId('plot-unit').textContent = relative ? '% against paired baseline' : unit(metric);
   const tbody = byId('measurements');
@@ -169,7 +173,8 @@ export function renderHistory(data) {
   for (const [id, row] of choices) {
     const option = document.createElement('option');
     option.value = id;
-    option.textContent = `${row.cpu_model} · ${row.architecture} · ${row.workload} · ${id.slice(0, 6)}`;
+    const capacity = row.cpus ? ` · ${row.cpus} CPUs · ~${(row.memory_mib / 1024).toFixed(1)} GiB` : '';
+    option.textContent = `${row.cpu_model} · ${row.architecture}${capacity} · ${row.workload} · ${id.slice(0, 6)}`;
     byId('series').append(option);
   }
   draw();

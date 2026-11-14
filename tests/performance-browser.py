@@ -36,6 +36,8 @@ def data():
         item = copy.deepcopy(initial)
         item.update(run_id=123 + index, commit=f"{index + 2:040x}", baseline=f"{index + 1:040x}",
                     measured_at=(start + timedelta(minutes=index)).isoformat())
+        item["environment"]["memory_kib"] = 16078420 + (index % 2) * 4
+        item["series"] = checks.history.series(item)
         item["metrics"]["run_ms"][1] = 10.5 + index / 20
         if index == 0:
             item["environment"]["cpu_model"] = "<img src=x onerror=globalThis.performanceInjected=1>"
@@ -43,7 +45,7 @@ def data():
         item["regressions"] = checks.history.regressions(item["metrics"], item["limits"])
         item["status"] = "regression" if item["regressions"] else "within-limits"
         rows.append(checks.history.summary(item))
-    return {"schema": 1, "repository": checks.history.REPO, "entries": rows}
+    return {"schema": 2, "repository": checks.history.REPO, "entries": rows}
 
 
 def main():
@@ -79,6 +81,7 @@ def main():
             assert browser.js("document.querySelectorAll('#plot .point').length") == 23
             assert browser.js("document.querySelectorAll('#measurements tr').length") == 23
             assert browser.js("document.querySelectorAll('#series option').length") == 2
+            assert browser.js("document.getElementById('sample-host').textContent.includes('4 CPUs')")
             assert browser.js("document.querySelector('#series').textContent.includes('<img')")
             assert browser.js("document.querySelector('.performance-controls img') === null && globalThis.performanceInjected === undefined")
             for metric in checks.history.METRICS:
@@ -97,6 +100,9 @@ def main():
               /^https:\\/\\/github.com\\/AndreKurait\\/asagiri\\/(commit\\/[a-f0-9]{40}|actions\\/runs\\/\\d+\\/attempts\\/\\d+)$/.test(a.href))""")
             bad = data()
             bad["entries"][0]["path"] = "../../outside"
+            assert browser.js(f"(() => {{ try {{ historyTest.validateHistory({json.dumps(bad)}); return false; }} catch {{ return true; }} }})()")
+            bad = data()
+            bad["entries"][0]["memory_mib"] = -1
             assert browser.js(f"(() => {{ try {{ historyTest.validateHistory({json.dumps(bad)}); return false; }} catch {{ return true; }} }})()")
             for width, height, name in ((1440, 1050, "desktop"), (430, 960, "mobile")):
                 browser.call("Emulation.setDeviceMetricsOverride", width=width, height=height,

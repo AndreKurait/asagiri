@@ -82,6 +82,13 @@ runner load still varies; the paired comparison is the regression gate.
 An absolute history chart alone does not establish that a code change caused
 a slowdown. Investigate failed comparisons and use repeat runs to assess noise.
 
+The chart groups matching CPU models, CPU counts, architectures, runner families
+and workloads, with memory capacity rounded into 64 MiB classes. A one-page
+difference in a runner's reported memory therefore does not split a commit trend.
+The schema 2 index applies the same grouping to older measurements after checking
+each entry against its original archive. Raw records, exact memory values, raw
+series identities, samples and regression decisions remain unchanged.
+
 The `Speed` workflow's manual input accepts a full ancestor SHA as a baseline.
 Select the same main commit for both sides to run an A/A noise control.
 The result still records both source identities and all measurements.
