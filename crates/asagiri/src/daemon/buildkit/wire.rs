@@ -190,7 +190,18 @@ pub(super) fn workers(input: &[u8], gateway: &str) -> io::Result<Vec<u8>> {
             output.extend_from_slice(field.raw);
             continue;
         }
-        let mut worker = field.data.to_vec();
+        let mut worker = Vec::with_capacity(field.data.len());
+        for property in fields(field.data)? {
+            // Buildx interprets this label on the Docker driver as proof
+            // that Docker has a containerd image store. Stock BuildKit's
+            // OCI worker also sets it, but its snapshotter is not Asagiri's
+            // image store: our imported images use their config digest.
+            if property.number == 2 && property.wire == 2
+                && text(&fields(property.data)?, 1)? == "org.mobyproject.buildkit.worker.snapshotter" {
+                continue;
+            }
+            worker.extend_from_slice(property.raw);
+        }
         // Last entry wins under protobuf map semantics. This is the
         // reachable host gateway, not the BuildKit container's localhost.
         map_entry(&mut worker, 2, "org.mobyproject.buildkit.worker.moby.host-gateway-ip", gateway);
@@ -284,6 +295,7 @@ mod tests {
         let mut worker = Vec::new();
         bytes(&mut worker, 1, b"worker-id");
         map_entry(&mut worker, 2, "org.mobyproject.buildkit.worker.executor", "oci");
+        map_entry(&mut worker, 2, "org.mobyproject.buildkit.worker.snapshotter", "overlayfs");
         let mut response = Vec::new();
         bytes(&mut response, 1, &worker);
         let output = workers(&response, "192.168.64.1").unwrap();

@@ -36,8 +36,10 @@ The maintained `h2` library handles HTTP/2 framing and flow control. The bridge
 limits connections, active RPCs, image imports, protobuf message sizes and
 relay buffers. EOF and cancellation release registrations and abort dependent
 streams. A truncated archive stream cannot report a successful import.
-The bridge advertises the backend's real worker capabilities; it does not
-claim a containerd image store or multi-platform image loading.
+The bridge preserves worker details but removes the internal snapshotter
+label that Buildx interprets as a Docker containerd image store. Imported
+images use their config digest as the local image ID; the bridge does not
+claim multi-platform image loading.
 
 `tests/buildkit-driver.py` runs against a private Linux engine in the platform
 and release workflows. It exercises an 8 MiB context, secret delivery, two

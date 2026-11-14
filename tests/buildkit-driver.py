@@ -103,7 +103,8 @@ def check(path, image):
             result = cli(*arguments, timeout=300)
             print(result.stderr[-6000:], flush=True)
             inspected = json.loads(cli("image", "inspect", tags[0]).stdout)[0]
-            assert (root / "iid").read_text().strip() == inspected["Id"], (root / "iid").read_text()
+            assert (root / "iid").read_text().strip() == inspected["Id"], (
+                (root / "iid").read_text(), inspected["Id"], (root / "metadata.json").read_text())
             assert json.loads(cli("image", "inspect", tags[1]).stdout)[0]["Id"] == inspected["Id"]
             output = cli("run", "--rm", "--network", "none", tags[0], "sh", "-c",
                          "sha256sum /input.bin; cat /secret.digest; test ! -e /run/secrets/proof").stdout
