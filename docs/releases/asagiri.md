@@ -6,6 +6,31 @@ resolve `host-gateway`, and cancel without blocking the next build. Setup
 preserves existing builder choices and cache while enabling the native driver
 for `asagiri build`. The build-history view includes the managed backend once.
 
+Private registry settings now persist across restarts and apply to image
+pulls, pushes, and managed BuildKit builds. `asagiri config` shows and updates
+registry mirrors, explicit insecure-registry exceptions, and concurrent
+download/upload limits. TLS verification remains enabled by default;
+exceptions apply only to the configured authorities or literal IP ranges.
+Real HTTP, authenticated HTTP, self-signed HTTPS, policy revocation, and
+parallel transfer checks run against private registry fixtures.
+
+Stopped-container archive requests now finish after their worker releases
+its mounts. Linux service recovery also reclaims stale and stacked mounts
+when the old cgroups have already been removed, preserving container data.
+CI exercises delayed archive completion, repeated service restarts, crash
+recovery, and a real kind cluster with node and pod DNS checks. The exact
+CachyOS/systemd environment from the upstream reports remains unverified.
+
+Container-name filters accept regular expressions while preserving exact
+matches. Invalid patterns are ignored without affecting valid filters.
+
+GitHub Actions measures container lifecycle latency, API latency, memory,
+system calls, and binary size for each commit against its baseline. The
+[performance dashboard](https://andrekurait.github.io/asagiri/performance/)
+keeps the raw samples and commit history. Separate scheduled checks compare
+Asagiri, Docker, and Podman on the same Linux host; those measurements cover
+short container lifecycles, not VM startup or application throughput.
+
 An optional local browser interface shows real containers, images, volumes,
 networks and recent logs. Set a password with `asagiri web password`, enable
 access with `asagiri web enable`, then run `asagiri web`. It listens on
