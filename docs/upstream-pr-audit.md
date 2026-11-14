@@ -1,10 +1,10 @@
 # Upstream pull request audit — 2026-11-14
 
 Reviewed every public pull request in `libracoder/kiri`, open and closed:
-**148 total: 85 merged, 37 closed without merging, and 26 open**.
+**154 total: 85 merged, 37 closed without merging, and 32 open**.
 Upstream main is `baa2d41c1ce660b7ee255efc4fec156af42a715d`.
 Every merged PR's merge commit and the complete main history are ancestors of
-Asagiri. The runtime revision for this audit is `2fa4f5690edd77e926ba6fc8a32655ecfcaeea9b`.
+Asagiri. The runtime revision for this audit is `44fab19064b0dee6dd9d948dafe2167fd3866540`.
 
 [Machine-readable evidence](upstream-pr-audit.json) records every reviewed head,
 merged commit, ancestry result and source-to-port mapping. [UPSTREAM.md](../UPSTREAM.md)
@@ -14,6 +14,18 @@ unmerged work.
 
 ## Changes from this audit
 
+- Reviewed six additional signed PR heads, #231–#236. Ported the Mac bind,
+  USB waiting-list, engine power/exit-code, VM-card and shared language-picker
+  changes. #232 is covered by Asagiri's broader interface reservation fix;
+  all seven network scenarios pass with both Alpine and BusyBox.
+- Added CI regressions for parallel Stop, held restart cancellation, failed
+  executables and stopped-daemon restarts. The prior build takes 18.115 seconds
+  to stop nine containers with two-second timeouts; the new build takes 2.095
+  seconds. All 12 executable cases and three actual agent crashes pass.
+- Verified 569 Linux unit tests, eight pure Mac USB state tests and the pure
+  Mac bind-path regression. Browser checks cover all 38 language cards and
+  correct the language dialog at 125% text scaling. Native Mac VM, physical
+  USB and Windows WSL runtime limits remain explicit.
 - Integrated the seven new signed main commits through `baa2d41`, preserving
   their original authors and complete ancestry after reviewing renamed ports.
 - Added 22 languages for 38 in total, a searchable language picker, shorter
@@ -218,3 +230,9 @@ Runtime validation limits remain those in UPSTREAM.md.
 | [#219](https://github.com/libracoder/kiri/pull/219) — UI: First start — a searchable language list instead of the tile wall | open | `35d70e355910` | **ported** — Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests. |
 | [#220](https://github.com/libracoder/kiri/pull/220) — UI: Sidebar — Linux VM stays short in seven languages | open | `9f8d8562392d` | **ported** — Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings. |
 | [#221](https://github.com/libracoder/kiri/pull/221) — README: add build-from-source instructions | closed | `67522621b7cc` | **equivalent** — Reviewed the closed build-from-source README change. Asagiri already documents its correct renamed package, Rust prerequisites, platform dependencies and build commands in README.md and CONTRIBUTING.md; upstream Kiri commands are not reintroduced. |
+| [#231](https://github.com/libracoder/kiri/pull/231) — Mounts: a linked bind folder follows its link again after a restart (Mac) | open | `63cf422d9265` | **ported-and-improved** — Re-resolves symlinked Mac bind sources on each start while retaining original inspect metadata and Asagiri lifecycle generation locks. The pure Mac filesystem regression passes on 44fab19; an actual Mac VM bind restart remains unverified. |
+| [#232](https://github.com/libracoder/kiri/pull/232) — Networks: disconnecting from two networks works, and the address is always given back | open | `4db4243a3d8e` | **equivalent** — Existing take_ifnum/drop_ifnum reserves an interface before attach and retains it until detach completes, releases IPv4/IPv6 on errors, and handles concurrent joins/leaves. All seven existing live scenarios pass on both Alpine and BusyBox with integrated source 44fab19; the narrower sequential upstream fix is equivalent. |
+| [#233](https://github.com/libracoder/kiri/pull/233) — USB: devices Kiri waits for are listed, can be let go, and are never lost on a quick drop | open | `dbc1b6f57a86` | **ported-and-improved** — Waiting USB devices remain visible in API, CLI and UI, can be released, and survive an immediate drop after attachment. Integrated with Asagiri reconnect cancellation generations and atomic session removal. Eight Mac USB state tests pass on 44fab19. Physical USB reset/idle and Mac sleep/wake remain unverified; intent is not persisted across daemon restarts. |
+| [#234](https://github.com/libracoder/kiri/pull/234) — Engine: Start and Stop no longer race; Stop is parallel; exit codes match Docker | open | `714ff4093c6f` | **ported-and-improved** — Serializes held restarts with engine power transitions, stops containers in parallel, preserves held policies and user cancellations, and distinguishes requested stops from crashes. Run/exec return Docker-compatible 126/127/255 errors; --init handles scripts without shebangs. Asagiri lifecycle generation checks and crash recovery remain intact. Nine two-second stops take 2.095s versus 18.115s before this port; all 12 executable cases, three real agent crashes and stopped-daemon restart/cancellation checks pass on 44fab19. |
+| [#235](https://github.com/libracoder/kiri/pull/235) — UI: Sidebar — the Linux VM card fits in every language | open | `95022ff7564e` | **ported-and-improved** — VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics. |
+| [#236](https://github.com/libracoder/kiri/pull/236) — UI: First start and Settings — a searchable language list | open | `9f04a26d4195` | **ported-and-improved** — Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified. |

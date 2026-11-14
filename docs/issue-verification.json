@@ -571,9 +571,11 @@
         "crates/asagiri/src/guest.rs",
         "crates/asagiri/src/setup.rs",
         "tests/reported-runtime-regressions.py",
-        "tests/vm-recovery.py"
+        "tests/vm-recovery.py",
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/e2e.sh"
       ],
-      "remaining": "Attached report contains four subreports: LaunchAgent restart, bundled kernel discovery, symlinked binds, and stale ports. New tests cover pure configuration/paths and Linux behavior; native Mac lifecycle/path/port reproduction remains required."
+      "remaining": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. The #231 port re-resolves linked sources on each start; its pure Mac filesystem regression passes on 44fab19 while retaining lifecycle locks and original inspect paths. Native Mac lifecycle, VM bind restart and published-port reproduction remain unverified."
     },
     {
       "issue": 187,
@@ -648,9 +650,11 @@
       "coverage": "partial",
       "checks": [
         "crates/asagiri/src/daemon/usb.rs",
-        "crates/asagiri/src/usb/helper.rs"
+        "crates/asagiri/src/usb/helper.rs",
+        "tests/ui/usb.js",
+        "crates/asagiri/src/usb.rs"
       ],
-      "remaining": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Added detach/Stop cancellation generations. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
+      "remaining": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Waiting devices are visible and cancelable in API/CLI/UI; reconnect generations and immediate-drop registration are covered by eight passing Mac state tests on 44fab19. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
     },
     {
       "issue": 203,

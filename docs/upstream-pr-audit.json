@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-14T20:31:07.644810+00:00",
+  "reviewed_at": "2026-11-14T21:01:33.177110+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
-  "asagiri_runtime_revision": "2fa4f5690edd77e926ba6fc8a32655ecfcaeea9b",
+  "asagiri_runtime_revision": "44fab19064b0dee6dd9d948dafe2167fd3866540",
   "counts": {
-    "total": 148,
+    "total": 154,
     "merged": 85,
     "closed_unmerged": 37,
-    "open": 26
+    "open": 32
   },
   "pulls": [
     {
@@ -1968,6 +1968,88 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Reviewed the closed build-from-source README change. Asagiri already documents its correct renamed package, Rust prerequisites, platform dependencies and build commands in README.md and CONTRIBUTING.md; upstream Kiri commands are not reintroduced."
+    },
+    {
+      "number": 231,
+      "title": "Mounts: a linked bind folder follows its link again after a restart (Mac)",
+      "state": "open",
+      "head": "63cf422d926536102fa452441411e5f2b5df165a",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "82b1d7a9a1e0f846eda58a3fdb440454d78e1d84"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "Re-resolves symlinked Mac bind sources on each start while retaining original inspect metadata and Asagiri lifecycle generation locks. The pure Mac filesystem regression passes on 44fab19; an actual Mac VM bind restart remains unverified."
+    },
+    {
+      "number": 232,
+      "title": "Networks: disconnecting from two networks works, and the address is always given back",
+      "state": "open",
+      "head": "4db4243a3d8e91b6be913ffa7d565ad9af2e3f8d",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "disposition": "equivalent",
+      "reason": "Existing take_ifnum/drop_ifnum reserves an interface before attach and retains it until detach completes, releases IPv4/IPv6 on errors, and handles concurrent joins/leaves. All seven existing live scenarios pass on both Alpine and BusyBox with integrated source 44fab19; the narrower sequential upstream fix is equivalent."
+    },
+    {
+      "number": 233,
+      "title": "USB: devices Kiri waits for are listed, can be let go, and are never lost on a quick drop",
+      "state": "open",
+      "head": "dbc1b6f57a86ae03420455425515d0a469838c9c",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "a03569ed3cb59e36316d59560b93659aec536942"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "Waiting USB devices remain visible in API, CLI and UI, can be released, and survive an immediate drop after attachment. Integrated with Asagiri reconnect cancellation generations and atomic session removal. Eight Mac USB state tests pass on 44fab19. Physical USB reset/idle and Mac sleep/wake remain unverified; intent is not persisted across daemon restarts."
+    },
+    {
+      "number": 234,
+      "title": "Engine: Start and Stop no longer race; Stop is parallel; exit codes match Docker",
+      "state": "open",
+      "head": "714ff4093c6fb944e7f071d33c32d8a9b96eb2de",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "23074446c1d28ef972132ea7154b848ffa91433f"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "Serializes held restarts with engine power transitions, stops containers in parallel, preserves held policies and user cancellations, and distinguishes requested stops from crashes. Run/exec return Docker-compatible 126/127/255 errors; --init handles scripts without shebangs. Asagiri lifecycle generation checks and crash recovery remain intact. Nine two-second stops take 2.095s versus 18.115s before this port; all 12 executable cases, three real agent crashes and stopped-daemon restart/cancellation checks pass on 44fab19."
+    },
+    {
+      "number": 235,
+      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "state": "open",
+      "head": "95022ff7564ed8a5269f20e27476cf5daa08aeeb",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "989f8c6951a41acca5df8230495b91289d465d6d"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics."
+    },
+    {
+      "number": 236,
+      "title": "UI: First start and Settings — a searchable language list",
+      "state": "open",
+      "head": "9f04a26d4195cc44a63c68d627ffa689f23553a9",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "92654c4873728d3bb487ca061ea88eb673b80a3c"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified."
     }
   ]
 }
