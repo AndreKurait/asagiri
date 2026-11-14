@@ -148,7 +148,7 @@ impl Dns {
         if self.servers.iter().any(|s| s.container.is_none() && s.bridges.iter().any(|b| b == bridge)) {
             return Ok(());
         }
-        let sock = bound(gateway)?;
+        let sock = bound(gateway, 53)?;
         self.servers.push(Server { bridges: vec![bridge.to_owned()], sock, container: None });
         Ok(())
     }
@@ -164,7 +164,14 @@ impl Dns {
             }
             return Ok(());
         }
-        let sock = super::netlink::in_netns(netns, || bound(EMBEDDED))?;
+        let sock = super::netlink::in_netns(netns, || {
+            // A DNS service in the container must still be able to bind *:53.
+            // Only requests for the embedded address are translated to this
+            // private ephemeral listener; replies retain source port 53.
+            let socket = std::net::UdpSocket::from(bound(EMBEDDED, 0)?);
+            super::netlink::install_embedded_dns(EMBEDDED, socket.local_addr()?.port())?;
+            Ok(OwnedFd::from(socket))
+        })?;
         self.servers.push(Server { bridges: vec![bridge.to_owned()], sock, container: Some((pid, owner)) });
         Ok(())
     }
@@ -530,10 +537,10 @@ fn framed_reply(got: &[u8]) -> Option<&[u8]> {
     got.get(2..2 + len)
 }
 
-/// A UDP socket bound to `ip`:53.
-fn bound(ip: [u8; 4]) -> io::Result<OwnedFd> {
+/// A UDP socket bound to `ip:port`; zero allocates an ephemeral port.
+fn bound(ip: [u8; 4], port: u16) -> io::Result<OwnedFd> {
     let sock = udp_socket()?;
-    let addr = sockaddr(ip, 53);
+    let addr = sockaddr(ip, port);
     // SAFETY: binding to a valid sockaddr_in.
     sys::check(
         unsafe { libc::bind(sock.as_raw_fd(), (&addr as *const libc::sockaddr_in).cast(), std::mem::size_of::<libc::sockaddr_in>() as u32) } as _,
