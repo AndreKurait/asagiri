@@ -12,6 +12,8 @@ asagiri-proto = { path = "../asagiri-proto" }
 asagiri-share-proto = { path = "../asagiri-share-proto" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Docker name filters use bounded, non-backtracking regular expressions.
+regex = "1"
 sha2 = "0.11"
 # gzip uploads to PUT /containers/{id}/archive (DDEV sends them).
 flate2 = "1"

@@ -2297,7 +2297,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
         let labels = if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) };
         let net = networks.iter().find(|n| n.name == c.spec.network_mode || n.id == c.spec.network_mode || (c.spec.network_mode == "default" && n.name == "bridge"));
         let keep = f.any("id", |v| c.id.starts_with(v))
-            && f.name(&c.name)
+            && f.container_name(&c.name)
             && f.labels(&labels)
             && f.any("status", |v| v == state_word(c))
             && f.any("exited", |v| c.status == Status::Exited && v.parse() == Ok(c.exit_code))
@@ -3212,6 +3212,20 @@ mod tests {
             "80/udp": [{"HostIp": "::1", "HostPort": "9090"}],
         }));
     }
+    #[test]
+    fn container_list_http_query_keeps_regex_name_filters() {
+        use std::io::{BufReader, Write};
+        let (mut client, server) = UnixStream::pair().unwrap();
+        // The same percent-encoded filters sent by Docker API clients.
+        client.write_all(b"GET /v1.47/containers/json?all=1&filters=%7B%22name%22%3A%5B%22%5E%2Fdemo-%28floci%7Clocalstack%29-%5B0-9%5D%2B%24%22%5D%7D HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let req = super::super::http::read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+        assert_eq!(req.path, "/containers/json");
+        assert!(req.flag("all"));
+        let f = filters(&req, &["name"]).unwrap();
+        let names = ["demo-floci-12", "demo-localstack-2", "demo-floci-12-old", "foreign-floci-12"];
+        assert_eq!(names.into_iter().filter(|name| f.container_name(name)).collect::<Vec<_>>(), ["demo-floci-12", "demo-localstack-2"]);
+    }
+
 
     #[test]
     fn image_inspection_reports_uncompressed_diff_ids_in_config_order() {
