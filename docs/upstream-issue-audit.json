@@ -14,7 +14,7 @@
     },
     {
       "number": 13,
-      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
       "state": "closed",
       "updated_at": "2026-11-06T11:14:54Z",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
@@ -275,7 +275,7 @@
     },
     {
       "number": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
       "state": "open",
       "updated_at": "2026-11-12T02:37:32Z",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
@@ -284,7 +284,7 @@
     },
     {
       "number": 90,
-      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
+      "title": "【GUI】 图形界面能不能支持中文",
       "state": "closed",
       "updated_at": "2026-11-10T00:00:18Z",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
@@ -302,7 +302,7 @@
     },
     {
       "number": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
@@ -338,7 +338,7 @@
     },
     {
       "number": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
       "state": "closed",
       "updated_at": "2026-11-10T16:58:28Z",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
@@ -455,7 +455,7 @@
     },
     {
       "number": 170,
-      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
+      "title": "请看提交的报告",
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
@@ -559,8 +559,8 @@
       "state": "open",
       "updated_at": "2026-11-14T06:32:43Z",
       "body_sha256": "186afacad824393bcce424af2a34426472945a44c2751679260e4a0e8b488f9d",
-      "disposition": "known-limitation",
-      "reason": "Confirmed the reported distinction: only the Mac relay path substitutes a non-loopback default-bridge DNS address. WSL-local resolvers and BuildKit fallback require a follow-up; native Windows DNS has not been verified."
+      "disposition": "partial",
+      "reason": "Default-bridge DNS now uses the reachable bridge gateway whenever a local host resolver needs the agent, including WSL. Local stubs are retained rather than replaced by public resolvers. Protocol/configuration tests cover the non-Mac path; native Windows VPN and BuildKit execution remain unverified."
     },
     {
       "number": 210,
@@ -577,8 +577,8 @@
       "state": "open",
       "updated_at": "2026-11-14T11:28:54Z",
       "body_sha256": "d2bd38b7f07b942e157cac05d87e37da6d6e117717fcc109c99cfe1ef901a2be",
-      "disposition": "partial",
-      "reason": "Bridge inter-container isolation is implemented and has IPv4/IPv6 regressions. CgroupParent, a custom bridge name and user namespace remapping still need explicit supported behavior or rejection; do not claim multi-tenant isolation."
+      "disposition": "covered",
+      "reason": "Implemented the report's explicit-rejection alternative: unsupported CgroupParent, user remapping, and custom bridge names return HTTP 400 before resource creation. Per-container limits and bridge ICC remain supported. Aggregate tenant cgroups and user namespace remapping are not claimed."
     },
     {
       "number": 215,
@@ -595,8 +595,8 @@
       "state": "open",
       "updated_at": "2026-11-14T15:51:17Z",
       "body_sha256": "33f134b55f020d194ac5e9d4a84931a39e8ecc8a961c09b983f478dd4e8da644",
-      "disposition": "known-limitation",
-      "reason": "Windows host-IP publishing needs Windows-side bind/relay support or a clear unsupported-address response. Linux host publishing does not establish Windows LAN reachability."
+      "disposition": "covered",
+      "reason": "Implemented the report's clear-limitation alternative: explicit non-loopback Windows host-IP publishing is rejected, while wildcard bindings return a WSL/Windows-LAN warning. Portable address tests cover the policy; no Windows forwarding or firewall rules are installed and native LAN reachability remains unverified."
     },
     {
       "number": 222,

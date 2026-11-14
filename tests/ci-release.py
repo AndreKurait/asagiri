@@ -90,6 +90,24 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(release.checked_runs(changed, COMMIT)[1], [runs[0]["name"]])
         self.assertEqual(release.checked_runs(runs[1:], COMMIT)[1], [runs[0]["name"]])
 
+    def test_manual_recovery_plans_the_original_packages_from_the_trusted_workflow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "event.json"
+            path.write_text(json.dumps({**self.event(), "inputs": {"recover_run": "123"}}))
+            env = {"GITHUB_EVENT_PATH": str(path), "GITHUB_EVENT_NAME": "workflow_dispatch",
+                   "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_NUMBER": "99", "GITHUB_RUN_ATTEMPT": "1"}
+            with patch.dict(release.os.environ, env), patch.object(release, "run", side_effect=[
+                    SimpleNamespace(stdout="b" * 40), SimpleNamespace(stdout=""),
+                    SimpleNamespace(returncode=1)]), \
+                    patch.object(release, "recover_packages", return_value=(COMMIT, "0.1.0-dev.62", True, 2)) as recover, \
+                    patch.object(release, "emit") as emit:
+                release.plan(SimpleNamespace(repo=REPO))
+            recover.assert_called_once_with(REPO, "123")
+            emit.assert_called_once_with(ready=True, commit=COMMIT, version="0.1.0-dev.62",
+                                         tag="v0.1.0-dev.62", prerelease=True,
+                                         artifact_run="123", artifact_attempt=2)
+
     def test_a_failed_rerun_supersedes_an_earlier_success(self):
         runs = self.checks()
         rerun = {**runs[0], "id": 100, "conclusion": "failure"}

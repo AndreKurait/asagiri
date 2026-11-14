@@ -33,9 +33,11 @@ for img in busybox:stable alpine:3.21; do
 done
 
 failed=0
-run() { # run <script> [image]
-  out=$(docker exec "$name" python3 "/src/tests/$1.py" "$sock" ${2:+"$2"} 2>&1); rc=$?
-  echo "[$rc] $1${2:+ $2}: $(echo "$out" | tail -1 | cut -c1-200)"
+run() { # run <script> [image] [options]
+  test_script=$1
+  shift
+  out=$(docker exec "$name" python3 "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
+  echo "[$rc] $test_script${*:+ $*}: $(echo "$out" | tail -1 | cut -c1-200)"
   if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | sed 's/^/    /'; fi
 }
 
@@ -50,6 +52,7 @@ run image-load-completion
 run layer-concurrency
 run container-addresses
 run cleanup-responsive alpine:3.21
+run cleanup-responsive alpine:3.21 --copy
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"

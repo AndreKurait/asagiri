@@ -29,6 +29,20 @@ so pooled Docker clients reconnect before starting the builder. The same fix
 covers image import/load and classic build responses. Regression checks cover
 the upload-to-start sequence and its connection headers.
 
+Container exits are reported before slow filesystem cleanup finishes.
+Restart, removal, and archive operations for that container wait for cleanup;
+unrelated execs and DNS stay responsive. Cleanup records retain container
+identity even after Linux reuses the old process ID. Stopped-container copies
+now honor persistent bind and volume mounts, including read-only mounts.
+Requested port bindings remain visible through create, start, and stop.
+Image loading waits for the complete HTTP body before publishing its contents.
+
+The embedded resolver leaves wildcard port 53 free for container DNS services.
+Default-bridge BuildKit DNS uses a reachable gateway for WSL/local host
+resolvers. Unsupported parent cgroups, user remapping, and bridge interface
+names return clear errors. Windows publishing explains the WSL/Windows LAN
+boundary; it does not install Windows forwarding or firewall rules.
+
 Containers and execs now have independent process sessions, so process-group
 signals cannot stop the engine. The UI's engine card follows the actual engine
 state after every Start/Stop control. HTTP clients requesting connection closure

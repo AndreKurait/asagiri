@@ -665,12 +665,13 @@
       "issue": 209,
       "title": "Windows: docker build hangs when a RUN step needs network (BuildKit has no usable DNS)",
       "body_sha256": "186afacad824393bcce424af2a34426472945a44c2751679260e4a0e8b488f9d",
-      "coverage": "known-limitation",
+      "coverage": "partial",
       "checks": [
         "crates/asagiri-init/src/linux/container.rs",
+        "crates/asagiri-init/src/linux/transport.rs",
         "tests/buildx-bootstrap.py"
       ],
-      "remaining": "Confirmed the reported distinction: only the Mac relay path substitutes a non-loopback default-bridge DNS address. WSL-local resolvers and BuildKit fallback require a follow-up; native Windows DNS has not been verified."
+      "remaining": "Default-bridge DNS now uses the reachable bridge gateway whenever a local host resolver needs the agent, including WSL. Local stubs are retained rather than replaced by public resolvers. Protocol/configuration tests cover the non-Mac path; native Windows VPN and BuildKit execution remain unverified."
     },
     {
       "issue": 210,
@@ -687,12 +688,14 @@
       "issue": 213,
       "title": "Support --cgroup-parent, bridge name option, enable_icc=false and user namespace remap for hosting multi-tenant apps Context",
       "body_sha256": "d2bd38b7f07b942e157cac05d87e37da6d6e117717fcc109c99cfe1ef901a2be",
-      "coverage": "partial",
+      "coverage": "automated",
       "checks": [
         "tests/network-bridge-icc.py",
-        "crates/asagiri/src/daemon/network.rs"
+        "tests/reported-runtime-regressions.py",
+        "crates/asagiri/src/daemon/api.rs",
+        "docs/features.md"
       ],
-      "remaining": "Bridge inter-container isolation is implemented and has IPv4/IPv6 regressions. CgroupParent, a custom bridge name and user namespace remapping still need explicit supported behavior or rejection; do not claim multi-tenant isolation."
+      "remaining": "Implemented the report's explicit-rejection alternative: unsupported CgroupParent, user remapping, and custom bridge names return HTTP 400 before resource creation. Per-container limits and bridge ICC remain supported. Aggregate tenant cgroups and user namespace remapping are not claimed."
     },
     {
       "issue": 215,
@@ -706,12 +709,13 @@
       "issue": 218,
       "title": "Windows: publishing a port on a host IP (-p IP:port:port) fails with 'Address not available (os error 99)'; 0.0.0.0 is loopback-only",
       "body_sha256": "33f134b55f020d194ac5e9d4a84931a39e8ecc8a961c09b983f478dd4e8da644",
-      "coverage": "known-limitation",
+      "coverage": "partial",
       "checks": [
-        "crates/asagiri-win/src/engine.rs",
-        "crates/asagiri/src/daemon/ports.rs"
+        "crates/asagiri/src/daemon/ports.rs",
+        "crates/asagiri/src/daemon/api.rs",
+        "docs/features.md"
       ],
-      "remaining": "Windows host-IP publishing needs Windows-side bind/relay support or a clear unsupported-address response. Linux host publishing does not establish Windows LAN reachability."
+      "remaining": "Implemented the report's clear-limitation alternative: explicit non-loopback Windows host-IP publishing is rejected, while wildcard bindings return a WSL/Windows-LAN warning. Portable address tests cover the policy; no Windows forwarding or firewall rules are installed and native LAN reachability remains unverified."
     },
     {
       "issue": 222,

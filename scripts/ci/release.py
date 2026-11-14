@@ -237,7 +237,7 @@ def plan(args):
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     if ref.startswith("refs/tags/") and run("git", "rev-parse", ref + "^{commit}").stdout.strip() != commit:
         raise SystemExit("The version tag differs from the source checkout")
-    artifact_run = event.get("inputs", {}).get("recover_run", "")
+    artifact_run = (event.get("inputs") or {}).get("recover_run") or ""
     artifact_attempt = os.environ["GITHUB_RUN_ATTEMPT"]
     if artifact_run:
         if kind != "workflow_dispatch" or ref != "refs/heads/main":
