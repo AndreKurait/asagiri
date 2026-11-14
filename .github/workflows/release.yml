@@ -7,12 +7,17 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      recover_run:
+        description: "Reuse complete packages from a failed official Release run"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}-${{ github.sha }}
+  group: release-${{ github.ref }}-${{ inputs.recover_run || github.sha }}
   cancel-in-progress: false
 
 env:
@@ -39,6 +44,8 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
+      artifact_run: ${{ steps.plan.outputs.artifact_run }}
+      artifact_attempt: ${{ steps.plan.outputs.artifact_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,7 +61,7 @@ jobs:
   linux:
     name: Linux packages (${{ matrix.arch }})
     needs: plan
-    if: needs.plan.outputs.ready == 'true'
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.artifact_run == ''
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -127,7 +134,7 @@ jobs:
   guest:
     name: Guest kernels and corresponding source
     needs: plan
-    if: needs.plan.outputs.ready == 'true'
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.artifact_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -386,6 +393,12 @@ jobs:
   publish:
     name: Verify uploads and publish
     needs: [plan, linux, guest, macos, windows, windows-arm-install]
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.ready == 'true' &&
+      (needs.plan.outputs.artifact_run != '' ||
+       (needs.linux.result == 'success' && needs.guest.result == 'success' &&
+        needs.macos.result == 'success' && needs.windows.result == 'success' &&
+        needs.windows-arm-install.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -396,7 +409,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Read the package source and its release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           ref: ${{ needs.plan.outputs.commit }}
+          path: release-source
           persist-credentials: false
       - name: Require successful CI for this exact source commit
         env:
@@ -408,11 +427,15 @@ jobs:
           pattern: packages-*
           path: dist
           merge-multiple: true
+          run-id: ${{ needs.plan.outputs.artifact_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Require every package and validate the update metadata
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           COMMIT: ${{ needs.plan.outputs.commit }}
-        run: python3 scripts/ci/release.py collect dist "$VERSION" "$COMMIT"
+          ASAGIRI_PACKAGE_RUN_ID: ${{ needs.plan.outputs.artifact_run || github.run_id }}
+          ASAGIRI_PACKAGE_RUN_ATTEMPT: ${{ needs.plan.outputs.artifact_attempt }}
+        run: python3 scripts/ci/release.py collect dist "$VERSION" "$COMMIT" --source-root release-source
       - name: Attest the release artifacts
         id: provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -427,4 +450,4 @@ jobs:
       - name: Upload, verify every GitHub digest, then publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/release.py publish dist
+        run: python3 scripts/ci/release.py publish dist --source-root release-source

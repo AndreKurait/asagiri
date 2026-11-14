@@ -104,6 +104,14 @@ or canceled runs, and it allows at most three attempts per release run.
 The recovery job checks out the trusted workflow revision, executes no event
 artifacts, and can request Actions retries without repository write permission.
 
+After fixing an attestation error, dispatch the main `Release` workflow with
+`recover_run` set to the failed run's numeric ID. This reuses packages only
+when every native build and installer job succeeded, all source checks pass,
+and the original failure was the CI gate or attestation step. It retains the
+original version, source commit, and package build invocation. Publication
+uses the current trusted workflow and records that revision separately in
+provenance. Package, upload, canceled, fork, and branch runs are ineligible.
+
 Linux releases also install both RPM variants on Amazon Linux 2023, configure
 an ordinary user's engine access, run a real container, and remove the package.
 The release matrix exercises native x86_64 and aarch64 binaries. A second check

@@ -66,7 +66,7 @@ class ReleaseTests(unittest.TestCase):
             event_path = root / "event.json"
             event_path.write_text(json.dumps(self.event()))
             env = {"GITHUB_EVENT_PATH": str(event_path), "GITHUB_EVENT_NAME": "push",
-                   "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_NUMBER": "34"}
+                   "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_NUMBER": "34", "GITHUB_RUN_ATTEMPT": "1"}
             with patch.object(release, "ROOT", root), patch.dict(release.os.environ, env), \
                     patch.object(release, "run", side_effect=[
                         SimpleNamespace(stdout=COMMIT), SimpleNamespace(stdout=""),
@@ -75,7 +75,8 @@ class ReleaseTests(unittest.TestCase):
                 release.plan(SimpleNamespace(repo=REPO))
             api.assert_not_called()
             emit.assert_called_once_with(ready=True, commit=COMMIT, version="0.1.0-dev.34",
-                                         tag="v0.1.0-dev.34", prerelease=True)
+                                         tag="v0.1.0-dev.34", prerelease=True,
+                                         artifact_run="", artifact_attempt="1")
 
     def test_every_check_must_pass_on_the_exact_source_commit(self):
         runs = self.checks()
@@ -125,7 +126,8 @@ class ReleaseTests(unittest.TestCase):
     def release_run(self):
         return {"id": 123, "name": "Release", "path": release.RELEASE_WORKFLOW,
                 "head_sha": COMMIT, "head_branch": "main", "head_repository": {"full_name": REPO},
-                "event": "push", "status": "completed", "conclusion": "failure", "run_attempt": 1}
+                "event": "push", "status": "completed", "conclusion": "failure",
+                "run_attempt": 1, "run_number": 62}
 
     def release_jobs(self):
         return [{"name": "Linux packages (x86_64)", "status": "completed", "conclusion": "success"},
@@ -237,6 +239,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_provenance_distinguishes_source_from_a_newer_workflow(self):
         env = {"GITHUB_WORKFLOW_SHA": "b" * 40,
+               "GITHUB_SHA": "b" * 40,
                "GITHUB_WORKFLOW_REF": REPO + "/.github/workflows/release.yml@refs/heads/main",
                "GITHUB_SERVER_URL": "https://github.com", "GITHUB_REF": "refs/heads/main",
                "GITHUB_EVENT_NAME": "workflow_run", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
@@ -244,16 +247,83 @@ class ReleaseTests(unittest.TestCase):
                "RUNNER_ENVIRONMENT": "github-hosted"}
         predicate = release.provenance(REPO, COMMIT, "0.1.0-dev.12", env)
         dependencies = predicate["buildDefinition"]["resolvedDependencies"]
-        self.assertEqual(dependencies[0]["digest"]["gitCommit"], COMMIT)
-        self.assertEqual(dependencies[1]["digest"]["gitCommit"], "b" * 40)
+        self.assertEqual(dependencies[0]["uri"], f"git+https://github.com/{REPO}@refs/heads/main")
+        self.assertEqual(dependencies[0]["digest"]["gitCommit"], "b" * 40)
+        self.assertEqual(dependencies[1]["digest"]["gitCommit"], COMMIT)
+        self.assertEqual(dependencies[1]["annotations"]["buildInvocation"],
+                         f"https://github.com/{REPO}/actions/runs/123/attempts/1")
         self.assertEqual(predicate["buildDefinition"]["externalParameters"]["source"]["commit"], COMMIT)
         self.assertEqual(predicate["buildDefinition"]["internalParameters"]["github"], {
             "event_name": "workflow_run", "repository_id": "456", "repository_owner_id": "789",
             "runner_environment": "github-hosted"})
-        for field in ("GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "RUNNER_ENVIRONMENT"):
+        recovered = release.provenance(REPO, COMMIT, "0.1.0-dev.62", {
+            **env, "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "ASAGIRI_PACKAGE_RUN_ID": "62", "ASAGIRI_PACKAGE_RUN_ATTEMPT": "2"})
+        self.assertEqual(recovered["buildDefinition"]["resolvedDependencies"][1]["annotations"]["buildInvocation"],
+                         f"https://github.com/{REPO}/actions/runs/62/attempts/2")
+        for field in ("GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "RUNNER_ENVIRONMENT", "GITHUB_SHA"):
             for value in ("", "untrusted"):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     release.provenance(REPO, COMMIT, "0.1.0-dev.12", {**env, field: value})
+
+    def package_recovery(self, *, candidate=None, jobs=None, checks=None):
+        candidate = self.release_run() if candidate is None else candidate
+        jobs = ([{"name": name, "status": "completed", "conclusion": "success"}
+                 for name in sorted(release.PACKAGE_JOBS)] + [
+                    {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                     "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
+                if jobs is None else jobs)
+        checks = self.checks() if checks is None else checks
+        def api(_, path):
+            if path == "actions/runs/123":
+                return candidate
+            if "/jobs?" in path:
+                return {"jobs": jobs}
+            if path.startswith("actions/runs?"):
+                return {"workflow_runs": checks}
+            self.fail(f"Unexpected package recovery request: {path}")
+        with patch.object(release, "api", side_effect=api), \
+                patch.object(release, "run", side_effect=[
+                    SimpleNamespace(stdout=""), SimpleNamespace(stdout="0.1.0\n")]) as run:
+            result = release.recover_packages(REPO, "123")
+        self.assertEqual(run.call_args_list[0].args,
+                         ("git", "merge-base", "--is-ancestor", COMMIT, "origin/main"))
+        return result
+
+    def test_package_recovery_retains_original_version_and_source(self):
+        self.assertEqual(self.package_recovery(), (COMMIT, "0.1.0-dev.62", True, 1))
+
+    def test_package_recovery_rejects_untrusted_or_active_runs(self):
+        for field, value in (("head_repository", {"full_name": "fork/asagiri"}),
+                             ("path", ".github/workflows/untrusted.yml"), ("event", "pull_request"),
+                             ("head_branch", "feature"), ("head_sha", "bad"), ("id", 456),
+                             ("status", "in_progress"), ("conclusion", "success")):
+            with self.subTest(field=field), self.assertRaises(SystemExit):
+                self.package_recovery(candidate={**self.release_run(), field: value})
+        for run_id in ("0", "-1", "x", "123\nbad-output=true"):
+            with self.subTest(run_id=run_id), patch.object(release, "api") as api, \
+                    self.assertRaises(SystemExit):
+                release.recover_packages(REPO, run_id)
+            api.assert_not_called()
+
+    def test_package_recovery_requires_all_native_jobs_and_source_checks(self):
+        with self.assertRaises(SystemExit):
+            self.package_recovery(jobs=self.release_jobs())
+        jobs = [{"name": name, "status": "completed", "conclusion": "success"}
+                for name in sorted(release.PACKAGE_JOBS)] + [
+                    {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                     "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
+        for conclusion in ("failure", "skipped", "cancelled"):
+            changed = copy.deepcopy(jobs)
+            changed[0]["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaises(SystemExit):
+                self.package_recovery(jobs=changed)
+        changed = copy.deepcopy(jobs)
+        changed[-1]["steps"][0]["name"] = "Upload, verify every GitHub digest, then publish"
+        with self.assertRaises(SystemExit):
+            self.package_recovery(jobs=changed)
+        with self.assertRaises(SystemExit):
+            self.package_recovery(checks=self.checks()[1:])
 
     def publication(self, root, *, existing=False, corruption=None):
         """Model GitHub's draft lifecycle: the tag endpoint sees only published releases."""
@@ -329,7 +399,7 @@ class ReleaseTests(unittest.TestCase):
                 dist, state, remote, command, api = self.publication(root, existing=existing)
                 with patch.object(release, "ROOT", root), patch.object(release, "run", side_effect=command), \
                         patch.object(release, "api", side_effect=api), patch.object(release, "emit") as emit:
-                    release.publish(SimpleNamespace(directory=dist, repo=REPO))
+                    release.publish(SimpleNamespace(directory=dist, repo=REPO, source_root=root))
                 self.assertEqual(state["created"], not existing)
                 self.assertFalse(remote["draft"])
                 emit.assert_called_once_with(url=remote["html_url"])
@@ -341,7 +411,7 @@ class ReleaseTests(unittest.TestCase):
                 dist, _, remote, command, api = self.publication(root, corruption=corruption)
                 with patch.object(release, "ROOT", root), patch.object(release, "run", side_effect=command), \
                         patch.object(release, "api", side_effect=api), self.assertRaises(SystemExit):
-                    release.publish(SimpleNamespace(directory=dist, repo=REPO))
+                    release.publish(SimpleNamespace(directory=dist, repo=REPO, source_root=root))
                 self.assertTrue(remote["draft"])
 
     def test_stamping_preserves_dependency_versions_and_is_idempotent(self):

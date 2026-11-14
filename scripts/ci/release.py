@@ -17,6 +17,13 @@ RELEASE_WORKFLOW = ".github/workflows/release.yml"
 PUBLISH_JOB = "Verify uploads and publish"
 CHECK_STEP = "Require successful CI for this exact source commit"
 MAX_RELEASE_ATTEMPTS = 3
+PACKAGE_JOBS = {
+    "plan", "Guest kernels and corresponding source",
+    "Linux packages (aarch64)", "Linux packages (x86_64)",
+    "macOS packages (arm64)", "macOS packages (x86_64)",
+    "Windows packages (arm64)", "Windows packages (x86_64)",
+    "Windows Arm installer check",
+}
 
 
 def run(*args, check=True):
@@ -184,6 +191,43 @@ def release_version(kind, ref, run_number, base):
     return f"{base}-dev.{run_number}", True
 
 
+def recover_packages(repo, run_id):
+    """Reuse only complete packages from a failed official main/tag release."""
+    if not re.fullmatch(r"[1-9]\d*", run_id):
+        raise SystemExit("Recovery requires a positive Release workflow run ID")
+    previous = api(repo, f"actions/runs/{run_id}")
+    branch = previous.get("head_branch", "")
+    commit = previous.get("head_sha", "")
+    if (previous.get("id") != int(run_id) or previous.get("name") != "Release"
+            or previous.get("path") != RELEASE_WORKFLOW
+            or previous.get("head_repository", {}).get("full_name") != repo
+            or previous.get("event") not in ("push", "workflow_dispatch")
+            or previous.get("status") != "completed" or previous.get("conclusion") != "failure"
+            or not re.fullmatch(r"[a-f0-9]{40}", commit)
+            or not (branch == "main" or (previous["event"] == "push"
+                and re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", branch)))):
+        raise SystemExit("Only a failed official main or version-tag release can supply packages")
+    run("git", "merge-base", "--is-ancestor", commit, "origin/main")
+    jobs = pages(repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
+    if len(jobs) != len(PACKAGE_JOBS) + 1 or {job["name"] for job in jobs} != PACKAGE_JOBS | {PUBLISH_JOB}:
+        raise SystemExit("Recovery requires every native packaging and installer job")
+    for job in jobs:
+        expected = "failure" if job["name"] == PUBLISH_JOB else "success"
+        if job["status"] != "completed" or job["conclusion"] != expected:
+            raise SystemExit("Recovery cannot reuse failed, skipped, or incomplete packages")
+    publisher = next(job for job in jobs if job["name"] == PUBLISH_JOB)
+    failures = [step["name"] for step in publisher["steps"] if step["conclusion"] == "failure"]
+    if failures not in ([CHECK_STEP], ["Attest the release artifacts"]):
+        raise SystemExit("Recovery is limited to CI-gate or attestation failures before publication")
+    require_checks(repo, commit, 0)
+    base = run("git", "show", f"{commit}:RELEASE_VERSION").stdout.strip()
+    ref = "refs/heads/main" if branch == "main" else "refs/tags/" + branch
+    if branch != "main" and api(repo, f"commits/{branch}")["sha"] != commit:
+        raise SystemExit("The source release tag has changed")
+    version, prerelease = release_version(previous["event"], ref, str(previous["run_number"]), base)
+    return commit, version, prerelease, previous["run_attempt"]
+
+
 def plan(args):
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     kind = os.environ["GITHUB_EVENT_NAME"]
@@ -193,8 +237,15 @@ def plan(args):
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     if ref.startswith("refs/tags/") and run("git", "rev-parse", ref + "^{commit}").stdout.strip() != commit:
         raise SystemExit("The version tag differs from the source checkout")
-    version, prerelease = release_version(
-        kind, ref, os.environ["GITHUB_RUN_NUMBER"], (ROOT / "RELEASE_VERSION").read_text().strip())
+    artifact_run = event.get("inputs", {}).get("recover_run", "")
+    artifact_attempt = os.environ["GITHUB_RUN_ATTEMPT"]
+    if artifact_run:
+        if kind != "workflow_dispatch" or ref != "refs/heads/main":
+            raise SystemExit("Package recovery requires a manual run of the main workflow")
+        commit, version, prerelease, artifact_attempt = recover_packages(args.repo, artifact_run)
+    else:
+        version, prerelease = release_version(
+            kind, ref, os.environ["GITHUB_RUN_NUMBER"], (ROOT / "RELEASE_VERSION").read_text().strip())
     tag = "v" + version
     previous = run("gh", "release", "view", tag, "--repo", args.repo,
                    "--json", "isDraft,targetCommitish", check=False)
@@ -208,7 +259,8 @@ def plan(args):
             print(f"{tag} is already published for {commit}")
             emit(ready=False)
             return
-    emit(ready=True, commit=commit, version=version, tag=tag, prerelease=prerelease)
+    emit(ready=True, commit=commit, version=version, tag=tag, prerelease=prerelease,
+         artifact_run=artifact_run, artifact_attempt=artifact_attempt)
 
 
 def stamp(root, version):
@@ -261,6 +313,8 @@ def provenance(repo, commit, version, env):
         raise ValueError("Invalid build workflow commit")
     if not workflow_ref.startswith(repo + "/.github/workflows/"):
         raise ValueError("Build workflow belongs to a different repository")
+    if env["GITHUB_SHA"] != workflow_sha:
+        raise ValueError("Publication must execute the workflow revision it attests")
     repository_id = env.get("GITHUB_REPOSITORY_ID", "")
     owner_id = env.get("GITHUB_REPOSITORY_OWNER_ID", "")
     runner = env.get("RUNNER_ENVIRONMENT", "")
@@ -284,10 +338,17 @@ def provenance(repo, commit, version, env):
                            "runner_environment": runner},
             },
             "resolvedDependencies": [
-                {"uri": f"git+{server}/{repo}@{commit}", "digest": {"gitCommit": commit},
-                 "annotations": {"role": "package source"}},
-                {"uri": f"git+{server}/{repo}@{workflow_sha}", "digest": {"gitCommit": workflow_sha},
+                # GitHub checks the first dependency against the OIDC ref and
+                # SHA. The URI must name that ref, not a commit-shaped ref.
+                {"uri": f"git+{server}/{repo}@{env['GITHUB_REF']}", "digest": {"gitCommit": workflow_sha},
                  "annotations": {"role": "build workflow"}},
+                {"uri": f"git+{server}/{repo}@{commit}", "digest": {"gitCommit": commit},
+                 "annotations": {
+                     "role": "package source",
+                     "buildInvocation": f"{server}/{repo}/actions/runs/"
+                         f"{env.get('ASAGIRI_PACKAGE_RUN_ID', env['GITHUB_RUN_ID'])}/attempts/"
+                         f"{env.get('ASAGIRI_PACKAGE_RUN_ATTEMPT', env['GITHUB_RUN_ATTEMPT'])}",
+                 }},
             ],
         },
         "runDetails": {
@@ -338,7 +399,7 @@ def collect(args):
     sums.append(f"{sha256(manifest)}  {manifest.name}\n")
     (dist / "SHA256SUMS").write_text("".join(sums))
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        if run("git", "rev-parse", "HEAD").stdout.strip() != args.commit:
+        if run("git", "-C", str(args.source_root), "rev-parse", "HEAD").stdout.strip() != args.commit:
             raise SystemExit("Publication checkout differs from the package source commit")
         predicate = ROOT / "target/release-provenance.json"
         predicate.parent.mkdir(exist_ok=True)
@@ -354,7 +415,7 @@ def publish(args):
     prerelease = "-dev." in version
     notes = ROOT / "target/release-notes.md"
     notes.parent.mkdir(exist_ok=True)
-    intro = (ROOT / "docs/releases/asagiri.md").read_text()
+    intro = (args.source_root / "docs/releases/asagiri.md").read_text()
     notes.write_text(f"{intro}\n\nSource: `{commit}`\n\n"
                      "Each download has a SHA-256 in `SHA256SUMS`; `release-manifest.json` "
                      "records its size and source commit. GitHub build attestations are also attached.\n")
@@ -421,8 +482,10 @@ def main():
     assemble.add_argument("directory", type=Path)
     assemble.add_argument("version")
     assemble.add_argument("commit")
+    assemble.add_argument("--source-root", type=Path, default=ROOT)
     publication = commands.add_parser("publish")
     publication.add_argument("directory", type=Path)
+    publication.add_argument("--source-root", type=Path, default=ROOT)
     args = parser.parse_args()
     if args.command == "plan":
         plan(args)
