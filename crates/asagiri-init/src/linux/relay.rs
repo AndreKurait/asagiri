@@ -79,6 +79,50 @@ pub fn accept_framed(listener: &OwnedFd) -> Option<Relay> {
     accept(listener).map(|r| Relay { framed: true, ..r })
 }
 
+/// The host reaches one fixed Unix socket, never an address or path supplied
+/// by a container. Use the existing bounded relay and explicit EOF framing.
+pub fn accept_buildkit(listener: &OwnedFd) -> Option<Relay> {
+    let mut relay = accept(listener)?;
+    let path = format!("/var/lib/asagiri/volumes/{}/_data/buildkitd.sock", asagiri_proto::BUILDKIT_SOCKET_VOLUME);
+    match connect_unix_socket(&path) {
+        Ok(target) => {
+            relay.target = Some(target);
+            relay.connected = true;
+            relay.framed = true;
+        }
+        Err(_) => relay.dead = true,
+    }
+    Some(relay)
+}
+
+fn connect_unix_socket(path: &str) -> io::Result<OwnedFd> {
+    let path = std::ffi::CString::new(path).map_err(io::Error::other)?;
+    // Pin the socket inode before connecting. A replaced pathname or final
+    // symlink cannot redirect this connection to a different service.
+    // SAFETY: valid terminated paths; every returned descriptor is owned.
+    unsafe {
+        let fd = sys::check(libc::open(path.as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) as _, "open BuildKit socket")?;
+        let pinned = OwnedFd::from_raw_fd(fd as RawFd);
+        let mut stat: libc::stat = std::mem::zeroed();
+        sys::check(libc::fstat(pinned.as_raw_fd(), &mut stat) as _, "stat BuildKit socket")?;
+        if stat.st_mode & libc::S_IFMT != libc::S_IFSOCK {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "BuildKit endpoint is not a socket"));
+        }
+        let fd = sys::check(libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0) as _, "BuildKit socket")?;
+        let socket = OwnedFd::from_raw_fd(fd as RawFd);
+        let mut address: libc::sockaddr_un = std::mem::zeroed();
+        address.sun_family = libc::AF_UNIX as _;
+        for (out, byte) in address.sun_path.iter_mut().zip(format!("/proc/self/fd/{}", pinned.as_raw_fd()).bytes()) {
+            *out = byte as _;
+        }
+        // A full Unix accept queue returns EAGAIN. Never block the agent's
+        // event loop; that connection fails and the client can retry.
+        sys::check(libc::connect(socket.as_raw_fd(), (&address as *const libc::sockaddr_un).cast(),
+            std::mem::size_of_val(&address) as _) as _, "connect BuildKit socket")?;
+        Ok(socket)
+    }
+}
+
 pub fn accept(listener: &OwnedFd) -> Option<Relay> {
     // SAFETY: accept4 on a listening socket we own; the fd is owned immediately.
     let fd = unsafe { libc::accept4(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC) };
@@ -520,6 +564,31 @@ pub fn accept_engine(listener: &OwnedFd) -> Option<Relay> {
 #[cfg(test)]
 mod tests {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    #[test]
+    fn buildkit_relay_pins_a_socket_and_refuses_files_and_symlinks() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixListener;
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let directory = std::env::temp_dir().join(format!("asagiri-relay-{}-{unique}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("backend.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut client = std::fs::File::from(super::connect_unix_socket(path.to_str().unwrap()).unwrap());
+        let (mut accepted, _) = listener.accept().unwrap();
+        client.write_all(b"grpc").unwrap();
+        let mut bytes = [0; 4];
+        accepted.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"grpc");
+        let link = directory.join("link.sock");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(super::connect_unix_socket(link.to_str().unwrap()).is_err());
+        let regular = directory.join("file");
+        std::fs::write(&regular, b"not a socket").unwrap();
+        assert!(super::connect_unix_socket(regular.to_str().unwrap()).is_err());
+        drop((client, accepted, listener));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn framed_reads_carry_their_length_and_end_with_an_empty_frame() {

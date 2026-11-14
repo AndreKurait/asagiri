@@ -137,6 +137,10 @@ pub struct RestartPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
+    /// Owned by the engine, not a user workload. Only internal creation can
+    /// set this; Docker request labels and fields never grant this status.
+    #[serde(default)]
+    pub engine_service: bool,
     pub image: String,
     pub image_id: String,
     pub entrypoint: Vec<String>,
@@ -1496,7 +1500,7 @@ impl Engine {
                 let mut restart_in = None;
                 let mut persist = false;
                 let mut closed_ports = None;
-                let actor = st.containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c)));
+                let actor = st.containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs)));
                 // Docker stops a container's healthcheck when it exits.
                 if let Some(h) = st.health.get_mut(id) {
                     close_monitor(h);
@@ -2303,7 +2307,7 @@ impl Engine {
 
     /// A container event, with its name, image and labels as attributes.
     pub fn emit_container(&self, action: &str, id: &str, extra: &[(&str, String)]) {
-        let Some((image, attrs)) = self.lock().containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c))) else { return };
+        let Some((image, attrs)) = self.lock().containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs))) else { return };
         self.emit_container_with(action, id, &image, attrs, extra);
     }
 
@@ -2438,7 +2442,7 @@ impl Engine {
         if !spec.auto_remove && st.containers.get(id).is_some_and(|c| c.vm_stopped) {
             return;
         }
-        let actor = st.containers.get(id).map(|c| (c.spec.image.clone(), container_attrs(c)));
+        let actor = st.containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs)));
         if let Some(c) = st.containers.get_mut(id) {
             c.status = Status::Exited;
             c.exits += 1;
@@ -3297,8 +3301,8 @@ impl Engine {
         }
         st.execs.retain(|_, e| e.container_id != id);
         drop(st);
-        if let Some(c) = &removed {
-            self.emit_container_with("destroy", &id, &c.spec.image, container_attrs(c), &[]);
+        if let Some(c) = &removed && let Some(attrs) = container_attrs(c) {
+            self.emit_container_with("destroy", &id, &c.spec.image, attrs, &[]);
         }
         self.changed.notify_all();
         let anon = removed.as_ref().map(|c| c.spec.anon_volumes.clone()).unwrap_or_default();
@@ -3659,11 +3663,12 @@ fn now_secs() -> u64 {
 }
 
 /// What a container event carries: labels, then name and image.
-fn container_attrs(c: &Container) -> serde_json::Map<String, serde_json::Value> {
+fn container_attrs(c: &Container) -> Option<serde_json::Map<String, serde_json::Value>> {
+    if c.spec.engine_service { return None; }
     let mut attrs = c.spec.labels.as_object().cloned().unwrap_or_default();
     attrs.insert("name".into(), c.name.clone().into());
     attrs.insert("image".into(), c.spec.image.clone().into());
-    attrs
+    Some(attrs)
 }
 
 /// The exit code Docker records for a container that never started: 127

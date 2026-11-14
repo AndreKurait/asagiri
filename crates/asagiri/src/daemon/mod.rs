@@ -8,6 +8,7 @@ mod api;
 mod balloon;
 mod binds;
 mod builder;
+mod buildkit;
 pub mod dns;
 pub mod tls;
 pub mod proxy;

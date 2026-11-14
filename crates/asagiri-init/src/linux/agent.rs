@@ -81,6 +81,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     // host service on it.
     let host_bound = if host_process { None } else { Some(super::relay::listen_host_bound(net::HOST_RELAY_PORT)?) };
     let framed = super::relay::listen_framed()?;
+    let buildkit = super::relay::listen_vsock(asagiri_proto::BUILDKIT_PORT)?;
     let ssh_agent = super::relay::listen_ssh_agent()?;
     // The engine's API for containers that mount the docker socket (VM only).
     let engine_api = if host_process {
@@ -120,6 +121,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         }
         fds.push(libc::pollfd { fd: forward.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: framed.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        fds.push(libc::pollfd { fd: buildkit.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: host_bound.as_ref().map_or(-1, |l| l.as_raw_fd()), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: ssh_agent.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: engine_api.as_ref().map_or(-1, |l| l.as_raw_fd()), events: libc::POLLIN, revents: 0 });
@@ -219,6 +221,12 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             }
             if pfd.fd == framed.as_raw_fd() {
                 while let Some(r) = super::relay::accept_framed(&framed) {
+                    relays.push(r);
+                }
+                continue;
+            }
+            if pfd.fd == buildkit.as_raw_fd() {
+                while let Some(r) = super::relay::accept_buildkit(&buildkit) {
                     relays.push(r);
                 }
                 continue;
