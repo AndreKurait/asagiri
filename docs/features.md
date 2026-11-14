@@ -47,8 +47,9 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Images**: `pull` (with `docker login` credentials), `push`, `tag`,
   `save`, `load`, [`import`](docker-import.md) (tar/gzip root filesystems, from a file, stdin or an
   HTTP(S) URL), `history`, `search`, `image prune`, `system df`;
-  **amd64 images run through Rosetta** on Apple silicon; on Intel,
-  **arm64 images run through qemu**. `--platform` is honoured. Docker Hub
+  **amd64 images run through Rosetta** on Apple silicon. Intel Macs can use
+  an optional QEMU emulator for arm64 images when built and configured from
+  source; release packages do not bundle it. `--platform` is honoured. Docker Hub
   pulls (and Dockerfile `FROM`s) can go through pull-through mirrors, in
   order, from Settings → Registry mirrors or `asagiri registry-mirror`; other
   registries are pulled directly
@@ -83,6 +84,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   until enabled in Settings or the CLI. Read permissions cover bounded
   container information and recent logs; starting, stopping and restarting
   existing containers requires a separate permission.
+- **Local browser**: `asagiri web` serves a password-protected interface on
+  loopback after explicit setup. Browse containers, images, volumes and
+  networks, inspect bounded metadata, and read recent logs. Start, stop and
+  restart require a separate permission. Access is independent of MCP;
+  see [setup and permissions](integrations.md#local-browser).
 - **Menu bar**: Asagiri stays in the menu bar when its window closes, with the
   VM's state, running containers (click one to open it) and Start/Stop
 - **Kubernetes**: `asagiri k8s start` — a single-node k3s cluster in one

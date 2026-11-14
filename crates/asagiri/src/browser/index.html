@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Asagiri · Local browser</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="identity"><span class="mark"><img src="/mark.svg" alt="" width="38" height="38"></span><strong>Asagiri</strong><span class="local-label">Local browser</span></div>
+    <span id="connection" role="status">Connecting</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">YOUR LOCAL ENGINE</p><h1>Room to build.</h1><p class="subtle">Containers, images, and the resources behind them.</p></div>
+      <button id="refresh" class="primary" data-request>Refresh</button>
+    </section>
+    <div id="error" role="alert" hidden></div>
+    <section class="stats" aria-label="Engine overview">
+      <article><span>Running containers</span><strong id="running">—</strong><small id="container-count">Waiting for engine</small></article>
+      <article><span>Local images</span><strong id="image-count">—</strong><small>Ready to use</small></article>
+      <article><span>Engine memory</span><strong id="memory">—</strong><small id="processors">Available to containers</small></article>
+      <article><span>Asagiri version</span><strong id="version">—</strong><small id="platform">Local connection</small></article>
+    </section>
+    <section class="resources" aria-labelledby="resources-title">
+      <div class="resource-heading"><div><h2 id="resources-title">Your resources</h2><p id="access" class="subtle">Reading browser permissions…</p></div><label class="search"><span class="visually-hidden">Filter displayed resources</span><input id="filter" type="search" placeholder="Filter resources" autocomplete="off"></label></div>
+      <nav aria-label="Resource type">
+        <button data-view="containers" data-request aria-current="page">Containers</button>
+        <button data-view="images" data-request>Images</button>
+        <button data-view="volumes" data-request>Volumes</button>
+        <button data-view="networks" data-request>Networks</button>
+      </nav>
+      <div class="table-scroll" tabindex="0" aria-label="Resource list">
+        <table><thead id="columns"></thead><tbody id="rows"></tbody></table>
+      </div>
+      <p id="empty" class="empty" hidden>No resources to show.</p>
+      <p id="count" class="count" aria-live="polite">Loading containers…</p>
+    </section>
+    <details class="access-help">
+      <summary>Browser access settings</summary>
+      <p>Start, stop, and restart are available when you enable container changes with <code>asagiri web allow-changes on</code>. To return to read access, run <code>asagiri web allow-changes off</code>.</p>
+      <p>Run <code>asagiri web disable</code> to revoke browser access, or press Ctrl-C in the browser server’s terminal to close the listener. Your MCP permissions are separate.</p>
+    </details>
+    <footer><span>Asagiri · Morning mist, clear workspace.</span><span>Connected only to this machine</span></footer>
+  </main>
+  <dialog id="detail">
+    <div class="detail-heading"><h2 id="detail-title">Container details</h2><button id="close-detail" aria-label="Close details">Close</button></div>
+    <p id="detail-note" class="subtle"></p>
+    <pre id="detail-content" tabindex="0"></pre>
+  </dialog>
+</body>
+</html>

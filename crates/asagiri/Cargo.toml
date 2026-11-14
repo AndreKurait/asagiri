@@ -23,6 +23,15 @@ webpki-roots = "1"
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
 # Docker's attach WebSocket framing and handshake, without a TLS stack.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+# The local browser uses a maintained HTTP parser and password verifier.
+hyper = { version = "1.12", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1.5"
+tokio = { version = "1.54", features = ["rt-multi-thread", "net", "time", "sync"] }
+argon2 = { version = "0.6", features = ["zeroize"] }
+base64 = "0.23"
+rpassword = "7.5"
+zeroize = "1.9"
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"

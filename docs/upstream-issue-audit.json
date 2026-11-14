@@ -198,8 +198,8 @@
       "state": "open",
       "updated_at": "2026-11-08T20:15:48Z",
       "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
-      "disposition": "deferred-feature",
-      "reason": "Hosted site provides an interactive sample-data demo; it does not claim browser control of a live engine."
+      "disposition": "implemented-unverified-platform",
+      "reason": "Implemented a loopback-only, password-protected live browser with bounded container, image, volume, network and log views; start/stop/restart require a separate permission. Private Linux engine and real Chromium checks pass, including authentication, revocation, origins, request limits and deadlines. Native Mac engine and Windows named-pipe execution remain unverified."
     },
     {
       "number": 74,
@@ -586,8 +586,8 @@
       "state": "closed",
       "updated_at": "2026-11-14T14:02:59Z",
       "body_sha256": "df10b33158a2954e60d51edff1073adab1b149b7748dda62c438df0a4de5d519",
-      "disposition": "deferred-feature",
-      "reason": "Closed proposal for Podman support. Asagiri provides its own Docker-compatible engine; a selectable Podman backend is not implemented."
+      "disposition": "inherited-review",
+      "reason": "The author withdrew this proposal after explaining that they misunderstood the project. Asagiri remains its own Docker-compatible engine; this closed discussion does not require a selectable Podman backend."
     },
     {
       "number": 218,

@@ -9,7 +9,9 @@
 
 Asagiri runs Linux containers on **macOS, Linux, and Windows** and speaks the
 Docker Engine API. Use the Docker CLI, Compose, buildx, and Docker SDKs, or
-manage your containers in the native app. The engine is written in Rust.
+manage your containers in the native app. Optional [local browser and MCP
+interfaces](docs/integrations.md) provide bounded container access with
+separate permissions for changes. The engine is written in Rust.
 
 ![The Asagiri app showing a sample development stack](docs/images/asagiri-window.png)
 
