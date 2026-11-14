@@ -12,7 +12,7 @@
     },
     {
       "issue": 13,
-      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
       "coverage": "informational",
       "checks": [],
@@ -320,7 +320,7 @@
     },
     {
       "issue": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
       "coverage": "automated",
       "checks": [
@@ -331,7 +331,7 @@
     },
     {
       "issue": 90,
-      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
+      "title": "【GUI】 图形界面能不能支持中文",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
       "coverage": "automated",
       "checks": [
@@ -353,7 +353,7 @@
     },
     {
       "issue": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
       "coverage": "partial",
       "checks": [
@@ -396,7 +396,7 @@
     },
     {
       "issue": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
       "coverage": "automated",
       "checks": [
@@ -460,9 +460,11 @@
       "body_sha256": "1b170c60c7ccbd962d346710bff6c54879320c8a0545bcd18b494b620284312b",
       "coverage": "platform-gap",
       "checks": [
-        "crates/asagiri-init/src/linux/agent.rs"
+        "crates/asagiri-init/src/linux/trim.rs",
+        "crates/asagiri-init/tests/trim-process.rs",
+        "tests/e2e.sh"
       ],
-      "remaining": "The trim implementation is present; host allocated-block reclamation needs a real Mac VM."
+      "remaining": "The trim worker is isolated in a child process and has a standalone Linux regression; host allocated-block reclamation still needs a real Mac VM."
     },
     {
       "issue": 125,
@@ -544,7 +546,7 @@
     },
     {
       "issue": 170,
-      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
+      "title": "请看提交的报告",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
       "coverage": "partial",
       "checks": [

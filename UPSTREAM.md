@@ -4,14 +4,14 @@ Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
 The original Apache-2.0 license, copyright notices, and Git history are preserved.
 The rename does not change the authorship of inherited code.
 
-Upstream `main` was fetched on **2026-11-13** at
-`b37ed29a824894d11648cc0acf3ff1045f611aae`. Its complete history is merged,
+Upstream `main` was fetched on **2026-11-14** at
+`baa2d41c1ce660b7ee255efc4fec156af42a715d`. Its complete history is merged,
 including the GitHub and ECR registry sign-in work after the initial integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **138** public PRs
-as of that review: 78 merged, 36 closed without merging, and 24 open. Every
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **148** public PRs
+as of that review: 85 merged, 37 closed without merging, and 26 open. Every
 merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
 port, equivalence, supersession, or hold recorded with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all 57
+The [issue verification inventory](docs/issue-verification.md) maps all 69
 reported issues to checks and remaining gaps. Closed upstream issues are not
 automatically considered verified on Asagiri.
 
@@ -111,6 +111,21 @@ represented by Asagiri's broader #163 implementation. The live test retains
 IPv4/IPv6 defaults, restart behavior and failover without duplicate routes,
 and now verifies that two internal networks have no default route before or
 after a restart.
+
+The November 14 refresh brings the UI to 38 languages (#200/#205), adds
+the searchable first-start language list (#219) and short sidebar labels (#220),
+and includes configurable container address pools (#217). It also ports the
+macOS 15 Rosetta kernel fix (#208), automatic USB reattachment (#212), canceled
+restart handling (#216), and #207's share/API/agent hardening. Asagiri additionally
+serializes settings writes, cancels stale USB reconnect tokens without waking
+the VM, and releases connection slots when a thread cannot start.
+
+The changed #122 head is reviewed through `944e72a`: its rebased initial trim
+implementation is already inherited, and its new worker-process fix is ported.
+The agent stays single-threaded for container cloning, while the trim child
+closes inherited descriptors and is reaped on exit. A standalone Linux test
+verifies that behavior without a VM or real data disk. The actual macOS sparse
+disk reclamation remains a platform validation gap.
 
 ## Issue follow-up
 

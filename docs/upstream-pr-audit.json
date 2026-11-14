@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-13T13:47:56.031486+00:00",
+  "reviewed_at": "2026-11-14T17:39:41.580242+00:00",
   "upstream_repository": "libracoder/kiri",
-  "upstream_main": "b37ed29a824894d11648cc0acf3ff1045f611aae",
-  "asagiri_runtime_revision": "92e0af04309f9e6cfdb4bc439097ec9b4ded9492",
+  "upstream_main": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
+  "asagiri_runtime_revision": "66cab68f280360bc36b5c630682d382aff2d8308",
   "counts": {
-    "total": 138,
-    "merged": 78,
-    "closed_unmerged": 36,
-    "open": 24
+    "total": 148,
+    "merged": 85,
+    "closed_unmerged": 37,
+    "open": 26
   },
   "pulls": [
     {
@@ -144,7 +144,7 @@
     },
     {
       "number": 15,
-      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -264,7 +264,7 @@
     },
     {
       "number": 31,
-      "title": "UI: window \u2014 built-in terminal panel",
+      "title": "UI: window — built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -734,7 +734,7 @@
     },
     {
       "number": 95,
-      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -928,7 +928,7 @@
     },
     {
       "number": 115,
-      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
+      "title": "UI: Settings → Domains — choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -1018,15 +1018,18 @@
     },
     {
       "number": 122,
-      "title": "Reclaim unused blocks from the macOS VM data disk",
+      "title": "VM disk: space freed inside Linux goes back to the Mac",
       "state": "open",
-      "head": "676c46d2f1ae537ccbe3f0b2e6b5aa1e825dbc81",
+      "head": "944e72a672a46794e4a8e60ca377bd00d7f41301",
       "merge": null,
-      "head_in_history": true,
+      "head_in_history": false,
       "merge_in_history": false,
-      "ports": [],
-      "disposition": "inherited",
-      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI."
+      "ports": [
+        "1371103e8f849b92ea14102bfa217ab4e7727cc7",
+        "66cab68f280360bc36b5c630682d382aff2d8308"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "The rebased fe16c20 trim implementation matches the inherited 676c46d source. Ported 944e72a: trim runs in a separate process, closes inherited descriptors, and leaves the cloning agent single-threaded. Added a standalone Linux regression for process isolation and clean exit without a VM or real data disk; native Mac allocated-block reclamation remains unverified."
     },
     {
       "number": 124,
@@ -1175,14 +1178,14 @@
     {
       "number": 142,
       "title": "Containers: finish stopping before answering lifecycle requests",
-      "state": "open",
+      "state": "merged",
       "head": "87596e95ee286e511da00cb2909dce0bcc7e65c3",
-      "merge": null,
+      "merge": "f3d5b4731fc0f10070f6bcdf18964dcd6e4682ea",
       "head_in_history": true,
-      "merge_in_history": false,
+      "merge_in_history": true,
       "ports": [],
-      "disposition": "inherited-and-improved",
-      "reason": "Head inherited; stop waits for the requested run, preserves HTTP status semantics, and sleep attempts all containers. Recovery integration preserves those behaviors."
+      "disposition": "inherited-and-equivalent",
+      "reason": "The signed merged source is in the public ancestry. Reviewed its stop/sleep changes against Asagiri's stronger per-run lifecycle locking, generation accounting, restart cancellation and VM recovery; retained the equivalent complete behavior."
     },
     {
       "number": 143,
@@ -1571,19 +1574,19 @@
     {
       "number": 177,
       "title": "Logs: select and copy the text",
-      "state": "open",
+      "state": "merged",
       "head": "ee05b04b05a72136dcbd7d632b49d850589d1c7f",
-      "merge": null,
+      "merge": "89f2d6b435dffd0042c312ca9fed299b5b4c210f",
       "head_in_history": false,
-      "merge_in_history": false,
+      "merge_in_history": true,
       "ports": [
         {
           "source": "ee05b04b05a72136dcbd7d632b49d850589d1c7f",
           "asagiri": "1fc204f41b43cea16b75b5fa88483138493a7448"
         }
       ],
-      "disposition": "inherited-and-ported",
-      "reason": "Log selection is present by content; ee05b04b05a7 keyboard-copy follow-up is ported as 1fc204f."
+      "disposition": "inherited-and-equivalent",
+      "reason": "The signed merged source is in the public ancestry; log selection and keyboard copy are already present from the previously reviewed ports."
     },
     {
       "number": 178,
@@ -1599,7 +1602,7 @@
     },
     {
       "number": 179,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1611,7 +1614,7 @@
     },
     {
       "number": 180,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1635,7 +1638,7 @@
     },
     {
       "number": 182,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -1738,7 +1741,7 @@
           "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
         }
       ],
-      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
+      "title": "UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page",
       "state": "merged",
       "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
       "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
@@ -1784,7 +1787,7 @@
     },
     {
       "number": 197,
-      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
+      "title": "UI: Linux VM card — show the engine's real state after any Start or Stop",
       "state": "merged",
       "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
       "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
@@ -1798,7 +1801,7 @@
     },
     {
       "number": 198,
-      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
+      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an…",
       "state": "open",
       "head": "d2bc825e00c661662cad0c44f70486ce98f31193",
       "merge": null,
@@ -1809,6 +1812,155 @@
       "reason": "Ported HTTP Connection: close and Docker command-default rules; extended repeated-header handling and live SDK checks.",
       "head_in_history": false,
       "merge_in_history": false
+    },
+    {
+      "number": 200,
+      "title": "UI: Settings → Appearance — 21 more languages, 37 in all",
+      "state": "merged",
+      "head": "8f2507f1d6367928251d766358d159f9305addb9",
+      "merge": "def2b5be30b4ea3849298d0ffa5f016483d47ff5",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "ports": [
+        "c4b1df71d1e2c241464ebd534fe2b4c5c9f75a07",
+        "f3349628c05b3f38791aac65d14541436d059bde"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "Ported 21 new language files and the language inventory. Preserved Asagiri branding, product-specific settings and translations, with explicit English fallback for the new fork-specific strings."
+    },
+    {
+      "number": 205,
+      "title": "UI: Settings → Appearance — Amharic, Kiri's first Ethiopian language",
+      "state": "merged",
+      "head": "9cd28afe685747ec2286a6c1780b52d6abe5442b",
+      "merge": "99b63c07fc003d3dcd8e03c76891ba747b5c984f",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "ports": [
+        "e9e80c24d300a78d763187de8e2e7995ae913068",
+        "f3349628c05b3f38791aac65d14541436d059bde"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "Ported Amharic, bringing the UI to 38 languages including English; all locale keys and the searchable language picker are verified by the translation and browser suites."
+    },
+    {
+      "number": 207,
+      "title": "Audit hardening: share, engine, kiri-init + cargo-deny checks in CI",
+      "state": "open",
+      "head": "f61e5c0b1ca93e8085328d72244b7cc70de60dfa",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "0a098a22e28389c5b098d5433b3afab7a59c61db",
+        "e20bb8a27c57d787e445fc68974271182f142c97",
+        "4b914b0583656fe06d06ae94f187b9ff46ee7add",
+        "1225dbbd191502ee92ae3ba28ba6af268b94d338"
+      ],
+      "disposition": "ported-with-existing-ci",
+      "reason": "Ported all three runtime commits: poison-tolerant share locks, private traffic files, non-local target warning, bounded engine connections and idle requests, and the agent panic hook. Follow-ups protect existing temporary files and symlinks and release connection slots after failed thread creation. The remaining three cargo-deny/CI commits are covered by Asagiri's existing pinned, all-feature checks and policies."
+    },
+    {
+      "number": 208,
+      "title": "Guest kernel: amd64 containers start again under macOS 15's Rosetta",
+      "state": "merged",
+      "head": "79897cd341b5c63de68c45c513cc325a01aeb7d0",
+      "merge": "0dc16498b46ad871bd18a9c357df06b0e764c728",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "ports": [
+        "3e4f1ab14fa74130d4dae6e11fe369154dd5fabd"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "Ported the fifth guest-kernel patch for macOS 15 Rosetta auxiliary-vector handling, including kernel-build and corresponding-source packaging. A real macOS 15 guest run remains unverified."
+    },
+    {
+      "number": 212,
+      "title": "USB: a device that drops off the Mac's bus is attached again when it comes back",
+      "state": "merged",
+      "head": "25fbed4f71a45f36a6bf8364e59b5cc4a1416bdc",
+      "merge": "23226f82545f7b29d3c0fb61409f48bca19ec7bb",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "ports": [
+        "7a9259f8fe4ac86c307d9600a1dccc209e70bd33",
+        "1225dbbd191502ee92ae3ba28ba6af268b94d338"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "Ported automatic USB reattachment after a device returns. Asagiri additionally uses a monotonic reconnect token, atomically cancels queued and active sessions, and never wakes a stopped VM for a retry. Token cancellation has a unit regression; physical USB sleep/unplug/replug behavior remains unverified."
+    },
+    {
+      "number": 216,
+      "title": "Containers: a stop that cancels a pending restart wins over that restart",
+      "state": "merged",
+      "head": "0666f6f35687632f22281866cf8ed0f7d91d0cb2",
+      "merge": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
+      "head_in_history": false,
+      "merge_in_history": true,
+      "ports": [
+        "1e4a1198518ee3b74bf76fe3209d6b7e755cb4b7",
+        "1225dbbd191502ee92ae3ba28ba6af268b94d338"
+      ],
+      "disposition": "inherited-and-ported",
+      "reason": "Ported cancellation of pending container restarts while retaining Asagiri's separate VM-recovery path and lifecycle generation guards. A canceled queued daemon restart cannot boot a replacement VM; synthetic tests never boot a VM."
+    },
+    {
+      "number": 217,
+      "title": "Settings › Network: Container addresses",
+      "state": "open",
+      "head": "9fa8ca02a719c02d2cf8e006b74f0f362a59e00a",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "dfe7236bb3b9447c650301e8d809598e66aad299",
+        "1225dbbd191502ee92ae3ba28ba6af268b94d338",
+        "f3349628c05b3f38791aac65d14541436d059bde",
+        "55ea4171be5740e902d991f2f998b9b5ca699706"
+      ],
+      "disposition": "ported-and-improved",
+      "reason": "Ported address-pool allocation, overlap detection, host route discovery and Settings UI. Serialized concurrent settings writes and required successful Windows adapter reads. Browser/demo and private-engine tests cover validation, concurrent saves, allocation from custom pools, reset, and unchanged existing networks."
+    },
+    {
+      "number": 219,
+      "title": "UI: First start — a searchable language list instead of the tile wall",
+      "state": "open",
+      "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "296680bd4847a32515233aac7d3ddb2a12351a04",
+        "f3349628c05b3f38791aac65d14541436d059bde"
+      ],
+      "disposition": "ported",
+      "reason": "Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests."
+    },
+    {
+      "number": 220,
+      "title": "UI: Sidebar — Linux VM stays short in seven languages",
+      "state": "open",
+      "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        "04e3123734fb9f35fdb1d341c2ae634cfc9a2beb"
+      ],
+      "disposition": "ported",
+      "reason": "Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings."
+    },
+    {
+      "number": 221,
+      "title": "README: add build-from-source instructions",
+      "state": "closed",
+      "head": "67522621b7cc8feaa4d13171269c7022d6c2c94d",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "disposition": "equivalent",
+      "reason": "Reviewed the closed build-from-source README change. Asagiri already documents its correct renamed package, Rust prerequisites, platform dependencies and build commands in README.md and CONTRIBUTING.md; upstream Kiri commands are not reintroduced."
     }
   ]
 }
