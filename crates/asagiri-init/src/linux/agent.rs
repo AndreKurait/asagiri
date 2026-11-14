@@ -557,30 +557,30 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     }
                     continue;
                 }
-                Ok(Msg::Update { id, limits }) => match running_pid(&procs, id) {
-                    Some(_) => match super::cgroup::update_limits(&paths.cgroup.join(id), &limits) {
+                Ok(Msg::Update { id, limits }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => match super::cgroup::update_limits(path, &limits) {
                         Ok(()) => Msg::Ack.encode(&mut out),
                         Err(e) => Msg::Error(&format!("update: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::Freeze { id, frozen }) => match running_pid(&procs, id) {
-                    Some(_) => match super::cgroup::freeze(&paths.cgroup.join(id), frozen) {
+                Ok(Msg::Freeze { id, frozen }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => match super::cgroup::freeze(path, frozen) {
                         Ok(()) => Msg::Ack.encode(&mut out),
                         Err(e) => Msg::Error(&format!("freeze: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::StatsQuery { id }) => match running_pid(&procs, id) {
-                    Some(pid) => match super::cgroup::stats(&paths.cgroup.join(id), pid) {
+                Ok(Msg::StatsQuery { id }) => match running_cgroup(&procs, id) {
+                    Some((pid, path)) => match super::cgroup::stats(path, pid) {
                         Ok(s) => Msg::ContainerStats(s).encode(&mut out),
                         Err(e) => Msg::Error(&format!("stats: {e}")).encode(&mut out),
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::TopQuery { id }) => match running_pid(&procs, id) {
-                    Some(_) => {
-                        let lines = super::cgroup::top(&paths.cgroup.join(id));
+                Ok(Msg::TopQuery { id }) => match running_cgroup(&procs, id) {
+                    Some((_, path)) => {
+                        let lines = super::cgroup::top(path);
                         asagiri_proto::encode_top(&mut out, &lines);
                     }
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
@@ -758,6 +758,11 @@ fn memory_pressure_trigger() -> Option<std::fs::File> {
 }
 
 /// A running container's init (not an exec).
+fn running_cgroup<'a>(procs: &'a Procs, id: &str) -> Option<(libc::pid_t, &'a std::path::Path)> {
+    let pid = running_pid(procs, id)?;
+    Some((pid, container::cgroup(&procs.get(id)?.run)?))
+}
+
 fn running_pid(procs: &Procs, id: &str) -> Option<libc::pid_t> {
     procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| p.run.pid)
 }

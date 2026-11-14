@@ -2,9 +2,13 @@
 
 Requires strace and a disposable privileged engine; injects a 15-second umount delay.
 """
-import argparse,json,os,pathlib,platform,signal,subprocess,time,uuid
-p=argparse.ArgumentParser();p.add_argument('socket');p.add_argument('image');p.add_argument('--expect-blocked',action='store_true');p.add_argument('--copy',action='store_true');a=p.parse_args()
+import argparse,json,os,pathlib,platform,select,signal,subprocess,time,uuid
+p=argparse.ArgumentParser();p.add_argument('socket');p.add_argument('image');p.add_argument('--expect-blocked',action='store_true');p.add_argument('--copy',action='store_true');p.add_argument('--crash-agent',action='store_true');a=p.parse_args()
 assert os.environ.get('ASAGIRI_TEST_ENGINE')=='1'
+if a.crash_agent:
+ assert os.environ.get('ASAGIRI_DATA_DIR')=='/test-store' and pathlib.Path('/.dockerenv').is_file()
+ assert os.readlink('/proc/1/exe')=='/opt/asagiri/asagiri'
+ assert not a.copy and not a.expect_blocked
 d=['docker','-H','unix://'+a.socket]
 def call(*args,timeout=30):return subprocess.check_output(d+list(args),timeout=timeout,stderr=subprocess.STDOUT)
 ids=[];trace=None;stop=None;network='cleanup-'+uuid.uuid4().hex[:8]
@@ -65,19 +69,34 @@ try:
   # the engine's ten-second post-SIGKILL timeout.
   out,err=stop.communicate(timeout=3);assert stop.returncode==0,(out,err)
   report['stopSeconds']=time.monotonic()-began;assert report['stopSeconds']<5,report
-  restart_at=time.monotonic()
-  operation=['cp',victim+':/cleanup-proof','/tmp/cleanup-proof-result'] if a.copy else ['start',victim]
-  restart=subprocess.Popen(d+operation,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-  time.sleep(.2);assert restart.poll() is None,'Restart bypassed cleanup barrier'
-  out,err=restart.communicate(timeout=30);assert restart.returncode==0,(out,err)
-  report['lifecycleOperation']='copy' if a.copy else 'restart'
-  report['lifecycleWaitSeconds']=time.monotonic()-restart_at
-  assert report['lifecycleWaitSeconds']>9,report
-  if a.copy:assert pathlib.Path('/tmp/cleanup-proof-result').read_bytes()==b'preserved'
+  if a.crash_agent:
+   # pidfds identify these exact processes even if the kernel reuses a PID.
+   agent_fd=os.pidfd_open(init[0]);worker_fd=os.pidfd_open(blocked)
+   try:
+    fields=pathlib.Path('/proc',str(blocked),'stat').read_text().rsplit(')',1)[1].split()
+    assert int(fields[1])==init[0] and os.readlink('/proc/'+str(blocked)+'/exe')=='/opt/asagiri/asagiri-init'
+    signal.pidfd_send_signal(agent_fd,signal.SIGKILL)
+    for descriptor in (agent_fd,worker_fd):
+     poll=select.poll();poll.register(descriptor,select.POLLIN)
+     assert poll.poll(3000),'Cleanup worker outlived the agent and could modify replacement paths'
+    report['workerStoppedOnAgentLoss']=True
+   finally:os.close(worker_fd);os.close(agent_fd)
+  else:
+   restart_at=time.monotonic()
+   operation=['cp',victim+':/cleanup-proof','/tmp/cleanup-proof-result'] if a.copy else ['start',victim]
+   restart=subprocess.Popen(d+operation,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+   time.sleep(.2);assert restart.poll() is None,'Restart bypassed cleanup barrier'
+   out,err=restart.communicate(timeout=30);assert restart.returncode==0,(out,err)
+   report['lifecycleOperation']='copy' if a.copy else 'restart'
+   report['lifecycleWaitSeconds']=time.monotonic()-restart_at
+   assert report['lifecycleWaitSeconds']>9,report
+   if a.copy:assert pathlib.Path('/tmp/cleanup-proof-result').read_bytes()==b'preserved'
  if a.expect_blocked:
   out,err=stop.communicate(timeout=25);report['stopSeconds']=time.monotonic()-began;assert stop.returncode==0,(out,err)
- trace.send_signal(signal.SIGINT);trace.wait(timeout=10);trace=None;log.close()
+ if trace.poll() is None:trace.send_signal(signal.SIGINT)
+ trace.wait(timeout=10);trace=None;log.close()
  call('start',victim);assert call('exec',victim,'echo','restarted').strip()==b'restarted'
+ assert call('exec',victim,'cat','/cleanup-proof')==b'preserved'
  call('rm','-f',victim);ids.remove(victim)
  report['sameIdRestartAndRemove']='passed';print(json.dumps(report,indent=2),flush=True)
 finally:

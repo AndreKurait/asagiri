@@ -87,6 +87,26 @@ def check(path):
 
             make(managed)
             cli("buildx", "inspect", managed, "--bootstrap")
+            inspected = json.loads(cli("inspect", managed_container).stdout)[0]
+            assert inspected["HostConfig"]["CgroupParent"] == "/docker/buildx", inspected["HostConfig"]
+            cid = inspected["Id"]
+            cgroups = Path(f"/proc/{inspected['State']['Pid']}/cgroup").read_text()
+            relative = next(line[3:] for line in cgroups.splitlines() if line.startswith("0::"))
+            assert "/asagiri/docker/buildx/" + cid in relative, relative
+            parent = Path("/sys/fs/cgroup") / relative.lstrip("/").split("/" + cid, 1)[0]
+            group = parent / cid
+            assert int((parent / "pids.current").read_text()) > 0
+            assert int((parent / "memory.current").read_text()) > 0
+            cli("update", "--pids-limit", "256", managed_container)
+            assert (group / "pids.max").read_text().strip() == "256"
+            cli("pause", managed_container)
+            assert "frozen 1" in (group / "cgroup.events").read_text()
+            cli("unpause", managed_container)
+            assert "buildkit" in cli("top", managed_container).stdout
+            assert cli("stats", "--no-stream", "--format", "{{.PIDs}}", managed_container).stdout.strip().isdigit()
+            cli("update", "--pids-limit", "-1", managed_container)
+            assert (group / "pids.max").read_text().strip() == "max"
+            print("PASS Buildx parent cgroup, aggregate accounting, update, pause, top and stats", flush=True)
             print(cli("exec", managed_container, "buildkitd", "--version").stdout.strip(), flush=True)
             print(cli("image", "inspect", "moby/buildkit:buildx-stable-1",
                       "--format", "{{.Id}} {{json .RepoDigests}}").stdout.strip(), flush=True)

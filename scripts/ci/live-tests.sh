@@ -53,6 +53,7 @@ run layer-concurrency
 run container-addresses
 run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
+run cleanup-responsive alpine:3.21 --crash-agent
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
   run bind-inotify "$img"

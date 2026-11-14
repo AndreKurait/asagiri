@@ -39,7 +39,9 @@ Image loading waits for the complete HTTP body before publishing its contents.
 
 The embedded resolver leaves wildcard port 53 free for container DNS services.
 Default-bridge BuildKit DNS uses a reachable gateway for WSL/local host
-resolvers. Unsupported parent cgroups, user remapping, and bridge interface
+resolvers. Buildx's default parent cgroup now groups builder containers under
+Asagiri's delegated tree with aggregate accounting and limits. Unsupported
+custom parent cgroups, user remapping, and bridge interface
 names return clear errors. Windows publishing explains the WSL/Windows LAN
 boundary; it does not install Windows forwarding or firewall rules.
 

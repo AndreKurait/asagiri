@@ -257,10 +257,12 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
     if spec.argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command to run"));
     }
+    let mut host = super::hostopts::parse(spec.opts)?;
     let rootfs = mount_rootfs(paths, spec.id, spec.layers)?;
     let base = paths.containers.join(spec.id);
 
-    let cgroup = paths.cgroup.join(spec.id);
+    let parent = if host.buildx_parent { paths.cgroup.join("docker/buildx") } else { paths.cgroup.clone() };
+    let cgroup = parent.join(spec.id);
     let remove = spec.flags & run_flags::REMOVE != 0;
     let undo = Teardown { base: base.clone(), rootfs: rootfs.clone(), cgroup: cgroup.clone(), remove };
     // A restart that fails must not take the stopped container's files with it.
@@ -274,12 +276,17 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
     if !paths.cgroup.is_dir() {
         super::containers_cgroup(&paths.cgroup);
     }
+    if host.buildx_parent {
+        // Keep Buildx's aggregate counters/limits under our delegated tree,
+        // so host-wide accounting and other services' cgroups stay separate.
+        super::containers_cgroup(&paths.cgroup.join("docker"));
+        super::containers_cgroup(&parent);
+    }
     let _ = fs::create_dir(&cgroup);
     if spec.limits != asagiri_proto::Limits::default() {
         super::cgroup::apply_limits(&cgroup, &spec.limits).map_err(cleanup)?;
     }
     let cgroup_fd = fs::File::open(&cgroup).map_err(cleanup)?;
-    let mut host = super::hostopts::parse(spec.opts).map_err(cleanup)?;
     if spec.flags & run_flags::NET_HOST != 0 && host.sysctls.iter().any(|s| s.ns == super::hostopts::Ns::Net) {
         return Err(cleanup(io::Error::new(io::ErrorKind::InvalidInput, "net.* sysctls are not allowed in the host network namespace")));
     }
@@ -507,11 +514,12 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         (ns("mnt")?, libc::CLONE_NEWNS),
     ];
     let own_pid_ns = fs::File::open("/proc/self/ns/pid")?;
-    let cgroup_fd = fs::File::open(paths.cgroup.join(spec.container_id))?;
+    let host = super::hostopts::parse(spec.opts)?;
+    let parent = if host.buildx_parent { paths.cgroup.join("docker/buildx") } else { paths.cgroup.clone() };
+    let cgroup_fd = fs::File::open(parent.join(spec.container_id))?;
 
     let mut prepared = prepare(spec.argv, spec.env, spec.cwd, spec.user, None, spec.flags, spec.caps)?;
     // The container's ulimits and groups apply to its execs too, as with runc.
-    let host = super::hostopts::parse(spec.opts)?;
     if let Some(profile) = &host.seccomp {
         prepared.use_profile(profile)?;
     }
@@ -587,6 +595,10 @@ pub fn oom_killed(p: &Process) -> bool {
     p.teardown.as_ref().is_some_and(|t| super::cgroup::oom_killed(&t.cgroup))
 }
 
+pub fn cgroup(p: &Process) -> Option<&Path> {
+    p.teardown.as_ref().map(|t| t.cgroup.as_path())
+}
+
 /// `netns_shared`: another live process still uses the container's network
 /// namespace (a container started with `--network container:`). Only then
 /// are its veths deleted here, or they would live on with that namespace
@@ -626,12 +638,26 @@ pub fn has_filesystem_teardown(p: &Process) -> bool { p.teardown.is_some() }
 
 pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
     let t = p.teardown.as_ref()?;
+    // SAFETY: getpid has no preconditions.
+    let parent = unsafe { libc::getpid() };
     // SAFETY: matches the agent's existing copy-worker fork model. This child
     // uses inherited paths, shares the agent mount namespace, and exits without
     // running parent destructors. It must NOT unshare CLONE_NEWNS: unmounting a
     // private copy would leave the parent's overlay mounted.
     let pid = unsafe { libc::fork() };
     if pid == 0 {
+        // A killed agent must not leave a worker deleting paths that a
+        // replacement agent may reuse. Set the death signal before touching
+        // them, and cover parent death between fork and prctl with getppid.
+        // SAFETY: these calls affect only this child; _exit skips destructors.
+        unsafe {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) < 0
+                || libc::getppid() != parent
+            {
+                libc::_exit(1);
+            }
+            libc::prctl(libc::PR_SET_NAME, c"asagiri-clean".as_ptr());
+        }
         // Do not keep control sockets, container pipes or namespace FDs alive.
         // SAFETY: this affects only the child's descriptor table.
         unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0); }
@@ -730,14 +756,16 @@ pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
     let Ok(entries) = fs::read_dir(&paths.containers) else { return };
     let ids: Vec<String> = entries.flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|id| valid_id(id).is_ok() && id.len() >= 12).collect();
     for id in &ids {
-        let cg = cgroup.join(id);
-        if !cg.is_dir() {
-            continue;
+        for parent in [cgroup.to_path_buf(), cgroup.join("docker/buildx")] {
+            let cg = parent.join(id);
+            if !cg.is_dir() {
+                continue;
+            }
+            kill_cgroup(&cg);
+            let _ = sys::umount_lazy(&paths.containers.join(id).join("rootfs"));
+            let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+            remove_cgroup(&cg);
         }
-        kill_cgroup(&cg);
-        let _ = sys::umount_lazy(&paths.containers.join(id).join("rootfs"));
-        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
-        remove_cgroup(&cg);
     }
     // Host-side veths are kv<9 characters of the id><4 hex digits>.
     let Ok(links) = fs::read_dir("/sys/class/net") else { return };

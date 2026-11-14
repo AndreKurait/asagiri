@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 /// The HostConfig keys kept with a container.
-const KEYS: [&str; 5] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd"];
+const KEYS: [&str; 6] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent"];
 
 /// `nofile` when the run sets none: what containers get on Docker Desktop
 /// and on Docker Engine under containerd's `LimitNOFILE=infinity`. Without
@@ -75,6 +75,12 @@ pub fn check_device_requests(host: &Value) -> Result<(), String> {
 /// VM's) network namespace, so `net.*` sysctls are not its own.
 pub fn guest_lines(opts: &Value, net_host: bool) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
+    match &opts["CgroupParent"] {
+        Value::Null => {}
+        Value::String(parent) if parent.is_empty() => {}
+        Value::String(parent) if parent == "/docker/buildx" => out.push("cgroup-parent\t/docker/buildx".into()),
+        _ => return Err("Asagiri supports only the /docker/buildx builder cgroup parent".into()),
+    }
     let mut nofile = false;
     for u in opts["Ulimits"].as_array().into_iter().flatten() {
         let name = u["Name"].as_str().unwrap_or("");
@@ -203,6 +209,16 @@ fn sysctl(key: &str, net_host: bool) -> Result<(&'static str, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buildx_parent_is_preserved_and_encoded_but_other_parents_are_refused() {
+        let opts = from_host(&json!({"CgroupParent": "/docker/buildx"}));
+        assert_eq!(inspect(&opts, "CgroupParent"), "/docker/buildx");
+        assert!(guest_lines(&opts, false).unwrap().contains(&"cgroup-parent\t/docker/buildx".to_owned()));
+        for parent in [json!("/tenant"), json!("/docker/../buildx"), json!(false)] {
+            assert!(guest_lines(&json!({"CgroupParent": parent}), false).is_err());
+        }
+    }
 
     #[test]
     fn ulimits_and_the_nofile_default() {

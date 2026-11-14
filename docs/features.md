@@ -105,7 +105,11 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 Kubernetes LoadBalancer services are published on `localhost`, and
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
 
-Resource limits apply to individual containers. Aggregate parent cgroups
+Resource limits apply to individual containers. Buildx's default
+`/docker/buildx` parent groups its containers under `docker/buildx` inside
+Asagiri's delegated cgroup tree. Its aggregate counters and limits are
+available there; container updates, pause, exec and stats use their child
+cgroups. Other aggregate parent cgroups
 (`--cgroup-parent` / `HostConfig.CgroupParent`) and user namespace remapping
 (`--userns=private` or `auto`) are not implemented. Asagiri rejects those
 requests with HTTP 400. An omitted user namespace setting or `--userns=host`

@@ -1798,9 +1798,11 @@ fn validate_isolation(host: &Value) -> Result<(), Error> {
             Value::String(s) => s.as_str(),
             _ => return Err(Error::BadRequest(format!("{key} must be a string"))),
         };
-        if !value.is_empty() && !(key == "UsernsMode" && value == "host") {
+        let supported = (key == "UsernsMode" && value == "host")
+            || (key == "CgroupParent" && value == "/docker/buildx");
+        if !value.is_empty() && !supported {
             let reason = if key == "CgroupParent" {
-                "aggregate parent cgroups are not implemented; use per-container resource limits"
+                "only the /docker/buildx builder group is supported; use per-container limits for other workloads"
             } else {
                 "user namespace remapping is not implemented; omit UsernsMode or use host"
             };
@@ -2401,6 +2403,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Devices": super::hostopts::inspect(&c.spec.host_opts, "Devices"),
             "DeviceCgroupRules": super::hostopts::inspect(&c.spec.host_opts, "DeviceCgroupRules"),
             "GroupAdd": super::hostopts::inspect(&c.spec.host_opts, "GroupAdd"),
+            "CgroupParent": c.spec.host_opts["CgroupParent"].as_str().unwrap_or(""),
         },
         "NetworkSettings": network_settings(c, nets),
         "Mounts": c.spec.mount_info,
@@ -3176,7 +3179,7 @@ mod tests {
     #[test]
     fn unsupported_isolation_is_rejected_instead_of_silently_accepted() {
         for host in [json!({}), json!({"CgroupParent": null}), json!({"CgroupParent": "", "UsernsMode": ""}),
-            json!({"UsernsMode": "host"})] {
+            json!({"UsernsMode": "host"}), json!({"CgroupParent": "/docker/buildx"})] {
             validate_isolation(&host).unwrap();
         }
         for host in [json!({"CgroupParent": "/tenant"}), json!({"CgroupParent": false}),
