@@ -1972,7 +1972,7 @@ impl Engine {
     /// Own the lifecycle lock through guest creation, then release it before
     /// input delivery, which may wait indefinitely for the program to read.
     fn start_on_vm(&self, key: &str, reason: Start, vm: Arc<VmLink>, starting: MutexGuard<'_, u64>) -> Result<(), Error> {
-        let (id, layers, argv, spec, size) = {
+        let (id, layers, argv, mut spec, size) = {
             let mut st = self.lock();
             let id = resolve(&st, key)?;
             // Under the same lock as Lost: either this claim belongs to
@@ -2025,6 +2025,10 @@ impl Engine {
             }
             (id, c.layers.clone(), argv, c.spec.clone(), c.size.or(c.spec.console_size))
         };
+        // A bind source that is a link is followed again at every start, as
+        // Docker does: re-pointing it between runs (a `current` release
+        // link) mounts the new target.
+        spec.mounts = super::api::fresh_bind_sources(&spec.mounts, &spec.mount_info);
         let mut hostname = if spec.hostname.is_empty() { id[..12].to_owned() } else { spec.hostname.clone() };
         let mut domainname = spec.domainname.clone();
         // `--network container:<id>`: that container's namespace, hostname

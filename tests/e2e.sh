@@ -557,6 +557,9 @@ t bind-mount-flag "from the mac" $D run --rm --mount "type=bind,source=$BIND,tar
 code bind-mount-missing 125 $D run --rm --mount type=bind,source=/asagiri/does/not/exist,target=/m alpine true
 t bind-v-creates "made" bash -c "$D run --rm -v $BIND/new/dir:/n alpine true && [ -d $BIND/new/dir ] && echo made"
 t bind-file "from the mac" $D run --rm -v "$BIND/hello.txt:/etc/greeting" alpine cat /etc/greeting
+# A linked source is followed at every start, as Docker does: re-pointing a
+# `current` release link and restarting mounts the new target.
+t bind-link-repointed "one two one" bash -c "mkdir -p $BIND/rel/r1 $BIND/rel/r2 && echo one > $BIND/rel/r1/v && echo two > $BIND/rel/r2/v && ln -sfn r1 $BIND/rel/current && $D rm -f relink >/dev/null 2>&1; $D run -d --name relink -v $BIND/rel/current:/app alpine sleep 300 >/dev/null && a=\$($D exec relink cat /app/v) && ln -sfn r2 $BIND/rel/current && sleep 1.5 && $D restart -t 0 relink >/dev/null && b=\$($D exec relink cat /app/v) && $D stop -t 0 relink >/dev/null && ln -sfn r1 $BIND/rel/current && sleep 1.5 && $D start relink >/dev/null && c=\$($D exec relink cat /app/v); $D rm -f relink >/dev/null; rm -rf $BIND/rel; echo \$a \$b \$c"
 t vol-persist "kept" bash -c "$D run --rm -v tvol:/v alpine sh -c 'echo kept > /v/f' && $D run --rm -v tvol:/v alpine cat /v/f"
 t vol-ls "tvol" $D volume ls
 t vol-inspect "/var/lib/asagiri/volumes/tvol/_data" $D volume inspect -f '{{.Mountpoint}}' tvol
