@@ -32,7 +32,7 @@ t("each row is in its own language, with its own Hello", () => {
 t("the system's language is marked and picked", () => {
   const marked = tilesNow().filter((b) => b.querySelector(".sys")).map((b) => b.dataset.lang);
   if (marked.join() !== "en") throw new Error("marked: " + marked);
-  if (!pickTile("en").querySelector(".sys").textContent.includes("Same as macOS")) throw new Error(pickTile("en").querySelector(".sys").textContent);
+  if (!pickTile("en").querySelector(".sys").textContent.includes(`Same as ${OS}`)) throw new Error(pickTile("en").querySelector(".sys").textContent);
   if (pickTile("en").getAttribute("aria-selected") !== "true" || tilesNow().filter((b) => b.getAttribute("aria-selected") === "true").length !== 1) throw new Error("not the one picked");
 });
 

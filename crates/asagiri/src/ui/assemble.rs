@@ -16,6 +16,8 @@
 //! past the limit, which is why the page carries only one.
 
 const ICONS_JS: &str = include_str!("icons.js");
+/// The languages and the first start's language step, which both pages show.
+const LANGSTEP_JS: &str = include_str!("langstep.js");
 const XTERM_CSS: &str = include_str!("xterm/xterm.css");
 /// xterm.js 6.0.0 and its fit, search and web-links add-ons (UMD builds,
 /// each defining a global), in the order they load.
@@ -32,16 +34,18 @@ pub fn page(index: &str, lang: Option<&str>) -> String {
     }
     index
         .replacen("/*ICONS*/", ICONS_JS, 1)
+        .replacen("/*LANGSTEP*/", LANGSTEP_JS, 1)
         .replacen("/*XTERM_CSS*/", XTERM_CSS, 1)
         .replacen("/*XTERM_JS*/", &js, 1)
         .replacen("/*LANG*/", &super::lang::boot_js(lang), 1)
         .replacen("/*STRINGS*/{}", &super::lang::strings_js(super::lang::resolve(lang)), 1)
 }
 
-/// A page that only needs its words spliced in (asagiri-win's setup page).
+/// A page that only needs its words and the language step spliced in
+/// (asagiri-win's setup page).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn words(page: &str, lang: Option<&str>) -> String {
-    page.replacen("/*LANG*/", &super::lang::boot_js(lang), 1).replacen("/*STRINGS*/{}", &super::lang::strings_js(super::lang::resolve(lang)), 1)
+    page.replacen("/*LANGSTEP*/", LANGSTEP_JS, 1).replacen("/*LANG*/", &super::lang::boot_js(lang), 1).replacen("/*STRINGS*/{}", &super::lang::strings_js(super::lang::resolve(lang)), 1)
 }
 
 #[cfg(test)]
@@ -52,10 +56,16 @@ mod tests {
     fn every_placeholder_is_filled_once_and_the_page_fits_webview2() {
         let units = |s: &str| s.encode_utf16().count();
         let page = super::page(include_str!("index.html"), None);
-        for p in ["/*ICONS*/", "/*XTERM_CSS*/", "/*XTERM_JS*/", "/*LANG*/", "/*STRINGS*/"] {
+        for p in ["/*ICONS*/", "/*LANGSTEP*/", "/*XTERM_CSS*/", "/*XTERM_JS*/", "/*LANG*/", "/*STRINGS*/"] {
             assert!(!page.contains(p), "{p} left in the page");
         }
         assert!(page.contains(".xterm-viewport"), "xterm.css missing");
+        assert!(page.contains("function langStep(") && page.contains("const LANGS = ["), "langstep.js missing");
+        let setup = super::words(include_str!("../../../asagiri-win/src/setup.html"), None);
+        for p in ["/*LANGSTEP*/", "/*LANG*/", "/*STRINGS*/"] {
+            assert!(!setup.contains(p), "{p} left in the setup page");
+        }
+        assert!(setup.contains("function langStep("), "langstep.js missing from the setup page");
         assert!(page.contains("window.ASAGIRI_LANG = {") && page.contains(&lang::strings_js(lang::resolve(None))), "words missing");
         // Each language the page can open in carries the keys and that language
         // alone: the largest must stay well inside NavigateToString's 2 MB, with

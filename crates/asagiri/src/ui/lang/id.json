@@ -1698,5 +1698,6 @@
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
   "Stop waiting": "Berhenti menunggu",
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri memasangnya lagi saat kembali. Berhenti menunggu agar tetap di komputer ini.",
-  "Waiting to come back": "Menunggu kembali"
+  "Waiting to come back": "Menunggu kembali",
+  "No languages match": "Tidak ada bahasa yang cocok"
 }

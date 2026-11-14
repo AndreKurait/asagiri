@@ -1698,5 +1698,6 @@
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
   "Stop waiting": "Smetti di attendere",
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri lo ricollega quando torna. Smetti di attendere per lasciarlo su questo computer.",
-  "Waiting to come back": "In attesa del ritorno"
+  "Waiting to come back": "In attesa del ritorno",
+  "No languages match": "Nessuna lingua corrispondente"
 }

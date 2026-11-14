@@ -1698,5 +1698,6 @@
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
   "Stop waiting": "Τέλος αναμονής",
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Το Asagiri τη συνδέει ξανά μόλις επιστρέψει. Σταματήστε την αναμονή για να μείνει σε αυτόν τον υπολογιστή.",
-  "Waiting to come back": "Αναμονή επιστροφής"
+  "Waiting to come back": "Αναμονή επιστροφής",
+  "No languages match": "Δεν βρέθηκαν γλώσσες"
 }

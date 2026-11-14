@@ -1698,5 +1698,6 @@
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.",
   "Stop waiting": "Ndalo pritjen",
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri e lidh përsëri kur të kthehet. Ndaloni pritjen për ta lënë në këtë kompjuter.",
-  "Waiting to come back": "Në pritje të kthimit"
+  "Waiting to come back": "Në pritje të kthimit",
+  "No languages match": "Asnjë gjuhë nuk përputhet"
 }
