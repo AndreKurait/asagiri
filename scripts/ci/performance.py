@@ -343,22 +343,35 @@ def checked_run(run_id, attempt=None):
     return item
 
 
-def summary(item):
+def summary(item, *, legacy=False):
     fields = ("commit", "baseline", "run_id", "run_attempt", "measured_at", "status",
               "regressions", "series", "metrics")
-    return {**{key: copy.deepcopy(item[key]) for key in fields}, "workload": item["workload"]["id"],
-            "architecture": item["environment"]["architecture"], "cpu_model": item["environment"]["cpu_model"],
-            "runner_image": item["environment"]["runner_image"],
-            "path": f"benchmarks/v1/runs/{item['run_id']}-{item['run_attempt']}.json"}
+    env = item["environment"]
+    result = {**{key: copy.deepcopy(item[key]) for key in fields}, "workload": item["workload"]["id"],
+              "architecture": env["architecture"], "cpu_model": env["cpu_model"],
+              "runner_image": env["runner_image"],
+              "path": f"benchmarks/v1/runs/{item['run_id']}-{item['run_attempt']}.json"}
+    if not legacy:
+        # Identical hosted runners can report MemTotal values one page apart.
+        # Keep the original exact capacity and identity in the immutable record;
+        # the chart groups memory into 64 MiB classes.
+        memory_mib = 64 * max(1, (env["memory_kib"] + 32768) // 65536)
+        host = {key: env[key] for key in ("architecture", "cpu_model", "cpus", "runner_image")}
+        host["memory_mib"] = memory_mib
+        result.update(cpus=env["cpus"], memory_mib=memory_mib,
+                      series=digest(encoded({"workload": item["workload"], "host": host}))[:16])
+    return result
 
 
-def update_index(previous, item):
+def update_index(previous, item, load_record=None):
     require(set(previous) == {"schema", "repository", "entries"}
-            and previous["schema"] == 1 and previous["repository"] == REPO
+            and previous["schema"] in (1, 2) and previous["repository"] == REPO
             and len(previous["entries"]) <= MAX_HISTORY, "Invalid history index")
     latest = summary(item)
+    expected = set(summary(item, legacy=previous["schema"] == 1))
+    rows = []
     for row in previous["entries"]:
-        require(set(row) == set(latest), "Unexpected history index fields")
+        require(set(row) == expected, "Unexpected history index fields")
         sha(row["commit"])
         sha(row["baseline"])
         require(type(row["run_id"]) is int and row["run_id"] > 0
@@ -374,13 +387,23 @@ def update_index(previous, item):
                 number(value)
         for key in ("workload", "architecture", "cpu_model", "runner_image"):
             text(row[key])
-    entries = {row["path"]: row for row in previous["entries"]}
+        if previous["schema"] == 1:
+            require(load_record is not None, "Upgrading the index requires its original archived records")
+            original = validate(load_record(row["path"]))
+            require(summary(original, legacy=True) == row, "Index differs from its archived measurement")
+            row = summary(original)
+        else:
+            require(type(row["cpus"]) is int and 0 < row["cpus"] < 10**12
+                    and type(row["memory_mib"]) is int and 0 < row["memory_mib"] < 10**12
+                    and row["memory_mib"] % 64 == 0, "Invalid indexed runner capacity")
+        rows.append(row)
+    entries = {row["path"]: row for row in rows}
     require(len(entries) == len(previous["entries"]), "Duplicate history entries")
     existing = entries.get(latest["path"])
     require(existing is None or existing == latest, "Cannot rewrite an existing benchmark")
     entries[latest["path"]] = latest
     ordered = sorted(entries.values(), key=lambda row: (row["measured_at"], row["run_id"], row["run_attempt"]))
-    return {"schema": 1, "repository": REPO, "entries": ordered[-MAX_HISTORY:]}
+    return {"schema": 2, "repository": REPO, "entries": ordered[-MAX_HISTORY:]}
 
 
 def remote_file(path, revision):
@@ -423,11 +446,21 @@ def publish(item):
         archive = remote_file(path, head)
         if archive is not None:
             require(document(archive) == item, "Refuse to overwrite an archived run")
-            print("This verified run is already archived.")
-            return
         previous = remote_file(INDEX, head)
-        index = update_index(document(previous) if previous else
-                             {"schema": 1, "repository": REPO, "entries": []}, item)
+        require(archive is None or previous is not None, "An archived run is missing its history index")
+        previous_index = document(previous) if previous else {"schema": 2, "repository": REPO, "entries": []}
+
+        def load_record(name):
+            data = remote_file(name, head)
+            require(data is not None, "Missing archived measurement required to upgrade the index")
+            return document(data)
+
+        index = update_index(previous_index, item, load_record)
+        if archive is not None and index == previous_index:
+            print("This verified run is already archived and indexed.")
+            return
+        # Reindexing never rewrites an existing raw record.
+        additions = [(INDEX, index)] if archive is not None else [(path, item), (INDEX, index)]
         payload = {"query": query, "variables": {"input": {
             "branch": {"repositoryNameWithOwner": REPO, "branchName": BRANCH}, "expectedHeadOid": head,
             "message": {"headline": f"Record performance for {item['commit'][:12]} ({item['run_id']}/{item['run_attempt']})",
@@ -435,7 +468,7 @@ def publish(item):
                                 "Signed-off-by: github-actions[bot] "
                                 "<41898282+github-actions[bot]@users.noreply.github.com>"},
             "fileChanges": {"additions": [{"path": name, "contents": base64.b64encode(encoded(value)).decode()}
-                                         for name, value in ((path, item), (INDEX, index))]},
+                                         for name, value in additions]},
         }}}
         response = subprocess.run(["gh", "api", "graphql", "--input", "-"],
                                   input=encoded(payload), capture_output=True)
