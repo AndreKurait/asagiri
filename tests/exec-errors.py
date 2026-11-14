@@ -51,7 +51,9 @@ def check(path, image):
         for name, expected, message, args in cases:
             result = command(*args)
             text = result.stdout + result.stderr
-            ok = result.returncode == expected and message in text
+            # Docker's tini capitalizes strerror; compare the error's meaning
+            # while still requiring the exact run/exec exit status.
+            ok = result.returncode == expected and message in text.lower()
             results.append({"case": name, "exit": result.returncode, "expected": expected, "passed": ok})
             print(("PASS " if ok else "FAIL ") + name + ": " + str(result.returncode), flush=True)
             if not ok:
