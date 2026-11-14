@@ -914,7 +914,7 @@ impl Engine {
     }
 
     /// The VM if it is awake; never boots it.
-    fn awake(&self) -> Option<Arc<VmLink>> {
+    pub(super) fn awake(&self) -> Option<Arc<VmLink>> {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|vm| !vm.is_disconnected()).cloned()
     }
 
@@ -941,7 +941,7 @@ impl Engine {
         drop(st);
         // vm() also serves start requests. Recover on another thread so
         // it cannot recursively start the caller's own container.
-        let worker = std::thread::Builder::new().name("asagiri-vm-recovery".into()).spawn(move || me.run_vm_recovery());
+        let worker = std::thread::Builder::new().name("asagiri-vmre".into()).spawn(move || me.run_vm_recovery());
         if let Err(e) = worker {
             self.lock().vm_recovery_running = false;
             crate::diag::error!("VM recovery worker did not start", error = e);
@@ -4389,6 +4389,18 @@ mod vm_recovery_tests {
         assert_eq!(engine.vm_restart_candidates(), vec![ids["always-live"].clone()]);
         engine.start_inner(&ids["unless-live"], Start::VmRecovery).unwrap();
         engine.start_inner(&ids["unless-live"], Start::Restart).unwrap();
+        engine.start_inner(&ids["unless-live"], Start::DaemonRestart).unwrap();
+        // A queued daemon restart can also be canceled before VM preparation,
+        // even when its container was not explicitly marked stopped.
+        {
+            let mut st = engine.lock();
+            let c = st.containers.get_mut(&ids["always-created"]).unwrap();
+            c.restart_pending = true;
+        }
+        assert!(engine.stop(&ids["always-created"], Duration::ZERO).unwrap());
+        engine.lock().containers.get_mut(&ids["always-created"]).unwrap().stopped_by_user = false;
+        engine.start_inner(&ids["always-created"], Start::DaemonRestart).unwrap();
+        assert_eq!(engine.lock().containers[&ids["always-created"]].status, Status::Created);
         assert_eq!(engine.lock().containers[&ids["unless-live"]].status, Status::Exited);
         assert!(engine.lock().containers[&ids["unless-live"]].stopped_by_user);
         assert!(matches!(engine.kill(&ids["always-live"], libc::SIGUSR1 as u32), Err(Error::Conflict(_))));

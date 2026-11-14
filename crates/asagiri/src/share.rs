@@ -140,14 +140,19 @@ impl TrafficFile {
         // The file holds a shared URL's traffic; readable only by this user.
         #[cfg(unix)]
         let written = {
-            use std::os::unix::fs::OpenOptionsExt;
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
             std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
                 .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
                 .open(&tmp)
-                .and_then(|mut f| f.write_all(v.to_string().as_bytes()))
+                .and_then(|mut f| {
+                    // A temporary file from an older run may already exist.
+                    f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+                    f.write_all(v.to_string().as_bytes())
+                })
         };
         #[cfg(not(unix))]
         let written = std::fs::write(&tmp, v.to_string());
@@ -2289,13 +2294,25 @@ mod tests {
             dirty: AtomicBool::new(false),
             done: AtomicBool::new(false),
         };
+        let tmp = f.path.with_extension("tmp");
+        std::fs::write(&tmp, "old traffic").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
         f.write();
         let mode = {
             use std::os::unix::fs::PermissionsExt;
             std::fs::metadata(&f.path).unwrap().permissions().mode() & 0o777
         };
-        std::fs::remove_dir_all(&dir).ok();
         assert_eq!(mode, 0o600);
+        // A pre-existing symlink must not expose or overwrite another file.
+        let unrelated = dir.join("unrelated");
+        std::fs::write(&unrelated, "keep").unwrap();
+        std::os::unix::fs::symlink(&unrelated, &tmp).unwrap();
+        f.write();
+        assert_eq!(std::fs::read_to_string(&unrelated).unwrap(), "keep");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

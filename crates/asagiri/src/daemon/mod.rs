@@ -246,10 +246,12 @@ pub fn run(_args: &[String]) -> io::Result<()> {
             continue;
         }
         let engine = engine.clone();
+        // Own the slot before spawning: a failed spawn drops its closure too.
+        let open = ReleaseOpenConn;
         #[cfg(target_os = "linux")]
         let gate = gate.clone();
         let spawned = std::thread::Builder::new().name("asagiri-api".into()).spawn(move || {
-            let _open = ReleaseOpenConn;
+            let _open = open;
             // Checked here, not in the accept loop: a slow user lookup holds up
             // this connection only.
             #[cfg(target_os = "linux")]

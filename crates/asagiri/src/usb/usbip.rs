@@ -327,13 +327,18 @@ fn read_loop<B: Backend + ?Sized>(
 /// upgraded connection that carries its USB/IP. `speed` is the kernel's
 /// USB_SPEED_*, `devid` USB/IP's bus << 16 | address.
 pub fn connect(socket: &Path, location: &str, name: &str, speed: u32, devid: u32) -> io::Result<(UnixStream, BufReader<UnixStream>)> {
+    connect_rejoin(socket, location, name, speed, devid, None)
+}
+
+pub(super) fn connect_rejoin(socket: &Path, location: &str, name: &str, speed: u32, devid: u32, rejoin: Option<u64>) -> io::Result<(UnixStream, BufReader<UnixStream>)> {
     let stream = UnixStream::connect(socket)?;
     // Never hold a device on a daemon that doesn't answer.
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '+' }).collect();
+    let rejoin = rejoin.map(|id| format!("&rejoin={id}")).unwrap_or_default();
     write!(
         &stream,
-        "POST /asagiri/usb?location={location}&name={name}&speed={speed}&devid={devid} HTTP/1.1\r\nHost: asagiri\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\n"
+        "POST /asagiri/usb?location={location}&name={name}&speed={speed}&devid={devid}{rejoin} HTTP/1.1\r\nHost: asagiri\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\n"
     )?;
     let mut r = BufReader::new(stream.try_clone()?);
     let mut line = String::new();

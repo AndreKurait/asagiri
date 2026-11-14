@@ -155,21 +155,21 @@ fn connect() -> io::Result<UnixStream> {
 /// here and handed to the helper, which captures the device and serves it.
 /// Returns once the device is captured, or with why it couldn't be.
 pub fn attach(location: &str, name: &str, speed: u32, devid: u32) -> io::Result<()> {
-    attach_through(connect()?, location, name, speed, devid)
+    attach_through(connect()?, location, name, speed, devid, None)
 }
 
 /// The same, for the daemon attaching a device again when it comes back:
 /// never the administrator prompt, so only through a helper that is
 /// already this Asagiri's.
-pub fn reattach(location: &str, name: &str, speed: u32, devid: u32) -> io::Result<()> {
+pub fn reattach(location: &str, name: &str, speed: u32, devid: u32, rejoin: u64) -> io::Result<()> {
     if !current() {
         return Err(io::Error::other("the USB helper is not this Asagiri's (attach it once from the window to update it)"));
     }
-    attach_through(UnixStream::connect(socket())?, location, name, speed, devid)
+    attach_through(UnixStream::connect(socket())?, location, name, speed, devid, Some(rejoin))
 }
 
-fn attach_through(helper: UnixStream, location: &str, name: &str, speed: u32, devid: u32) -> io::Result<()> {
-    let (stream, _reader) = super::usbip::connect(&crate::client::socket()?, location, name, speed, devid)?;
+fn attach_through(helper: UnixStream, location: &str, name: &str, speed: u32, devid: u32, rejoin: Option<u64>) -> io::Result<()> {
+    let (stream, _reader) = super::usbip::connect_rejoin(&crate::client::socket()?, location, name, speed, devid, rejoin)?;
     send_fd(&helper, format!("attach {location}\n").as_bytes(), stream.as_raw_fd())?;
     // The helper and its server hold the connection now.
     drop(stream);

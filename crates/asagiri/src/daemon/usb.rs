@@ -19,7 +19,7 @@ use std::io::{self, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -89,24 +89,30 @@ pub fn detach(location: &str) -> Result<Value, Error> {
         }
         return Err(Error::NotFound(format!("no USB device {location} is attached")));
     };
-    found.asked.store(true, Ordering::SeqCst);
     if let Some(ident) = &found.ident {
         forget(|w| w.ident.same(ident));
     }
+    close_session(found);
+    Ok(json!({"Location": location}))
+}
+
+fn close_session(found: &Session) {
+    found.asked.store(true, Ordering::SeqCst);
     let _ = found.helper.shutdown(Shutdown::Both);
     // SAFETY: shutting down a socket we own; the session's copy threads
     // see the end and remove it.
     unsafe { libc::shutdown(found.guest.as_raw_fd(), libc::SHUT_RDWR) };
-    Ok(json!({"Location": location}))
 }
 
 /// Detaches every device and waits (up to 5 s) for their sessions to end:
 /// for Stop and sleep, which would otherwise unplug them mid-transfer.
 pub fn detach_all() {
-    forget(|_| true);
-    let locations: Vec<String> = SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|s| s.location.clone()).collect();
-    for l in &locations {
-        let _ = detach(l);
+    {
+        // Session completion queues a reconnect under this same lock. Clear
+        // the queue and stop live sessions as one operation, in that order.
+        let sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+        forget(|_| true);
+        for session in sessions.iter() { close_session(session); }
     }
     for _ in 0..50 {
         if !any_attached() {
@@ -121,6 +127,13 @@ pub fn attach(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut B
     let name: String = req.query("name").unwrap_or_default().replace('+', " ").chars().filter(|c| !c.is_control()).take(80).collect();
     let speed: u32 = req.query("speed").and_then(|s| s.parse().ok()).unwrap_or(0);
     let devid: u32 = req.query("devid").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let rejoin = match req.query("rejoin") {
+        Some(id) => match id.parse::<u64>() {
+            Ok(id) => Some(id),
+            Err(_) => return reply(w, Err(Error::BadRequest("rejoin must be a reconnect identifier".into())), 200),
+        },
+        None => None,
+    };
     if location.is_empty() || location.len() > 64 || !location.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') || !(1..=6).contains(&speed) {
         return reply(w, Err(Error::BadRequest("location (letters, digits, dashes) and speed (1-6) are required".into())), 200);
     }
@@ -134,16 +147,24 @@ pub fn attach(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut B
     if !PENDING.lock().unwrap_or_else(|e| e.into_inner()).insert(location.clone()) {
         return reply(w, Err(Error::Conflict(format!("USB device {location} is already attached"))), 200);
     }
-    let result = attach_claimed(&location, &name, speed, devid, engine, w, r);
+    let result = attach_claimed(&location, &name, speed, devid, rejoin, engine, w, r);
     PENDING.lock().unwrap_or_else(|e| e.into_inner()).remove(&location);
     result
 }
 
 #[allow(clippy::too_many_arguments)]
-fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, rejoin: Option<u64>, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     let (location, name) = (location.to_owned(), name.to_owned());
     let opened = (|| -> io::Result<(asagiri_vmm::VsockStream, i32)> {
-        let vm = engine.vm()?;
+        let vm = if let Some(id) = rejoin {
+            let wanted = WANTED.lock().unwrap_or_else(|e| e.into_inner());
+            if !rejoin_current(&wanted, id) || engine.is_stopped() {
+                return Err(io::Error::other("USB reconnect was canceled"));
+            }
+            drop(wanted);
+            // An automatic reconnect must not wake a stopped or sleeping VM.
+            engine.awake().ok_or_else(|| io::Error::other("the VM is no longer awake"))?
+        } else { engine.vm()? };
         // A VM this request just woke may not have its agent listening yet.
         let mut tries = 0;
         let stream = loop {
@@ -179,13 +200,20 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, engine: &A
             return Ok(Next::Close);
         }
     };
-    http::upgrade(w)?;
-    engine.touch();
-    crate::diag::info!("USB device attached", location = location, name = name, port = port);
     let asked = Arc::new(AtomicBool::new(false));
     let started = Instant::now();
     let ident = Ident::of(&location);
-    SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).push(Session {
+    {
+        let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let wanted = WANTED.lock().unwrap_or_else(|e| e.into_inner());
+        // Detach may have canceled this request while the guest prepared its
+        // port. Registering the session and that final check are indivisible.
+        if rejoin.is_some_and(|id| !rejoin_current(&wanted, id) || engine.is_stopped()) {
+            error(w, Error::Conflict("USB reconnect was canceled".into()))?;
+            return Ok(Next::Close);
+        }
+        http::upgrade(w)?;
+        sessions.push(Session {
         ident: ident.clone(),
         location: location.clone(),
         name: name.clone(),
@@ -194,7 +222,10 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, engine: &A
         helper: w.try_clone()?,
         guest: stream.fd.try_clone()?,
         asked: asked.clone(),
-    });
+        });
+    }
+    engine.touch();
+    crate::diag::info!("USB device attached", location = location, name = name, port = port);
 
     // Which side ended the session first, for the log: the guest's end is
     // marked before it shuts the helper's down, so the helper's copy can
@@ -221,13 +252,17 @@ fn attach_claimed(location: &str, name: &str, speed: u32, devid: u32, engine: &A
     unsafe { libc::shutdown(from_guest.as_raw_fd(), libc::SHUT_RDWR) };
     let helper_first = up.join().unwrap_or(false);
     drop(stream);
-    SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).retain(|s| s.location != location);
-    let asked = asked.load(Ordering::SeqCst);
+    let asked = {
+        let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let asked = asked.load(Ordering::SeqCst);
+        if let Some(ident) = ident.filter(|_| helper_first && !asked && !engine.is_stopped()) {
+            left(ident, &name, started.elapsed());
+        }
+        sessions.retain(|s| s.location != location);
+        asked
+    };
     let why = end_reason(asked, helper_first);
     crate::diag::info!("USB device detached", location = location, name = name, why = why, after_s = started.elapsed().as_secs());
-    if let Some(ident) = ident.filter(|_| helper_first && !asked && !engine.is_stopped()) {
-        left(ident, &name, started.elapsed());
-    }
     Ok(Next::Close)
 }
 
@@ -266,6 +301,8 @@ impl From<&crate::usb::mac::Device> for Ident {
 /// A device that left while attached, until it is attached again.
 struct Wanted {
     ident: Ident,
+    /// A new queue entry cannot revive a request canceled by Detach or Stop.
+    rejoin: u64,
     /// Sessions in a row that ended within `QUICK` of starting.
     quick: u32,
     /// Failed attaches in a row since it came back, and when to try next.
@@ -283,6 +320,11 @@ const MAX_FAILURES: u32 = 5;
 
 static WANTED: Mutex<Vec<Wanted>> = Mutex::new(Vec::new());
 static WATCHING: AtomicBool = AtomicBool::new(false);
+static NEXT_REJOIN: AtomicU64 = AtomicU64::new(1);
+
+fn rejoin_current(wanted: &[Wanted], id: u64) -> bool {
+    wanted.iter().any(|w| w.rejoin == id)
+}
 
 /// Stops waiting for the devices `which` picks. True if it was waiting for any.
 fn forget(which: impl Fn(&Wanted) -> bool) -> bool {
@@ -309,15 +351,17 @@ fn left(ident: Ident, name: &str, lasted: Duration) {
 /// after being attached, and is no longer waited for.
 fn note_left(w: &mut Vec<Wanted>, ident: Ident, lasted: Duration) -> bool {
     let quick = u32::from(lasted < QUICK);
+    let rejoin = NEXT_REJOIN.fetch_add(1, Ordering::Relaxed);
     let i = match w.iter().position(|x| x.ident.same(&ident)) {
         Some(i) => {
             let x = &mut w[i];
             x.quick = if quick == 1 { x.quick + 1 } else { 0 };
             (x.failures, x.next, x.ident) = (0, Instant::now(), ident);
+            x.rejoin = rejoin;
             i
         }
         None => {
-            w.push(Wanted { ident, quick, failures: 0, next: Instant::now() });
+            w.push(Wanted { ident, rejoin, quick, failures: 0, next: Instant::now() });
             w.len() - 1
         }
     };
@@ -346,7 +390,7 @@ fn watch() {
     if WATCHING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let spawned = std::thread::Builder::new().name("asagiri-usb-rejoin".into()).spawn(|| {
+    let spawned = std::thread::Builder::new().name("asagiri-usbre".into()).spawn(|| {
         loop {
             std::thread::sleep(Duration::from_millis(500));
             let busy: Vec<Ident> = SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().filter_map(|s| s.ident.clone()).collect();
@@ -363,16 +407,16 @@ fn watch() {
             }
             let Ok(seen) = crate::usb::mac::devices() else { continue };
             let pending: Vec<String> = PENDING.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
-            let todo: Vec<(Ident, String, u32, u32, String)> = {
+            let todo: Vec<(Ident, u64, String, u32, u32, String)> = {
                 let w = WANTED.lock().unwrap_or_else(|e| e.into_inner());
-                due(&w, &seen, &busy, &pending, Instant::now()).into_iter().map(|(_, d)| (Ident::from(d), d.location(), d.linux_speed(), d.devid(), d.name.clone())).collect()
+                due(&w, &seen, &busy, &pending, Instant::now()).into_iter().map(|(i, d)| (Ident::from(d), w[i].rejoin, d.location(), d.linux_speed(), d.devid(), d.name.clone())).collect()
             };
-            for (ident, location, speed, devid, name) in todo {
-                match crate::usb::helper::reattach(&location, &name, speed, devid) {
+            for (ident, rejoin, location, speed, devid, name) in todo {
+                match crate::usb::helper::reattach(&location, &name, speed, devid, rejoin) {
                     Ok(()) => crate::diag::info!("USB device came back and is attached again", name = name, location = location),
                     Err(e) => {
                         let mut w = WANTED.lock().unwrap_or_else(|e| e.into_inner());
-                        let Some(i) = w.iter().position(|x| x.ident.same(&ident)) else { continue };
+                        let Some(i) = w.iter().position(|x| x.rejoin == rejoin && x.ident.same(&ident)) else { continue };
                         w[i].failures += 1;
                         if w[i].failures >= MAX_FAILURES {
                             w.remove(i);
@@ -468,7 +512,7 @@ mod tests {
     #[test]
     fn only_devices_back_on_the_bus_and_free_are_attached_again() {
         let now = Instant::now();
-        let want = |i: Ident| Wanted { ident: i, quick: 0, failures: 0, next: now };
+        let want = |i: Ident| Wanted { ident: i, rejoin: 1, quick: 0, failures: 0, next: now };
         let w = vec![want(ident(0x0110_0000, 0x303a, 0x1001, "A")), want(ident(0x0120_0000, 0x1a86, 0x7523, "")), want(ident(0x0130_0000, 0x10c4, 0xea60, "C"))];
         // A back in another port; the CH340 not back; C back but attached already.
         let seen = [device(0x0140_0000, 0x303a, 0x1001, "A"), device(0x0130_0000, 0x10c4, 0xea60, "C"), device(0x0150_0000, 0x1a86, 0x7523, "")];
@@ -488,5 +532,19 @@ mod tests {
         assert_eq!(end_reason(true, true), "detached on request");
         assert_eq!(end_reason(false, true), "the device left the Mac's bus or its helper ended");
         assert_eq!(end_reason(false, false), "the VM closed its side");
+    }
+
+    #[test]
+    fn a_canceled_reconnect_cannot_claim_a_later_attachment() {
+        let mut wanted = Vec::new();
+        let device = ident(0x0110_0000, 0x303a, 0x1001, "A");
+        assert!(note_left(&mut wanted, device.clone(), Duration::from_secs(60)));
+        let queued = wanted[0].rejoin;
+        assert!(rejoin_current(&wanted, queued));
+        wanted.clear(); // Detach or Stop after the watcher took its snapshot.
+        assert!(!rejoin_current(&wanted, queued));
+        assert!(note_left(&mut wanted, device, Duration::from_secs(60)));
+        assert!(!rejoin_current(&wanted, queued), "a later manual attachment has its own reconnect");
+        assert!(rejoin_current(&wanted, wanted[0].rejoin));
     }
 }

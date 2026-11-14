@@ -1251,15 +1251,21 @@ fn windows_networks() -> Value {
     // Asked again with the size it says, as the adapters may change between calls.
     let mut size: u32 = 16 * 1024;
     let mut buf: Vec<u64> = Vec::new();
+    let mut filled = false;
     for _ in 0..3 {
         buf = vec![0u64; (size as usize).div_ceil(8)];
         // SAFETY: buf is `size` bytes, 8-aligned, as GetAdaptersAddresses wants.
         let r = unsafe { GetAdaptersAddresses(u32::from(AF_INET), flags, std::ptr::null(), buf.as_mut_ptr().cast(), &mut size) };
         match r {
-            0 => break,
+            0 => { filled = true; break; }
             111 => continue, // ERROR_BUFFER_OVERFLOW: size is the size needed
             _ => return json!([]),
         }
+    }
+    // Repeated adapter changes can exhaust the retries. Only a successful
+    // call supplies a list whose pointers are safe to follow.
+    if !filled {
+        return json!([]);
     }
     let mut out: Vec<Value> = Vec::new();
     let mut seen: Vec<(u32, u8)> = Vec::new();

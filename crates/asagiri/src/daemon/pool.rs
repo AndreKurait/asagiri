@@ -16,7 +16,7 @@
 //! Linux host, and Windows' as asagiri-win sends them when the engine runs in
 //! WSL2. New networks skip those as well as the routes a Linux host has.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
@@ -77,6 +77,14 @@ pub fn current() -> ([u8; 4], u8) {
 /// Saves `pool`; the default leaves no file behind.
 pub fn save(pool: ([u8; 4], u8)) -> std::io::Result<()> {
     let path = path().ok_or_else(|| std::io::Error::other("HOME is not set"))?;
+    save_at(&path, pool)
+}
+
+fn save_at(path: &Path, pool: ([u8; 4], u8)) -> std::io::Result<()> {
+    // Requests run on separate threads. Keep the write and rename together
+    // so another Save or reset cannot remove this request's temporary file.
+    static SAVING: Mutex<()> = Mutex::new(());
+    let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     if pool == DEFAULT {
         return match std::fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -251,6 +259,33 @@ mod tests {
         for public in ["8.8.0.0/16", "172.32.0.0/16", "172.0.0.0/8", "192.0.0.0/8", "100.64.0.0/10"] {
             assert!(parse(public).unwrap_err().contains("not a private range"), "{public}");
         }
+    }
+
+    #[test]
+    fn concurrent_saves_and_resets_leave_complete_settings() {
+        let dir = std::env::temp_dir().join(format!("asagiri-pool-{}-{}", std::process::id(), super::super::engine::random_hex(8)));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("addresses.json");
+        std::thread::scope(|scope| {
+            for n in 0..8u8 {
+                let path = &path;
+                scope.spawn(move || {
+                    for _ in 0..20 {
+                        save_at(path, ([10, 200 + n, 0, 0], 16)).unwrap();
+                        if n % 2 == 0 { save_at(path, DEFAULT).unwrap(); }
+                    }
+                });
+            }
+        });
+        if path.exists() {
+            let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert!(parse(saved["pool"].as_str().unwrap()).is_ok());
+        }
+        assert!(!path.with_extension("json.tmp").exists());
+        save_at(&path, DEFAULT).unwrap();
+        save_at(&path, DEFAULT).unwrap();
+        assert!(!path.exists());
+        std::fs::remove_dir(&dir).unwrap();
     }
 
     #[test]

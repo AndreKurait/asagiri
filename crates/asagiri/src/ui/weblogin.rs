@@ -101,7 +101,7 @@ pub fn handle(cmd: &str, reg: String, value: &Value, emit: fn(String), ready: fn
     }
     let cmd = cmd.to_owned();
     let profile = value["profile"].as_str().unwrap_or_default().to_owned();
-    let _ = std::thread::Builder::new().name("asagiri-weblogin".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("asagiri-login".into()).spawn(move || {
         if cmd == "awsprofiles" {
             emit(aws_profiles());
             return;
