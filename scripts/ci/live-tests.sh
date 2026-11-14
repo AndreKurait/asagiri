@@ -49,6 +49,8 @@ run() { # run <script> [image] [options]
 
 run api-version --cold
 run engine-identity
+run engine-power alpine:3.21
+run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
