@@ -318,6 +318,7 @@ def check(path, binary):
             assert any("same origin" in str(json.loads(line).get("error")) for line in raw.splitlines() if line), raw[:2000]
             assert not other_tls.requests
             http_model.upload_location = None
+            print("PASS registry pulls/pushes: HTTP/TLS policy, credential boundaries, redirects/revocation, CIDRs and 1/3-worker limits", flush=True)
 
             # BuildKit has its own resolver and trust configuration. Exercise
             # real FROM resolution through the Docker driver, including the
@@ -343,6 +344,10 @@ def check(path, binary):
                     "buildx", "build", "--builder", "default", "--pull", "--progress", "plain",
                     "-t", tag, ".",
                 ], cwd=build_root, env=env, text=True, capture_output=True, timeout=300)
+                if result.returncode != 0:
+                    print(json.dumps({"build": suffix, "registryRequests": {
+                        host: model.requests[-30:] for host, model in zip(hosts, models)
+                    }}), flush=True)
                 if success:
                     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-12000:]
                     owned_images.append(tag)
