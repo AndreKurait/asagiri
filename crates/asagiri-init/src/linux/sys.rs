@@ -141,6 +141,56 @@ pub fn child_fail(fd: RawFd, what: &str, err: io::Error) -> ! {
     }
 }
 
+/// Reports an execve that failed and exits as Docker ends that container:
+/// 126 when the command may not be run, 127 when it is missing, 255 when
+/// runc's exec itself fails (a script without a shebang, a missing
+/// interpreter). Only for the child between clone and exec. `init`: the
+/// program runs under `--init`, which Docker leaves to tini.
+pub fn exec_fail(fd: RawFd, exe: &CStr, err: io::Error, init: bool) -> ! {
+    let exe = exe.to_string_lossy();
+    let path = Path::new(&*exe);
+    let found = Found { exists: path.exists(), dir: path.is_dir() };
+    let (code, why) = exec_failure(&exe, &err, found, init);
+    // runc reports what it refuses before the start as the daemon's error,
+    // and a failed exec after it on the container's stderr, as is.
+    let msg = if code == 255 { format!("{why}\n") } else { format!("asagiri: cannot start container: {why}\n") };
+    // SAFETY: writing a valid buffer to a descriptor we hold, then exiting.
+    unsafe {
+        libc::write(fd, msg.as_ptr().cast(), msg.len());
+        libc::_exit(code)
+    }
+}
+
+/// What is at the path execve refused.
+#[derive(Clone, Copy, Default)]
+pub struct Found {
+    pub exists: bool,
+    pub dir: bool,
+}
+
+/// The exit code and message for a command execve would not run, worded
+/// as runc words them. Refused before the start: `exec: "/etc/passwd":
+/// permission denied` ends 126 (`exec: "/etc": is a directory: permission
+/// denied` for a directory, which Linux refuses with EACCES), a missing
+/// one 127 (`stat /x: no such file or directory`). Failing in runc's exec
+/// after the start, 255: `exec /x: exec format error` for a file that is
+/// no program (a script without a shebang), `exec /x: no such file or
+/// directory` when the file is there but its interpreter isn't.
+/// Under `--init` (tini), a missing interpreter is 127 and the rest 126.
+pub fn exec_failure(exe: &str, err: &io::Error, found: Found, init: bool) -> (i32, String) {
+    match err.raw_os_error() {
+        Some(libc::EACCES | libc::EISDIR) if found.dir => (126, format!("exec: \"{exe}\": is a directory: permission denied")),
+        Some(libc::EACCES) => (126, format!("exec: \"{exe}\": permission denied")),
+        Some(libc::ENOEXEC) if init => (126, format!("exec: \"{exe}\": exec format error")),
+        Some(libc::ENOEXEC) => (255, format!("exec {exe}: exec format error")),
+        Some(libc::ENOENT) if found.exists && init => (127, format!("exec {exe}: no such file or directory")),
+        Some(libc::ENOENT) if found.exists => (255, format!("exec {exe}: no such file or directory")),
+        Some(libc::ENOENT) => (127, format!("exec: \"{exe}\": stat {exe}: no such file or directory")),
+        Some(libc::ENOTDIR) => (127, format!("exec: \"{exe}\": stat {exe}: not a directory")),
+        _ => (127, format!("exec: \"{exe}\": {err}")),
+    }
+}
+
 pub fn socketpair() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [0 as RawFd; 2];
     // SAFETY: `fds` has room for the two descriptors socketpair writes.
@@ -239,4 +289,62 @@ pub fn resize_pty(fd: RawFd, rows: u16, cols: u16) {
     let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: TIOCSWINSZ with a valid winsize on a descriptor we own.
     unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as libc::Ioctl, &ws) };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    /// A command that may not be run ends 126 and one that is missing 127,
+    /// as with Docker (`docker run alpine /etc/passwd` is 126).
+    #[test]
+    fn exec_failures_end_as_docker_ends_them() {
+        use super::Found;
+        let os = io::Error::from_raw_os_error;
+        let f = super::exec_failure;
+        let file = Found { exists: true, dir: false };
+        let dir = Found { exists: true, dir: true };
+        let none = Found::default();
+        assert_eq!(f("/etc/passwd", &os(libc::EACCES), file, false), (126, "exec: \"/etc/passwd\": permission denied".into()));
+        // Linux refuses a directory with EACCES; runc names it.
+        assert_eq!(f("/etc", &os(libc::EACCES), dir, false), (126, "exec: \"/etc\": is a directory: permission denied".into()));
+        assert_eq!(f("/etc", &os(libc::EISDIR), dir, true).0, 126);
+        assert_eq!(f("/nope", &os(libc::ENOENT), none, false), (127, "exec: \"/nope\": stat /nope: no such file or directory".into()));
+        // runc's exec fails after the start: 255, its own words.
+        assert_eq!(f("/x", &os(libc::ENOEXEC), file, false), (255, "exec /x: exec format error".into()));
+        assert_eq!(f("/run.sh", &os(libc::ENOENT), file, false), (255, "exec /run.sh: no such file or directory".into()));
+        // tini (--init): a missing interpreter is 127.
+        assert_eq!(f("/run.sh", &os(libc::ENOENT), file, true).0, 127);
+    }
+
+    /// The real thing: execve of a directory fails with EACCES, which runc
+    /// words as a directory.
+    #[test]
+    fn exec_of_a_directory_says_so() {
+        let c = std::ffi::CString::new("/").unwrap();
+        let argv = [c.as_ptr(), std::ptr::null()];
+        let envp = [std::ptr::null()];
+        // SAFETY: valid NULL-terminated arrays; execve fails and returns.
+        unsafe { libc::execve(c.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+        let err = io::Error::last_os_error();
+        assert_eq!(super::exec_failure("/", &err, super::Found { exists: true, dir: true }, false), (126, "exec: \"/\": is a directory: permission denied".into()), "{err}");
+    }
+
+    /// The real thing: execve of a file that is not executable fails with
+    /// EACCES, which is 126.
+    #[test]
+    fn exec_of_a_plain_file_is_126() {
+        let dir = std::env::temp_dir().join(format!("asagiri-exec-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("plain");
+        std::fs::write(&file, b"not a program").unwrap();
+        let c = std::ffi::CString::new(file.to_str().unwrap()).unwrap();
+        let argv = [c.as_ptr(), std::ptr::null()];
+        let envp = [std::ptr::null()];
+        // SAFETY: valid NULL-terminated arrays; execve fails and returns.
+        unsafe { libc::execve(c.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+        let err = io::Error::last_os_error();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(super::exec_failure(file.to_str().unwrap(), &err, super::Found { exists: true, dir: false }, false).0, 126, "{err}");
+    }
 }
