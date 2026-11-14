@@ -28,6 +28,8 @@ def check(path):
     cases = [
         ("absent", {}, None),
         ("null", {"Healthcheck": None}, None),
+        ("metadata", {"Labels": {"org.opencontainers.image.title": "Asagiri fixture", "vendor.feature": "enabled"},
+                      "ExposedPorts": {"8080/tcp": {}}, "StopSignal": "SIGQUIT"}, None),
         ("disabled", {"Healthcheck": {"Test": ["NONE"]}}, {"Test": ["NONE"]}),
         ("configured", {"Healthcheck": {
             "Test": ["CMD", "true"], "Interval": 1000000000,
@@ -63,6 +65,9 @@ def check(path):
                 assert "Healthcheck" not in actual, (case, actual)
             else:
                 assert actual.get("Healthcheck") == expected, (case, actual)
+            if case == "metadata":
+                for key in ("Labels", "ExposedPorts", "StopSignal"):
+                    assert actual.get(key) == config[key], (key, actual)
             print("PASS image inspect Healthcheck " + case, flush=True)
         finally:
             cli("image", "rm", tag)

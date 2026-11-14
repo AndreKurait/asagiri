@@ -407,12 +407,17 @@ fn parse_release(raw: &str) -> Option<String> {
     (!release.is_empty()).then(|| release.to_owned())
 }
 
+// SDKs gate Docker features on Version as well as ApiVersion. Keep the
+// compatibility version separate from Asagiri's own release numbering.
+const DOCKER_COMPAT_VERSION: &str = "27.5.1-asagiri";
+
 fn version() -> Value {
     let v = env!("CARGO_PKG_VERSION");
     json!({
         "Platform": {"Name": "Asagiri"},
-        "Components": [{"Name": "Engine", "Version": v, "Details": {"ApiVersion": http::API_VERSION, "MinAPIVersion": http::MIN_API_VERSION, "Arch": go_arch(), "Os": "linux"}}],
-        "Version": v,
+        "Components": [{"Name": "Engine", "Version": DOCKER_COMPAT_VERSION, "Details": {"AsagiriVersion": v, "ApiVersion": http::API_VERSION, "MinAPIVersion": http::MIN_API_VERSION, "Arch": go_arch(), "Os": "linux"}}],
+        "Version": DOCKER_COMPAT_VERSION,
+        "AsagiriVersion": v,
         "ApiVersion": http::API_VERSION,
         "MinAPIVersion": http::MIN_API_VERSION,
         "Os": "linux",
@@ -437,7 +442,8 @@ fn info(engine: &Engine) -> Value {
         "ContainersStopped": states.len() - running,
         "Images": images,
         "Driver": "overlayfs",
-        "ServerVersion": env!("CARGO_PKG_VERSION"),
+        "ServerVersion": DOCKER_COMPAT_VERSION,
+        "AsagiriVersion": env!("CARGO_PKG_VERSION"),
         "OperatingSystem": "Asagiri",
         "OSType": "linux",
         "Architecture": std::env::consts::ARCH,

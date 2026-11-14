@@ -238,7 +238,7 @@ fn engine_version_check() {
     if me == "0.0.0" || !client::alive() {
         return;
     }
-    let Some(engine) = client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| r.json()["Version"].as_str().map(str::to_owned)) else { return };
+    let Some(engine) = client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned)) else { return };
     if engine != me && engine != "0.0.0" {
         let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "asagiri".into());
         eprintln!("asagiri: this asagiri ({exe}) is {me}, but the engine runs {engine}. Restart the engine to use one version (Asagiri → Restart engine), or remove the older asagiri.");

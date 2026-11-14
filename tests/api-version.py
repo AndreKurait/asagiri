@@ -38,6 +38,16 @@ def check(path):
     status, version = request("/version")
     assert status == 200, (status, version)
     version = json.loads(version)
+    if version.get("Platform", {}).get("Name") == "Asagiri":
+        compatible = tuple(int(part) for part in version["Version"].split("-", 1)[0].split("."))
+        assert compatible >= (1, 6, 0), "Docker SDKs must not mistake Asagiri for an obsolete Docker engine"
+        assert version["AsagiriVersion"] and version["AsagiriVersion"] != version["Version"], version
+        status, info = request("/info")
+        info = json.loads(info)
+        assert status == 200 and info["ServerVersion"] == version["Version"], info
+        assert info["AsagiriVersion"] == version["AsagiriVersion"], info
+        assert version["Components"][0]["Details"]["AsagiriVersion"] == version["AsagiriVersion"], version
+        print("PASS Docker compatibility and Asagiri product versions are separate")
     # Docker 28 and Asagiri start at 1.24, Docker 29 at 1.40.
     oldest, newest = version["MinAPIVersion"], version["ApiVersion"]
     older = "1.%d" % (int(oldest.split(".")[1]) - 1)

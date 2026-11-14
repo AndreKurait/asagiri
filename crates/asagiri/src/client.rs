@@ -12,6 +12,23 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+/// Product version for updates and About; older engines used Version alone.
+pub fn engine_version(version: &Value) -> Option<&str> {
+    version["AsagiriVersion"].as_str().or_else(|| version["Version"].as_str())
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn update_checks_use_the_product_version_with_an_older_engine_fallback() {
+        assert_eq!(engine_version(&serde_json::json!({"Version": "27.5.1-asagiri", "AsagiriVersion": "0.1.2"})), Some("0.1.2"));
+        assert_eq!(engine_version(&serde_json::json!({"Version": "0.1.0"})), Some("0.1.0"));
+        assert_eq!(engine_version(&Value::Null), None);
+    }
+}
+
 pub fn socket() -> io::Result<PathBuf> {
     if let Some(s) = std::env::var_os("ASAGIRI_SOCKET") {
         return Ok(PathBuf::from(s));

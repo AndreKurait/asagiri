@@ -264,7 +264,7 @@ fn engine_line() -> String {
     let info = crate::client::get_background("/info").unwrap_or_default();
     format!(
         "running (engine {}, VM {}, {} of {} containers running, {} images)",
-        version["Version"].as_str().unwrap_or("?"),
+        crate::client::engine_version(&version).unwrap_or("?"),
         if info["AsagiriVmAwake"] == true { "awake" } else { "asleep" },
         info["ContainersRunning"].as_u64().unwrap_or(0),
         info["Containers"].as_u64().unwrap_or(0),

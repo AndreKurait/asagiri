@@ -444,7 +444,7 @@ fn update_state(state: &str, latest: Option<&str>, error: Option<String>) {
 /// check asks the feed.
 pub fn check_now(manual: bool) {
     std::thread::spawn(move || {
-        if let Some(v) = crate::client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| r.json()["Version"].as_str().map(str::to_owned))
+        if let Some(v) = crate::client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
             && newer(CURRENT, &v)
         {
             emit(json!({"type": "enginestale", "version": v}).to_string());

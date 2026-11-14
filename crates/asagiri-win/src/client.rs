@@ -9,6 +9,11 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+/// Product version for updates and About; older engines used Version alone.
+pub fn engine_version(version: &Value) -> Option<&str> {
+    version["AsagiriVersion"].as_str().or_else(|| version["Version"].as_str())
+}
+
 use crate::pipe::Pipe;
 
 static PIPE: OnceLock<String> = OnceLock::new();
