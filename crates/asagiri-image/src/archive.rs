@@ -90,6 +90,10 @@ pub fn load(store: &Store, archive: impl Read) -> io::Result<Vec<Image>> {
         }
         files.insert(path, (digest, size));
     }
+    // A tar terminator can precede the upload's padding or framing trailer.
+    // Require the complete reader before publishing any image records, so a
+    // cut-short body is rejected and success cannot close an active upload.
+    io::copy(&mut tar.into_inner(), &mut io::sink())?;
     let manifest = manifest.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not an image archive: no manifest.json"))?;
     let entries: Vec<Value> = serde_json::from_slice(&manifest).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("manifest.json: {e}")))?;
     let lookup = |p: &str| files.get(p.trim_start_matches("./")).cloned().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("archive is missing {p}")));
@@ -311,6 +315,55 @@ mod tests {
         assert!(loaded[0].layers[0].media_type.ends_with("gzip"));
         assert_eq!(other.find("demo:1").unwrap().unwrap().config_digest, cfg);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn empty_image_archive() -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, bytes) in [
+            ("config.json", br#"{"os":"linux","architecture":"amd64","config":{}}"#.as_slice()),
+            ("manifest.json", br#"[{"Config":"config.json","RepoTags":["upload:complete"],"Layers":[]}]"#.as_slice()),
+        ] {
+            let mut header = tar::Header::new_ustar();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, name, bytes).unwrap();
+        }
+        tar.into_inner().unwrap()
+    }
+
+    #[test]
+    fn load_consumes_the_upload_after_the_tar_terminator() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let mut bytes = empty_image_archive();
+        // Docker archive writers may append additional blocking padding.
+        bytes.extend_from_slice(&[0; 8192]);
+        let mut upload = io::Cursor::new(bytes);
+        assert_eq!(load(&store, &mut upload).unwrap().len(), 1);
+        assert_eq!(upload.position(), upload.get_ref().len() as u64);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_incomplete_upload_cannot_publish_an_image() {
+        struct InterruptedUpload(io::Cursor<Vec<u8>>);
+        impl Read for InterruptedUpload {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let count = self.0.read(buf)?;
+                if count == 0 && !buf.is_empty() {
+                    return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "request body cut short"));
+                }
+                Ok(count)
+            }
+        }
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        // The tar is complete but the HTTP upload (or decoder trailer) is not.
+        let upload = InterruptedUpload(io::Cursor::new(empty_image_archive()));
+        let error = load(&store, upload).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(store.images().unwrap().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

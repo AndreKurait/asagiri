@@ -40,6 +40,7 @@ run api-version
 run engine-identity
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
+run image-load-completion
 run layer-concurrency
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"
