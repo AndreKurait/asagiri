@@ -224,7 +224,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
             return image_save(engine, &names, w);
         }
         ("POST", "/containers/create") => {
-            if let Some(made) = super::builder::create_for_buildx(engine, req.query("name")) {
+            if let Some(made) = super::builder::create_for_buildx(engine, req) {
                 return reply(w, made, 201);
             }
             return reply(w, create(req, engine), 201);
@@ -1791,7 +1791,7 @@ pub(super) fn restart_policy(value: &Value, auto_remove: bool) -> Result<Restart
     Ok(RestartPolicy { name: name.to_owned(), max_retries })
 }
 
-fn validate_isolation(host: &Value) -> Result<(), Error> {
+pub(super) fn validate_isolation(host: &Value) -> Result<(), Error> {
     for key in ["CgroupParent", "UsernsMode"] {
         let value = match &host[key] {
             Value::Null => "",
