@@ -329,6 +329,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         go = Some(w);
     }
     let (parent_io, child_io) = stdio(&prepared).map_err(cleanup)?;
+    let (root_ready, root_ready_child) = sys::pipe().map_err(cleanup)?;
     let rootfs_c = sys::cstr(&rootfs).map_err(cleanup)?;
 
     let mut flags = (libc::CLONE_NEWNS | libc::CLONE_NEWPID | libc::CLONE_NEWUTS | libc::CLONE_NEWIPC | libc::CLONE_NEWCGROUP)
@@ -342,8 +343,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
     // SAFETY: the agent is single-threaded, as clone3 without CLONE_VM needs.
     let pid = unsafe { sys::clone3(&args) }.map_err(cleanup)?;
     if pid == 0 {
-        container_child(&prepared, &rootfs_c, &child_io);
+        container_child(&prepared, &rootfs_c, &child_io, root_ready_child.as_raw_fd());
     }
+    drop(root_ready_child);
     if flags & libc::CLONE_NEWNET as u64 != 0 {
         netns = fs::File::open(format!("/proc/{pid}/ns/net")).map_or(0, |f| netns_inode(&f));
     }
@@ -422,6 +424,10 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         // SAFETY: one byte to a pipe we own: "your network is ready".
         unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
     }
+    // An exec can be requested as soon as Started is sent. Joining a mount
+    // namespace before its init pivots would give that exec the old root.
+    // Wait for the child's mount setup, including pivot_root, before exposing it.
+    wait_root_ready(root_ready).map_err(kill_child)?;
     let (stdin, stdout, stderr) = finish_stdio(parent_io, child_io).map_err(kill_child)?;
     Ok(Process {
         id: spec.id.to_owned(),
@@ -1188,9 +1194,20 @@ fn report_fd(io: &ChildStdio) -> RawFd {
     }
 }
 
+/// A closed pipe before the acknowledgement means setup failed in the child.
+fn wait_root_ready(fd: OwnedFd) -> io::Result<()> {
+    use std::io::Read;
+    let mut byte = [0];
+    fs::File::from(fd).read_exact(&mut byte)?;
+    if byte != [b'r'] {
+        return Err(io::Error::other("container root setup did not complete"));
+    }
+    Ok(())
+}
+
 /// Runs in the cloned child: PID 1 of the container, in its own namespaces
 /// and cgroup. Never returns: it execs or exits 127 with a message.
-fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio) -> ! {
+fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: RawFd) -> ! {
     let err = report_fd(io);
     let fail = |what: &str, e: io::Error| -> ! { child_fail(err, what, e) };
 
@@ -1252,6 +1269,11 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio) -> ! {
         if unsafe { libc::read(ready.as_raw_fd(), b.as_mut_ptr().cast(), 1) } != 1 {
             fail("network", io::Error::other("the agent could not set up this container's network"));
         }
+    }
+    // SAFETY: the parent owns the read end; this byte acknowledges that
+    // entering this mount namespace now enters the completed container root.
+    if unsafe { libc::write(root_ready, b"r".as_ptr().cast(), 1) } != 1 {
+        fail("root readiness", io::Error::last_os_error());
     }
     finish_child(p, io, true)
 }
@@ -1840,6 +1862,18 @@ mod tests {
         make(&dir).unwrap();
         assert!(marker(&dir).is_dir());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn root_readiness_requires_the_child_acknowledgement() {
+        use std::io::Write;
+        for (bytes, ready) in [(&b"r"[..], true), (&b"x"[..], false), (&b""[..], false)] {
+            let (read, write) = super::sys::pipe().unwrap();
+            let mut write = std::fs::File::from(write);
+            write.write_all(bytes).unwrap();
+            drop(write);
+            assert_eq!(super::wait_root_ready(read).is_ok(), ready);
+        }
     }
 
     /// A start that fails on a child already gone reports what the child
