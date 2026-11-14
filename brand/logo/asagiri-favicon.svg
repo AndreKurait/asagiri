@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <title>Asagiri</title>
-  <rect width="32" height="32" rx="7" fill="#161B33"/>
-  <clipPath id="fc"><rect x="0" y="0" width="32" height="15.5"/></clipPath>
-  <circle cx="16" cy="16.5" r="10" fill="#F2684A" clip-path="url(#fc)"/>
-  <rect x="3.5" y="17.5" width="20" height="3.6" rx="1.8" fill="#F3F1F7"/>
-  <rect x="9.5" y="23.5" width="19" height="3.6" rx="1.8" fill="#F3F1F7"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><title>Asagiri</title><rect width="32" height="32" fill="#161B33" rx="7"/><clipPath id="fc"><rect width="32" height="15.5" x="0" y="0"/></clipPath><circle cx="16" cy="16.5" r="10" fill="#F2684A" clip-path="url(#fc)"/><rect width="20" height="3.6" x="3.5" y="17.5" fill="#F3F1F7" rx="1.8"/><rect width="19" height="3.6" x="9.5" y="23.5" fill="#F3F1F7" rx="1.8"/></svg>
