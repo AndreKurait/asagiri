@@ -182,19 +182,39 @@ pub fn config(engine: &Engine) -> String {
     // Settings → Registry mirrors: Docker Hub only, as Docker's are. They
     // come after Asagiri's own mirror, which serves images built or loaded
     // here and answers 404 for everything else.
-    for mirror in super::registry_mirrors::list() {
+    let configured = super::registry_config::snapshot();
+    for mirror in &configured.mirrors {
         add_mirror(&mut registries, "docker.io", mirror.buildkit());
-        if mirror.is_local() && !http.contains(&mirror.host) {
+        if mirror.http && !http.contains(&mirror.host) {
             http.push(mirror.host.clone());
         }
     }
-    let mut out = String::new();
+    render_config(registries, http, &configured.settings)
+}
+
+fn render_config(registries: Vec<(String, Vec<String>)>, http: Vec<String>, settings: &asagiri_image::RegistrySettings) -> String {
+    let mut entries = std::collections::BTreeMap::<String, (Vec<String>, bool, bool)>::new();
     for (registry, mirrors) in registries {
-        let list = mirrors.iter().map(|m| format!("\"{m}\"")).collect::<Vec<_>>().join(", ");
-        out.push_str(&format!("[registry.\"{registry}\"]\n  mirrors = [{list}]\n"));
+        for mirror in &mirrors {
+            let host = mirror.split('/').next().unwrap_or(mirror);
+            if settings.allows_insecure(host) { entries.entry(host.into()).or_default().2 = true; }
+        }
+        let entry = entries.entry(registry.clone()).or_default();
+        entry.0 = mirrors;
+        entry.2 = settings.allows_insecure(&registry);
     }
-    for host in http {
-        out.push_str(&format!("[registry.\"{host}\"]\n  http = true\n"));
+    for host in http { entries.entry(host).or_default().1 = true; }
+    for host in settings.authorities() { entries.entry(host.into()).or_default().2 = true; }
+    let mut out = String::new();
+    for (registry, (mirrors, http, insecure)) in entries {
+        out.push_str(&format!("[registry.{}]\n", serde_json::to_string(&registry).unwrap()));
+        if !mirrors.is_empty() {
+            out.push_str(&format!("  mirrors = {}\n", serde_json::to_string(&mirrors).unwrap()));
+        }
+        // BuildKit's two flags together select HTTPS with a self-signed
+        // certificate allowed, then HTTP fallback, for this authority only.
+        if http || insecure { out.push_str("  http = true\n"); }
+        if insecure { out.push_str("  insecure = true\n"); }
     }
     out
 }
@@ -398,5 +418,18 @@ mod tests {
         assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "0123456789abcdef0123456789abcdef");
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn registry_transport_settings_share_one_table_with_mirrors() {
+        let settings = asagiri_image::RegistrySettings::new(&["registry.example:5000".into(), "docker.io".into()], 4, 5).unwrap();
+        let config = render_config(vec![("docker.io".into(), vec!["registry.example:5000/cache".into()])],
+            vec!["127.0.0.1:1234".into()], &settings);
+        assert_eq!(config.matches("[registry.\"docker.io\"]").count(), 1);
+        assert_eq!(config.matches("[registry.\"registry.example:5000\"]").count(), 1);
+        assert!(config.contains("mirrors = [\"registry.example:5000/cache\"]"));
+        assert_eq!(config.matches("insecure = true").count(), 2);
+        assert_eq!(config.matches("http = true").count(), 3);
+        assert!(!config.contains("registry.example:5001"));
     }
 }
