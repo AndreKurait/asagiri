@@ -13,7 +13,10 @@ name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
+# IPv6 probes need an enabled private host namespace. Docker may otherwise
+# initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv6.conf.default.disable_ipv6=0 \
   -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
   "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
