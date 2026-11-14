@@ -94,6 +94,39 @@ class DistributionTests(unittest.TestCase):
         digest = distribution.sha256(root / "packaging/keys/asagiri-rpm.asc")
         self.assertIn("key_sha256=" + digest, (root / "site/install.sh").read_text())
 
+    def test_rpm_repository_uses_canonical_release_names_and_retains_original_checksums(self):
+        for version in ("0.1.0-dev.34", "0.1.0"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                destination = root / "rpm" / "x86_64"
+                names = [f"{package}-{version.replace('-', '.', 1)}-1.x86_64.rpm"
+                         for package in ("asagiri", "asagiri-lite")]
+                assets = {name: {"name": name, "digest": "sha256:" + "a" * 64} for name in names}
+                for name in names:
+                    (root / name).write_bytes(b"original package bytes")
+                def download(asset, tag, cache):
+                    self.assertEqual(tag, "v" + version)
+                    return root / asset["name"]
+                def command(*args):
+                    if args[0] == "rpmkeys":
+                        return "digests signatures OK"
+                    if args[0] == "rpmsign":
+                        with Path(args[-1]).open("ab") as stream:
+                            stream.write(b"signature")
+                    return ""
+                with patch.object(distribution, "download", side_effect=download), \
+                        patch.object(distribution, "command", side_effect=command):
+                    distribution.rpm_repo(
+                        {**release("v" + version), "html_url": "release"},
+                        {"version": version, "commit": "b" * 40}, assets, root,
+                        destination, "c" * 40, root / "public.asc")
+                metadata = json.loads((destination / "provenance.json").read_text())
+                self.assertEqual({p["name"] for p in metadata["packages"]}, set(names))
+                for package in metadata["packages"]:
+                    self.assertEqual(package["original_release_sha256"], "a" * 64)
+                    self.assertEqual((root / package["name"]).read_bytes(), b"original package bytes")
+                    self.assertEqual(package["sha256"], distribution.sha256(destination / "Packages" / package["name"]))
+
     def test_release_source_outside_main_history_is_rejected(self):
         commit = "a" * 40
         tag = "v0.1.0"

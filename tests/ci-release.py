@@ -343,6 +343,58 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.package_recovery(checks=self.checks()[1:])
 
+    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False):
+        package_version = version.replace("-", "." if normalized else "~", 1)
+        names = {"asagiri-kernel-source.tar.xz"}
+        for arch, deb in (("x86_64", "amd64"), ("aarch64", "arm64")):
+            names.add(f"asagiri-{version}-linux-{arch}.tar.gz")
+            for package in ("asagiri", "asagiri-lite"):
+                names.update({f"{package}_{package_version}_{deb}.deb",
+                              f"{package}-{package_version}-1.{arch}.rpm"})
+        for arch in ("arm64", "x86_64"):
+            names.update({f"Asagiri-{version}-{arch}.{extension}" for extension in ("dmg", "msi", "tar.gz")})
+            names.add(f"Asagiri-{version}-windows-{arch}.zip")
+        for name in names:
+            (dist / name).write_bytes(b"package contents keep their internal version")
+        for platform, extension in (("mac", "tar.gz"), ("windows", "msi")):
+            for arch in ("arm64", "x86_64"):
+                name = f"Asagiri-{version}-{arch}.{extension}"
+                (dist / f"latest-{platform}-{arch}.json").write_text(json.dumps({
+                    "version": version, "sha256": release.sha256(dist / name),
+                    "url": f"https://github.com/{REPO}/releases/download/v{version}/{name}",
+                }))
+
+    def test_asset_names_match_github_before_checksums_and_attestation(self):
+        for version, normalized in (("0.1.0-dev.34", False), ("0.1.0-dev.34", True), ("0.1.0", False)):
+            with self.subTest(version=version, normalized=normalized), tempfile.TemporaryDirectory() as folder:
+                dist = Path(folder)
+                self.package_assets(dist, version, normalized=normalized)
+                original = {path.name.replace("~", "."): path.read_bytes() for path in dist.iterdir()}
+                with patch.dict(release.os.environ, {"GITHUB_ACTIONS": "false"}):
+                    release.collect(SimpleNamespace(directory=dist, version=version, commit=COMMIT, repo=REPO))
+                manifest = json.loads((dist / "release-manifest.json").read_text())
+                self.assertEqual(manifest["commit"], COMMIT)
+                self.assertEqual(manifest["version"], version)
+                self.assertEqual(len(manifest["assets"]), 23)
+                self.assertEqual({asset["name"] for asset in manifest["assets"]}, set(original))
+                self.assertNotIn("~", (dist / "SHA256SUMS").read_text())
+                for asset in manifest["assets"]:
+                    path = dist / asset["name"]
+                    self.assertEqual(path.read_bytes(), original[path.name])
+                    self.assertEqual(asset["sha256"], release.sha256(path))
+                    self.assertIn(f"{asset['sha256']}  {path.name}\n", (dist / "SHA256SUMS").read_text())
+
+    def test_asset_normalization_rejects_collisions_and_unexpected_aliases_without_mutating_inputs(self):
+        for name in ("asagiri-0.1.0.dev.34-1.x86_64.rpm", "asagiri-0~1.0~dev.34-1.x86_64.rpm"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
+                dist = Path(folder)
+                self.package_assets(dist)
+                (dist / name).write_bytes(b"unexpected second package")
+                original = {path.name: path.read_bytes() for path in dist.iterdir()}
+                with self.assertRaisesRegex(SystemExit, "asset mismatch"):
+                    release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34", commit=COMMIT, repo=REPO))
+                self.assertEqual({path.name: path.read_bytes() for path in dist.iterdir()}, original)
+
     def publication(self, root, *, existing=False, corruption=None):
         """Model GitHub's draft lifecycle: the tag endpoint sees only published releases."""
         dist = root / "dist"

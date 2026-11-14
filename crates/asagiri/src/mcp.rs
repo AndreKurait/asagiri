@@ -218,7 +218,11 @@ fn coordinator(settings: &Settings, client: &Client, events: &mpsc::SyncSender<I
                     send(output, error(request_id, -32602, "this server returns all tools in one page"))?;
                     continue;
                 }
-                let result = if permissions.enabled { crate::tooling::definitions(permissions.allow_container_changes) } else { json!({"tools": []}) };
+                // Permissions may have changed while waiting for this input.
+                // Discovery must reflect a just-completed Settings/CLI write,
+                // without waiting for the next notification polling interval.
+                let current = settings.load().unwrap_or_default();
+                let result = if current.enabled { crate::tooling::definitions(current.allow_container_changes) } else { json!({"tools": []}) };
                 send(output, success(request_id, result))?;
             }
             "tools/call" => {
