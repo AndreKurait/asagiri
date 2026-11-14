@@ -18,3 +18,7 @@ tar = "0.4"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "trim-process"
+harness = false
