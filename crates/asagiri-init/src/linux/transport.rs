@@ -115,18 +115,30 @@ pub fn dial_within(port: u32, timeout: std::time::Duration) -> io::Result<OwnedF
 }
 
 /// The host's own DNS servers, for a host process (no DHCP lease to ask).
-/// systemd-resolved's stub (127.0.0.53) is skipped for its upstreams.
+/// Keep local stubs: container DNS goes through the agent, which can reach
+/// them from the host namespace and preserve VPN/split-DNS routing.
 pub fn host_dns() -> Vec<[u8; 4]> {
     let parse = |path: &str| -> Vec<[u8; 4]> {
-        std::fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| l.strip_prefix("nameserver"))
-            .filter_map(|ip| ip.trim().parse::<std::net::Ipv4Addr>().ok())
-            .filter(|ip| !ip.is_loopback())
-            .map(|ip| ip.octets())
-            .collect()
+        dns_servers(&std::fs::read_to_string(path).unwrap_or_default())
     };
     let direct = parse("/etc/resolv.conf");
     if direct.is_empty() { parse("/run/systemd/resolve/resolv.conf") } else { direct }
+}
+
+fn dns_servers(contents: &str) -> Vec<[u8; 4]> {
+    contents.lines().filter_map(|line| {
+        let mut fields = line.split_ascii_whitespace();
+        if fields.next()? != "nameserver" { return None; }
+        fields.next()?.parse::<std::net::Ipv4Addr>().ok().map(|ip| ip.octets())
+    }).collect()
+}
+
+#[cfg(test)]
+mod dns_tests {
+    #[test]
+    fn retain_host_stubs_for_the_agents_namespace() {
+        assert_eq!(super::dns_servers(
+            "# nameserver 8.8.8.8\n nameserver 127.0.0.53 # local\nnameserver 127.0.0.11\nnameserver 10.255.255.254\n"),
+            [[127, 0, 0, 53], [127, 0, 0, 11], [10, 255, 255, 254]]);
+    }
 }

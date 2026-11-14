@@ -252,12 +252,13 @@ fn refresh_nat() -> io::Result<()> {
 /// DNS forwarder is (10.255.255.254, on `lo`). Containers on a bridge can't
 /// count on such a resolver: under WSL a third of the queries from a
 /// container's namespace go unanswered, while the host's own are fine. Their
-/// queries then go through the agent's resolver (127.0.0.11), which asks it
-/// from the host's side.
+/// queries then go through the agent's resolver, which asks it from the
+/// host's side. Loopback stubs also require this, including addresses not
+/// individually listed by getifaddrs (systemd-resolved and Docker's DNS).
 pub fn local_resolver(servers: &[[u8; 4]]) -> bool {
     !servers.is_empty() && {
         let local = local_addrs();
-        servers.iter().any(|s| local.contains(s))
+        servers.iter().any(|s| s[0] == 127 || local.contains(s))
     }
 }
 
