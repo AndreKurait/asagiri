@@ -188,7 +188,9 @@ def signing_key():
 
 
 def rpm_repo(release, manifest, assets, cache, destination, fingerprint, public_key):
-    version = manifest["version"].replace("-", "~", 1)
+    # Release filenames use GitHub's normalization. The RPM's internal
+    # version still uses '~' so previews sort before stable packages.
+    version = manifest["version"].replace("-", ".", 1)
     destination.mkdir(parents=True, exist_ok=True)
     packages = destination / "Packages"
     packages.mkdir(exist_ok=True)
@@ -270,7 +272,7 @@ def build(output):
                 for arch in ("x86_64", "aarch64"):
                     dest = output / "rpm" / channel / arch
                     rpm_repo(release, manifest, assets, folder, dest, key[1], key[0])
-                    name = f"asagiri-{manifest['version'].replace('-', '~', 1)}-1.{arch}.rpm"
+                    name = f"asagiri-{manifest['version'].replace('-', '.', 1)}-1.{arch}.rpm"
                     downloads["linux-" + arch] = {
                         "url": f"{SITE}/rpm/{channel}/{arch}/Packages/{name}",
                         "sha256": sha256(dest / "Packages" / name),

@@ -375,9 +375,27 @@ def collect(args):
                          f"Asagiri-{version}-{arch}.msi", f"Asagiri-{version}-windows-{arch}.zip",
                          f"latest-mac-{arch}.json"})
     expected.update({"latest-windows-x86_64.json", "latest-windows-arm64.json", "asagiri-kernel-source.tar.xz"})
-    actual = {p.name for p in dist.iterdir() if p.is_file()}
-    if actual != expected:
-        raise SystemExit(f"Release asset mismatch: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}")
+    # GitHub changes '~' to '.' in uploaded release filenames. Keep '~' in
+    # the packages' own versions (where it sorts before a stable release),
+    # but normalize filenames before hashing and attesting their names.
+    # Accept original build artifacts and already-normalized artifacts;
+    # reject collisions rather than overwrite either input.
+    aliases = {name.replace("~", "."): name for name in expected}
+    actual = {p.name for p in dist.iterdir()}
+    matches = {name: sorted(actual & {name, original}) for name, original in aliases.items()}
+    missing = sorted(name for name, sources in matches.items() if not sources)
+    duplicates = sorted(name for name, sources in matches.items() if len(sources) != 1 and sources)
+    extra = sorted(actual - expected - aliases.keys())
+    if missing or extra or duplicates:
+        raise SystemExit(f"Release asset mismatch: missing={missing}, extra={extra}, collisions={duplicates}")
+    for sources in matches.values():
+        path = dist / sources[0]
+        if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+            raise SystemExit(f"Invalid release asset: {path.name}")
+    for name, sources in matches.items():
+        if sources[0] != name:
+            (dist / sources[0]).rename(dist / name)
+    expected = set(aliases)
     assets = []
     for name in sorted(expected):
         path = dist / name
