@@ -32,8 +32,11 @@ access=0
 /usr/bin/asagiri host-access ec2-user || access=$?
 [ "$access" -eq 0 ] || [ "$access" -eq 10 ]
 runuser -u ec2-user -- "$cli" context create asagiri --docker host=unix:///run/asagiri/docker.sock
-version=$(runuser -u ec2-user -- "$cli" --context asagiri version --format '{{.Server.Version}}')
-[ -z "$ASAGIRI_EXPECTED_VERSION" ] || [ "$version" = "$ASAGIRI_EXPECTED_VERSION" ]
+version=$(runuser -u ec2-user -- "$cli" --context asagiri version --format '{{index (index .Server.Components 0).Details "AsagiriVersion"}}')
+if [ -n "$ASAGIRI_EXPECTED_VERSION" ] && [ "$version" != "$ASAGIRI_EXPECTED_VERSION" ]; then
+  echo "Expected Asagiri $ASAGIRI_EXPECTED_VERSION; installed engine reports $version" >&2
+  exit 1
+fi
 runuser -u ec2-user -- timeout -s KILL 120 "$cli" --context asagiri run --rm alpine:3.21 echo AL2023-OK
 kill "$engine"
 wait "$engine" || true

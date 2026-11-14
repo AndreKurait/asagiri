@@ -106,7 +106,7 @@ host_test() { # name full(0|1)
   fi
   if [ -n "$cli" ]; then
     if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
-      check "service runs the stamped release version" "test \"\$($cli version --format '{{.Server.Version}}')\" = '$ASAGIRI_EXPECTED_VERSION'"
+      check "service runs the stamped release version" "test \"\$($cli version --format '{{index (index .Server.Components 0).Details \"AsagiriVersion\"}}')\" = '$ASAGIRI_EXPECTED_VERSION'"
     fi
     check "docker run alpine" "$cli run --rm alpine cat /etc/alpine-release | grep -q '^3\.'"
     # The Linux agent creates this directory lazily, on the first container.
