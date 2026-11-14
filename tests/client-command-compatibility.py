@@ -22,21 +22,25 @@ def check(path, image):
 
     def request(method, target, expected, body=None, close=False):
         connection = Connection(path)
+        closing_socket = None
         try:
             headers = {"Content-Type": "application/json"}
             if close:
                 headers["Connection"] = "keep-alive, Close"
             connection.request(method, "/v1.47" + target,
                                None if body is None else json.dumps(body), headers)
+            closing_socket = connection.sock.dup() if close else None
             response = connection.getresponse()
             data = response.read()
             assert response.status in ((expected,) if isinstance(expected, int) else expected), (target, response.status, data)
             if close:
                 # A bodyless HTTP response can finish before the peer closes.
                 # Test the socket itself, as clients waiting for EOF do.
-                assert connection.sock.recv(1) == b"", "server did not close"
+                assert closing_socket.recv(1) == b"", "server did not close"
             return json.loads(data) if data else None
         finally:
+            if closing_socket is not None:
+                closing_socket.close()
             connection.close()
 
     try:
