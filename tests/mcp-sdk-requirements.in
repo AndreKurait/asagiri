@@ -1,0 +1,2 @@
+# Official modelcontextprotocol/python-sdk, kept separate from runtime dependencies.
+mcp==2.3.0

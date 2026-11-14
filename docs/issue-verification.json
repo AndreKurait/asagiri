@@ -250,9 +250,10 @@
         "tests/ui/integrations.js",
         "crates/asagiri/src/mcp.rs",
         "crates/asagiri/src/local_api.rs",
-        "docs/integrations.md"
+        "docs/integrations.md",
+        "tests/mcp-sdk.py"
       ],
-      "remaining": "The local stdio interface is implemented with permission and transport regressions. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
+      "remaining": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
     },
     {
       "issue": 77,
@@ -658,9 +659,10 @@
         "tests/ui/integrations.js",
         "crates/asagiri/src/mcp.rs",
         "crates/asagiri/src/local_api.rs",
-        "docs/integrations.md"
+        "docs/integrations.md",
+        "tests/mcp-sdk.py"
       ],
-      "remaining": "The local stdio interface is implemented with permission and transport regressions. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
+      "remaining": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems."
     },
     {
       "issue": 204,

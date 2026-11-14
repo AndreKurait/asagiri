@@ -71,6 +71,10 @@ truncation flag. Four tool calls may run concurrently; each has a 45-second
 deadline. Discovery updates when permissions change. The transport accepts
 messages up to 64 KiB and limits each response to 512 KiB.
 
+The Linux integration suite exercises this interface with the official MCP
+Python SDK 2.3.0, including typed discovery/results and live revocation.
+The SDK is a test dependency; the Asagiri server does not require Python.
+
 # Local browser
 
 Run the browser interface as your own user:

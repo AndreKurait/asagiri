@@ -14,6 +14,12 @@ must be removed after the JVM exits. The outer test host publishes no ports.
 Maven artifacts are cached by the test POM and architecture; only successful
 main checks save them, and Maven requires repository checksums.
 
+The live suite also connects the official MCP Python SDK 2.3.0 to the stdio
+server. It verifies protocol negotiation, schema parsing, default denial,
+read tools, redaction, separately allowed actions and permission revocation.
+Its Python dependencies are pinned with hashes and installed in a temporary
+environment inside the disposable Linux host.
+
 Dependency caches are tied to the compiler, platform, lockfile, manifests,
 and Cargo configuration. Only pushes to `main` save caches; pull requests can
 restore them. Workspace crates are rebuilt. The Linux helper removes their

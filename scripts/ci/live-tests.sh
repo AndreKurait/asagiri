@@ -19,7 +19,11 @@ docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv6.conf.default.disable_ipv6=0 \
   -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
-  "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c 'apk add -q --no-cache python3 bash curl strace && exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
+  "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c \
+  'apk add -q --no-cache python3 py3-pip bash curl strace &&
+   python3 -m venv /tmp/asagiri-mcp-sdk &&
+   /tmp/asagiri-mcp-sdk/bin/pip install -q --require-hashes -r /src/tests/mcp-sdk-requirements.txt &&
+   exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
 trap 'docker rm -fv "$name" >/dev/null 2>&1' EXIT INT TERM
 
 i=0
@@ -36,7 +40,9 @@ failed=0
 run() { # run <script> [image] [options]
   test_script=$1
   shift
-  out=$(docker exec "$name" python3 "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
+  interpreter=python3
+  [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
+  out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   echo "[$rc] $test_script${*:+ $*}: $(echo "$out" | tail -1 | cut -c1-200)"
   if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | sed 's/^/    /'; fi
 }
@@ -55,6 +61,7 @@ run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent
 run mcp-integration alpine:3.21
+run mcp-sdk alpine:3.21
 run browser-integration alpine:3.21
 for img in busybox:stable alpine:3.21; do
   run image-import "$img"

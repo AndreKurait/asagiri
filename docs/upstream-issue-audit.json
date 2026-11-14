@@ -208,7 +208,7 @@
       "updated_at": "2026-11-09T03:40:59Z",
       "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
       "disposition": "implemented-unverified-platform",
-      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified."
+      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified. Official MCP Python SDK 2.3.0 interoperability also passes against the private Linux engine."
     },
     {
       "number": 77,
@@ -533,7 +533,7 @@
       "updated_at": "2026-11-14T09:08:16Z",
       "body_sha256": "eb146f96c86e16289d3396889c852bad695d197487a5623459053401516c0dfa",
       "disposition": "implemented-unverified-platform",
-      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified."
+      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified. Official MCP Python SDK 2.3.0 interoperability also passes against the private Linux engine."
     },
     {
       "number": 204,
