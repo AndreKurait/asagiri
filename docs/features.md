@@ -109,7 +109,9 @@ Kubernetes LoadBalancer services are published on `localhost`, and
 
 Asagiri releases are hosted on GitHub, with verified download links on the
 [installation page](https://andrekurait.github.io/asagiri/install/). Current
-Mac packages are ad hoc signed and not notarized by Apple. Every file and
+Mac packages are ad hoc signed and not notarized by Apple. The release
+workflow supports [Developer ID signing and notarization](macos-signing.md)
+once the project's Apple credentials are configured. Every file and
 feed names its architecture: `Asagiri-<version>-arm64.dmg`, `Asagiri-<version>-arm64.tar.gz`
 and `latest-mac-arm64.json` for Apple silicon (`-x86_64` for Intel Macs),
 `Asagiri-<version>-x86_64.msi` / `-arm64.msi` with `latest-windows-x86_64.json` /
