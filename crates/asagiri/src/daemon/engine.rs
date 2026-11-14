@@ -20,13 +20,6 @@ use asagiri_proto::{Stream, run_flags};
 use super::network::Networks;
 use super::vmlink::{Event, VmLink};
 
-/// Dynamic memory: the VM boots with a ceiling, and the balloon keeps the
-/// guest at what it uses plus this much, returning the rest to macOS.
-const MEMORY_HEADROOM: u64 = 256 << 20;
-const MEMORY_FLOOR: u64 = 256 << 20;
-/// How much more the guest gets at once when it reports pressure.
-const MEMORY_GROW: u64 = 1 << 30;
-
 /// What a request that needs the VM gets while Asagiri is stopped.
 pub const STOPPED: &str = "Asagiri is stopped: press Start in the Asagiri window to run containers again";
 
@@ -684,7 +677,7 @@ pub struct Engine {
     ceiling: std::sync::atomic::AtomicU64,
     /// CPUs the running VM has.
     cpus: std::sync::atomic::AtomicUsize,
-    memory_target: Mutex<u64>,
+    memory_target: Mutex<super::balloon::Balloon>,
     /// What the guest last used, in bytes (0 while asleep): the balloon's
     /// measure, without the pages the balloon itself holds.
     memory_used: std::sync::atomic::AtomicU64,
@@ -795,7 +788,7 @@ impl Engine {
             held_restarts: Mutex::new(Vec::new()),
             ceiling: std::sync::atomic::AtomicU64::new(ceiling),
             cpus: std::sync::atomic::AtomicUsize::new(vm_cpus()),
-            memory_target: Mutex::new(ceiling),
+            memory_target: Mutex::new(super::balloon::Balloon::new(ceiling, std::time::Instant::now())),
             memory_used: std::sync::atomic::AtomicU64::new(0),
             memory_stall: std::sync::atomic::AtomicU64::new(0),
             oom_kills: std::sync::atomic::AtomicU64::new(0),
@@ -904,7 +897,8 @@ impl Engine {
             }
             Err(e) => crate::diag::warn!("kept every unpacked layer: images unreadable", error = e),
         }
-        *self.memory_target.lock().unwrap_or_else(|e| e.into_inner()) = ceiling;
+        *self.memory_target.lock().unwrap_or_else(|e| e.into_inner()) =
+            super::balloon::Balloon::new(ceiling, std::time::Instant::now());
         self.sleeping.store(false, std::sync::atomic::Ordering::SeqCst);
         *self.link.lock().unwrap_or_else(|e| e.into_inner()) = Some(vm.clone());
         crate::diag::info!("VM booted", ms = t0.elapsed().as_millis(), cpus = cpus, memory_mib = ceiling >> 20);
@@ -1676,7 +1670,7 @@ impl Engine {
                     // The agent's count: anonymous, shared and kernel memory
                     // from the cgroup, which neither the page cache nor the
                     // balloon's own pages get into.
-                    stats.mem_used_kib * 1024 + if cfg!(target_os = "macos") { 0 } else { self_rss() }
+                    stats.mem_used_kib.saturating_mul(1024).saturating_add(if cfg!(target_os = "macos") { 0 } else { self_rss() })
                 } else {
                     // An agent from before that count: MemTotal minus
                     // MemAvailable, with the balloon taken back out. Apple's
@@ -1685,8 +1679,8 @@ impl Engine {
                     // guessed at ceiling - target, which it only is once the
                     // guest has inflated that far: short of that, the guess
                     // exceeds the use and the result sits at zero.
-                    let apparent = (stats.mem_total_kib.saturating_sub(stats.mem_available_kib)) * 1024;
-                    apparent.saturating_sub(ceiling - *target)
+                    let apparent = stats.mem_total_kib.saturating_sub(stats.mem_available_kib).saturating_mul(1024);
+                    apparent.saturating_sub(ceiling.saturating_sub(target.target))
                 };
                 engine.memory_used.store(used, std::sync::atomic::Ordering::Relaxed);
                 engine.memory_stall.store(stats.mem_stall, std::sync::atomic::Ordering::Relaxed);
@@ -1694,11 +1688,9 @@ impl Engine {
                 if !cfg!(target_os = "macos") {
                     continue;
                 }
-                let want = (used + MEMORY_HEADROOM).clamp(MEMORY_FLOOR, ceiling);
-                // Shrink in steps (so the guest's caches go gradually), grow at once.
-                let next = if want < *target { want.max(target.saturating_sub(256 << 20)) } else { want };
-                if next.abs_diff(*target) >= 64 << 20 {
-                    *target = next;
+                if let Some(next) = target.sample(used, stats.mem_working_set_kib.saturating_mul(1024),
+                    stats.mem_refaults, stats.mem_stall, stats.oom_kills, ceiling, std::time::Instant::now())
+                {
                     vm.set_memory_target(next);
                 }
             }
@@ -1707,9 +1699,7 @@ impl Engine {
 
     fn grow_memory(&self) {
         let mut target = self.memory_target.lock().unwrap_or_else(|e| e.into_inner());
-        let next = (*target + MEMORY_GROW).min(self.ceiling());
-        if next != *target {
-            *target = next;
+        if let Some(next) = target.pressure(self.ceiling(), std::time::Instant::now()) {
             if let Some(vm) = self.awake() {
                 vm.set_memory_target(next);
             }
@@ -1721,7 +1711,7 @@ impl Engine {
     /// .wslconfig gives it), so the window shows use against what is there.
     pub fn memory(&self) -> (u64, u64) {
         if cfg!(target_os = "macos") {
-            (self.ceiling(), *self.memory_target.lock().unwrap_or_else(|e| e.into_inner()))
+            (self.ceiling(), self.memory_target.lock().unwrap_or_else(|e| e.into_inner()).target)
         } else {
             let ram = physical_memory();
             (ram, ram)
