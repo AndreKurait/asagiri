@@ -1,0 +1,89 @@
+/* Kiri #254/#255: run only as PID 1 in an isolated, diskless QEMU guest.
+ * Attach our initramfs file to a new loop device, mount ext4, and verify that
+ * data survives detach/reattach. No host devices or directories are shared.
+ */
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <linux/loop.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <unistd.h>
+
+static void finish(int success, const char *operation) {
+    if (success)
+        puts("ASAGIRI_LOOP_TEST_PASS: attach ext4 write detach reattach read");
+    else
+        printf("ASAGIRI_LOOP_TEST_FAIL: %s: %s\n", operation, strerror(errno));
+    fflush(stdout);
+    sync();
+    reboot(RB_POWER_OFF);
+    _exit(success ? 0 : 1);
+}
+
+#define CHECK(test, operation) do { if (!(test)) finish(0, operation); } while (0)
+
+int main(void) {
+    /* Refuse accidental execution on the runner or a normal workstation. */
+    if (getpid() != 1)
+        return 2;
+    if (mount("proc", "/proc", "proc", 0, NULL) != 0)
+        return 2;
+    char command[4096] = {0};
+    int args = open("/proc/cmdline", O_RDONLY);
+    if (args < 0 || read(args, command, sizeof(command) - 1) <= 0 ||
+        !strstr(command, "asagiri.loop-selftest=1"))
+        return 2;
+    close(args);
+    CHECK(mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) == 0, "mount private guest devtmpfs");
+    CHECK(mkdir("/mnt", 0700) == 0, "create guest mountpoint");
+    int control = open("/dev/loop-control", O_RDWR);
+    CHECK(control >= 0, "open loop-control");
+    int number = ioctl(control, LOOP_CTL_GET_FREE);
+    CHECK(number >= 0, "allocate loop device");
+    close(control);
+    char device[64];
+    CHECK(snprintf(device, sizeof(device), "/dev/loop%d", number) < (int)sizeof(device),
+          "format loop path");
+    if (access(device, F_OK) != 0)
+        CHECK(mknod(device, S_IFBLK | 0600, makedev(7, number)) == 0, "create loop node");
+    int disk = open("/filesystem.img", O_RDWR);
+    CHECK(disk >= 0, "open owned image");
+    const char contents[] = "Asagiri loop filesystem survives reattachment\n";
+    for (int pass = 0; pass != 2; ++pass) {
+        int loop = open(device, O_RDWR);
+        CHECK(loop >= 0, "open new loop device");
+        struct loop_config config = {0};
+        config.fd = disk;
+        CHECK(ioctl(loop, LOOP_CONFIGURE, &config) == 0, "attach owned image");
+        CHECK(mount(device, "/mnt", "ext4", 0, NULL) == 0, "mount ext4 loop image");
+        if (pass == 0) {
+            int file = open("/mnt/proof", O_WRONLY | O_CREAT | O_EXCL, 0600);
+            CHECK(file >= 0, "create persistent proof");
+            CHECK(write(file, contents, sizeof(contents)) == (ssize_t)sizeof(contents), "write proof");
+            CHECK(fsync(file) == 0, "persist proof");
+            close(file);
+        } else {
+            char actual[sizeof(contents)] = {0};
+            int file = open("/mnt/proof", O_RDONLY);
+            CHECK(file >= 0, "reopen persistent proof");
+            CHECK(read(file, actual, sizeof(actual)) == (ssize_t)sizeof(actual), "read proof");
+            CHECK(memcmp(actual, contents, sizeof(contents)) == 0, "verify proof");
+            close(file);
+        }
+        CHECK(umount("/mnt") == 0, "unmount owned filesystem");
+        CHECK(ioctl(loop, LOOP_CLR_FD) == 0, "detach owned image");
+        struct loop_info64 info;
+        errno = 0;
+        CHECK(ioctl(loop, LOOP_GET_STATUS64, &info) == -1 && errno == ENXIO, "confirm detached");
+        close(loop);
+    }
+    close(disk);
+    finish(1, "");
+}
