@@ -47,6 +47,21 @@ def check(path, image):
                 denied = subprocess.run(docker + ['cp', str(local), readonly + ':/new-mount/denied'], capture_output=True, timeout=30)
                 assert denied.returncode != 0, denied.stdout
                 print('PASS stopped ' + kind + ' copy-in/out, runtime persistence, export exclusion, and read-only enforcement')
+            # #245: Supabase checks an existing database volume through a new
+            # container before its process has ever started.
+            call('run', '--rm', '--network', 'none', '-v', volume + ':/data', image,
+                 'sh', '-c', 'printf "17\\n" > /data/PG_VERSION')
+            cid = call('create', '--network', 'none', '-v', volume + ':/data', image, 'true').decode().strip()
+            containers.append(cid)
+            for phase in ('created', 'exited'):
+                if phase == 'exited':
+                    call('start', '-a', cid)
+                row = json.loads(call('inspect', cid))[0]
+                assert row['State']['Status'] == phase and not row['State']['Running'], row['State']
+                archive = call('cp', cid + ':/data/PG_VERSION', '-')
+                with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+                    assert tar.extractfile(tar.getmembers()[0]).read() == b'17\n'
+                print('PASS existing volume PG_VERSION from a ' + phase + ' container (#245)')
     finally:
         for cid in containers:
             subprocess.run(docker + ['rm', '-fv', cid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)

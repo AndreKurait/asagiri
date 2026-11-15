@@ -29,11 +29,12 @@ checks = load("checks", "tests/ci-performance.py")
 
 
 def data():
-    initial, _ = checks.fixture()
+    initial, _ = checks.fixture("linux-engine-v3")
+    legacy, _ = checks.fixture()
     rows = []
     start = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
     for index in range(24):
-        item = copy.deepcopy(initial)
+        item = copy.deepcopy(legacy if index == 1 else initial)
         item.update(run_id=123 + index, commit=f"{index + 2:040x}", baseline=f"{index + 1:040x}",
                     measured_at=(start + timedelta(minutes=index)).isoformat())
         item["environment"]["memory_kib"] = 16078420 + (index % 2) * 4
@@ -78,13 +79,13 @@ def main():
             browser.js('historyTest.renderHistory({schema:1,repository:"AndreKurait/asagiri",entries:[]})')
             assert browser.js("document.getElementById('performance').hidden")
             browser.js(f"historyTest.renderHistory({json.dumps(data())})")
-            assert browser.js("document.querySelectorAll('#plot .point').length") == 23
-            assert browser.js("document.querySelectorAll('#measurements tr').length") == 23
-            assert browser.js("document.querySelectorAll('#series option').length") == 2
+            assert browser.js("document.querySelectorAll('#plot .point').length") == 22
+            assert browser.js("document.querySelectorAll('#measurements tr').length") == 22
+            assert browser.js("document.querySelectorAll('#series option').length") == 3
             assert browser.js("document.getElementById('sample-host').textContent.includes('4 CPUs')")
             assert browser.js("document.querySelector('#series').textContent.includes('<img')")
             assert browser.js("document.querySelector('.performance-controls img') === null && globalThis.performanceInjected === undefined")
-            for metric in checks.history.METRICS:
+            for metric in checks.history.metric_names("linux-engine-v3"):
                 browser.js(f"document.getElementById('metric').value={json.dumps(metric)}; document.getElementById('metric').dispatchEvent(new Event('change'))")
                 assert browser.js("Array.from(document.querySelectorAll('#plot .point')).every(p => Number.isFinite(Number(p.getAttribute('cy'))))")
             browser.js("document.getElementById('measurement').value='change'; document.getElementById('measurement').dispatchEvent(new Event('change'))")
@@ -93,6 +94,8 @@ def main():
             assert browser.js("document.querySelector('#measurements tr.selected') !== null")
             browser.js("document.getElementById('series').selectedIndex=1; document.getElementById('series').dispatchEvent(new Event('change'))")
             assert browser.js("document.querySelectorAll('#plot .point').length") == 1
+            assert browser.js("document.getElementById('metric').value") == "run_ms"
+            assert browser.js("document.querySelectorAll('#metric option:disabled').length") == 4
             assert browser.js("Number(document.querySelector('#plot .point').getAttribute('cx')) > 0 && Number(document.querySelector('#plot .point').getAttribute('cx')) < document.querySelector('#plot').viewBox.baseVal.width")
             browser.js("document.getElementById('series').selectedIndex=0; document.getElementById('series').dispatchEvent(new Event('change'))")
             browser.js("document.getElementById('metric').value='run_ms'; document.getElementById('measurement').value='head'; document.getElementById('metric').dispatchEvent(new Event('change'))")
@@ -103,6 +106,9 @@ def main():
             assert browser.js(f"(() => {{ try {{ historyTest.validateHistory({json.dumps(bad)}); return false; }} catch {{ return true; }} }})()")
             bad = data()
             bad["entries"][0]["memory_mib"] = -1
+            assert browser.js(f"(() => {{ try {{ historyTest.validateHistory({json.dumps(bad)}); return false; }} catch {{ return true; }} }})()")
+            bad = data()
+            bad["entries"][0]["metrics"].pop("copy_ms")
             assert browser.js(f"(() => {{ try {{ historyTest.validateHistory({json.dumps(bad)}); return false; }} catch {{ return true; }} }})()")
             for width, height, name in ((1440, 1050, "desktop"), (430, 960, "mobile")):
                 browser.call("Emulation.setDeviceMetricsOverride", width=width, height=height,
@@ -119,7 +125,7 @@ def main():
                     image = browser.call("Page.captureScreenshot", format="png", captureBeyondViewport=False)
                     (destination / (name + ".png")).write_bytes(base64.b64decode(image["data"]))
             assert not browser.errors, browser.errors
-            print("PASS Chromium benchmark plots, 11 metrics, paired changes, hardware filters, safe labels, source links and mobile layout")
+            print("PASS Chromium benchmark plots, 15 metrics, mixed workload history, paired changes, safe labels, source links and mobile layout")
         finally:
             if browser is not None:
                 browser.ws.close()

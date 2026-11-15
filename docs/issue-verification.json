@@ -686,9 +686,10 @@
       "coverage": "automated",
       "checks": [
         "tests/image-inspect-healthcheck.py",
+        "crates/asagiri-image/src/store.rs",
         "crates/asagiri/src/daemon/api.rs"
       ],
-      "remaining": "Full stored OCI config is retained by image inspect, including Labels, ExposedPorts and StopSignal. The metadata fixture checks those fields through the Docker CLI."
+      "remaining": "Full OCI config inspection is retained. Image lists expose labels and apply presence/value filters; indexes without cached labels read their original config blobs. Live labelled/unlabelled image and filter tests and legacy-store unit tests pass on 749c40c."
     },
     {
       "issue": 209,
@@ -756,10 +757,11 @@
       "checks": [
         "tests/api-version.py",
         "tests/client-command-compatibility.py",
+        "tests/http-body-framing.py",
         "tests/log-readiness.py",
         "tests/testcontainers-integration.py"
       ],
-      "remaining": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. Real Java Testcontainers 1.20.3 passes default startup checks, pre-start copy, command execution, two delayed log messages, MySQL 8.0 double readiness, a JDBC query and Ryuk cleanup on the private Linux engine. The check is included in Linux PR/main and both Linux release architectures. Native Mac execution remains unverified."
+      "remaining": "Docker and product versions remain separate. Successful uploads now support same-socket followups; 33 framing cases and real BuildKit pass on 749c40c. Real Java Testcontainers 1.20.3 was previously verified with default checks, pre-start copy, delayed logs, MySQL, a JDBC query and Ryuk; that check remains in platform/release CI. Native Mac execution remains unverified."
     },
     {
       "issue": 223,
@@ -812,10 +814,11 @@
       "coverage": "automated",
       "checks": [
         "tests/archive-completion.py",
+        "tests/overlay-copyup.py",
         "tests/buildkit-driver.py",
         "docs/linux-service-recovery.md"
       ],
-      "remaining": "Stopped archive jobs now wait for the chrooted worker and its private mounts to exit before upload/stat completion or download EOF. The delayed-worker negative control reproduces premature completion on 6f7ac86; ce0eb4f passes the completion barrier and real BuildKit builds. The reporter's exact CachyOS host with kernel 7.3.4 and systemd 262 remains unverified."
+      "remaining": "Copies still wait for the private worker's mount release before completion. Overlay mounts now disable metadata-only copy-up and redirects so commit preserves complete files; older such upper entries are explicitly refused. Private kernel controls reproduce both data-loss cases with the features enabled and retain index overlap rejection. Completion and real BuildKit checks pass on 749c40c; the reporter's exact Arch/CachyOS installation remains unverified."
     },
     {
       "issue": 228,
@@ -848,10 +851,21 @@
       "coverage": "automated",
       "checks": [
         "tests/linux-service-recovery.py",
+        "tests/overlay-copyup.py",
         "tests/restart-policy.py",
         "docs/linux-service-recovery.md"
       ],
-      "remaining": "Startup unmounts owned rootfs paths even after the old cgroup is removed, including stacked mounts. Two daemon restarts in the same host mount namespace and a four-mount orphan fixture preserve manual/restart-always containers and writable data on ce0eb4f; the old source retains the orphan mounts. The reporter's exact CachyOS host with kernel 7.3.4 and systemd 262 remains unverified."
+      "remaining": "Startup reclaims owned orphan/stacked mounts even after cgroup removal; it preserves writable data and held restart policies. Two actual daemon restarts and orphan-mount recovery pass on 749c40c. Index's exclusive-upper protection is retained, while explicit metacopy/redirect settings prevent incomplete commit layers. The reporter's exact Arch/CachyOS installation remains unverified."
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/archive-stopped-mounts.py"
+      ],
+      "remaining": "The reported PG_VERSION sequence already passes on 5721ace and remains covered on 749c40c: one container writes a named volume, then a new container reads it through docker cp while created and after exit. Stopped bind/volume writes, export exclusion and read-only mounts also pass. Native Mac execution of Supabase CLI 3 remains unverified.",
+      "issue": 245,
+      "title": "docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
+      "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
     }
   ]
 }

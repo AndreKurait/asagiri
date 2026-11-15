@@ -2,6 +2,7 @@ const repository = 'https://github.com/AndreKurait/asagiri';
 const dataUrl = 'https://raw.githubusercontent.com/AndreKurait/asagiri/performance-history/benchmarks/v1/index.json';
 const fields = ['run_ms', 'run_p95_ms', 'ping_ms', 'ping_p95_ms', 'list_ms', 'list_p95_ms',
   'rss_idle_kib', 'rss_after_kib', 'syscalls', 'engine_bytes', 'init_bytes'];
+const extraFields = ['create_ms', 'create_p95_ms', 'copy_ms', 'copy_p95_ms'];
 const byId = id => document.getElementById(id);
 let entries = [];
 
@@ -15,7 +16,7 @@ export function validateHistory(data) {
         !Number.isSafeInteger(row.run_attempt) || row.run_attempt <= 0 ||
         !/^[a-f0-9]{16}$/.test(row.series) || !Number.isFinite(Date.parse(row.measured_at)) ||
         !['within-limits', 'regression'].includes(row.status) ||
-        !['linux-engine-v1', 'linux-engine-v2'].includes(row.workload) ||
+        !['linux-engine-v1', 'linux-engine-v2', 'linux-engine-v3'].includes(row.workload) ||
         row.path !== `benchmarks/v1/runs/${row.run_id}-${row.run_attempt}.json` ||
         ids.has(row.path)) throw new Error('Invalid measurement identity');
     ids.add(row.path);
@@ -25,7 +26,9 @@ export function validateHistory(data) {
     if (data.schema === 2 && (!Number.isSafeInteger(row.cpus) || row.cpus <= 0 || row.cpus >= 1e12 ||
         !Number.isSafeInteger(row.memory_mib) || row.memory_mib <= 0 || row.memory_mib >= 1e12 ||
         row.memory_mib % 64 !== 0)) throw new Error('Invalid runner capacity');
-    for (const field of fields) {
+    const measuredFields = row.workload === 'linux-engine-v3' ? [...fields, ...extraFields] : fields;
+    if (Object.keys(row.metrics || {}).length !== measuredFields.length) throw new Error('Unexpected measurement fields');
+    for (const field of measuredFields) {
       const pair = row.metrics?.[field];
       if (!Array.isArray(pair) || pair.length !== 2 ||
           pair.some(value => !Number.isFinite(value) || value < 0 || value > 1e15)) {
@@ -72,10 +75,12 @@ function svg(tag, attributes = {}, label) {
 }
 
 function draw() {
-  const metric = byId('metric').value;
   const relative = byId('measurement').value === 'change';
   const rows = entries.filter(row => row.series === byId('series').value).slice(-Number(byId('range').value));
   if (!rows.length) return;
+  for (const option of byId('metric').options) option.disabled = !Object.hasOwn(rows[0].metrics, option.value);
+  if (!Object.hasOwn(rows[0].metrics, byId('metric').value)) byId('metric').value = 'run_ms';
+  const metric = byId('metric').value;
   const latest = rows.at(-1);
   byId('latest-commit').textContent = latest.commit.slice(0, 10);
   byId('latest-commit').href = `${repository}/commit/${latest.commit}`;

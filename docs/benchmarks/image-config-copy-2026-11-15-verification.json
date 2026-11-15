@@ -1,0 +1,96 @@
+{
+  "verified_at": "2026-11-15T00:20:28.654710+00:00",
+  "source": {
+    "base": "5721ace0e34104e7411b426c96e60b38cae6f483",
+    "head": "749c40cb92d2fba877365a37fe1fadbc7462c3cb",
+    "harness": "cf6e03e7054828a86978c5bee5418e3519314666"
+  },
+  "environment": {
+    "kind": "owned disposable Linux Docker host",
+    "binary_architecture": "aarch64",
+    "docker_host_image": "docker:28.0.4-dind@sha256:4de6a5668da5d138bf9c18b29d2702e43c8773daee085087ba4fac61a6d34b7f",
+    "outer_published_ports": false,
+    "github_actions_run": false,
+    "limitation": "CPU model and host kernel details were not retained; this is not a native Mac VM measurement."
+  },
+  "results_sha256": "f2cf8553c535c33079300597798fdac6f24dc7d62a7be812f20a99357fd59439",
+  "harness_sha256": {
+    "perf.py": "b5740fa33d85fbed42764ff6e8fba2928a99768284fd6cffb82d9d9922bb52d5",
+    "perf-run.sh": "aa6eb87d0bcddbe3c237c5dbd1f5b7acb8b971d0ac0eafe267f494493dd8cc2b"
+  },
+  "binaries": {
+    "base": {
+      "engine": {
+        "sha256": "fd0f910650adcbc2b8505a3cac69f386fa1a08b283b9b31089a400f36b90f059",
+        "bytes": 8685376
+      },
+      "init": {
+        "sha256": "e222b1945aebc17bbb6d64208e8d798be2e1dcb67b51ddfb920b856fe7f0812f",
+        "bytes": 1841688
+      }
+    },
+    "head": {
+      "engine": {
+        "sha256": "8ff4d9da370591649c77c82614f05c6aa8691e74e8d305995d78a61e9f5e4813",
+        "bytes": 8757288
+      },
+      "init": {
+        "sha256": "972ff310151182f7cd3dc073145392030bbb347843be0765a1b32f719d6a1b7d",
+        "bytes": 1842568
+      }
+    }
+  },
+  "raw_samples_verified": 4000,
+  "median_and_nearest_rank_p95_verified": true,
+  "regressions": {
+    "run": false,
+    "ping": false,
+    "list": false,
+    "rss_idle": false,
+    "rss_after": false,
+    "syscalls": false
+  },
+  "timings": {
+    "run": {
+      "base_median_ms": 26.958458500018878,
+      "head_median_ms": 26.378791500007992,
+      "change_percent": -2.150223092357006,
+      "median_paired_head_minus_base_ms": 0.03704200000242963,
+      "head_faster_pairs": 200,
+      "pairs": 400
+    },
+    "ping": {
+      "base_median_ms": 0.08839599999532766,
+      "head_median_ms": 0.08879149999074798,
+      "change_percent": 0.44741843006609805,
+      "median_paired_head_minus_base_ms": 0.007666499953984385,
+      "head_faster_pairs": 190,
+      "pairs": 400
+    },
+    "list": {
+      "base_median_ms": 0.10995849999062557,
+      "head_median_ms": 0.10739550000948839,
+      "change_percent": -2.3308793602638165,
+      "median_paired_head_minus_base_ms": -0.0023129999533466616,
+      "head_faster_pairs": 210,
+      "pairs": 400
+    },
+    "create": {
+      "base_median_ms": 1.09641599999577,
+      "head_median_ms": 0.6623955000009119,
+      "change_percent": -39.58538547381037,
+      "median_paired_head_minus_base_ms": -0.42729200001190293,
+      "head_faster_pairs": 396,
+      "pairs": 400
+    },
+    "copy": {
+      "base_median_ms": 0.6413539999812201,
+      "head_median_ms": 0.5399375000081363,
+      "change_percent": -15.812874009681613,
+      "median_paired_head_minus_base_ms": -0.09295849997670302,
+      "head_faster_pairs": 334,
+      "pairs": 400
+    }
+  },
+  "interpretation": "Metadata creation and upload improved in this comparison. Lifecycle paired differences do not establish a consistent startup improvement."
+}

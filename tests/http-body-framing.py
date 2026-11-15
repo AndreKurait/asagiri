@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise SDK upload framing against a running engine with a cached image."""
+import gzip
 import http.client
 import io
 import json
@@ -100,13 +101,26 @@ def check(path, image):
     count = 0
     try:
         for streamed in (False, True):
-            variants = ("fixed", "chunked", "trailers") if streamed else (
+            variants = ("fixed", "chunked", "trailers", "gzip", "gzip-trailers", "padded", "large") if streamed else (
                 "fixed", "chunked", "trailers", "duplicate-length", "extension")
             for expect in (False, True):
                 for variant in variants:
                     connection = Connection(path)
                     payload = archive.getvalue() if streamed else create
-                    chunked = variant in ("chunked", "trailers", "extension")
+                    if variant.startswith("gzip"):
+                        payload = gzip.compress(payload, mtime=0)
+                    elif variant == "padded":
+                        payload += b"\0" * 32768
+                    elif variant == "large":
+                        large = io.BytesIO()
+                        with tarfile.open(fileobj=large, mode="w") as output:
+                            entry = tarfile.TarInfo("http-large-probe")
+                            entry.size = 8 * 1024**2
+                            output.addfile(entry, io.BytesIO(b"L" * entry.size))
+                        payload = large.getvalue()
+                        connection.timeout = 30
+                    trailers = variant in ("trailers", "gzip-trailers")
+                    chunked = variant in ("chunked", "extension") or trailers
                     method = "PUT" if streamed else "POST"
                     url = ("/v1.47/containers/" + target + "/archive?path=/tmp"
                            if streamed else "/v1.47/containers/create")
@@ -120,7 +134,7 @@ def check(path, image):
                             connection.putheader("Content-Length", str(len(payload)))
                             if variant == "duplicate-length":
                                 connection.putheader("Content-Length", str(len(payload)))
-                        if variant == "trailers":
+                        if trailers:
                             connection.putheader("Trailer", "X-Checksum")
                         if expect:
                             connection.putheader("Expect", "100-continue")
@@ -132,16 +146,16 @@ def check(path, image):
                             extension = ";test=" + "x" * 128 if variant == "extension" else ""
                             for piece in (payload[:7], payload[7:]):
                                 connection.send((f"{len(piece):x}{extension}\r\n").encode() + piece + b"\r\n")
-                            connection.send(b"0\r\n" + (b"X-Checksum: test\r\n" if variant == "trailers" else b"") + b"\r\n")
+                            connection.send(b"0\r\n" + (b"X-Checksum: test\r\n" if trailers else b"") + b"\r\n")
                         else:
                             connection.send(payload)
-                        status, data = response(reader, expect_close=streamed)
+                        status, data = response(reader)
                         assert status == (200 if streamed else 201), (streamed, variant, expect, status, data)
                         if not streamed:
                             owned.append(json.loads(data)["Id"])
-                            connection.send(b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
-                            ping = response(reader)
-                            assert ping == (200, b"OK"), (streamed, variant, expect, ping)
+                        connection.send(b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                        ping = response(reader)
+                        assert ping == (200, b"OK"), (streamed, variant, expect, ping)
                         count += 1
                         print("PASS", "streamed" if streamed else "buffered", variant, "expect" if expect else "immediate", flush=True)
                     finally:
@@ -149,21 +163,22 @@ def check(path, image):
                             reader.close()
                         connection.close()
         # Buildx uploads its config then immediately starts the container using
-        # a pooled HTTP client. A closing upload must retire that connection.
+        # a pooled HTTP client. The upload and start must reuse the same socket.
         connection = Connection(path)
         try:
             connection.request("PUT", "/v1.47/containers/" + target + "/archive?path=/tmp",
                                archive.getvalue(), {"Content-Type": "application/x-tar"})
+            original_socket = connection.sock
             upload = connection.getresponse()
             assert upload.status == 200, (upload.status, upload.read())
-            assert upload.will_close, "archive upload closes without advertising Connection: close"
-            assert upload.getheader("Connection", "").lower() == "close"
+            assert not upload.will_close, "successful archive upload unnecessarily closes the connection"
             assert upload.read() == b""
-            assert connection.sock is None, "pooled client retained the closed upload socket"
+            assert connection.sock is original_socket and original_socket is not None
             connection.request("POST", "/v1.47/containers/" + target + "/start", b"")
             started = connection.getresponse()
             assert started.status == 204, (started.status, started.read())
             started.read()
+            assert connection.sock is original_socket, "client reconnected for container start"
             count += 1
             print("PASS pooled archive-copy then container-start", flush=True)
         finally:
@@ -180,6 +195,15 @@ def check(path, image):
                                b"Content-Type: application/json\r\n" + framing + b"\r\n{}"
                                b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
             assert statuses == [want], (name, statuses)
+            count += 1
+            print("PASS refused", name, flush=True)
+        for name, payload in (
+                ("damaged-gzip", gzip.compress(archive.getvalue(), mtime=0)[:-5]),
+                ("unsupported-bzip2", b"BZh9not-an-archive")):
+            wire = (f"PUT /v1.47/containers/{target}/archive?path=/tmp HTTP/1.1\r\n"
+                    f"Host: localhost\r\nContent-Length: {len(payload)}\r\n\r\n").encode()
+            statuses = refused(path, wire + payload + b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            assert statuses == [400], (name, statuses)
             count += 1
             print("PASS refused", name, flush=True)
         # An upload refused before its body is read gets no interim reply.

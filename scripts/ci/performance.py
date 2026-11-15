@@ -35,11 +35,25 @@ LEGACY_LIMITS = {"run": [0.10, 0.5], "ping": [0.15, 0.05], "list": [0.15, 0.10],
                  "rss_idle": [0.10, 2048], "rss_after": [0.10, 4096], "syscalls": [0.10, 50]}
 LIMIT_METRICS = {"run": "run_ms", "ping": "ping_ms", "list": "list_ms",
                  "rss_idle": "rss_idle_kib", "rss_after": "rss_after_kib", "syscalls": "syscalls"}
+V3_CONFIGS = {
+    "x86_64": "d4c5897ad9a07bf2618112e301e662d25230572e871220dd35e1629f99c6def6",
+    "aarch64": "68b3077b9b240ef3e7d3d3d83611530a42aade910533ace093a1ff43ed73ced5",
+}
 
 
 def require(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+def timing_names(workload):
+    require(workload in ("linux-engine-v1", "linux-engine-v2", "linux-engine-v3"),
+            "Unknown benchmark methodology")
+    return ("run", "ping", "list", "create", "copy") if workload == "linux-engine-v3" else ("run", "ping", "list")
+
+
+def metric_names(workload):
+    timing_names(workload)
+    return (*METRICS, "create_ms", "create_p95_ms", "copy_ms", "copy_p95_ms") if workload == "linux-engine-v3" else METRICS
 
 
 def encoded(value):
@@ -93,7 +107,7 @@ def api(path, **kwargs):
 
 def measurements(results, sizes):
     values = {}
-    for key in ("run", "ping", "list"):
+    for key in timing_names(results.get("workload", {"id": "linux-engine-v1"})["id"]):
         for suffix, field in (("_ms", "median"), ("_p95_ms", "p95")):
             values[key + suffix] = [results[side][key][field] for side in ("base", "head")]
     for key in ("rss_idle", "rss_after", "syscalls"):
@@ -136,7 +150,9 @@ def validate(record):
     require(record["event"] in ("push", "pull_request", "workflow_dispatch"), "Invalid workflow event")
     timestamp = datetime.fromisoformat(text(record["measured_at"]))
     require(timestamp.tzinfo is not None, "Measurement timestamp needs a time zone")
-    require(set(record["metrics"]) == set(METRICS), "Missing or unknown metrics")
+    workload = record["workload"]
+    names = timing_names(workload["id"])
+    require(set(record["metrics"]) == set(metric_names(workload["id"])), "Missing or unknown metrics")
     for pair in record["metrics"].values():
         require(type(pair) is list and len(pair) == 2, "Each metric must compare two builds")
         for value in pair:
@@ -150,10 +166,11 @@ def validate(record):
     failed = regressions(record["metrics"], limits)
     require(record["regressions"] == failed, "Regression list disagrees with measurements")
     require(record["status"] == ("regression" if failed else "within-limits"), "Invalid result status")
-    workload = record["workload"]
-    require(set(workload) == {"id", "image", "runs", "warmup_runs", "syscall_runs"},
+    workload_fields = {"id", "image", "runs", "warmup_runs", "syscall_runs"}
+    if workload["id"] == "linux-engine-v3":
+        workload_fields.add("fixtures")
+    require(set(workload) == workload_fields,
             "Invalid workload description")
-    require(workload["id"] in ("linux-engine-v1", "linux-engine-v2"), "Unknown benchmark methodology")
     runs = workload["runs"]
     require(type(runs) is int and 20 <= runs <= 4000
             and workload["warmup_runs"] == 10 and workload["syscall_runs"] == 20, "Invalid sample count")
@@ -164,7 +181,7 @@ def validate(record):
         require(re.fullmatch(r"alpine:3\.21@sha256:[a-f0-9]{64}", workload["image"]),
                 "Benchmark image must be pinned by digest")
         samples = record["samples_ms"]
-        require(set(samples) == {"run", "ping", "list"}, "Missing raw timing samples")
+        require(set(samples) == set(names), "Missing raw timing samples")
         for metric, sides in samples.items():
             require(set(sides) == {"base", "head"}, "Missing paired samples")
             for index, side in enumerate(("base", "head")):
@@ -184,6 +201,12 @@ def validate(record):
             require(type(value) is int and 0 < value < 10**12, "Invalid runner capacity")
         else:
             text(value)
+    if workload["id"] == "linux-engine-v3":
+        require(env["architecture"] in V3_CONFIGS and workload["fixtures"] == {
+            "config_sha256": V3_CONFIGS.get(env["architecture"]), "config_bytes": 70923, "history_entries": 128,
+            "copy_sha256": "3f161968199487e6da9fdaca348e53bfa488bea539aab189eafcbd931e3e9201",
+            "copy_payload_bytes": 4096, "copy_tar_bytes": 10240,
+        }, "The v3 fixture does not match the fixed benchmark corpus")
     require(set(record["binaries"]) == {"base", "head"}, "Missing binary identities")
     for index, side in enumerate(("base", "head")):
         require(set(record["binaries"][side]) == {"engine", "init"}, "Missing executable identities")
@@ -218,8 +241,9 @@ def record(args):
     sizes = document((args.directory / "sizes.json").read_bytes())
     values = measurements(results, sizes)
     runs = results["base"]["run"]["n"]
+    names = timing_names(results.get("workload", {"id": "linux-engine-v1"})["id"])
     require(all(results[side][key]["n"] == runs for side in ("base", "head")
-                for key in ("run", "ping", "list")), "Unequal paired sample counts")
+                for key in names), "Unequal paired sample counts")
     limits = results.get("limits", LEGACY_LIMITS)
     failed = regressions(values, limits)
     require(os.environ["COMPARISON_OUTCOME"] == ("failure" if failed else "success"),
@@ -282,6 +306,8 @@ def unpack(data):
             and results.get("samples_ms") == item["samples_ms"]
             and results.get("limits", LEGACY_LIMITS) == item["limits"],
             "Archived metrics or samples differ from measured results")
+    if item["workload"]["id"] == "linux-engine-v3":
+        require(results.get("workload") == item["workload"], "Archived workload differs from measured results")
     return item
 
 
@@ -380,7 +406,7 @@ def update_index(previous, item, load_record=None):
                 and row["status"] in ("within-limits", "regression")
                 and re.fullmatch(r"[0-9a-f]{16}", row["series"]), "Invalid indexed measurement")
         require(datetime.fromisoformat(row["measured_at"]).tzinfo is not None, "Invalid indexed timestamp")
-        require(set(row["metrics"]) == set(METRICS), "Invalid indexed metrics")
+        require(set(row["metrics"]) == set(metric_names(row["workload"])), "Invalid indexed metrics")
         for pair in row["metrics"].values():
             require(type(pair) is list and len(pair) == 2, "Invalid indexed comparison")
             for value in pair:

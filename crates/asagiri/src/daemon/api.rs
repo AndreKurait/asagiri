@@ -497,13 +497,21 @@ pub(super) fn reference_matches(pattern: &str, name: &str) -> bool {
 fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let f = filters(req, &["reference", "dangling", "label"])?;
     let list = engine.store.images()?;
-    Ok(Value::Array(
-        list.iter()
-            .filter(|i| f.any("reference", |p| reference_matches(p, &i.name))
-                && f.bool("dangling").is_none_or(|d| d == (i.name == i.config_digest))
-                && f.labels(&Value::Null))
-            .map(|i| {
-                json!({
+    let mut labels_by_digest = std::collections::HashMap::new();
+    let mut rows = Vec::new();
+    for i in &list {
+        if !f.any("reference", |p| reference_matches(p, &i.name))
+            || !f.bool("dangling").is_none_or(|d| d == (i.name == i.config_digest)) {
+            continue;
+        }
+        // Several tags can name one config; old indexes need at most one
+        // config read per image in this response.
+        let labels = match labels_by_digest.entry(&i.config_digest) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(engine.store.image_labels(i)?),
+        };
+        if f.labels(labels) {
+            rows.push(json!({
                     "Id": i.config_digest,
                     "ParentId": "",
                     "RepoTags": image_tags(i),
@@ -512,14 +520,14 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
                     "Size": i.size,
                     "SharedSize": -1,
                     "VirtualSize": i.size,
-                    "Labels": null,
+                    "Labels": labels,
                     "Containers": -1,
                     // Not Docker's: when this image arrived here, for the window.
                     "Pulled": i.pulled_at,
-                })
-            })
-            .collect(),
-    ))
+                }));
+        }
+    }
+    Ok(Value::Array(rows))
 }
 
 pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
@@ -555,6 +563,7 @@ fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json:
     if config.get("Healthcheck").is_some_and(Value::is_null) {
         config.remove("Healthcheck");
     }
+    config.entry("Labels").or_insert_with(|| i.config.labels_json());
     config.extend(serde_json::Map::from_iter([
         ("Env".into(), json!(i.config.env)),
         ("Cmd".into(), json!(i.config.cmd)),
@@ -1118,7 +1127,7 @@ fn pull_hint(e: &asagiri_image::registry::Error, registry: &str, proxy: Option<&
 
 /// `-p` (`HostConfig.PortBindings`) and `-P` (`PublishAllPorts`: every port
 /// the image or `--expose` declares, on a free host port).
-fn port_bindings(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result<Vec<super::ports::Binding>, Error> {
+fn port_bindings(body: &Value, image_cfg: &Value) -> Result<Vec<super::ports::Binding>, Error> {
     let parse = |key: &str| -> Result<(u16, String), Error> {
         let (port, proto) = key.split_once('/').unwrap_or((key, "tcp"));
         let port = port.parse().map_err(|_| Error::BadRequest(format!("invalid port {key}")))?;
@@ -1147,13 +1156,8 @@ fn port_bindings(body: &Value, engine: &Engine, image: &asagiri_image::Image) ->
     }
     if body["HostConfig"]["PublishAllPorts"].as_bool() == Some(true) {
         let mut exposed: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        // The image's own EXPOSE lines live in its config blob.
-        if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-            if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-                if let Some(m) = cfg["config"]["ExposedPorts"].as_object() {
-                    exposed.extend(m.keys().cloned());
-                }
-            }
+        if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
+            exposed.extend(m.keys().cloned());
         }
         for key in exposed {
             let Ok((container_port, proto)) = parse(&key) else { continue };
@@ -1275,7 +1279,7 @@ fn resolve_server(host: &str) -> Option<String> {
 }
 
 /// `-v`, `--mount`, `--tmpfs`, `-v /path` and the image's VOLUME lines.
-fn mounts(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result<Mounts, Error> {
+fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Error> {
     let host = &body["HostConfig"];
     let mut out = Mounts { guest: Vec::new(), info: Vec::new(), volumes: Vec::new(), anon: Vec::new() };
     let check_target = |t: &str| -> Result<(), Error> {
@@ -1422,12 +1426,8 @@ fn mounts(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result
     // are in its config. Each becomes an anonymous volume, unless something
     // else is already mounted there.
     let mut anonymous: Vec<String> = body["Volumes"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-    if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-        if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-            if let Some(m) = cfg["config"]["Volumes"].as_object() {
-                anonymous.extend(m.keys().cloned());
-            }
-        }
+    if let Some(m) = image_cfg["config"]["Volumes"].as_object() {
+        anonymous.extend(m.keys().cloned());
     }
     for dst in anonymous {
         let taken = out.info.iter().any(|i| i["Destination"].as_str().map(|d| d.trim_end_matches('/')) == Some(dst.trim_end_matches('/')));
@@ -1499,14 +1499,10 @@ fn volumes(req: &Request, engine: &Engine) -> Result<Value, Error> {
 }
 
 /// The TCP ports an image declares (EXPOSE) plus `--expose`.
-fn exposed_ports(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Vec<u16> {
+fn exposed_ports(body: &Value, image_cfg: &Value) -> Vec<u16> {
     let mut keys: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-    if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-        if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-            if let Some(m) = cfg["config"]["ExposedPorts"].as_object() {
-                keys.extend(m.keys().cloned());
-            }
-        }
+    if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
+        keys.extend(m.keys().cloned());
     }
     let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp") || !k.contains('/')).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
     ports.sort_unstable();
@@ -1962,18 +1958,19 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
             return Err(Error::NotFound(format!("No such image: {image_name} for {p}")));
         }
     }
-    // The image's own config, for what Asagiri's image model does not keep.
+    // Read and parse once: ports, volumes, health checks and stop signals all
+    // use the same immutable config, including large image metadata.
     let image_cfg: Value = engine.store.read_config(&image.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
     // Checked before mounts, which may create volumes.
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
-    let ports = port_bindings(&body, engine, &image)?;
+    let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
         warnings.push(super::ports::WSL_PUBLISH_WARNING);
     }
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
-    let mounts = mounts(&body, engine, &image)?;
+    let mounts = mounts(&body, engine, &image_cfg)?;
     let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
@@ -2013,8 +2010,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         hostname: body["Hostname"].as_str().unwrap_or_default().to_owned(),
         stop_signal: body["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal).or_else(|| {
             // The image's STOPSIGNAL.
-            let cfg: Value = serde_json::from_slice(&engine.store.read_config(&image.config_digest).ok()?).ok()?;
-            cfg["config"]["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal)
+            image_cfg["config"]["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal)
         }),
         stop_timeout: body["StopTimeout"].as_i64(),
         healthcheck,
@@ -2039,7 +2035,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         aliases,
         extra_hosts,
         ports,
-        exposed: exposed_ports(&body, engine, &image),
+        exposed: exposed_ports(&body, &image_cfg),
         host_opts,
         mounts: mounts.guest,
         mount_info: mounts.info,
@@ -3159,15 +3155,23 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
         },
         Err(e) => Err(Error::Io(e)),
     };
-    // Docker answers 200 with no body.
+    // The guest may have stopped reading before send_chunks reached EOF.
+    // Drain the framed request before allowing a pooled client to send its
+    // next request, including gzip members and trailing tar padding.
     match result {
-        Ok(()) => http::empty_with(w, 200, "Connection: close\r\n")?,
-        Err(e) => error_with(w, e, "Connection: close\r\n")?,
+        Ok(()) if io::copy(&mut archive, &mut io::sink()).is_ok() => {
+            http::empty(w, 200)?;
+            Ok(Next::KeepAlive)
+        }
+        Ok(()) => {
+            error_with(w, Error::BadRequest("the archive could not be read to its end".into()), "Connection: close\r\n")?;
+            Ok(Next::Close)
+        }
+        Err(e) => {
+            error_with(w, e, "Connection: close\r\n")?;
+            Ok(Next::Close)
+        }
     }
-    // Advertise closure even on success: otherwise pooled clients can race
-    // the close with their next request (Buildx copies config then starts).
-    // A refused upload may also leave the request body partly unread.
-    Ok(Next::Close)
 }
 
 /// A signal by name or number for a stop signal Docker has already
@@ -3250,6 +3254,21 @@ mod tests {
             "80/udp": [{"HostIp": "::1", "HostPort": "9090"}],
         }));
     }
+    #[test]
+    fn create_ports_share_image_metadata_and_keep_explicit_bindings() {
+        let image_cfg = json!({"config": {"ExposedPorts": {"80/tcp": {}, "5353/udp": {}}}});
+        let body = json!({"ExposedPorts": {"443/tcp": {}}, "HostConfig": {
+            "PublishAllPorts": true, "PortBindings": {"80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]},
+        }});
+        assert_eq!(requested_ports_map(&port_bindings(&body, &image_cfg).unwrap()), json!({
+            "80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}],
+            "443/tcp": [{"HostIp": "", "HostPort": "0"}],
+            "5353/udp": [{"HostIp": "", "HostPort": "0"}],
+        }));
+        assert_eq!(exposed_ports(&body, &image_cfg), vec![80, 443]);
+        assert_eq!(exposed_ports(&body, &Value::Null), vec![443]);
+    }
+
     #[test]
     fn container_list_http_query_keeps_regex_name_filters() {
         use std::io::{BufReader, Write};
@@ -3544,6 +3563,26 @@ mod tests {
         assert_eq!(upload_compression(&[0x28, 0xb5, 0x2f, 0xfd, 0, 0]), Upload::Unsupported("zstd"));
         assert_eq!(upload_compression(b"etc/ho"), Upload::Tar);
         assert_eq!(upload_compression(b""), Upload::Tar);
+    }
+
+    /// `docker image inspect` shows the image's `config.Labels` (#206): a
+    /// labelled image carries them, an unlabelled one shows null, as Docker's.
+    #[test]
+    fn image_inspect_shows_config_labels() {
+        let shown = |labels: serde_json::Value| {
+            let stored = json!({"os": "linux", "architecture": "arm64", "created": "2026-01-01T00:00:00Z", "config": {"Labels": labels}});
+            let image = asagiri_image::archive::from_config(
+                "labelled:latest".into(),
+                &format!("sha256:{}", "1".repeat(64)),
+                &stored,
+                Vec::new(),
+            );
+            assert_eq!(image.config.labels_json(), labels);
+            image_inspect_value(&image, &stored)["Config"]["Labels"].clone()
+        };
+        let wanted = serde_json::json!({"com.openmausbot.local-vm": "1", "com.openmausbot.cua-driver": "0.37.0"});
+        assert_eq!(shown(wanted.clone()), wanted);
+        assert_eq!(shown(serde_json::Value::Null), serde_json::Value::Null);
     }
 
     /// DDEV's CopyIntoVolume sends a gzipped tar: the guest gets the tar.

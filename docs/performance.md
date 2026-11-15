@@ -27,6 +27,8 @@ it does not include starting the Docker CLI, downloading an image, or booting a 
 | Container lifecycle | Median and p95, milliseconds | Median +10% and +0.5 ms |
 | API ping | Median and p95, milliseconds | Median +15% and +0.05 ms |
 | Container list | Median and p95, milliseconds | Median +15% and +0.1 ms |
+| Create/remove with a large image config (v3) | Median and p95, milliseconds | Informational |
+| 4 KiB archive upload and pooled ping (v3) | Median and p95, milliseconds | Informational |
 | Idle daemon RSS | KiB | +10% and +2 MiB |
 | Daemon RSS after iterations | KiB | +10% and +4 MiB |
 | Daemon system calls per container | `strace` total over 20 additional lifecycles | +10% and +50 calls |
@@ -45,6 +47,47 @@ During rollout, a baseline with the previous harness produces a clearly labeled
 `linux-engine-v1` record. That record has summaries only and used `alpine:3.21`;
 it never claims raw samples or a pinned image. Workload and runner changes use
 separate dashboard series.
+
+`linux-engine-v3` adds two workloads, for 15 metrics and 4,000 raw timing
+samples per comparison. The create/remove case uses a deterministic, zero-layer
+image with a 70,923-byte OCI config containing 128 history entries. It measures
+image-metadata processing without starting that container. The copy case
+uploads a 4 KiB file as a 10 KiB tar to a running Alpine container, then sends
+an API ping through the same pooled HTTP client. Ten iterations warm each
+workload; the uploaded contents are checked before timing.
+
+Both fixtures have fixed SHA-256 identities recorded and checked in the archive.
+The copy container remains present during v3's container-list and RSS
+measurements. This is a new workload series; older v1/v2 measurements retain
+their original samples, summaries and decisions. The two new workloads are
+informational while baseline variability is established.
+
+Reports also show the median of the paired head-minus-base timing differences
+and the number of pairs in which head was faster. These help investigate cases
+where population medians and adjacent paired samples point in different
+directions. All six existing regression thresholds remain in force.
+
+## Measured image-config and upload change
+
+A local comparison on November 15 used baseline `5721ace` and runtime `749c40c`,
+with the v3 harness from `cf6e03e`. Both AArch64 Linux engines ran in one owned
+disposable Docker host with private sockets and no published outer ports.
+Reusing the parsed image config and keeping successful archive connections
+open produced these results:
+
+| Workload | Baseline median | Candidate median | Change | Candidate faster pairs |
+| --- | --- | --- | --- | --- |
+| Create/remove, 70,923-byte image config | 1.096 ms | 0.662 ms | −39.6% | 396/400 |
+| 4 KiB archive upload and pooled ping | 0.641 ms | 0.540 ms | −15.8% | 334/400 |
+
+All six existing gates passed. The [4,000 raw timings](benchmarks/image-config-copy-2026-11-15.json)
+and [independent verification](benchmarks/image-config-copy-2026-11-15-verification.json)
+include source, harness and binary identities. All medians and nearest-rank
+p95 values were recomputed from the samples. The ordinary lifecycle median
+was 2.2% lower, but the candidate was faster in exactly 200/400 pairs; this
+does not establish a consistent startup improvement. CPU model and host kernel
+details were not retained for this local run. It is separate from the GHA
+history and does not measure native Mac VM performance.
 
 ## Durable history
 
@@ -92,6 +135,10 @@ series identities, samples and regression decisions remain unchanged.
 The `Speed` workflow's manual input accepts a full ancestor SHA as a baseline.
 Select the same main commit for both sides to run an A/A noise control.
 The result still records both source identities and all measurements.
+For a historical comparison using the newest workloads, select `current` for
+the manual `harness` input. The run records that harness commit and uses the
+separate `speed experiment` job. PR and push checks always use their baseline's
+harness and limits.
 The history workflow also accepts an official run ID and attempt to retry
 publication while its artifact is available.
 
@@ -104,7 +151,7 @@ sh scripts/perf-run.sh /path/to/base-bin /path/to/head-bin /tmp/asagiri-perf-res
 
 The script needs Python, Docker, `strace`, and root access to the isolated engine
 sockets and process statistics. It removes only containers and volumes created
-by that invocation. `results.json` retains raw v2 timing samples, `sizes.json`
+by that invocation. `results.json` retains raw timing samples, `sizes.json`
 records binary sizes, and `report.md` records the paired comparison.
 
 These checks do not measure native Mac VM startup, Rosetta, WSL, cold image

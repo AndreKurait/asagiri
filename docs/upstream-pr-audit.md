@@ -1,57 +1,39 @@
-# Upstream pull request audit — 2026-11-14
+# Upstream pull request audit — 2026-11-15
 
-Reviewed every public pull request in `libracoder/kiri`, open and closed:
-**155 total: 85 merged, 40 closed without merging, and 30 open**.
-Upstream main is `baa2d41c1ce660b7ee255efc4fec156af42a715d`.
-Every merged PR's merge commit and the complete main history are ancestors of
-Asagiri. The runtime revision for this audit is `44fab19064b0dee6dd9d948dafe2167fd3866540`.
+Reviewed all **160 public PRs: 93 merged, 40 closed without merging, and 27 open**
+at the 2026-11-15T00:19:56.862528+00:00 snapshot, with upstream main `b249eccc2ed708ce10d7feeb82b6c0869b112443`.
+The runtime verified for this refresh is `749c40cb92d2fba877365a37fe1fadbc7462c3cb`.
+The complete history through `baa2d41` is inherited; subsequent changes are
+represented by reviewed ports or explicit equivalence, as recorded below.
 
-[Machine-readable evidence](upstream-pr-audit.json) records every reviewed head,
-merged commit, ancestry result and source-to-port mapping. [UPSTREAM.md](../UPSTREAM.md)
-explains integration policy and platform limits. The review compared renamed
-source trees and the remaining PR diffs; ancestry alone was not used to dismiss
-unmerged work.
+[Machine-readable evidence](upstream-pr-audit.json) records every head,
+merge, ancestry result and port. [UPSTREAM.md](../UPSTREAM.md) describes the
+integration policy. Review includes code and remaining differences, rather
+than treating ancestry or an upstream closure as proof of behavior.
 
-## Changes from this audit
+## November 15 refresh
 
-- The subsequent #238 replacement has the same runtime patch as #235. Ported
-  its additional word-boundary regression for Thai, Lao, Khmer and Burmese.
-  Updated the closures of #219, #220 and #235 without discarding their ports.
-- Reviewed six additional signed PR heads, #231–#236. Ported the Mac bind,
-  USB waiting-list, engine power/exit-code, VM-card and shared language-picker
-  changes. #232 is covered by Asagiri's broader interface reservation fix;
-  all seven network scenarios pass with both Alpine and BusyBox.
-- Added CI regressions for parallel Stop, held restart cancellation, failed
-  executables and stopped-daemon restarts. The prior build takes 18.115 seconds
-  to stop nine containers with two-second timeouts; the new build takes 2.095
-  seconds. All 12 executable cases and three actual agent crashes pass.
-- Verified 569 Linux unit tests, eight pure Mac USB state tests and the pure
-  Mac bind-path regression. Browser checks cover all 38 language cards and
-  correct the language dialog at 125% text scaling. Native Mac VM, physical
-  USB and Windows WSL runtime limits remain explicit.
-- Integrated the seven new signed main commits through `baa2d41`, preserving
-  their original authors and complete ancestry after reviewing renamed ports.
-- Added 22 languages for 38 in total, a searchable language picker, shorter
-  sidebar labels, configurable address pools, and the macOS 15 Rosetta kernel fix.
-- Integrated USB reconnection and canceled-restart fixes, then closed cancellation,
-  concurrent settings-write and Windows adapter-enumeration races.
-- Integrated #207's runtime hardening while retaining the existing pinned,
-  all-feature dependency and security workflows.
-- Rechecked every older head. #122 was rebased and gained a critical follow-up:
-  trim now runs in a separate child process so container user switching remains
-  safe. A standalone Linux regression checks that the agent stays single-threaded,
-  the child releases inherited descriptors, and unsupported trim exits cleanly.
-- Reviewed the reported issues in the [issue inventory](issue-verification.md).
-  Added image-index locking and safe complete-index recovery, Docker SDK version
-  compatibility with a separate product version, and live checks for logs,
-  image config metadata and network address pools.
-- Merged the four Asagiri PR heads for optional Apple signing/notarization,
-  private-host IPv6, container root-readiness acknowledgement, and unique
-  macvlan/ipvlan link names. Apple credentials and physical platform behavior
-  remain subject to the explicit validation limits in the inventory.
-- Regenerated the app screenshots, animation, mobile view and social card after
-  browser verification. Existing upstream benchmark results remain labelled as
-  Kiri measurements.
+- Reviewed new PRs #240–#244 and all state changes since the previous scan.
+  The new #243/#244 squash trees exactly match their reviewed heads. The six
+  earlier #231/#232/#233/#234/#236/#238 squashes were already checked the same way.
+- Ported image-list labels (#241), then added label filters and compatibility
+  with image indexes written before labels were cached.
+- Ported successful upload connection reuse from #243. All 33 framing cases
+  pass, including gzip, trailers, padding, large uploads and a same-socket start.
+- #240 path decoding and #242 index serialization already have corresponding
+  fixes. Asagiri preserves stricter escape validation and complete-record
+  recovery with a required backup.
+- Reviewed new issue #245 and the new OverlayFS reports on #227/#230. Existing
+  volume copies pass the exact created/exited PG_VERSION sequence. New mount
+  options preserve complete file data for commits, and older incomplete
+  upper entries return an explicit error. Private kernel controls reproduce
+  the problematic defaults and retain overlap rejection.
+- 573 Linux unit tests, live image/archive/BuildKit checks and the separate
+  service-restart regression pass. Native Mac/USB/WSL gaps remain in the
+  [76-issue inventory](issue-verification.md).
+- Creation shares one parsed image config across its consumers. Versioned
+  [performance history](performance.md) adds metadata creation and archive
+  workloads, with 15 metrics and all 4,000 raw timings retained per run.
 
 ## Deliberate exclusions
 
@@ -78,10 +60,9 @@ Older Arabic prototypes #179/#180 are replaced by merged #182.
 
 ## Complete inventory
 
-“Inherited” means the source head or recorded merge is in the public ancestry.
-“Equivalent” means the behavior is already represented after rebranding or in a
-broader Asagiri fix. “Ported” commits retain source attribution and signatures.
-Runtime validation limits remain those in UPSTREAM.md.
+“Inherited” means the recorded head or merge is in public ancestry. “Equivalent”
+means the behavior is represented by reviewed Asagiri changes. Dispositions
+preserve explicit exclusions, supersession and platform limits.
 
 | PR | State | Reviewed head | Disposition and evidence |
 | --- | --- | --- | --- |
@@ -233,10 +214,15 @@ Runtime validation limits remain those in UPSTREAM.md.
 | [#219](https://github.com/libracoder/kiri/pull/219) — UI: First start — a searchable language list instead of the tile wall | closed | `35d70e355910` | **ported** — Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests. Upstream closed this PR in favor of #236; its integrated changes remain in Asagiri history. |
 | [#220](https://github.com/libracoder/kiri/pull/220) — UI: Sidebar — Linux VM stays short in seven languages | closed | `9f8d8562392d` | **ported** — Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history. |
 | [#221](https://github.com/libracoder/kiri/pull/221) — README: add build-from-source instructions | closed | `67522621b7cc` | **equivalent** — Reviewed the closed build-from-source README change. Asagiri already documents its correct renamed package, Rust prerequisites, platform dependencies and build commands in README.md and CONTRIBUTING.md; upstream Kiri commands are not reintroduced. |
-| [#231](https://github.com/libracoder/kiri/pull/231) — Mounts: a linked bind folder follows its link again after a restart (Mac) | open | `63cf422d9265` | **ported-and-improved** — Re-resolves symlinked Mac bind sources on each start while retaining original inspect metadata and Asagiri lifecycle generation locks. The pure Mac filesystem regression passes on 44fab19; an actual Mac VM bind restart remains unverified. |
-| [#232](https://github.com/libracoder/kiri/pull/232) — Networks: disconnecting from two networks works, and the address is always given back | open | `4db4243a3d8e` | **equivalent** — Existing take_ifnum/drop_ifnum reserves an interface before attach and retains it until detach completes, releases IPv4/IPv6 on errors, and handles concurrent joins/leaves. All seven existing live scenarios pass on both Alpine and BusyBox with integrated source 44fab19; the narrower sequential upstream fix is equivalent. |
-| [#233](https://github.com/libracoder/kiri/pull/233) — USB: devices Kiri waits for are listed, can be let go, and are never lost on a quick drop | open | `dbc1b6f57a86` | **ported-and-improved** — Waiting USB devices remain visible in API, CLI and UI, can be released, and survive an immediate drop after attachment. Integrated with Asagiri reconnect cancellation generations and atomic session removal. Eight Mac USB state tests pass on 44fab19. Physical USB reset/idle and Mac sleep/wake remain unverified; intent is not persisted across daemon restarts. |
-| [#234](https://github.com/libracoder/kiri/pull/234) — Engine: Start and Stop no longer race; Stop is parallel; exit codes match Docker | open | `714ff4093c6f` | **ported-and-improved** — Serializes held restarts with engine power transitions, stops containers in parallel, preserves held policies and user cancellations, and distinguishes requested stops from crashes. Run/exec return Docker-compatible 126/127/255 errors; --init handles scripts without shebangs. Asagiri lifecycle generation checks and crash recovery remain intact. Nine two-second stops take 2.095s versus 18.115s before this port; all 12 executable cases, three real agent crashes and stopped-daemon restart/cancellation checks pass on 44fab19. |
+| [#231](https://github.com/libracoder/kiri/pull/231) — Mounts: a linked bind folder follows its link again after a restart (Mac) | merged | `63cf422d9265` | **ported-and-improved** — Re-resolves symlinked Mac bind sources on each start while retaining original inspect metadata and Asagiri lifecycle generation locks. The pure Mac filesystem regression passes on 44fab19; an actual Mac VM bind restart remains unverified. |
+| [#232](https://github.com/libracoder/kiri/pull/232) — Networks: disconnecting from two networks works, and the address is always given back | merged | `4db4243a3d8e` | **equivalent** — Existing take_ifnum/drop_ifnum reserves an interface before attach and retains it until detach completes, releases IPv4/IPv6 on errors, and handles concurrent joins/leaves. All seven existing live scenarios pass on both Alpine and BusyBox with integrated source 44fab19; the narrower sequential upstream fix is equivalent. |
+| [#233](https://github.com/libracoder/kiri/pull/233) — USB: devices Kiri waits for are listed, can be let go, and are never lost on a quick drop | merged | `dbc1b6f57a86` | **ported-and-improved** — Waiting USB devices remain visible in API, CLI and UI, can be released, and survive an immediate drop after attachment. Integrated with Asagiri reconnect cancellation generations and atomic session removal. Eight Mac USB state tests pass on 44fab19. Physical USB reset/idle and Mac sleep/wake remain unverified; intent is not persisted across daemon restarts. |
+| [#234](https://github.com/libracoder/kiri/pull/234) — Engine: Start and Stop no longer race; Stop is parallel; exit codes match Docker | merged | `714ff4093c6f` | **ported-and-improved** — Serializes held restarts with engine power transitions, stops containers in parallel, preserves held policies and user cancellations, and distinguishes requested stops from crashes. Run/exec return Docker-compatible 126/127/255 errors; --init handles scripts without shebangs. Asagiri lifecycle generation checks and crash recovery remain intact. Nine two-second stops take 2.095s versus 18.115s before this port; all 12 executable cases, three real agent crashes and stopped-daemon restart/cancellation checks pass on 44fab19. |
 | [#235](https://github.com/libracoder/kiri/pull/235) — UI: Sidebar — the Linux VM card fits in every language | closed | `95022ff7564e` | **ported-and-improved** — VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history. |
-| [#236](https://github.com/libracoder/kiri/pull/236) — UI: First start and Settings — a searchable language list | open | `9f04a26d4195` | **ported-and-improved** — Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified. |
-| [#238](https://github.com/libracoder/kiri/pull/238) — UI: Sidebar — the Linux VM card fits in every language | open | `a8f7b53a3e4c` | **ported-and-equivalent** — Replacement for #220/#235. The UI runtime diff is identical to #235 and already ported in 989f8c6, including Asagiri Windows memory safeguards. Ported the only new delta: Intl.Segmenter word boundaries for Thai, Lao, Khmer and Burmese in the VM-card regression, so legitimate word wrapping is accepted. Native platform limits remain unchanged. |
+| [#236](https://github.com/libracoder/kiri/pull/236) — UI: First start and Settings — a searchable language list | merged | `9f04a26d4195` | **ported-and-improved** — Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified. |
+| [#238](https://github.com/libracoder/kiri/pull/238) — UI: Sidebar — the Linux VM card fits in every language | merged | `a8f7b53a3e4c` | **ported-and-equivalent** — Replacement for #220/#235. The UI runtime diff is identical to #235 and already ported in 989f8c6, including Asagiri Windows memory safeguards. Ported the only new delta: Intl.Segmenter word boundaries for Thai, Lao, Khmer and Burmese in the VM-card regression, so legitimate word wrapping is accepted. Native platform limits remain unchanged. |
+| [#240](https://github.com/libracoder/kiri/pull/240) — daemon: percent-decode the request path before routing (#223) | open | `8e30a99dab6d` | **equivalent-with-stricter-validation** — Asagiri already decodes request paths once, preserves literal plus signs and rejects invalid escapes. Live encoded-api-paths and HTTP parser regressions cover encoded repositories, mixed-case escapes, version prefixes and double-decoding boundaries. |
+| [#241](https://github.com/libracoder/kiri/pull/241) — images: return Config.Labels in image inspect and list (#206) | open | `72c53510d37a` | **ported-and-improved** — Ported cached labels for pull/load/commit and image lists while retaining full stored-config inspection. Added label presence/value filters and recovery of labels from immutable config blobs for indexes created before this field existed. Linux unit and live image inspect/list/filter regressions pass. |
+| [#242](https://github.com/libracoder/kiri/pull/242) — image store: atomic writes, a write lock, and fail-soft index recovery (#224) | open | `087b52bd8b49` | **equivalent-with-stricter-recovery** — Asagiri already serializes read/modify/replace across processes, writes unique synced temporary files and recovers a complete typed index with trailing bytes only after preserving its exact original. It retains explicit errors for incomplete records, failed backups and unavailable cross-process locks instead of discarding records or overwriting an unpreserved index. Existing concurrent-write and corruption regressions pass. |
+| [#243](https://github.com/libracoder/kiri/pull/243) — Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd | merged | `f7fc8ab8cefb` | **ported-and-equivalent** — Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head. |
+| [#244](https://github.com/libracoder/kiri/pull/244) — Release notes for 0.2.1 | merged | `019304807fbd` | **upstream-release-documentation** — Reviewed the Kiri 0.2.1 release notes and confirmed the squash tree exactly matches this head. Product-specific version and release claims are kept in Kiri; Asagiri maintains its own release notes and explicit platform verification limits. |

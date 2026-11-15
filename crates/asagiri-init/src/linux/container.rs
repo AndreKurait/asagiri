@@ -492,7 +492,11 @@ pub fn mount_rootfs(paths: &Paths, id: &str, image_layers: StrList<'_>) -> io::R
         }
         lower.push_str(layers::hex(digest)?);
     }
-    let opts = format!("lowerdir={lower},upperdir={},workdir={}", upper.display(), work.display());
+    // diff/commit archive the upper layer itself. Kernel defaults that leave
+    // metadata-only files or directory redirects there would lose file data.
+    // Keep index's exclusive-upper protection: copy/restart cleanup must
+    // finish before this mount, even on kernels that enable index by default.
+    let opts = format!("lowerdir={lower},upperdir={},workdir={},metacopy=off,redirect_dir=off", upper.display(), work.display());
     sys::mount(c"overlay", &sys::cstr(&rootfs)?, c"overlay", 0, Some(&CString::new(opts)?))?;
     Ok(rootfs)
 }

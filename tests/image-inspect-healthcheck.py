@@ -5,13 +5,27 @@ Loads only zero-layer metadata fixtures; no container is started. This also
 runs unchanged against Docker to check the reference response.
 """
 import hashlib
+import http.client
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tarfile
 import uuid
+from urllib.parse import urlencode
+
+
+class Connection(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__("localhost", timeout=30)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
 
 
 def check(path):
@@ -24,6 +38,20 @@ def check(path):
             input=data, capture_output=True, timeout=30)
         assert result.returncode == 0, (args, result.stdout, result.stderr)
         return result.stdout
+
+    def listed(tag, labels=()):
+        filters = {"reference": [tag]}
+        if labels:
+            filters["label"] = list(labels)
+        connection = Connection(path)
+        try:
+            connection.request("GET", "/v1.47/images/json?" + urlencode({"filters": json.dumps(filters)}))
+            response = connection.getresponse()
+            body = response.read()
+            assert response.status == 200, (response.status, body)
+            return json.loads(body)
+        finally:
+            connection.close()
 
     cases = [
         ("absent", {}, None),
@@ -68,7 +96,15 @@ def check(path):
             if case == "metadata":
                 for key in ("Labels", "ExposedPorts", "StopSignal"):
                     assert actual.get(key) == config[key], (key, actual)
-            print("PASS image inspect Healthcheck " + case, flush=True)
+                for labels in [("vendor.feature",), ("vendor.feature=enabled",),
+                               ("vendor.feature=enabled", "org.opencontainers.image.title=Asagiri fixture")]:
+                    assert listed(tag, labels), (tag, labels)
+                for labels in [("vendor.feature=disabled",), ("missing.label",),
+                               ("vendor.feature=enabled", "missing.label")]:
+                    assert not listed(tag, labels), (tag, labels)
+            rows = listed(tag)
+            assert len(rows) == 1 and rows[0]["Labels"] == config.get("Labels"), (case, rows)
+            print("PASS image inspect/list labels and Healthcheck " + case, flush=True)
         finally:
             cli("image", "rm", tag)
 

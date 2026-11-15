@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-14T21:16:41.043513+00:00",
+  "reviewed_at": "2026-11-15T00:19:56.862528+00:00",
   "repository": "libracoder/kiri",
-  "count": 75,
+  "count": 76,
   "issues": [
     {
       "number": 10,
@@ -142,7 +142,7 @@
       "number": 50,
       "title": "macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down",
       "state": "open",
-      "updated_at": "2026-11-10T11:45:40Z",
+      "updated_at": "2026-11-14T21:34:39Z",
       "body_sha256": "5e17a20761f795020b6e94eae78030cd3aa6fedc59c69f82b22bf9dedd74d901",
       "disposition": "implemented-unverified-platform",
       "reason": "Agent/VM recovery and restart-policy fixes retained; private Linux crash tests pass. Native Mac kernel-crash reproduction remains unverified."
@@ -375,8 +375,8 @@
     {
       "number": 121,
       "title": "Command is ignored when starting a container from testcontainers (using http api)",
-      "state": "open",
-      "updated_at": "2026-11-14T18:56:59Z",
+      "state": "closed",
+      "updated_at": "2026-11-14T22:44:53Z",
       "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
       "disposition": "covered",
       "reason": "Empty Cmd/default Entrypoint rules expanded by #198 port; live SDK compatibility test."
@@ -550,8 +550,8 @@
       "state": "open",
       "updated_at": "2026-11-14T01:24:02Z",
       "body_sha256": "b9b3bab42fe1a2d67c2a0c7b8dd73c3441317e0a1691d38f144d68d83a027166",
-      "disposition": "automated",
-      "reason": "Full stored OCI config is retained by image inspect, including Labels, ExposedPorts and StopSignal. The metadata fixture checks those fields through the Docker CLI."
+      "disposition": "fix-and-regression",
+      "reason": "Full OCI config inspection is retained. Image lists expose labels and apply presence/value filters; indexes without cached labels read their original config blobs. Live labelled/unlabelled image and filter tests and legacy-store unit tests pass on 749c40c."
     },
     {
       "number": 209,
@@ -601,11 +601,11 @@
     {
       "number": 222,
       "title": "Testcontainers still unusable: /version reports 0.2.0, and wait strategies never see container logs",
-      "state": "open",
-      "updated_at": "2026-11-14T16:44:51Z",
+      "state": "closed",
+      "updated_at": "2026-11-14T22:45:01Z",
       "body_sha256": "d5dc3c9c513b6ee7fc86e0f61dd44ab1b367d8e33616279ab57854e9e9f58f16",
-      "disposition": "automated",
-      "reason": "Docker compatibility version is separate from AsagiriVersion so SDK version gates pass; own update clients use the product version. Real Java Testcontainers 1.20.3 passes default startup checks, pre-start copy, command execution, two delayed log messages, MySQL 8.0 double readiness, a JDBC query and Ryuk cleanup on the private Linux engine. The check is included in Linux PR/main and both Linux release architectures. Native Mac execution remains unverified."
+      "disposition": "fix-and-regression",
+      "reason": "Docker and product versions remain separate. Successful uploads now support same-socket followups; 33 framing cases and real BuildKit pass on 749c40c. Real Java Testcontainers 1.20.3 was previously verified with default checks, pre-start copy, delayed logs, MySQL, a JDBC query and Ryuk; that check remains in platform/release CI. Native Mac execution remains unverified."
     },
     {
       "number": 223,
@@ -647,10 +647,10 @@
       "number": 227,
       "title": "Linux: every `docker build` fails — Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
       "state": "open",
-      "updated_at": "2026-11-14T19:46:05Z",
+      "updated_at": "2026-11-15T00:03:06Z",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
       "disposition": "fix-and-regression",
-      "reason": "Stopped archive jobs now wait for the chrooted worker and its private mounts to exit before upload/stat completion or download EOF. The delayed-worker negative control reproduces premature completion on 6f7ac86; ce0eb4f passes the completion barrier and real BuildKit builds."
+      "reason": "Copies still wait for the private worker's mount release before completion. Overlay mounts now disable metadata-only copy-up and redirects so commit preserves complete files; older such upper entries are explicitly refused. Private kernel controls reproduce both data-loss cases with the features enabled and retain index overlap rejection. Completion and real BuildKit checks pass on 749c40c; the reporter's exact Arch/CachyOS installation remains unverified."
     },
     {
       "number": 228,
@@ -674,10 +674,19 @@
       "number": 230,
       "title": "Linux: container overlay mounts leak across a daemon restart — nothing can start until manually unmounted",
       "state": "open",
-      "updated_at": "2026-11-14T19:46:01Z",
+      "updated_at": "2026-11-15T00:13:09Z",
       "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
       "disposition": "fix-and-regression",
-      "reason": "Startup unmounts owned rootfs paths even after the old cgroup is removed, including stacked mounts. Two daemon restarts in the same host mount namespace and a four-mount orphan fixture preserve manual/restart-always containers and writable data on ce0eb4f; the old source retains the orphan mounts."
+      "reason": "Startup reclaims owned orphan/stacked mounts even after cgroup removal; it preserves writable data and held restart policies. Two actual daemon restarts and orphan-mount recovery pass on 749c40c. Index's exclusive-upper protection is retained, while explicit metacopy/redirect settings prevent incomplete commit layers. The reporter's exact Arch/CachyOS installation remains unverified."
+    },
+    {
+      "disposition": "runtime-regression-covered",
+      "reason": "The reported PG_VERSION sequence already passes on 5721ace and remains covered on 749c40c: one container writes a named volume, then a new container reads it through docker cp while created and after exit. Stopped bind/volume writes, export exclusion and read-only mounts also pass. Native Mac execution of Supabase CLI 3 remains unverified.",
+      "number": 245,
+      "title": "docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
+      "state": "open",
+      "updated_at": "2026-11-14T23:19:25Z",
+      "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
     }
   ]
 }

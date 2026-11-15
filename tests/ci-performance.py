@@ -26,15 +26,19 @@ history = module("history", "scripts/ci/performance.py")
 perf = module("perf", "scripts/perf.py")
 
 
-def fixture():
+def fixture(workload="linux-engine-v2"):
+    names = history.timing_names(workload)
     samples = {metric: {side: list(range(1, 21)) for side in ("base", "head")}
-               for metric in ("run", "ping", "list")}
+               for metric in names}
     results = {
-        side: {**{key: {"median": 10.5, "p95": 19, "n": 20} for key in ("run", "ping", "list")},
+        side: {**{key: {"median": 10.5, "p95": 19, "n": 20} for key in names},
                "rss_idle": 4096, "rss_after": 6144, "syscalls": 300}
         for side in ("base", "head")
     }
     results["samples_ms"] = samples
+    results["workload"] = {"id": workload, "image": perf.IMAGE, "runs": 20, "warmup_runs": 10, "syscall_runs": 20}
+    if workload == "linux-engine-v3":
+        results["workload"]["fixtures"] = perf.fixtures("x86_64")[2]
     sizes = {side: {"engine": 5000000, "init": 1200000} for side in ("base", "head")}
     files = {"results.json": history.encoded(results), "sizes.json": history.encoded(sizes),
              "report.md": b"Test fixture: identical builds.\n"}
@@ -42,7 +46,7 @@ def fixture():
         "schema": 1, "repository": history.REPO, "commit": "b" * 40, "baseline": "a" * 40,
         "harness": "a" * 40, "run_id": 123, "run_attempt": 1, "event": "push",
         "measured_at": "2026-11-14T12:00:00+00:00", "status": "within-limits", "regressions": [],
-        "workload": {"id": "linux-engine-v2", "image": perf.IMAGE, "runs": 20, "warmup_runs": 10, "syscall_runs": 20},
+        "workload": copy.deepcopy(results["workload"]),
         "environment": {"system": "Linux", "architecture": "x86_64", "cpu_model": "fixture CPU",
                         "cpus": 4, "memory_kib": 16000000, "kernel": "fixture kernel",
                         "runner_image": "ubuntu24", "runner_version": "fixture version",
@@ -88,6 +92,53 @@ class PerformanceTests(unittest.TestCase):
         item, files = fixture()
         self.assertEqual(history.validate(item), item)
         self.assertEqual(history.unpack(archive(files)), item)
+
+    def test_v3_fixtures_and_every_raw_summary_are_verified(self):
+        item, files = fixture("linux-engine-v3")
+        self.assertEqual(len(item["metrics"]), 15)
+        self.assertEqual(history.unpack(archive(files)), item)
+        for arch in ("x86_64", "aarch64"):
+            value = copy.deepcopy(item)
+            value["environment"]["architecture"] = arch
+            value["workload"]["fixtures"] = perf.fixtures(arch)[2]
+            value["series"] = history.series(value)
+            history.validate(value)
+        for mutate in (
+                lambda value: value["workload"]["fixtures"].__setitem__("config_sha256", "0" * 64),
+                lambda value: value["workload"]["fixtures"].__setitem__("copy_payload_bytes", 1),
+                lambda value: value["samples_ms"]["create"]["head"].pop(),
+                lambda value: value["metrics"]["copy_ms"].__setitem__(0, 999),
+                lambda value: value["metrics"].pop("create_p95_ms"),
+                lambda value: value["workload"].__setitem__("id", "linux-engine-v2")):
+            value = copy.deepcopy(item)
+            mutate(value)
+            value["series"] = history.series(value)
+            with self.assertRaises(ValueError):
+                history.validate(value)
+
+    def test_v3_and_older_runs_share_an_index_without_rewriting_old_data(self):
+        older, _ = fixture()
+        new, _ = fixture("linux-engine-v3")
+        new["run_id"] += 1
+        new["measured_at"] = "2026-11-15T00:00:00+00:00"
+        previous = history.update_index({"schema": 2, "repository": history.REPO, "entries": []}, older)
+        snapshot = copy.deepcopy(previous["entries"][0])
+        updated = history.update_index(previous, new)
+        self.assertEqual(updated["entries"][0], snapshot)
+        self.assertNotEqual(updated["entries"][0]["series"], updated["entries"][1]["series"])
+        self.assertEqual(len(updated["entries"][1]["metrics"]), 15)
+
+    def test_new_workloads_preserve_all_existing_gates(self):
+        item, _ = fixture("linux-engine-v3")
+        item["metrics"]["create_ms"][1] *= 3
+        item["metrics"]["copy_ms"][1] *= 3
+        self.assertEqual(history.regressions(item["metrics"], item["limits"]), [])
+        for key, metric in history.LIMIT_METRICS.items():
+            share, amount = item["limits"][key]
+            value = copy.deepcopy(item)
+            base = value["metrics"][metric][0]
+            value["metrics"][metric][1] = base + max(base * share, amount) + 1
+            self.assertEqual(history.regressions(value["metrics"], value["limits"]), [key])
 
     def test_rejects_incomplete_or_fabricated_measurements(self):
         original, _ = fixture()
