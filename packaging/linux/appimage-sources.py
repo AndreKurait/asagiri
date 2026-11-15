@@ -17,12 +17,14 @@ args = parser.parse_args()
 here = Path(__file__).resolve().parent
 manifest_path = here / "appimage-sources.json"
 manifest = json.loads(manifest_path.read_text())
+build_path = here / "appimage-runtime-build.json"
+build = json.loads(build_path.read_text())
 args.cache.mkdir(parents=True, exist_ok=True)
 source_dir = args.destination / "sources"
 license_dir = args.destination / "licenses"
 source_dir.mkdir(parents=True, exist_ok=True)
 license_dir.mkdir(parents=True, exist_ok=True)
-for source in manifest["sources"]:
+for source in manifest["sources"] + build["tools"]:
     name, digest = source["name"], source["sha256"]
     assert Path(name).name == name and re.fullmatch(r"[a-zA-Z0-9_.-]+", name)
     assert re.fullmatch(r"[a-f0-9]{64}", digest)
@@ -54,4 +56,11 @@ for source in manifest["sources"]:
             assert re.fullmatch(r"[a-zA-Z0-9-]+", component)
             (license_dir / (component + "-" + Path(member_name).name)).write_bytes(contents)
 shutil.copyfile(manifest_path, args.destination / manifest_path.name)
+shutil.copyfile(build_path, args.destination / build_path.name)
+for name, expected in build["inputs"].items():
+    assert Path(name).name == name
+    path = here / name
+    assert path.is_file() and not path.is_symlink()
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == expected, name
+    shutil.copyfile(path, args.destination / name)
 shutil.copyfile(here / "appimage-runtime-source.md", args.destination / "README.md")

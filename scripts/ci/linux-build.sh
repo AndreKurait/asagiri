@@ -11,7 +11,9 @@
 #   and WebKitGTK) for this machine's own architecture, when
 #   libwebkit2gtk-4.1-dev is installed; it goes in the full asagiri package
 # - asagiri and asagiri-lite as .deb and .rpm for each (packaging/linux/build.sh)
-# - an AppImage for the native architecture when the GTK window is available
+# - an AppImage for the native architecture when the GTK window is available;
+#   its source-built runtime also needs GCC/G++, make/binutils, autoconf,
+#   automake, libtool, pkg-config and Python 3.11 (CI pins their compiler image)
 #
 #   scripts/ci/linux-build.sh
 #
