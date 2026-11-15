@@ -54,6 +54,7 @@ run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
+run image-label-inheritance
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run image-load-completion
@@ -101,12 +102,14 @@ restart_engine() {
   until dock exec "$cid" cat /restart-proof 2>/dev/null | grep -qx persisted; do
     i=$((i + 1)); [ "$i" -lt 50 ] || return 1; sleep 0.1
   done
+  docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --prepare-restart /tmp/image-label-restart.json || return 1
   before=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   docker restart -t 5 "$name" >/dev/null || return 1
   i=0
   until dock version >/dev/null 2>&1; do
     i=$((i + 1)); [ "$i" -lt 240 ] || return 1; sleep 0.5
   done
+  docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --verify-restart /tmp/image-label-restart.json || return 1
   after=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   [ "$before" != "$after" ] || return 1
   docker exec -e "EXPECTED_ENGINE_ID=$engine_id" "$name" python3 /src/tests/engine-identity.py "$sock" || return 1
