@@ -111,7 +111,7 @@ def cases():
                     (family, "aux", 256, 16), (family, "full", 65535, 4))
 
 
-def measure(binaries, pairs, output):
+def measure(binaries, pairs, output, cpu):
     processes = []
     deadline = time.monotonic() + 300
     with selectors.DefaultSelector() as ready:
@@ -120,6 +120,10 @@ def measure(binaries, pairs, output):
                 process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                            text=True, bufsize=1)
                 processes.append(process)
+                if cpu is not None:
+                    os.sched_setaffinity(process.pid, {cpu})
+                    if os.sched_getaffinity(process.pid) != {cpu}:
+                        raise RuntimeError("Benchmark process CPU affinity differs")
                 ready.register(process.stdout, selectors.EVENT_READ)
 
             def batch(which, case):
@@ -223,6 +227,8 @@ def main():
         cpu = next((line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines() if line.startswith("model name")), cpu)
     elif platform.system() == "Darwin":
         cpu = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+    allowed_cpus = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else []
+    selected_cpu = allowed_cpus[0] if allowed_cpus else None
     record = {
         "schema": "asagiri.ipam-performance.v2",
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -237,6 +243,7 @@ def main():
         "identical_programs": programs[0] == programs[1],
         "rustc": subprocess.check_output([*compiler, "-Vv"], text=True),
         "host": {"system": platform.system(), "kernel": platform.release(), "architecture": platform.machine(), "cpu": cpu, "cpus": os.cpu_count()},
+        "cpu_affinity": {"allowed": allowed_cpus, "selected": selected_cpu},
         "github_run_id": os.environ.get("GITHUB_RUN_ID"), "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "measurement": "one allocation and release; identical standalone crate/module/input names; separate request/response processes; fixture construction and IPC excluded; five paired warmup batches; alternating order",
         "pairs_per_case": args.pairs, "status": "running",
@@ -244,7 +251,7 @@ def main():
     raw = args.output / "samples.jsonl"
     try:
         with raw.open("w") as output:
-            measure(binaries, args.pairs, output)
+            measure(binaries, args.pairs, output, selected_cpu)
         rows = [json.loads(line) for line in raw.read_text().splitlines()]
         if len(rows) != 26 * args.pairs:
             raise ValueError("Missing benchmark samples")
@@ -267,7 +274,10 @@ def main():
     table = ["| Case | Baseline ns | Candidate ns | Change | Faster pairs |", "|---|---:|---:|---:|---:|"]
     for name, row in record["summary"].items():
         table.append(f"| {name} | {row['baseline_median_ns']:.1f} | {row['candidate_median_ns']:.1f} | {row['change_pct']:+.1f}% | {row['candidate_faster_pairs']}/{args.pairs} |")
-    text = "\n".join(table) + "\n"
+    kind = "Unchanged-source control" if record["identical_programs"] else "Revision comparison"
+    text = (f"{kind}: `{baseline[:12]}` → `{head[:12]}`. "
+            + (f"Both benchmark processes use CPU {selected_cpu}." if selected_cpu is not None else "CPU affinity is managed by the operating system.")
+            + "\n\n" + "\n".join(table) + "\n")
     (args.output / "summary.md").write_text(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:

@@ -64,6 +64,9 @@ methods verbatim into identical standalone fixtures. Each revision uses the
 same crate, module and input-file names in a separate executable; compiling
 both into differently named modules can change optimization even when their
 source is identical. Two otherwise idle processes answer alternating requests.
+On Linux, both processes use the same allowed CPU, with the available mask
+and selected CPU recorded. This prevents CPU migration during a timed batch;
+it does not remove scheduling delays or other shared-runner noise.
 It measures actual
 allocation and release on 26 IPv4/IPv6 cases: small and dense networks,
 sparse occupancy, late ranges, exclusions, mixed exclusions and exhaustion.
