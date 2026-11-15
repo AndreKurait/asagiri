@@ -1,7 +1,9 @@
-// The runner adds two modules containing allocation methods copied verbatim
-// from the compared revisions. This harness never starts an engine or VM.
+// Each revision is compiled separately with the same crate and module names.
+// The parent alternates requests to otherwise idle benchmark processes.
+// Only allocation/release is timed; IPC and fixture setup are excluded.
 use std::collections::{BTreeMap, BTreeSet};
 use std::hint::black_box;
+use std::io::{self, BufRead, Write};
 use std::time::Instant;
 
 struct Case {
@@ -14,41 +16,25 @@ struct Case {
 // MODULES
 
 fn main() {
-    let pairs: usize = std::env::args().nth(1).unwrap().parse().unwrap();
-    let mut cases = Vec::new();
-    for family in [4, 6] {
-        for size in [0, 8, 32, 256, 1024, 4096, 65532] {
-            let loops = match size { 0..=32 => 2000, 33..=256 => 500, 257..=4096 => 50, _ => 4 };
-            cases.push(Case { family, pattern: "dense", size, loops });
-        }
-        cases.push(Case { family, pattern: "sparse", size: 65532, loops: 1000 });
-        cases.push(Case { family, pattern: "late-range", size: 32767, loops: 1000 });
-        cases.push(Case { family, pattern: "avoid", size: 4096, loops: 8 });
-        cases.push(Case { family, pattern: "mixed", size: 4096, loops: 16 });
-        cases.push(Case { family, pattern: "aux", size: 256, loops: 16 });
-        cases.push(Case { family, pattern: "full", size: 65535, loops: 4 });
-    }
-    for case in cases {
-        let expected = baseline::implementation::batch(&case, 1).1;
-        assert_eq!(candidate::implementation::batch(&case, 1).1, expected);
-        // Exclude five complete paired warmup batches from the measurements.
-        for index in 0..pairs + 5 {
-            let (a, b) = if index % 2 == 0 {
-                let a = baseline::implementation::batch(&case, case.loops);
-                let b = candidate::implementation::batch(&case, case.loops);
-                (a, b)
-            } else {
-                let b = candidate::implementation::batch(&case, case.loops);
-                let a = baseline::implementation::batch(&case, case.loops);
-                (a, b)
-            };
-            assert_eq!(a.1, expected);
-            assert_eq!(b.1, expected);
-            if index >= 5 {
-                let value = match expected { Some(value) => format!("{value:032x}"), None => "none".into() };
-                println!("{{\"case\":\"ipv{}-{}-{}\",\"pair\":{},\"baseline_first\":{},\"loops\":{},\"baseline_ns\":{},\"candidate_ns\":{},\"address\":\"{}\"}}",
-                         case.family, case.pattern, case.size, index - 5, index % 2 == 0, case.loops, a.0, b.0, value);
-            }
-        }
+    let input = io::stdin();
+    let mut output = io::stdout().lock();
+    for line in input.lock().lines() {
+        let line = line.unwrap();
+        let mut parts = line.split_whitespace();
+        let family = parts.next().unwrap().parse().unwrap();
+        let pattern = match parts.next().unwrap() {
+            "dense" => "dense", "sparse" => "sparse", "late-range" => "late-range",
+            "avoid" => "avoid", "mixed" => "mixed", "aux" => "aux", "full" => "full",
+            _ => panic!("Unknown benchmark fixture"),
+        };
+        let size = parts.next().unwrap().parse().unwrap();
+        let loops = parts.next().unwrap().parse().unwrap();
+        assert!(parts.next().is_none());
+        assert!(matches!(family, 4 | 6) && size <= 65535 && (1..=2000).contains(&loops));
+        let case = Case { family, pattern, size, loops };
+        let (elapsed, address) = revision::implementation::batch(&case, case.loops);
+        let value = match address { Some(value) => format!("{value:032x}"), None => "none".into() };
+        writeln!(output, "{{\"ns\":{elapsed},\"address\":\"{value}\"}}").unwrap();
+        output.flush().unwrap();
     }
 }

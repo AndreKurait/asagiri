@@ -60,11 +60,19 @@ six failed negative controls, compiler/binary/source identities, and every
 paired timing sample in a GHA artifact with requested retention of 90 days.
 
 The benchmark extracts each revision's allocation, reservation and release
-methods verbatim into identical standalone fixtures. It measures actual
+methods verbatim into identical standalone fixtures. Each revision uses the
+same crate, module and input-file names in a separate executable; compiling
+both into differently named modules can change optimization even when their
+source is identical. Two otherwise idle processes answer alternating requests.
+It measures actual
 allocation and release on 26 IPv4/IPv6 cases: small and dense networks,
 sparse occupancy, late ranges, exclusions, mixed exclusions and exhaustion.
 Each case has five warmup batches and 100 pairs with alternating revision
-order. Fixture construction is outside the timer. These pure Rust
+order. Fixture construction and process communication are outside the timer.
+CI also records an unchanged-source comparison and requires identical
+executable hashes for identical generated source. Keep that control alongside
+the comparison when interpreting timing differences; scheduling and hardware
+noise can still affect either run. These pure Rust
 microbenchmarks start no engine, app or VM.
 
 IPAM timings are informational diagnostics, distinct from the existing

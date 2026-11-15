@@ -8,8 +8,10 @@ import os
 from pathlib import Path
 import platform
 import re
+import selectors
 import statistics
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 NETWORK = "crates/asagiri/src/daemon/network.rs"
@@ -99,6 +101,79 @@ def summarize(samples):
     return out
 
 
+def cases():
+    for family in (4, 6):
+        for size in (0, 8, 32, 256, 1024, 4096, 65532):
+            loops = 2000 if size <= 32 else 500 if size <= 256 else 50 if size <= 4096 else 4
+            yield family, "dense", size, loops
+        yield from ((family, "sparse", 65532, 1000), (family, "late-range", 32767, 1000),
+                    (family, "avoid", 4096, 8), (family, "mixed", 4096, 16),
+                    (family, "aux", 256, 16), (family, "full", 65535, 4))
+
+
+def measure(binaries, pairs, output):
+    processes = []
+    deadline = time.monotonic() + 300
+    with selectors.DefaultSelector() as ready:
+        try:
+            for binary in binaries:
+                process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                           text=True, bufsize=1)
+                processes.append(process)
+                ready.register(process.stdout, selectors.EVENT_READ)
+
+            def batch(which, case):
+                process = processes[which]
+                process.stdin.write(" ".join(map(str, case)) + "\n")
+                process.stdin.flush()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("IPAM benchmark exceeded five minutes")
+                events = ready.select(timeout=min(30, remaining))
+                if not any(key.fileobj is process.stdout for key, _ in events):
+                    raise TimeoutError("IPAM benchmark process did not respond")
+                line = process.stdout.readline()
+                if not line:
+                    raise RuntimeError("IPAM benchmark process exited unexpectedly")
+                result = json.loads(line)
+                if not isinstance(result["ns"], int) or result["ns"] <= 0 or not re.fullmatch(r"(?:none|[0-9a-f]{32})", result["address"]):
+                    raise ValueError("Invalid IPAM benchmark response")
+                return result
+
+            for case in cases():
+                family, pattern, size, loops = case
+                expected = batch(0, (*case[:3], 1))["address"]
+                if batch(1, (*case[:3], 1))["address"] != expected:
+                    raise ValueError("Allocation results differ between revisions")
+                for index in range(pairs + 5):
+                    a_first = index % 2 == 0
+                    if a_first:
+                        a, b = batch(0, case), batch(1, case)
+                    else:
+                        b, a = batch(1, case), batch(0, case)
+                    if a["address"] != expected or b["address"] != expected:
+                        raise ValueError("Allocation result changed during the benchmark")
+                    if index >= 5:
+                        row = {"case": f"ipv{family}-{pattern}-{size}", "pair": index - 5,
+                               "baseline_first": a_first, "loops": loops, "baseline_ns": a["ns"],
+                               "candidate_ns": b["ns"], "address": expected}
+                        output.write(json.dumps(row, separators=(",", ":")) + "\n")
+        finally:
+            for process in processes:
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                process.stdout.close()
+        if any(process.returncode != 0 for process in processes):
+            raise RuntimeError("An IPAM benchmark process failed")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", default="HEAD^1")
@@ -117,41 +192,59 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     harness = (ROOT / "tests/ipam-benchmark.rs").read_text()
     fixture = (ROOT / "tests/ipam-benchmark-module.rs").read_text()
-    before, before_hashes = module("baseline", baseline, fixture)
-    after, after_hashes = module("candidate", head, fixture, args.working_tree)
+    before, before_hashes = module("revision", baseline, fixture)
+    after, after_hashes = module("revision", head, fixture, args.working_tree)
     if harness.count("// MODULES") != 1:
         raise ValueError("Benchmark module insertion point changed")
-    program = harness.replace("// MODULES", before + "\n" + after)
+    programs = [harness.replace("// MODULES", source) for source in (before, after)]
+    # The two-module harness showed biased unchanged-source controls. Use an
+    # identical crate, module and input path for each revision, and two idle
+    # request/response processes with independently recorded executable hashes.
     path = args.output / "ipam-benchmark.rs"
-    path.write_text(program)
-    binary = args.output / "ipam-benchmark"
     rust = json.loads((ROOT / "scripts/ci/verus.json").read_text())["rust"]
     compiler = ["rustup", "run", rust, "rustc"]
-    command = [*compiler, "-O", "--edition=2024", "--crate-name=ipam_benchmark", str(path), "-o", str(binary)]
-    subprocess.run(command, check=True)
+    binaries, binary_hashes = [], []
+    for name, program in zip(("baseline", "candidate"), programs, strict=True):
+        path.write_text(program)
+        directory = args.output / name
+        directory.mkdir()
+        (directory / path.name).write_text(program)
+        binary = directory / "ipam-benchmark"
+        command = [*compiler, "-O", "--edition=2024", "--crate-name=ipam_benchmark",
+                   "--remap-path-prefix", str(args.output) + "=/ipam-benchmark", str(path), "-o", str(binary)]
+        subprocess.run(command, check=True)
+        binaries.append(binary)
+        binary_hashes.append(digest(binary.read_bytes()))
+    path.unlink()
+    if programs[0] == programs[1] and binary_hashes[0] != binary_hashes[1]:
+        raise ValueError("Identical benchmark source produced different binaries")
     cpu = platform.processor()
     if Path("/proc/cpuinfo").exists():
         cpu = next((line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines() if line.startswith("model name")), cpu)
     elif platform.system() == "Darwin":
         cpu = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
     record = {
-        "schema": "asagiri.ipam-performance.v1",
+        "schema": "asagiri.ipam-performance.v2",
         "started_at": datetime.now(timezone.utc).isoformat(),
         "baseline": baseline, "candidate": head, "working_tree": args.working_tree,
         "harness_commit": git("rev-parse", "HEAD"),
+        "harness_worktree_clean": not bool(git("status", "--porcelain")),
+        "runner_sha256": digest(Path(__file__).read_bytes()),
         "harness_sha256": digest(harness), "fixture_sha256": digest(fixture),
         "baseline_sources": before_hashes, "candidate_sources": after_hashes,
-        "program_sha256": digest(program), "binary_sha256": digest(binary.read_bytes()),
+        "program_sha256": dict(zip(("baseline", "candidate"), map(digest, programs), strict=True)),
+        "binary_sha256": dict(zip(("baseline", "candidate"), binary_hashes, strict=True)),
+        "identical_programs": programs[0] == programs[1],
         "rustc": subprocess.check_output([*compiler, "-Vv"], text=True),
         "host": {"system": platform.system(), "kernel": platform.release(), "architecture": platform.machine(), "cpu": cpu, "cpus": os.cpu_count()},
         "github_run_id": os.environ.get("GITHUB_RUN_ID"), "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-        "measurement": "one allocation and release; fixture construction excluded; five paired warmup batches; alternating order",
+        "measurement": "one allocation and release; identical standalone crate/module/input names; separate request/response processes; fixture construction and IPC excluded; five paired warmup batches; alternating order",
         "pairs_per_case": args.pairs, "status": "running",
     }
     raw = args.output / "samples.jsonl"
     try:
         with raw.open("w") as output:
-            subprocess.run([str(binary), str(args.pairs)], stdout=output, check=True, timeout=300)
+            measure(binaries, args.pairs, output)
         rows = [json.loads(line) for line in raw.read_text().splitlines()]
         if len(rows) != 26 * args.pairs:
             raise ValueError("Missing benchmark samples")
