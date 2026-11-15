@@ -60,10 +60,10 @@ def main():
                 target.truncate(16 * 1024 * 1024)
             subprocess.run(["mkfs.ext4", "-q", "-F", "-E", "lazy_itable_init=0,lazy_journal_init=0",
                             str(disk)], check=True, timeout=30)
-            for arch, cc, qemu, kernel, machine, console in [
+            for arch, cc, qemu, kernel, machine in [
                 ("arm64", "aarch64-linux-gnu-gcc", "qemu-system-aarch64", "Image",
-                 ["-machine", "virt", "-cpu", "cortex-a57"], "ttyAMA0"),
-                ("x86_64", "gcc", "qemu-system-x86_64", "x86_64/bzImage", [], "ttyS0"),
+                 ["-machine", "virt", "-cpu", "cortex-a57"]),
+                ("x86_64", "gcc", "qemu-system-x86_64", "x86_64/bzImage", []),
             ]:
                 image = (args.kernels / kernel).resolve(strict=True)
                 init = work / ("init-" + arch)
@@ -78,10 +78,16 @@ def main():
                     cpio_file(output, 4, "init", stat.S_IFREG | 0o755, init.read_bytes())
                     cpio_file(output, 5, "filesystem.img", stat.S_IFREG | 0o600, disk.read_bytes())
                     cpio_file(output, 6, "TRAILER!!!", 0)
-                command = [qemu, *machine, "-accel", "tcg", "-m", "256M", "-nographic",
+                # These minimal kernels use virtio-console, as the installed
+                # VM does. Neither PL011 (ttyAMA0) nor 8250 (ttyS0) is built in.
+                command = [qemu, *machine, "-accel", "tcg", "-m", "256M",
+                           "-display", "none", "-monitor", "none", "-serial", "none",
+                           "-device", "virtio-serial-pci",
+                           "-chardev", "stdio,id=console,signal=off",
+                           "-device", "virtconsole,chardev=console",
                            "-no-reboot", "-nic", "none", "-kernel", str(image),
                            "-initrd", str(archive), "-append",
-                           f"console={console} rdinit=/init panic=-1 asagiri.loop-selftest=1"]
+                           "console=hvc0 rdinit=/init panic=-1 asagiri.loop-selftest=1"]
                 log = args.output / (arch + ".log")
                 with log.open("wb") as output:
                     result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT,
@@ -97,9 +103,14 @@ def main():
                                          "qemu": shutil.which(qemu), "command": command,
                                          "exit": result.returncode, "log_sha256": digest(log),
                                          "passed": passed})
-                if not passed:
-                    raise RuntimeError(f"{arch} loop-device boot test failed; see {log}")
+            failed = [row["architecture"] for row in record["checks"] if not row["passed"]]
+            if failed:
+                raise RuntimeError(f"{', '.join(failed)} loop-device boot test failed; see {args.output}")
         record["status"] = "passed"
+    except BaseException as error:
+        record["status"] = "failed"
+        record["error"] = repr(error)
+        raise
     finally:
         (args.output / "verification.json").write_text(json.dumps(record, indent=2) + "\n")
     print(json.dumps({"status": record["status"], "architectures": len(record["checks"])}))
