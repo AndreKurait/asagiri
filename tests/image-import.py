@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
@@ -66,6 +67,39 @@ def check(path, base, reference=False):
         images.append(image_id)
         return image_id
 
+    def special_nodes(image):
+        nodes = [("fifo", stat.S_IFIFO, 0, 0),
+                 ("char", stat.S_IFCHR, 1, 7),
+                 ("block", stat.S_IFBLK, 8, 1)]
+        names = [name + suffix for name, *_ in nodes for suffix in ("", "-hardlink")]
+        names.append("replaced-link")
+        # Inspect metadata only: opening a FIFO can block and device I/O must
+        # never be part of an image-materialization regression.
+        script = "export LC_ALL=C TZ=UTC\nstat -c '%f %u %g %Y %t %T %i' " + " ".join(
+            "/import-special/" + name for name in names)
+        script += "\nreadlink /import-special/fifo-symlink\ncat /import-message\n"
+        script += "stat -c 'pax %f %u %g %Y %y' /import-special/pax-fifo\n"
+        rows = cli("run", "--rm", "--network", "none", "--entrypoint", "sh",
+                   image, "-ec", script).stdout.decode().splitlines()
+        assert len(rows) == len(names) + 3 and rows[-3:-1] == ["fifo", "asagiri-import-ok"], rows
+        inodes = {}
+        expected = [node for node in nodes for _ in range(2)] + [("replaced-link", stat.S_IFIFO, 0, 0)]
+        for name, row, (original, kind, major, minor) in zip(names, rows, expected):
+            mode, uid, gid, mtime, dev_major, dev_minor, inode = row.split()
+            actual = (stat.S_IFMT(int(mode, 16)), stat.S_IMODE(int(mode, 16)),
+                      int(uid), int(gid), int(mtime), int(dev_major, 16), int(dev_minor, 16))
+            assert actual == (kind, 0o2640, 1234, 2345, 1_700_000_000, major, minor), (name, actual)
+            if name.endswith("-hardlink"):
+                assert inode == inodes[original], (name, inode, inodes[original])
+            else:
+                inodes[name] = inode
+        marker, mode, uid, gid, seconds, timestamp = rows[-1].split(maxsplit=5)
+        assert marker == "pax" and (stat.S_IFMT(int(mode, 16)), stat.S_IMODE(int(mode, 16)),
+                                   int(uid), int(gid), int(seconds)) == (
+            stat.S_IFIFO, 0o2640, 1234, 2345, 1_700_000_000), rows[-1]
+        assert re.search(r"\.250000001 \+0000$", timestamp), timestamp
+        print("PASS imported FIFOs, device nodes, owners, modes, times and links", flush=True)
+
     try:
         if reference:
             assert "Asagiri" not in cli("info", "--format", "{{.OperatingSystem}}").stdout.decode(), \
@@ -82,6 +116,33 @@ def check(path, base, reference=False):
             link = tarfile.TarInfo("import-link")
             link.type, link.linkname = tarfile.SYMTYPE, "import-message"
             tar.addfile(link)
+            for name, kind, major, minor in [("fifo", tarfile.FIFOTYPE, 0, 0),
+                                             ("char", tarfile.CHRTYPE, 1, 7),
+                                             ("block", tarfile.BLKTYPE, 8, 1)]:
+                node = tarfile.TarInfo("import-special/" + name)
+                node.type, node.mode, node.uid, node.gid = kind, 0o2640, 1234, 2345
+                node.mtime, node.devmajor, node.devminor = 1_700_000_000, major, minor
+                tar.addfile(node)
+                alias = tarfile.TarInfo("import-special/" + name + "-hardlink")
+                alias.type, alias.linkname = tarfile.LNKTYPE, node.name
+                alias.mode, alias.uid, alias.gid, alias.mtime = 0o2640, 1234, 2345, 1_700_000_000
+                tar.addfile(alias)
+            alias = tarfile.TarInfo("import-special/fifo-symlink")
+            alias.type, alias.linkname = tarfile.SYMTYPE, "fifo"
+            tar.addfile(alias)
+            replacement = tarfile.TarInfo("import-special/replaced-link")
+            replacement.type, replacement.linkname = tarfile.SYMTYPE, "../import-message"
+            tar.addfile(replacement)
+            replacement = tarfile.TarInfo("import-special/replaced-link")
+            replacement.type, replacement.mode = tarfile.FIFOTYPE, 0o2640
+            replacement.uid, replacement.gid, replacement.mtime = 1234, 2345, 1_700_000_000
+            tar.addfile(replacement)
+            pax_node = tarfile.TarInfo("import-special/pax-fifo")
+            pax_node.type, pax_node.mode = tarfile.FIFOTYPE, 0o2640
+            # Deliberately distinct physical fields exercise PAX precedence.
+            pax_node.uid, pax_node.gid, pax_node.mtime = 0, 0, 0
+            pax_node.pax_headers = {"uid": "1234", "gid": "2345", "mtime": "1700000000.250000001"}
+            tar.addfile(pax_node)
         raw = data.getvalue()
         assert len(raw) > 8 << 20, "exercise an upload above the JSON body limit"
         tag = prefix + ":file"
@@ -103,6 +164,7 @@ def check(path, base, reference=False):
         assert "8080/tcp" in info["Config"]["ExposedPorts"], info["Config"]
         output = cli("run", "--rm", tag).stdout.decode()
         assert "yes|asagiri-import-ok" in output and str(9 << 20) in output, output
+        special_nodes(tag)
         status, history = api("GET", "/images/" + made + "/history")
         assert status == 200 and any(h.get("Comment") == "import regression" for h in json.loads(history))
         print("PASS large CLI file import preserves files, links, config and history", flush=True)
@@ -113,6 +175,7 @@ def check(path, base, reference=False):
         dangling = cli("images", "--filter", "dangling=true", "--no-trunc", "--quiet").stdout.decode().split()
         assert untagged in dangling, dangling
         assert cli("run", "--rm", untagged).stdout == b"asagiri-import-ok\n"
+        special_nodes(untagged)
         print("PASS gzip stdin import creates a runnable untagged image", flush=True)
 
         query = urlencode([("fromSrc", "-"), ("repo", prefix), ("tag", "chunked"),
@@ -125,6 +188,7 @@ def check(path, base, reference=False):
         assert all(not json.loads(line).get("error") for line in answer.splitlines() if line), answer
         assert "WIRE=chunked" in inspect(chunked_tag)["Config"]["Env"]
         assert cli("run", "--rm", chunked_tag).stdout == b"asagiri-import-ok\n"
+        special_nodes(chunked_tag)
         print("PASS chunked Engine API import streams beyond the JSON body limit", flush=True)
 
         class Source(http.server.BaseHTTPRequestHandler):
@@ -146,6 +210,7 @@ def check(path, base, reference=False):
             created(cli("import", "--change", 'CMD ["cat","/import-link"]',
                         f"http://127.0.0.1:{server.server_port}/rootfs.tar.gz", tag_url))
             assert cli("run", "--rm", tag_url).stdout == b"asagiri-import-ok\n"
+            special_nodes(tag_url)
         finally:
             server.shutdown()
             server.server_close()
@@ -157,6 +222,7 @@ def check(path, base, reference=False):
         cli("load", data=saved)
         assert inspect(tag)["Id"] == made
         assert "yes|asagiri-import-ok" in cli("run", "--rm", tag).stdout.decode()
+        special_nodes(tag)
         print("PASS imported image survives docker save/load", flush=True)
 
         for case, options, body in [("tar", (), b"not a tar" * 64),

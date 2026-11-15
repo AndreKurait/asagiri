@@ -292,21 +292,16 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
     }
     // `--device` nodes are looked up now, so a missing one fails the start.
     let (nodes, device_rules) = super::hostopts::resolve_devices(&host).map_err(cleanup)?;
-    // Deny block-device read/write (Docker's default device cgroup). If the
-    // kernel cannot attach the filter, CAP_MKNOD is dropped below instead.
-    let device_filtered = spec.flags & run_flags::PRIVILEGED != 0
-        || match super::devices::restrict(cgroup_fd.as_raw_fd(), &device_rules) {
-            Ok(()) => true,
-            Err(e) => {
-                eprintln!("asagiri: device filter unavailable, dropping CAP_MKNOD: {e}");
-                false
-            }
-        };
+    // Imported layers and bind mounts can already contain device nodes.
+    // Dropping CAP_MKNOD cannot restrict access to those existing nodes.
+    // Install the device filter before any application process can run.
+    if spec.flags & run_flags::PRIVILEGED == 0 {
+        super::devices::restrict(cgroup_fd.as_raw_fd(), &device_rules).map_err(|e| {
+            cleanup(io::Error::new(e.kind(), format!("cannot start without a device access filter: {e}")))
+        })?;
+    }
 
     let mut prepared = prepare(spec.argv, spec.env, spec.cwd, spec.user, Some(spec.hostname), spec.flags, spec.caps).map_err(cleanup)?;
-    if !device_filtered {
-        prepared.caps &= !(1 << super::devices::CAP_MKNOD);
-    }
     if spec.limits.shm_size > 0 {
         prepared.shm_size = spec.limits.shm_size;
     }
