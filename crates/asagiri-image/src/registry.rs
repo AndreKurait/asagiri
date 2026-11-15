@@ -1828,6 +1828,37 @@ mod tests {
     }
 
     #[test]
+    fn a_cancellable_download_allows_slow_headers_and_body_without_retry() {
+        let (data, digest) = blob();
+        let body = data.clone();
+        let (host, served) = blob_server(move |_, c| {
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = c.write_all(&body);
+        });
+        let root = std::env::temp_dir().join(format!("asagiri-slow-pull-{}-{}", std::process::id(), host.replace(':', "-")));
+        assert!(!root.exists());
+        let store = Store::open(&root).unwrap();
+        let r = Reference::parse(&format!("{host}/test/blob:1")).unwrap();
+        let cfg = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(2))).build();
+        let agent = ureq::Agent::with_parts(cfg, crate::connect::connector_with(Duration::from_secs(2)), ureq::unversioned::resolver::DefaultResolver::default());
+        let client = Client { agent, ..Client::new() };
+        let cancel = Cancel::new();
+        let result = {
+            let _on = cancel.enter();
+            client.download_with(&store, &r, &digest, u64::MAX, &|_| {}, &cancel)
+        };
+        quit(&host);
+        let requests = served.join().unwrap();
+        let complete = store.has_blob(&digest, data.len() as u64);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(result.unwrap(), data.len() as u64);
+        assert!(complete, "the entire blob passed digest validation");
+        assert_eq!(requests, [0], "a poll must not turn an ordinary slow response into a retry");
+    }
+
+    #[test]
     fn the_next_page_of_tags_comes_from_the_link_header() {
         assert_eq!(next_link(r#"</v2/o/r/tags/list?last=1.9&n=1000>; rel="next""#), Some("/v2/o/r/tags/list?last=1.9&n=1000"));
         assert_eq!(next_link(r#"<https://elsewhere.example/x>; rel="prev""#), None);

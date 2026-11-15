@@ -13,6 +13,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+/// Winsock may leave a blocking read asleep after another thread shuts it
+/// down. Cancellable Windows reads check the switch at least this often,
+/// without shortening the registry request's timeout.
+#[cfg(any(windows, test))]
+pub(crate) const POLL: Duration = Duration::from_millis(100);
+
+#[cfg(any(windows, test))]
+pub(crate) fn active() -> bool {
+    CURRENT.with(|c| c.borrow().is_some())
+}
+
+#[cfg(any(windows, test))]
+pub(crate) fn cancelled() -> bool {
+    CURRENT.with(|c| c.borrow().as_ref().is_some_and(Cancel::is_cancelled))
+}
+
 /// A pull's cancel switch. Clones share it.
 #[derive(Debug, Clone, Default)]
 pub struct Cancel(Arc<Inner>);
@@ -105,14 +121,17 @@ pub(crate) fn watch(stream: &Arc<TcpStream>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(windows))]
     use std::io::Read;
     use std::net::TcpListener;
 
     #[test]
+    #[cfg(not(windows))]
     fn cancel_ends_a_read_that_is_waiting() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
-        // The server says nothing: the read would wait for ever.
+        client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        // The server says nothing: cancellation must beat the socket timeout.
         let (_server, _) = listener.accept().unwrap();
         let cancel = Cancel::new();
         let reader = {
@@ -141,16 +160,21 @@ mod tests {
         let client = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
         let (a, b) = (Cancel::new(), Cancel::new());
         a.cancel();
+        assert!(!active() && !cancelled());
         assert!(watch(&client).is_ok(), "no pull entered");
         {
             let _on = b.enter();
+            assert!(active() && !cancelled());
             assert!(watch(&client).is_ok());
             {
                 let _inner = a.enter();
+                assert!(active() && cancelled());
                 assert!(watch(&client).is_err());
             }
+            assert!(active() && !cancelled());
             assert!(watch(&client).is_ok(), "back to b");
         }
+        assert!(!active() && !cancelled());
         assert!(watch(&client).is_ok());
     }
 
