@@ -459,6 +459,18 @@ class Qualifier:
         _, data = self.api("GET", "/containers/" + name + "/json")
         return json.loads(data)
 
+    def container_ids(self):
+        _, raw = self.api("GET", "/containers/json?all=true")
+        rows = decode(raw)
+        require(isinstance(rows, list), "Invalid container inventory")
+        ids = []
+        for row in rows:
+            require(isinstance(row, dict) and re.fullmatch(r"[0-9a-f]{64}", row.get("Id", "")),
+                    "Invalid container inventory identity")
+            ids.append(row["Id"])
+        require(len(ids) == len(set(ids)), "Duplicate container inventory identity")
+        return sorted(ids)
+
     def pull(self, model, suffix, success, reference=False):
         repository = "registryca/" + suffix
         image = model.image(repository)
@@ -773,9 +785,19 @@ class Qualifier:
                 "Direct builder start admitted an uninstalled policy")
         self.result("direct start refuses failed installation", http_status=status,
                     error=data.decode(errors="replace"), builder_running=False)
-        rejected = self.build(self.models["good"], "failed-apply-build", success=False, installation_failure=True)
+        before_admission = self.container_ids()
+        try:
+            rejected = self.build(self.models["good"], "failed-apply-build", success=False, installation_failure=True)
+        finally:
+            after_admission = self.container_ids()
+            self.record["native_admission_containers"] = {
+                "before": before_admission, "after": after_admission}
+            require(after_admission == before_admission,
+                    "Failed native admission created or removed another container")
         require(not self.builder()["State"]["Running"], "Failed native admission started the builder")
-        self.result("native build refuses failed installation", **rejected)
+        self.result("native build refuses failed installation", **rejected,
+                    containers_before=before_admission, containers_after=after_admission,
+                    builder_container=container, builder_running=False)
         self.api("PUT", f"/containers/{container}/archive?path=/", self.saved_etc, raw=True)
         self.fault_installed = False
         status, report = self.config({"registry-ca-certificates": desired})
@@ -793,6 +815,10 @@ class Qualifier:
     def run(self):
         original = None
         try:
+            code, version, error = self.docker("buildx-version", "buildx", "version")
+            require(code == 0 and version.startswith(b"github.com/docker/buildx "),
+                    f"Cannot record actual Buildx version: {version!r} {error!r}")
+            self.record["buildx_version"] = version.decode().strip()
             original = self.config()[1]
             # An identical default policy intentionally does not create a
             # daemon.json file. Seed it through a real reversible API update,
