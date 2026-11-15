@@ -796,6 +796,27 @@ fn agent_description(exe: &Path, log: &Path) -> String {
     )
 }
 
+/// Starts the engine through the LaunchAgent, loading it first if launchd
+/// doesn't have it (Login Items turned off and on, or a plist written but
+/// never loaded). Ok(false) when there is no agent for this copy of Asagiri,
+/// and the caller starts the engine itself.
+pub fn start_agent() -> io::Result<bool> {
+    if !agent_plist()?.is_file() || !agent_runs_this()? {
+        return Ok(false);
+    }
+    let job = format!("gui/{}/{AGENT}", uid());
+    let kicked = Command::new("/bin/launchctl").args(["kickstart", &job]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status()?.success();
+    if kicked {
+        return Ok(true);
+    }
+    // Not loaded: bootstrap it, and RunAtLoad starts it.
+    let loaded = Command::new("/bin/launchctl").args(["bootstrap", &format!("gui/{}", uid())]).arg(agent_plist()?).stderr(std::process::Stdio::null()).status()?.success();
+    if !loaded {
+        crate::diag::info!("the LaunchAgent would not load; starting the engine directly");
+    }
+    Ok(loaded)
+}
+
 /// Whether the LaunchAgent starts this copy of Asagiri. One left by another
 /// copy (an older download, a build elsewhere) is replaced when this one opens.
 fn agent_runs_this() -> io::Result<bool> {
