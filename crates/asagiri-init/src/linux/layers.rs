@@ -278,12 +278,82 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
             continue;
         }
         total += entry.size();
-        entry.unpack_in(dest)?;
+        let kind = entry.header().entry_type();
+        if kind.is_fifo() || kind.is_character_special() || kind.is_block_special() {
+            unpack_special(&mut entry, dest, &path)?;
+        } else {
+            entry.unpack_in(dest)?;
+        }
     }
     // Tar stops at its end marker, before a compressed stream necessarily
     // reaches its checksum or final member. Validate that tail as well.
     io::copy(&mut archive.into_inner(), &mut io::sink())?;
     Ok(total)
+}
+
+/// tar-rs treats these POSIX types as regular files. Create the node without
+/// opening it (a FIFO could block, and device I/O must never run during unpack).
+/// Like whiteouts, parents must be real directories in this private layer.
+fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Path) -> io::Result<()> {
+    let header = entry.header();
+    if entry.size() != 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "special layer entry has a payload"));
+    }
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid special layer metadata");
+    let uid: libc::uid_t = header.uid()?.try_into().map_err(|_| invalid())?;
+    let gid: libc::gid_t = header.gid()?.try_into().map_err(|_| invalid())?;
+    // -1 means 'leave unchanged' to chown, not a representable image owner.
+    if uid == libc::uid_t::MAX || gid == libc::gid_t::MAX {
+        return Err(invalid());
+    }
+    let mode = header.mode()? & 0o7777;
+    let mtime: libc::time_t = header.mtime()?.try_into().map_err(|_| invalid())?;
+    let kind = header.entry_type();
+    let (file_type, major, minor) = if kind.is_fifo() {
+        (libc::S_IFIFO, 0, 0)
+    } else {
+        (if kind.is_character_special() { libc::S_IFCHR } else { libc::S_IFBLK },
+         header.device_major()?.ok_or_else(invalid)?, header.device_minor()?.ok_or_else(invalid)?)
+    };
+    let device = libc::makedev(major, minor);
+    if libc::major(device) != major || libc::minor(device) != minor {
+        return Err(invalid());
+    }
+    let name = path.file_name().ok_or_else(escapes)?;
+    let parent = whiteout_dir(dest, path.parent().unwrap_or(Path::new("")))?;
+    let target = parent.join(name);
+    // Unlink only this directory entry, never follow a previous symlink or
+    // modify an existing hard-linked inode. Replacing a directory is an error.
+    match fs::remove_file(&target) {
+        Ok(()) => {},
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {},
+        Err(e) => return Err(e),
+    }
+    let target = sys::cstr(&target)?;
+    sys::mknod(&target, file_type | mode, major, minor)?;
+    // Ownership changes can clear set-ID bits, so restore mode afterwards.
+    // SAFETY: the parent walk rejects symlinks and this private extraction
+    // worker just created the node. All paths and arrays outlive each call.
+    sys::check(unsafe { libc::lchown(target.as_ptr(), uid, gid) } as _, "chown layer node")?;
+    sys::check(unsafe { libc::chmod(target.as_ptr(), mode) } as _, "chmod layer node")?;
+    let times = [libc::timespec { tv_sec: mtime, tv_nsec: 0 }; 2];
+    sys::check(unsafe {
+        libc::utimensat(libc::AT_FDCWD, target.as_ptr(), times.as_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+    } as _, "restore layer node time")?;
+    if let Some(extensions) = entry.pax_extensions()? {
+        for extension in extensions {
+            let extension = extension?;
+            if let Some(key) = extension.key_bytes().strip_prefix(b"SCHILY.xattr.") {
+                let key = std::ffi::CString::new(key).map_err(|_| invalid())?;
+                let value = extension.value_bytes();
+                // SAFETY: valid C strings and a value buffer of the supplied length.
+                sys::check(unsafe {
+                    libc::lsetxattr(target.as_ptr(), key.as_ptr(), value.as_ptr().cast(), value.len(), 0)
+                } as _, "restore layer node xattr")?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn escapes() -> io::Error {
@@ -459,6 +529,148 @@ mod tests {
         untar(Capped { inner: &bytes[..], left: u64::MAX }, &dest).unwrap();
         assert!(fs::symlink_metadata(dest.join("usr/share/doc")).unwrap().file_type().is_char_device());
         let _ = fs::remove_dir_all(&dest);
+    }
+
+    fn special_layer(kind: tar::EntryType, path: &str, hardlink: bool) -> Vec<u8> {
+        let mut b = tar::Builder::new(Vec::new());
+        let mut h = header(0, 0o2640);
+        h.set_entry_type(kind);
+        // SAFETY: getters do not mutate process state.
+        h.set_uid(u64::from(unsafe { libc::geteuid() }));
+        h.set_gid(u64::from(unsafe { libc::getegid() }));
+        h.set_mtime(1_700_000_000);
+        if kind.is_character_special() || kind.is_block_special() {
+            h.set_device_major(1).unwrap();
+            h.set_device_minor(7).unwrap();
+        }
+        b.append_data(&mut h, path, io::empty()).unwrap();
+        if hardlink {
+            let mut h = header(0, 0o644);
+            h.set_entry_type(tar::EntryType::Link);
+            b.append_link(&mut h, "alias", path).unwrap();
+        }
+        b.into_inner().unwrap()
+    }
+
+    #[test]
+    fn special_fifo_preserves_type_metadata_and_hardlinks() {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let dest = scratch("special-fifo");
+        let bytes = special_layer(tar::EntryType::Fifo, "nested/pipe", true);
+        assert_eq!(untar(&bytes[..], &dest).unwrap(), 0);
+        let m = fs::symlink_metadata(dest.join("nested/pipe")).unwrap();
+        assert!(m.file_type().is_fifo(), "FIFO layer entry became a regular file");
+        assert_eq!(m.mode() & 0o7777, 0o2640);
+        assert_eq!(m.mtime(), 1_700_000_000);
+        assert_eq!(m.uid(), unsafe { libc::geteuid() });
+        assert_eq!(m.gid(), unsafe { libc::getegid() });
+        assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+        fs::remove_dir_all(dest).unwrap();
+    }
+
+    #[test]
+    fn special_entry_replaces_symlink_without_touching_target() {
+        use std::os::unix::fs::FileTypeExt;
+        let dest = scratch("special-replace");
+        let outside = scratch("special-target");
+        fs::write(outside.join("keep"), b"unchanged").unwrap();
+        std::os::unix::fs::symlink(outside.join("keep"), dest.join("pipe")).unwrap();
+        let bytes = special_layer(tar::EntryType::Fifo, "pipe", false);
+        untar(&bytes[..], &dest).unwrap();
+        assert!(fs::symlink_metadata(dest.join("pipe")).unwrap().file_type().is_fifo());
+        assert_eq!(fs::read(outside.join("keep")).unwrap(), b"unchanged");
+        fs::remove_dir_all(dest).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn special_entry_cannot_follow_a_symlink_parent() {
+        let dest = scratch("special-parent");
+        let outside = scratch("special-outside");
+        std::os::unix::fs::symlink(&outside, dest.join("link")).unwrap();
+        let bytes = special_layer(tar::EntryType::Fifo, "link/pipe", false);
+        assert!(untar(&bytes[..], &dest).is_err());
+        assert!(fs::symlink_metadata(outside.join("pipe")).is_err());
+        fs::remove_dir_all(dest).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn special_character_and_block_devices_preserve_numbers() {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        if unsafe { libc::geteuid() } != 0 {
+            eprintln!("skipped: needs root for mknod");
+            return;
+        }
+        for (name, kind) in [("char", tar::EntryType::Char), ("block", tar::EntryType::Block)] {
+            let dest = scratch(&format!("special-{name}"));
+            let bytes = special_layer(kind, "node", true);
+            untar(&bytes[..], &dest).unwrap();
+            let m = fs::symlink_metadata(dest.join("node")).unwrap();
+            assert_eq!(m.file_type().is_char_device(), kind.is_character_special());
+            assert_eq!(m.file_type().is_block_device(), kind.is_block_special());
+            assert_eq!(libc::major(m.rdev()), 1);
+            assert_eq!(libc::minor(m.rdev()), 7);
+            assert_eq!(m.mode() & 0o7777, 0o2640);
+            assert_eq!(m.mtime(), 1_700_000_000);
+            assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+            fs::remove_dir_all(dest).unwrap();
+        }
+    }
+
+    #[test]
+    fn special_payload_is_rejected_without_publishing_layer() {
+        let root = scratch("special-payload");
+        let mut b = tar::Builder::new(Vec::new());
+        let mut h = header(1, 0o600);
+        h.set_entry_type(tar::EntryType::Fifo);
+        b.append_data(&mut h, "pipe", &b"x"[..]).unwrap();
+        let blob = b.into_inner().unwrap();
+        let begin = LayerBegin { digest: D1, media_type: "application/vnd.oci.image.layer.v1.tar", size: blob.len() as u64 };
+        assert!(receive(&mut &blob[..], &begin, &root).is_err());
+        assert!(!present(&root, D1));
+        assert!(!dir(&root, D1).unwrap().exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn special_paths_cannot_be_absolute_or_contain_parent_steps() {
+        for path in ["/escape", "../escape", "nested/../../escape"] {
+            let dest = scratch("special-path");
+            let mut bytes = special_layer(tar::EntryType::Fifo, "placeholder", false);
+            // The builder rejects unsafe paths; construct a valid checksum
+            // over the malicious wire header to exercise the actual reader.
+            bytes[..100].fill(0);
+            bytes[..path.len()].copy_from_slice(path.as_bytes());
+            bytes[148..156].fill(b' ');
+            let checksum: u32 = bytes[..512].iter().map(|b| u32::from(*b)).sum();
+            bytes[148..156].copy_from_slice(format!("{checksum:06o}\0 ").as_bytes());
+            assert!(untar(&bytes[..], &dest).is_err(), "accepted {path}");
+            fs::remove_dir_all(dest).unwrap();
+        }
+    }
+
+    #[test]
+    fn special_fifo_uses_pax_owner_overrides() {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let dest = scratch("special-pax-owner");
+        let mut b = tar::Builder::new(Vec::new());
+        // SAFETY: plain getters; using our own IDs also works without root.
+        let uid = unsafe { libc::geteuid() }.to_string();
+        let gid = unsafe { libc::getegid() }.to_string();
+        b.append_pax_extensions([("uid", uid.as_bytes()), ("gid", gid.as_bytes())]).unwrap();
+        let mut h = header(0, 0o600);
+        h.set_entry_type(tar::EntryType::Fifo);
+        h.set_uid(u64::from(u32::MAX));
+        h.set_gid(u64::from(u32::MAX));
+        b.append_data(&mut h, "pipe", io::empty()).unwrap();
+        let bytes = b.into_inner().unwrap();
+        untar(&bytes[..], &dest).unwrap();
+        let m = fs::symlink_metadata(dest.join("pipe")).unwrap();
+        assert!(m.file_type().is_fifo());
+        assert_eq!(m.uid().to_string(), uid);
+        assert_eq!(m.gid().to_string(), gid);
+        fs::remove_dir_all(dest).unwrap();
     }
 
     fn layer_blob(files: &[(&str, &[u8])]) -> Vec<u8> {
