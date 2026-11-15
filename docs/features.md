@@ -22,7 +22,8 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Networking**: a default bridge, user networks with DNS by name and
   alias, `network connect`/`disconnect`, `--network host|none`, `-p`/`-P`
   (TCP and UDP) on Linux and Mac interfaces (`-p 127.0.0.1:8080:80`
-  keeps a port local; Windows bindings are inside WSL, as described below), `--add-host`, `host.docker.internal`,
+  keeps a port local; Windows bindings are inside WSL, as described below), `--add-host`, `host.docker.internal`
+  ([Mac loopback services](mac-host-loopback.md)),
   `--network container:<name>` (Compose `network_mode: service:x`; as with
   Docker, if that container restarts, the ones sharing its network keep the
   old, now empty namespace until they are restarted too), IPAM (`--subnet`,

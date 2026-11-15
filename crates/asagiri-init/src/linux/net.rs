@@ -305,6 +305,10 @@ pub fn uplink() -> io::Result<Option<Dhcp>> {
     let Ok(index) = netlink::index_of(UPLINK) else { return Ok(None) };
     let mut nl = Netlink::open(libc::NETLINK_ROUTE)?;
     netlink::set_up(&mut nl, index)?;
+    // A host-network container routes before the output NAT hook runs.
+    // The Mac relay uses vsock, so it must remain reachable without DHCP
+    // or a default route. This /32 stays inside the VM's loopback.
+    netlink::add_loopback_route(&mut nl, HOST_ADDR)?;
     sys::write_file("/proc/sys/net/ipv4/ip_forward", "1")?;
     // The tunnel drivers are built in, and each would add its idle fallback
     // device (tunl0, gre0, sit0, ip6tnl0...) to every container's network:
@@ -996,6 +1000,66 @@ pub fn route(dst: [u8; 4], prefix: u8, via: [u8; 4], add: bool) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_relay_is_reachable_before_dhcp() {
+        use std::io::{Read, Write};
+        use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+        const CHILD: &str = "ASAGIRI_HOST_ROUTE_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            // The Linux CI builder runs these tests with namespace support.
+            // A developer's unprivileged unit run cannot create the sandbox.
+            if unsafe { libc::geteuid() } != 0 {
+                eprintln!("requires root and CAP_SYS_ADMIN for a disposable network namespace");
+                return;
+            }
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "linux::net::tests::host_relay_is_reachable_before_dhcp", "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1").output().unwrap();
+            assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            assert!(String::from_utf8_lossy(&output.stdout).contains("host relay before DHCP: passed"), "child test was not selected");
+            return;
+        }
+        // SAFETY: this child process exits after the test. Its network
+        // namespace owns every link, route and nftables rule created below.
+        assert_eq!(unsafe { libc::unshare(libc::CLONE_NEWNET) }, 0, "{}", io::Error::last_os_error());
+        let mut nl = Netlink::open(libc::NETLINK_ROUTE).unwrap();
+        let lo = netlink::index_of("lo").unwrap();
+        netlink::set_up(&mut nl, lo).unwrap();
+        let target = SocketAddr::from((HOST_ADDR, 12345));
+        let timeout = Duration::from_secs(2);
+        assert_eq!(TcpStream::connect_timeout(&target, timeout).unwrap_err().kind(), io::ErrorKind::NetworkUnreachable);
+
+        // A private, empty bridge stands in for the VM's NIC: no DHCP
+        // server or outside connectivity exists in this namespace.
+        netlink::create_bridge(&mut nl, UPLINK).unwrap();
+        let _dhcp = uplink().unwrap().expect("the test NIC exists");
+        let routes = std::fs::read_to_string("/proc/thread-self/net/route").unwrap();
+        assert!(!routes.lines().skip(1).any(|line| line.split_whitespace().nth(1) == Some("00000000")), "no default route may be needed");
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, HOST_RELAY_PORT)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut client = TcpStream::connect_timeout(&target, timeout).unwrap();
+        client.set_read_timeout(Some(timeout)).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        assert_eq!(client.local_addr().unwrap().ip(), Ipv4Addr::LOCALHOST, "an unconfigured VM must not use 0.0.0.0 as the source");
+        server.write_all(b"Mac relay").unwrap();
+        let mut bytes = [0; 9];
+        client.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"Mac relay");
+        // The existing relay still verifies the original, reserved address
+        // and preserves the port the container requested.
+        let mut original: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+        let mut len = std::mem::size_of_val(&original) as libc::socklen_t;
+        // SAFETY: getsockopt fills the live sockaddr buffer and its length.
+        assert_eq!(unsafe {
+            libc::getsockopt(server.as_raw_fd(), libc::SOL_IP, 80,
+                             (&mut original as *mut libc::sockaddr_in).cast(), &mut len)
+        }, 0, "{}", io::Error::last_os_error());
+        assert_eq!(original.sin_addr.s_addr.to_ne_bytes(), HOST_ADDR);
+        assert_eq!(u16::from_be(original.sin_port), 12345);
+        netlink::add_loopback_route(&mut nl, HOST_ADDR).unwrap(); // idempotent after the real request
+        println!("host relay before DHCP: passed");
+    }
 
     #[test]
     fn ipv6_settings_come_from_the_options() {
