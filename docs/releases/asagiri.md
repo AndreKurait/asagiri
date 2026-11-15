@@ -20,6 +20,12 @@ container remains available with its writable data intact. A later removal
 can retry, and the destroy event is published only after cleanup succeeds.
 The cleanup deadline and lifecycle lock remain in place.
 
+Explicit removal also runs outside the agent's control loop. A slow unmount
+or directory deletion leaves unrelated exec requests and DNS responsive.
+Queued and active removals reserve their container IDs until the worker exits;
+failed forks and abnormal worker exits retry with a delay. One worker runs at
+a time, so a stuck removal can still delay later removals and shutdown.
+
 Quiet container waits, log followers and output-only attached sessions release
 their API connection when the client disconnects. Clients that only close
 their write half still receive the response. The startup

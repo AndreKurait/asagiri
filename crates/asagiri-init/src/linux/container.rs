@@ -766,6 +766,34 @@ pub fn remove(paths: &Paths, id: &str) {
     }
 }
 
+/// Explicit removal can block on unmount or recursive deletion after normal
+/// process-exit cleanup. Keep it out of the single-threaded control loop too.
+/// The agent reserves this ID and reaps this worker before permitting reuse.
+pub fn begin_remove(paths: &Paths, id: &str) -> io::Result<libc::pid_t> {
+    valid_id(id)?;
+    // SAFETY: follows begin_teardown's fork model in the agent. The child
+    // shares the mount namespace, closes inherited descriptors, and never
+    // runs parent destructors or survives a replacement agent.
+    let parent = unsafe { libc::getpid() };
+    let pid = unsafe { libc::fork() };
+    if pid == 0 {
+        // SAFETY: affects this worker only; close_range preserves stdio.
+        unsafe {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) < 0
+                || libc::getppid() != parent
+                || libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0) < 0
+            {
+                libc::_exit(1);
+            }
+            libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
+        }
+        remove(paths, id);
+        // SAFETY: exit without unwinding copied parent state.
+        unsafe { libc::_exit(0) }
+    }
+    if pid < 0 { Err(io::Error::last_os_error()) } else { Ok(pid) }
+}
+
 /// Linux host: what a previous agent that died without cleaning up (killed,
 /// or its machine's daemon killed with it) left of this data directory's
 /// containers under `cgroup`: their processes are killed, their mounts,
@@ -846,7 +874,7 @@ pub fn retain(paths: &Paths, keep: StrList<'_>, running: &[&str]) {
     }
 }
 
-fn valid_id(id: &str) -> io::Result<()> {
+pub(super) fn valid_id(id: &str) -> io::Result<()> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "bad id"));
     }
