@@ -29,6 +29,8 @@ mod detail;
 mod dns;
 #[cfg(windows)]
 mod engine;
+#[cfg(any(windows, test))]
+mod daemon_start;
 #[cfg(windows)]
 mod pipe;
 #[cfg(windows)]
@@ -188,11 +190,10 @@ fn main() -> std::process::ExitCode {
     // The engine starts when the page says `ready`, and with the window
     // hidden (--background, as from the login shortcut) no page loads: after
     // asagiri-win restarted, docker got no answer until Start was pressed.
-    // Start it now. ensure_daemon runs asagiri-start only when the daemon does
-    // not answer, and asagiri-start does nothing while one runs, so a daemon
-    // already up is left alone and never doubled.
+    // Restore the daemon without clearing its persisted stopped mark. Only
+    // an explicit Start wakes an engine the user stopped.
     if background && !setup {
-        engine::send(engine::Cmd::Start);
+        engine::send(engine::Cmd::Revive);
     }
     let result = app::run(
         !background || setup,

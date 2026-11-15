@@ -383,11 +383,13 @@
       "issue": 93,
       "title": "After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
       "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
-      "coverage": "platform-gap",
+      "coverage": "partial",
       "checks": [
+        "crates/asagiri-win/src/daemon_start.rs",
+        "tests/native-window-regressions.md",
         "tests/wsl.sh"
       ],
-      "remaining": "Native Windows sleep/wake and WSL disappearance cannot be reproduced by Linux unit tests."
+      "remaining": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
     },
     {
       "issue": 94,

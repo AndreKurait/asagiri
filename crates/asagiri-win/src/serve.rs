@@ -437,13 +437,14 @@ impl Bridge {
         // WSL update), and the daemon with it. The next connection starts a
         // bridge, but nothing started the daemon: every docker command got
         // "No process is on the other end of the pipe" until Start was
-        // pressed or asagiri-win restarted. Start it now. Only for a bridge
+        // pressed or asagiri-win restarted. Restore it now, keeping the
+        // daemon's stopped mark. Only for a bridge
         // that had said hello: one that died at once (WSL still booting, or
-        // not starting at all) never did, and Start's own ping would start
+        // not starting at all) never did, and the daemon check's ping would start
         // another, and the two would chase each other.
         if self.credit.load(Ordering::SeqCst) {
             log("bridge: WSL went away; starting the engine again");
-            crate::engine::send(crate::engine::Cmd::Start);
+            crate::engine::send(crate::engine::Cmd::Revive);
         }
     }
 

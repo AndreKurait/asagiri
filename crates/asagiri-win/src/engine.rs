@@ -46,6 +46,8 @@ static LISTED: std::sync::LazyLock<std::sync::Mutex<std::time::Instant>> = std::
 pub(crate) enum Cmd {
     Start,
     Stop,
+    /// Restore daemon availability after WSL goes away, preserving Stop.
+    Revive,
     Refresh,
     Pull(String),
     RemoveImage(String),
@@ -133,6 +135,21 @@ fn state(name: &str, error: Option<&str>) -> String {
 
 fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
     watch(tx);
+    let recovery = match crate::daemon_start::recovery(
+        || crate::daemon_start::Intent::Restore.run(ensure_daemon, wake),
+        |result| {
+            if let Err(e) = result {
+                crate::serve::log(&format!("engine: could not restore the daemon: {e}"));
+            }
+            send(Cmd::Refresh);
+        },
+    ) {
+        Ok((recovery, _worker)) => Some(recovery),
+        Err(e) => {
+            crate::serve::log(&format!("engine: could not start daemon recovery worker: {e}"));
+            None
+        }
+    };
     // Windows' proxy for the daemon, now and every minute.
     std::thread::spawn(|| loop {
         send_windows_proxy();
@@ -147,7 +164,7 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
         match cmd {
             Ok(Cmd::Start) => {
                 emit(state("booting", None));
-                match ensure_daemon().and_then(|()| wake()) {
+                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
                     Ok(()) => {
                         std::thread::spawn(ensure_builder);
                         refresh();
@@ -169,6 +186,13 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
                     emit(notice("error", &e.to_string()));
                 }
                 refresh();
+            }
+            Ok(Cmd::Revive) => {
+                if let Some(recovery) = &recovery
+                    && let Err(e) = recovery.request()
+                {
+                    crate::serve::log(&format!("engine: could not queue daemon recovery: {e}"));
+                }
             }
             Ok(Cmd::Refresh) => {
                 // Events come in bursts (create, start, …): one refresh per
@@ -270,9 +294,13 @@ fn wake() -> io::Result<()> {
 /// Makes sure the daemon answers: Ubuntu uses the `asagiri` systemd service;
 /// the small Asagiri Linux distro starts /usr/local/bin/asagiri-start instead.
 pub(crate) fn ensure_daemon() -> io::Result<()> {
-    if client::alive() {
-        return Ok(());
-    }
+    static STARTING: Mutex<()> = Mutex::new(());
+    crate::daemon_start::ensure(&STARTING, client::alive, start_daemon)
+}
+
+/// Called with the startup guard held, after checking that the daemon is
+/// absent. Settings, explicit Start and background recovery share the guard.
+fn start_daemon() -> io::Result<()> {
     crate::serve::log("engine: not answering; starting it in WSL");
     // The engine this app installed, not one an update left behind.
     match crate::update::sync_engine() {
@@ -873,12 +901,9 @@ pub fn on_message(msg: &str) {
                 emit(crate::buildwith::event());
             });
             send(Cmd::Refresh);
-            // Opening the window starts Asagiri, unless it was stopped: that waits for Start.
-            std::thread::spawn(|| {
-                if !client::get("/info").is_ok_and(|i| i["AsagiriStopped"] == true) {
-                    send(Cmd::Start);
-                }
-            });
+            // A missing daemon cannot answer /info. Restore it so it can
+            // read its stopped mark; never treat that failed read as Start.
+            send(Cmd::Revive);
             // Anything newer than this build, and a staged update not yet in.
             crate::update::check_now(false);
             // For checking the page by hand in a debug build.

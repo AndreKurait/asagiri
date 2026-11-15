@@ -573,8 +573,18 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "equivalent",
-      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head."
+      "disposition": "equivalent-with-reviewed-recovery",
+      "reason": "The rebased upstream patch is equivalent to the inherited bridge-recovery change. A later review found that its Cmd::Start path undid Stop after WSL restarted. Asagiri now restores daemon availability separately from explicit wake, also on background/window startup, serializes concurrent copy/start checks, and coalesces recovery off the command loop. Pure state/concurrency regressions cover Stop preservation and retry ordering; native Windows sleep, WSL restart and end-to-end recovery remain unverified.",
+      "review_followup": {
+        "review_id": 5833930023,
+        "source_files": [
+          "crates/asagiri-win/src/daemon_start.rs",
+          "crates/asagiri-win/src/engine.rs",
+          "crates/asagiri-win/src/serve.rs",
+          "crates/asagiri-win/src/main.rs"
+        ],
+        "native_wsl_verified": false
+      }
     },
     {
       "number": 62,

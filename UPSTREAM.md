@@ -177,7 +177,7 @@ and measurement limits. These workloads also run in the versioned GHA history.
 | --- | --- |
 | #85 | Implemented streamed `docker import` from a tar/gzip file, stdin, or HTTP(S) source. Live tests cover metadata, files and links, uploads over 8 MiB, chunked bodies, execution, save/load, and rejected input. See [docker import](docs/docker-import.md). |
 | #83 | `tests/buildx-bootstrap.py` runs six fresh initial bootstraps, records a failure before trying recovery, and builds, loads, and runs an image through the managed builder. A bounded passing run does not prove the intermittent reset cannot recur. |
-| #93 | #61 is included: accepting a client obtains a live bridge, and losing a bridge that completed its handshake queues an engine start and logs the attempt. Windows suspend/resume still needs a Windows runtime test. |
+| #93 | #61 bridge recovery now restores daemon availability without waking a stopped engine; background/window startup shares that rule. Serialized startup and bounded background retries have pure regressions. Native Windows sleep and WSL restart remain unverified. |
 | #48 | Linux tests cover bind-mount inotify, default and custom seccomp, Buildx, and container persistence after restarting the daemon. These do not verify macOS updater/launchd behavior or host notifications through Virtualization.framework virtiofs. |
 | #50 | Guest console retention and #54 recovery are included. Private Linux agent-crash tests cover automatic recovery, policies, counters and writable layers. The reported macOS guest-kernel crash and recovery under its original load remain unverified. |
 | #168 | WebView2 suspend/unload behavior remains unverified and unchanged. |
