@@ -153,12 +153,8 @@ pub(super) fn upgrade(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r
         }
         Some(registration)
     } else { None };
-    let (backend, _busy) = match super::builder::connection(engine) {
-        Ok(connection) => connection,
-        Err(e) => {
-            super::api::error_with(w, e, "Connection: close\r\n")?;
-            return Ok(Next::Close);
-        }
+    let Some((backend, _busy)) = admitted(req, super::builder::connection(engine), w, r)? else {
+        return Ok(Next::Close);
     };
     let runtime = RUNTIME.as_ref().map_err(|e| error(e.to_string()))?;
     let client = w.try_clone()?;
@@ -183,6 +179,58 @@ pub(super) fn upgrade(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r
         crate::diag::debug!("BuildKit connection ended", error = error);
     }
     Ok(Next::Close)
+}
+
+type Backend = (asagiri_vmm::VsockStream, super::builder::Busy);
+
+fn admitted(req: &Request, result: Result<Backend, Error>, w: &mut UnixStream, r: &BufReader<UnixStream>) -> io::Result<Option<Backend>> {
+    let failure = match result {
+        Ok(backend) => return Ok(Some(backend)),
+        Err(failure) => failure,
+    };
+    // Buildx probes /grpc with only an HTTP upgrade when choosing its driver.
+    // A backend failure before 101 makes it create a different, unmanaged
+    // BuildKit container. Keep the native protocol available and reject its
+    // actual RPCs with the original admission error. /session has the opposite
+    // HTTP/2 direction (the client is the server), so keep its HTTP error.
+    if req.path != "/grpc" || matches!(&failure, Error::Unauthorized(_)) {
+        super::api::error_with(w, failure, "Connection: close\r\n")?;
+        return Ok(None);
+    }
+    let (code, message) = match failure {
+        Error::NotFound(message) => (5, message),
+        Error::BadRequest(message) | Error::Conflict(message) => (9, message),
+        Error::Io(error) => (14, error.to_string()),
+        Error::Unauthorized(_) => unreachable!(),
+    };
+    let runtime = RUNTIME.as_ref().map_err(|e| error(e.to_string()))?;
+    let client = w.try_clone()?;
+    let prefix = Bytes::copy_from_slice(r.buffer());
+    w.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n")?;
+    w.flush()?;
+    client.set_nonblocking(true)?;
+    let result = runtime.block_on(async {
+        let client = Prefixed { io: tokio::net::UnixStream::from_std(client)?, prefix };
+        control_admission_error(client, code, &message, Duration::from_secs(15)).await
+    });
+    if let Err(error) = result {
+        crate::diag::debug!("Rejected BuildKit connection ended", error = error);
+    }
+    Ok(None)
+}
+
+async fn control_admission_error<T>(io: T, code: u8, message: &str, timeout: Duration) -> io::Result<()>
+where T: AsyncRead + AsyncWrite + Unpin {
+    // Bound the entire rejected connection, including a peer that upgrades
+    // but never sends the HTTP/2 preface, an RPC, or a disconnect.
+    tokio::time::timeout(timeout, async {
+        let mut connection = transport::server(io).await?;
+        while let Some(request) = connection.accept().await {
+            let (_, mut respond) = request.map_err(error)?;
+            status(&mut respond, code, message)?;
+        }
+        Ok(())
+    }).await.map_err(error)?
 }
 
 #[derive(Clone)]
@@ -451,6 +499,121 @@ async fn load_image(body: RecvStream, mut respond: SendResponse<Bytes>, engine: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn failed_admission(path: &str, failure: Error) -> (BufReader<UnixStream>, std::thread::JoinHandle<io::Result<()>>) {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        client.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        let handler = std::thread::spawn(move || {
+            let mut output = server.try_clone()?;
+            let mut input = BufReader::new(server);
+            let req = http::read_request(&mut input, |_, _| false)?.expect("upgrade request");
+            assert!(admitted(&req, Err(failure), &mut output, &input)?.is_none());
+            Ok(())
+        });
+        write!(client, "POST {path} HTTP/1.1\r\nHost: asagiri\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n").unwrap();
+        (BufReader::new(client), handler)
+    }
+
+    fn upgrade_head(input: &mut BufReader<UnixStream>) -> String {
+        use std::io::BufRead;
+        let mut head = String::new();
+        loop {
+            let mut line = String::new();
+            assert!(input.read_line(&mut line).unwrap() > 0, "upgrade closed before its headers");
+            head.push_str(&line);
+            if line == "\r\n" { return head; }
+        }
+    }
+
+    fn admission_finished(handler: std::thread::JoinHandle<io::Result<()>>) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !handler.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(handler.is_finished(), "disconnected admission handler stayed alive");
+        handler.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn native_admission_failure_preserves_upgrade_and_original_grpc_error() {
+        let message = "extraction point is not a directory: /etc";
+        let (mut input, handler) = failed_admission("/grpc", Error::BadRequest(message.into()));
+        assert_eq!(upgrade_head(&mut input),
+            "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n");
+        let prefix = Bytes::copy_from_slice(input.buffer());
+        let client = input.into_inner();
+        client.set_nonblocking(true).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                let io = Prefixed { io: tokio::net::UnixStream::from_std(client).unwrap(), prefix };
+                let (client, _connection) = transport::client(io).await.unwrap();
+                for (method, end_stream) in [(WORKERS, true), (SOLVE, true), (WORKERS, false), (SOLVE, false)] {
+                    let request = H2Request::builder().method("POST").uri(format!("http://asagiri{method}"))
+                        .header("content-type", "application/grpc").body(()).unwrap();
+                    let (response, mut body) = client.clone().ready().await.unwrap().send_request(request, false).unwrap();
+                    // A complete nonempty protobuf message inside real gRPC
+                    // framing. Also leave two requests open after the DATA:
+                    // dropping their unread RecvStream must not hide the error
+                    // headers behind a reset or wait for the rest of the body.
+                    body.send_data(transport::frame(b"\x0a\x07blocked"), end_stream).unwrap();
+                    let response = response.await.unwrap();
+                    assert_eq!(response.status(), 200);
+                    assert_eq!(response.headers()["grpc-status"], "9");
+                    assert_eq!(response.headers()["grpc-message"], message);
+                    assert!(response.body().is_end_stream(), "admission error must end in response headers");
+                    assert!(response.into_body().data().await.is_none(), "rejected RPC must return no solve output");
+                    if !end_stream { body.send_reset(h2::Reason::CANCEL); }
+                }
+            }).await.expect("admission error RPC timed out");
+        });
+        drop(runtime);
+        admission_finished(handler);
+    }
+
+    #[test]
+    fn native_capability_probe_disconnect_needs_no_rpc() {
+        let (mut input, handler) = failed_admission("/grpc", Error::BadRequest("uninstalled trust policy".into()));
+        assert!(upgrade_head(&mut input).starts_with("HTTP/1.1 101 "));
+        // This is Buildx's factory probe: DialHijack succeeds, then the client
+        // closes without a gRPC handshake. It must not select another driver.
+        drop(input);
+        admission_finished(handler);
+    }
+
+    #[test]
+    fn failed_session_and_unauthorized_admissions_keep_http_errors() {
+        for (path, failure, status) in [
+            ("/session", Error::BadRequest("uninstalled trust policy".into()), 400),
+            ("/grpc", Error::Unauthorized("denied".into()), 401),
+        ] {
+            let (mut input, handler) = failed_admission(path, failure);
+            let head = upgrade_head(&mut input);
+            assert!(head.starts_with(&format!("HTTP/1.1 {status} ")), "{head}");
+            assert!(head.contains("Connection: close\r\n"));
+            let mut body = String::new();
+            input.read_to_string(&mut body).unwrap();
+            assert!(body.contains(if path == "/session" { "uninstalled trust policy" } else { "denied" }));
+            admission_finished(handler);
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_grpc_connections_have_a_total_deadline() {
+        for handshake in [false, true] {
+            let (client_io, server_io) = tokio::io::duplex(4096);
+            let mut peer = Some(client_io);
+            let mut server = transport::spawn(control_admission_error(
+                server_io, 9, "uninstalled trust policy", Duration::from_millis(50)));
+            let _client = if handshake {
+                Some(transport::client(peer.take().unwrap()).await.unwrap())
+            } else { None };
+            let failure = tokio::time::timeout(Duration::from_secs(2), &mut server.0).await
+                .expect("rejected connection outlived its deadline").unwrap().unwrap_err();
+            assert!(failure.to_string().contains("deadline"), "{failure}");
+        }
+    }
 
     #[tokio::test]
     async fn trailers_only_grpc_errors_survive_the_proxy() {
