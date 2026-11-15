@@ -5,6 +5,11 @@ accepts uncompressed tar and gzip, streamed from a file, standard input, or an
 HTTP(S) URL. Large uploads and chunked HTTP bodies are streamed to the image
 store.
 
+Image layers retain FIFOs, character and block device nodes, and their hardlinks,
+along with ownership, permission bits, timestamps and device numbers. Extraction
+creates these nodes without opening them. A special node can replace a symlink
+at its own path without changing the symlink's former target.
+
 ```sh
 docker --context asagiri export my-container > rootfs.tar
 docker --context asagiri import \
@@ -44,4 +49,5 @@ its image record is written.
 `tests/image-import.py` exercises the Docker CLI and Engine API beside the
 disposable Linux daemon used by CI. Its `--reference` mode records Docker's
 behavior separately; Asagiri must also pass the stricter check that a rejected
-import leaves no image record.
+import leaves no image record. The live suite checks special-node metadata and
+links after file, gzip, chunked and URL imports, and after `docker save/load`.
