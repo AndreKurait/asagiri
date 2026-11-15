@@ -443,7 +443,7 @@ impl Bridge {
         // not starting at all) never did, and the daemon check's ping would start
         // another, and the two would chase each other.
         if self.credit.load(Ordering::SeqCst) {
-            log("bridge: WSL went away; starting the engine again");
+            log("bridge: WSL went away; restoring the daemon");
             crate::engine::send(crate::engine::Cmd::Revive);
         }
     }

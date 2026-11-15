@@ -79,10 +79,17 @@ remain unverified by the pure state and concurrency tests.
 6. After an intentionally failed recovery, restore the test distribution
    and request Start. Confirm explicit Start wakes the engine and a
    later successful Stop remains effective.
+7. In the disposable profile, remove its managed `asagiri-build` definition
+   while the engine runs, then reopen the window or use `--background`.
+   Confirm registration returns and the saved Docker/Asagiri build choice
+   is preserved. Repeat while stopped: registration must wait for Start.
+   Record any Buildx or daemon error instead of treating it as success.
 
 The `daemon_start` unit tests cover the process-availability/wake boundary,
 overlapping startup calls, a Stop during recovery, failed attempts, and a
-bounded pending retry. They do not boot WSL or prove native sleep recovery.
+bounded pending retry. The builder fixture exercises the actual saved-choice
+policy on temporary files for running, stopped and unknown engine states.
+These tests do not run Buildx or boot WSL, or prove native sleep recovery.
 
 ## macOS: first launch and visible errors (#250)
 

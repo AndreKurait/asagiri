@@ -574,7 +574,7 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "equivalent-with-reviewed-recovery",
-      "reason": "The rebased upstream patch is equivalent to the inherited bridge-recovery change. A later review found that its Cmd::Start path undid Stop after WSL restarted. Asagiri now restores daemon availability separately from explicit wake, also on background/window startup, serializes concurrent copy/start checks, and coalesces recovery off the command loop. Pure state/concurrency regressions cover Stop preservation and retry ordering; native Windows sleep, WSL restart and end-to-end recovery remain unverified.",
+      "reason": "The rebased upstream patch is equivalent to the inherited bridge-recovery change. A later review found that its Cmd::Start path undid Stop after WSL restarted. Asagiri now restores daemon availability separately from explicit wake, also on background/window startup, serializes concurrent copy/start checks, and coalesces recovery off the command loop. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure state/concurrency regressions cover Stop preservation and retry ordering; native Windows sleep, WSL restart and end-to-end recovery remain unverified.",
       "review_followup": {
         "review_id": 5833930023,
         "source_files": [

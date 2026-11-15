@@ -29,7 +29,19 @@ pub(crate) fn ensure(starting: &Mutex<()>, alive: impl FnOnce() -> bool, start: 
     if alive() { Ok(()) } else { start() }
 }
 
-#[derive(Debug)]
+/// Register the managed builder and restore its saved preference only
+/// after a fresh, explicit running-state response. A missing daemon or
+/// unknown stopped state must not be treated as permission to start work.
+pub(crate) fn builder_if_running(stopped: io::Result<Option<bool>>, setup: impl FnOnce() -> io::Result<()>) -> io::Result<bool> {
+    if stopped? == Some(false) {
+        setup()?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct Recovery {
     pending: mpsc::SyncSender<()>,
 }
@@ -40,17 +52,18 @@ impl Recovery {
     pub(crate) fn request(&self) -> io::Result<()> {
         match self.pending.try_send(()) {
             Ok(()) | Err(mpsc::TrySendError::Full(())) => Ok(()),
-            Err(mpsc::TrySendError::Disconnected(())) => Err(io::Error::new(io::ErrorKind::NotConnected, "daemon recovery worker stopped")),
+            Err(mpsc::TrySendError::Disconnected(())) => Err(io::Error::new(io::ErrorKind::NotConnected, "background worker stopped")),
         }
     }
 }
 
 pub(crate) fn recovery(
+    name: &str,
     mut restore: impl FnMut() -> io::Result<()> + Send + 'static,
     mut finished: impl FnMut(io::Result<()>) + Send + 'static,
 ) -> io::Result<(Recovery, JoinHandle<()>)> {
     let (pending, requests) = mpsc::sync_channel(1);
-    let worker = thread::Builder::new().name("asagiri-revive".into()).spawn(move || {
+    let worker = thread::Builder::new().name(name.into()).spawn(move || {
         while requests.recv().is_ok() {
             finished(restore());
         }
@@ -118,6 +131,38 @@ mod tests {
     }
 
     #[test]
+    fn a_running_engine_registers_its_builder() {
+        let registered = AtomicBool::new(false);
+        assert!(builder_if_running(Ok(Some(false)), || {
+            registered.store(true, Ordering::SeqCst);
+            Ok(())
+        }).unwrap());
+        assert!(registered.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stopped_or_unknown_engines_skip_builder_setup() {
+        for stopped in [Some(true), None] {
+            assert!(!builder_if_running(Ok(stopped), || panic!("engine state forbids builder setup")).unwrap());
+        }
+        let error = builder_if_running(
+            Err(io::Error::new(io::ErrorKind::NotConnected, "daemon disappeared")),
+            || panic!("a failed state read forbids builder setup"),
+        ).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotConnected);
+    }
+
+    #[test]
+    fn a_builder_setup_failure_keeps_its_cause() {
+        let error = builder_if_running(
+            Ok(Some(false)),
+            || Err(io::Error::new(io::ErrorKind::PermissionDenied, "builder store is read-only")),
+        ).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "builder store is read-only");
+    }
+
+    #[test]
     fn concurrent_recovery_and_settings_checks_start_one_daemon() {
         let starting = Mutex::new(());
         let alive = AtomicBool::new(false);
@@ -127,9 +172,14 @@ mod tests {
             for _ in 0..8 {
                 scope.spawn(|| {
                     callers.wait();
-                    ensure(&starting, || alive.load(Ordering::SeqCst), || {
+                    ensure(&starting, || {
+                        assert!(matches!(starting.try_lock(), Err(std::sync::TryLockError::WouldBlock)),
+                            "the startup guard must cover the alive check");
+                        alive.load(Ordering::SeqCst)
+                    }, || {
+                        assert!(matches!(starting.try_lock(), Err(std::sync::TryLockError::WouldBlock)),
+                            "the same startup guard must cover the copy/start sequence");
                         copies.fetch_add(1, Ordering::SeqCst);
-                        thread::yield_now();
                         alive.store(true, Ordering::SeqCst);
                         Ok(())
                     }).unwrap();
@@ -187,6 +237,7 @@ mod tests {
         let (release, resume) = mpsc::channel();
         let (finished, results) = mpsc::channel();
         let (recovery, worker) = recovery(
+            "asagiri-recovery-test",
             move || {
                 let call = observed.fetch_add(1, Ordering::SeqCst);
                 entered.send(call).unwrap();

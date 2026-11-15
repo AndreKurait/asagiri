@@ -386,10 +386,11 @@
       "coverage": "partial",
       "checks": [
         "crates/asagiri-win/src/daemon_start.rs",
+        "crates/asagiri-win/src/engine.rs",
         "tests/native-window-regressions.md",
         "tests/wsl.sh"
       ],
-      "remaining": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
+      "remaining": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
     },
     {
       "issue": 94,
