@@ -46,6 +46,10 @@ const GB: u64 = 1 << 30;
 
 /// Builds running now; the idle watch never stops the builder under one.
 static BUILDS: AtomicUsize = AtomicUsize::new(0);
+// Unknown after daemon restart until the first admitted start. Only a trust
+// update with no admitted Busy lease may make an established builder pending.
+static TRUST_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// When the builder was last seen busy (Unix seconds; 0 = not seen running).
 static LAST_USE: AtomicU64 = AtomicU64::new(0);
 /// Builds with a `buildid`: (build id, builder container, work dir).
@@ -219,7 +223,7 @@ fn create(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, Error> {
     crate::diag::info!("builder created", name = name);
     let id = made["Id"].as_str().unwrap_or_default().to_owned();
     // Before its first start, whoever starts it (buildx, for one).
-    write_config(engine, &id);
+    write_config(engine, &id)?;
     Ok(id)
 }
 
@@ -228,46 +232,122 @@ fn create(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, Error> {
 /// for the daemon's own starts, so the mirror address and the cache limit
 /// are today's, not whatever the container was made with (an older Asagiri's
 /// mirror address, a bridge gateway that has since moved).
-pub fn before_start(engine: &Engine, key: &str) {
-    let Some((id, status)) = find(engine) else { return };
-    let key = key.trim_start_matches('/');
-    if status == Status::Running || !(key == container_name() || (key.len() >= 6 && id.starts_with(key))) {
-        return;
+pub fn start(engine: &Engine, key: &str) -> Result<(), Error> {
+    start_with_trust(engine, key, &TRUST_PENDING)
+}
+
+pub(super) fn start_with_trust(engine: &Engine, key: &str, pending: &std::sync::atomic::AtomicBool) -> Result<(), Error> {
+    let Some((id, _)) = find(engine) else { return engine.start(key) };
+    // Use the engine's aliases and name precedence, including short unique IDs.
+    if engine.resolve(key)? != id {
+        return engine.start(key);
     }
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
-    write_config(engine, &id);
+    // Re-read under ENSURE: engine.start returns Ok for an already-running
+    // container, which does not prove it loaded the installed trust policy.
+    if engine.with(&id, |c| c.status == Status::Running)? {
+        if pending.load(Ordering::Acquire) {
+            return Err(Error::Conflict("builder trust policy is pending; an already-running builder must be restarted before admission".into()));
+        }
+        return Ok(());
+    }
+    write_config(engine, &id)?;
+    engine.start(&id)?;
+    pending.store(false, Ordering::Release);
+    Ok(())
+}
+
+/// Buildx's docker-container driver uses exec/dial-stdio rather than /grpc.
+/// Keep ENSURE until exec_start registers the process, so a CA update cannot
+/// slip between trust admission and the active-exec check.
+pub fn before_exec(engine: &Engine, exec: &str) -> Result<Option<std::sync::MutexGuard<'static, ()>>, Error> {
+    let container = engine.with_exec(exec, |e| e.container_id.clone())?;
+    if find(engine).is_none_or(|(id, _)| id != container) { return Ok(None); }
+    let guard = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
+    if find(engine).is_none_or(|(id, _)| id != container) {
+        return Err(Error::Conflict("builder changed before exec admission".into()));
+    }
+    if TRUST_PENDING.load(Ordering::Acquire) {
+        ensure_running_locked(engine, &mut |_| {})?;
+    }
+    Ok(Some(guard))
 }
 
 /// The garbage collector's limits, for buildkitd's next start.
-fn write_config(engine: &Engine, id: &str) {
-    let archive = tar(&[("buildkit/", None), ("buildkit/buildkitd.toml", Some(config_toml(cache_limit(), &super::mirror::config(engine)).as_bytes()))]);
-    if let Err(e) = copy_in(engine, id, "/etc", &mut io::Cursor::new(archive)) {
-        crate::diag::warn!("builder config not written", error = format!("{e:?}"));
-    }
+fn write_config(engine: &Engine, id: &str) -> Result<(), Error> {
+    let policy = super::registry_config::snapshot();
+    let config = config_toml(cache_limit(), &super::mirror::config(engine, &policy));
+    let archive = config_archive(&config, &policy.settings);
+    copy_in(engine, id, "/etc", &mut io::Cursor::new(archive))?;
     if asagiri_vmm::rosetta_installed() {
         hide_amd64_qemu(engine, id);
     }
+    Ok(())
+}
+
+fn config_archive(config: &str, settings: &asagiri_image::RegistrySettings) -> Vec<u8> {
+    let files = settings.ca_certificates().values().map(|pem|
+        (super::mirror::ca_path(pem).trim_start_matches("/etc/").to_owned(), pem.as_bytes())
+    ).collect::<std::collections::BTreeMap<_, _>>();
+    let mut entries = vec![("buildkit/", None), ("buildkit/buildkitd.toml", Some(config.as_bytes()))];
+    entries.extend(files.iter().map(|(path, bytes)| (path.as_str(), Some(*bytes))));
+    tar(&entries)
+}
+
+/// Serialize CA updates with build admission. A running build retains its
+/// admitted policy; a trust change is rejected before persistence while busy.
+pub fn set_registry_config(engine: &Engine, patch: &Value) -> Result<Value, Error> {
+    let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
+    let before = super::registry_config::snapshot();
+    let after = before.patched(patch).map_err(Error::BadRequest)?;
+    let trust_changed = before.settings.ca_certificates() != after.settings.ca_certificates();
+    let builder = find(engine);
+    let execs = builder.as_ref().map_or(0, |(id, _)| engine.running_execs(id));
+    trust_update_admission(trust_changed, BUILDS.load(Ordering::Relaxed), execs)?;
+    if trust_changed {
+        if let Some((id, Status::Running)) = &builder {
+            if engine.is_paused(id) { engine.pause(id, false)?; }
+            engine.stop(id, Duration::from_secs(10))?;
+            engine.wait(id, "not-running")?;
+        }
+        TRUST_PENDING.store(true, Ordering::Release);
+    }
+    let report = super::registry_config::set(patch).map_err(Error::BadRequest)?;
+    if before != after || patch.get("registry-ca-certificates").is_some() {
+        refresh_locked(engine)?;
+    }
+    Ok(report)
+}
+
+fn trust_update_admission(changed: bool, builds: usize, execs: usize) -> Result<(), Error> {
+    if changed && (builds > 0 || execs > 0) {
+        return Err(Error::Conflict("registry CA certificates cannot change while the builder is busy; retry after builds finish".into()));
+    }
+    Ok(())
 }
 
 /// Applies a changed setting that buildkitd reads from its config (the
 /// registry mirrors): writes the file, and when the builder is running with
 /// no build under way, stops it, so the next build starts it with the new
 /// file. A build in flight keeps the old config until its next start.
-pub fn refresh(engine: &Engine) {
+pub fn refresh(engine: &Engine) -> Result<(), Error> {
     // The same lock making, starting and stopping the builder take: a build
     // cannot start while its config is being replaced.
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
-    let Some((id, status)) = find(engine) else { return };
-    write_config(engine, &id);
+    refresh_locked(engine)
+}
+
+fn refresh_locked(engine: &Engine) -> Result<(), Error> {
+    let Some((id, status)) = find(engine) else { return Ok(()) };
+    write_config(engine, &id)?;
     if status != Status::Running || BUILDS.load(Ordering::Relaxed) > 0 || engine.running_execs(&id) > 0 {
-        return;
+        return Ok(());
     }
     if engine.is_paused(&id) {
         let _ = engine.pause(&id, false);
     }
-    if let Err(e) = engine.stop(&id, Duration::from_secs(10)) {
-        crate::diag::warn!("builder not stopped after a settings change", error = format!("{e:?}"));
-    }
+    engine.stop(&id, Duration::from_secs(10))?;
+    Ok(())
 }
 
 /// BuildKit's x86-64 emulator, which it runs amd64 build steps under when it
@@ -328,17 +408,25 @@ fn ensure_running(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, 
         ensure_image(engine, say)?;
     }
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
+    ensure_running_locked(engine, say)
+}
+
+fn ensure_running_locked(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, Error> {
     let (id, status) = match find(engine) {
         Some(found) => found,
         None => (create(engine, say)?, Status::Created),
     };
-    if status != Status::Running {
-        write_config(engine, &id);
+    prepare_trust(&TRUST_PENDING, status == Status::Running, engine.running_execs(&id), || {
+        if engine.is_paused(&id) { engine.pause(&id, false)?; }
+        engine.stop(&id, Duration::from_secs(10))?;
+        engine.wait(&id, "not-running")?;
+        Ok(())
+    }, || {
+        write_config(engine, &id)?;
         say("Starting Asagiri's builder (BuildKit)");
-        engine.start(&id)?;
-    } else if engine.is_paused(&id) {
-        engine.pause(&id, false)?;
-    }
+        engine.start(&id)
+    })?;
+    if engine.is_paused(&id) { engine.pause(&id, false)?; }
     LAST_USE.store(now_secs(), Ordering::Relaxed);
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
@@ -353,6 +441,20 @@ fn ensure_running(engine: &Engine, say: &mut dyn FnMut(&str)) -> Result<String, 
         }
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// The pending bit is cleared only after installation and start succeed.
+/// ENSURE excludes trust updates and other admissions across these callbacks.
+fn prepare_trust(pending: &std::sync::atomic::AtomicBool, mut running: bool, execs: usize,
+    stop: impl FnOnce() -> Result<(), Error>, start: impl FnOnce() -> Result<(), Error>) -> Result<(), Error> {
+    if pending.load(Ordering::Acquire) && running {
+        if execs > 0 { return Err(Error::Conflict("builder trust policy is pending while an external build is active".into())); }
+        stop()?;
+        running = false;
+    }
+    if !running { start()?; }
+    pending.store(false, Ordering::Release);
+    Ok(())
 }
 
 /// Pauses the builder once it has been idle [`idle_secs`]: no build here,
@@ -1099,6 +1201,68 @@ mod tests {
 
     /// BuildKit looks the emulator up by name and skips it when it isn't
     /// executable, so the file taking its place must be a plain 0644 file.
+    #[test]
+    fn registry_ca_failed_install_stays_pending_and_identical_retry_applies() {
+        use std::cell::RefCell;
+        use std::sync::atomic::AtomicBool;
+        let pending = AtomicBool::new(true);
+        let calls = RefCell::new(Vec::new());
+        let failure = prepare_trust(&pending, true, 0,
+            || { calls.borrow_mut().push("stop"); Ok(()) },
+            || { calls.borrow_mut().push("copy-failed"); Err(Error::Io(io::Error::other("copy failed"))) });
+        assert!(failure.is_err());
+        assert!(pending.load(Ordering::Acquire));
+        assert_eq!(*calls.borrow(), ["stop", "copy-failed"]);
+        // The persisted policy may be unchanged on retry, but the pending
+        // installation still prevents admitting the old running process.
+        prepare_trust(&pending, false, 0, || panic!("already stopped"),
+            || { calls.borrow_mut().push("copy-and-start"); Ok(()) }).unwrap();
+        assert!(!pending.load(Ordering::Acquire));
+        assert_eq!(*calls.borrow(), ["stop", "copy-failed", "copy-and-start"]);
+    }
+
+    #[test]
+    fn registry_ca_pending_restart_refuses_external_work_and_stop_failure() {
+        use std::sync::atomic::AtomicBool;
+        let pending = AtomicBool::new(true);
+        assert!(prepare_trust(&pending, true, 1, || panic!("active external build"), || panic!("not stopped")).is_err());
+        assert!(pending.load(Ordering::Acquire));
+        assert!(prepare_trust(&pending, true, 0, || Err(Error::Io(io::Error::other("stop failed"))), || panic!("stop failed")).is_err());
+        assert!(pending.load(Ordering::Acquire));
+        prepare_trust(&pending, true, 0, || Ok(()), || Ok(())).unwrap();
+        assert!(!pending.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn registry_ca_changes_refuse_busy_builders_before_any_update() {
+        assert!(trust_update_admission(true, 1, 0).is_err());
+        assert!(trust_update_admission(true, 0, 1).is_err());
+        assert!(trust_update_admission(true, 0, 0).is_ok());
+        assert!(trust_update_admission(false, 2, 2).is_ok());
+    }
+
+    #[test]
+    fn registry_ca_archive_contains_exact_admitted_public_bytes() {
+        let ca = include_str!("../../../asagiri-image/tests/fixtures/registry-ca/ca.pem");
+        let policy = asagiri_image::RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), ca.into())].into()).unwrap();
+        let config = format!("[registry.\"registry.example\"]\nca = [\"{}\"]\n", super::super::mirror::ca_path(ca));
+        let bytes = config_archive(&config, &policy);
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let mut files = std::collections::BTreeMap::new();
+        for item in archive.entries().unwrap() {
+            let mut item = item.unwrap();
+            if item.header().entry_type().is_file() {
+                let name = item.path().unwrap().into_owned();
+                let mut bytes = Vec::new(); item.read_to_end(&mut bytes).unwrap();
+                assert!(files.insert(name, bytes).is_none());
+            }
+        }
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[std::path::Path::new("buildkit/buildkitd.toml")], config.as_bytes());
+        let path = super::super::mirror::ca_path(ca);
+        assert_eq!(files[std::path::Path::new(path.trim_start_matches("/etc/"))], ca.as_bytes());
+    }
+
     #[test]
     fn hidden_amd64_emulator_is_not_executable() {
         let archive = tar(&[(AMD64_QEMU, Some(&[]))]);

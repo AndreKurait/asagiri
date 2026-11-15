@@ -13,6 +13,7 @@ enum Rule {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegistrySettings {
     insecure: Vec<String>,
+    ca_certificates: std::collections::BTreeMap<String, String>,
     rules: Vec<Rule>,
     downloads: usize,
     uploads: usize,
@@ -20,7 +21,7 @@ pub struct RegistrySettings {
 
 impl Default for RegistrySettings {
     fn default() -> Self {
-        Self { insecure: Vec::new(), rules: Vec::new(), downloads: 4, uploads: 5 }
+        Self { insecure: Vec::new(), ca_certificates: Default::default(), rules: Vec::new(), downloads: 4, uploads: 5 }
     }
 }
 
@@ -81,6 +82,29 @@ impl RegistrySettings {
         Ok(out)
     }
 
+    /// Explicit HTTPS authority trust. Certificate bytes are part of policy identity,
+    /// so replacing a bundle also replaces connection pools and builder config.
+    pub fn with_ca_certificates(mut self, bundles: &std::collections::BTreeMap<String, String>) -> Result<Self, String> {
+        if bundles.len() > 16 || bundles.values().map(String::len).sum::<usize>() > 48 * 1024 {
+            return Err("registry-ca-certificates exceeds 16 authorities or 48 KiB".into());
+        }
+        self.ca_certificates.clear();
+        for (host, pem) in bundles {
+            let host = https_authority(host)?;
+            if self.allows_insecure(&host) || self.allows_insecure(&format!("{host}:443"))
+                || self.authorities().any(|a| https_authority(a).ok().as_ref() == Some(&host)) {
+                return Err("registry CA authority cannot also be insecure".into());
+            }
+            ca_roots(pem)?;
+            if self.ca_certificates.insert(host, pem.clone()).is_some() {
+                return Err("duplicate normalized registry CA authority".into());
+            }
+        }
+        Ok(self)
+    }
+
+    pub fn ca_certificates(&self) -> &std::collections::BTreeMap<String, String> { &self.ca_certificates }
+
     pub fn insecure_registries(&self) -> &[String] { &self.insecure }
     pub fn max_downloads(&self) -> usize { self.downloads }
     pub fn max_uploads(&self) -> usize { self.uploads }
@@ -101,9 +125,97 @@ impl RegistrySettings {
     }
 }
 
+/// TLS authorities use the effective HTTPS port; no suffix or DNS matching.
+pub(crate) fn https_authority(input: &str) -> Result<String, String> {
+    let normalized = authority(input)?;
+    let parsed: ureq::http::uri::Authority = normalized.parse().map_err(|_| "invalid HTTPS authority")?;
+    let host = parsed.host();
+    match parsed.port_u16() {
+        None | Some(443) => Ok(host.to_owned()),
+        Some(port) => Ok(format!("{host}:{port}")),
+    }
+}
+
+pub(crate) fn ca_roots(pem: &str) -> Result<ureq::tls::RootCerts, String> {
+    // Validate the original bytes, also read by BuildKit's Go PEM parser.
+    // Trimming before a BEGIN marker would admit a root Go silently skips.
+    let mut lines = pem.split_inclusive('\n');
+    let mut offset = 0;
+    let mut certs = Vec::new();
+    let mut store = rustls::RootCertStore::empty();
+    while let Some(line) = lines.next() {
+        let start = offset;
+        offset += line.len();
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.bytes().all(|b| matches!(b, b' ' | b'\t')) { continue; }
+        if line != "-----BEGIN CERTIFICATE-----" {
+            return Err("registry CA bundle must contain only PEM certificates with unindented boundary lines".into());
+        }
+        let mut complete = false;
+        for line in lines.by_ref() {
+            offset += line.len();
+            let line = line.strip_suffix('\n').unwrap_or(line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line == "-----END CERTIFICATE-----" {
+                complete = true;
+                break;
+            }
+            if !line.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/= \t".contains(&b)) {
+                return Err("registry CA certificate must contain base64 and an unindented END line".into());
+            }
+        }
+        if !complete { return Err("unterminated registry CA certificate".into()); }
+        let cert = ureq::tls::Certificate::from_pem(&pem.as_bytes()[start..offset]).map_err(|e| format!("invalid registry CA PEM: {e}"))?;
+        store.add(rustls::pki_types::CertificateDer::from(cert.der())).map_err(|e| format!("invalid registry CA certificate: {e}"))?;
+        certs.push(cert);
+        if certs.len() > 32 { return Err("at most 32 registry CA certificates per authority".into()); }
+    }
+    if certs.is_empty() { return Err("registry CA bundle is empty".into()); }
+    Ok(certs.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ca_bundles_are_validated_and_normalized_without_broadening_trust() {
+        let ca = include_str!("../tests/fixtures/registry-ca/ca.pem");
+        let policy = RegistrySettings::default().with_ca_certificates(&[("Registry.Example:443".into(), ca.into())].into()).unwrap();
+        assert!(policy.ca_certificates().contains_key("registry.example"));
+        assert_eq!(https_authority("Registry.Example:0443").unwrap(), "registry.example");
+        assert_eq!(https_authority("[::1]:443").unwrap(), "[::1]");
+        assert_eq!(https_authority("registry.example:05000").unwrap(), "registry.example:5000");
+        let private_key = rcgen::KeyPair::generate().unwrap().serialize_pem();
+        for pem in ["", "garbage", "-----BEGIN CERTIFICATE-----\nYmFk\n-----END CERTIFICATE-----", &private_key] {
+            assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem.into())].into()).is_err());
+        }
+        for host in ["https://registry.example", "*.example", "user@registry.example", "registry.example/path"] {
+            assert!(RegistrySettings::default().with_ca_certificates(&[(host.into(), ca.into())].into()).is_err());
+        }
+        assert!(RegistrySettings::new(&["registry.example:443".into()], 4, 5).unwrap()
+            .with_ca_certificates(&[("registry.example".into(), ca.into())].into()).is_err());
+        assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), ca.into()), ("registry.example:443".into(), ca.into())].into()).is_err());
+        let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
+        assert_ne!(policy, RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), other.into())].into()).unwrap());
+    }
+
+    #[test]
+    fn ca_bundles_keep_complete_pem_lines_for_engine_and_buildkit() {
+        let ca = include_str!("../tests/fixtures/registry-ca/ca.pem");
+        let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
+        for pem in [ca.to_owned(), ca.replace('\n', "\r\n"), format!("\n \t\n{other}\n{ca}\n")] {
+            let policy = RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem.clone())].into()).unwrap();
+            assert_eq!(policy.ca_certificates()["registry.example"], pem);
+        }
+        // Go's PEM reader skips an indented BEGIN line. Accepting it here
+        // would give the engine a root that BuildKit never loads.
+        for pem in [format!(" {ca}"), format!("\t{ca}"), format!("{other} \t{ca}"),
+            format!("{}{ca}", other.trim_end()), ca.replace("\n-----END", "\n -----END")] {
+            assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem)].into()).is_err());
+        }
+    }
 
     #[test]
     fn explicit_authorities_are_exact_and_networks_only_match_literal_ips() {

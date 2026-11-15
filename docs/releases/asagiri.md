@@ -95,6 +95,16 @@ exceptions apply only to the configured authorities or literal IP ranges.
 Real HTTP, authenticated HTTP, self-signed HTTPS, policy revocation, and
 parallel transfer checks run against private registry fixtures.
 
+Private HTTPS registries can also use `registry-ca-certificates` to trust an
+explicit certificate authority while retaining chain, hostname and expiry
+verification. The engine and managed BuildKit receive the same certificate
+bytes, and a changed policy replaces the engine's connection pools. Trust
+changes are rejected before persistence while builds are active. A failed
+BuildKit configuration update remains pending until installation and startup
+succeed. Invalid or oversized bundles are rejected before changing the builder
+or saved settings. See [registry CA certificates](../registry-ca-certificates.md) for
+the authority scope, accepted PEM format and client boundaries.
+
 Stopped-container archive requests now finish after their worker releases
 its mounts. Linux service recovery also reclaims stale and stacked mounts
 when the old cgroups have already been removed, preserving container data.
