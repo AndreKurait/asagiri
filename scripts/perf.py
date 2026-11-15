@@ -16,20 +16,60 @@ Only the standard library, so it runs on any machine with Python 3.
 """
 
 import argparse
+import hashlib
 import http.client
+import io
 import json
 import math
 import os
+import platform
 import re
 import signal
 import socket
 import statistics
 import subprocess
 import sys
+import tarfile
 import time
 
 IMAGE = "alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"
-WORKLOAD = "linux-engine-v2"
+WORKLOAD = "linux-engine-v3"
+TIMINGS = ("run", "ping", "list", "create", "copy")
+METADATA_TAG = "asagiri-perf-metadata:v1"
+
+
+def tar_bytes(entries):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for name, data in entries.items():
+            member = tarfile.TarInfo(name)
+            member.mode = 0o644
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+    return output.getvalue()
+
+
+def fixtures(architecture):
+    """Deterministic OCI metadata and a 4 KiB file; no registry or clock input."""
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}.get(architecture, architecture)
+    config = json.dumps({
+        "architecture": architecture, "os": "linux",
+        "config": {"Cmd": ["true"], "StopSignal": "SIGTERM"},
+        "rootfs": {"type": "layers", "diff_ids": []},
+        "history": [{"created_by": "RUN " + "x" * 512, "empty_layer": True} for _ in range(128)],
+    }, sort_keys=True, separators=(",", ":")).encode()
+    checksum = hashlib.sha256(config).hexdigest()
+    name = checksum + ".json"
+    image = tar_bytes({name: config, "manifest.json": json.dumps([{
+        "Config": name, "RepoTags": [METADATA_TAG], "Layers": [],
+    }], sort_keys=True, separators=(",", ":")).encode()})
+    upload = tar_bytes({"asagiri-perf-copy": b"x" * 4096})
+    identities = {
+        "config_sha256": checksum, "config_bytes": len(config), "history_entries": 128,
+        "copy_sha256": hashlib.sha256(upload).hexdigest(), "copy_payload_bytes": 4096,
+        "copy_tar_bytes": len(upload),
+    }
+    return image, upload, identities
 
 # What fails a pull request: worse than main by more than both the share
 # and the amount. The amount keeps tiny numbers' noise from failing a
@@ -65,8 +105,8 @@ class Engine:
         self.conn = UnixHTTP(sock)
 
     def call(self, method, path, body=None, want=(200, 201, 204, 304)):
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {"Content-Type": "application/json"} if data is not None else {}
+        data = body if isinstance(body, bytes) else json.dumps(body).encode() if body is not None else None
+        headers = {"Content-Type": "application/x-tar" if isinstance(body, bytes) else "application/json"} if data is not None else {}
         for attempt in range(2):
             try:
                 self.conn.request(method, path, body=data, headers=headers)
@@ -88,8 +128,22 @@ class Engine:
         wait for the exit, remove."""
         cid = json.loads(self.call("POST", "/containers/create", {"Image": IMAGE, "Cmd": ["true"]}))["Id"]
         self.call("POST", f"/containers/{cid}/start")
-        self.call("POST", f"/containers/{cid}/wait")
+        status = json.loads(self.call("POST", f"/containers/{cid}/wait"))["StatusCode"]
+        if status != 0:
+            raise RuntimeError(f"Benchmark container exited with {status}")
         self.call("DELETE", f"/containers/{cid}?force=1")
+
+    def create_once(self):
+        """Create/remove with a large OCI history, without starting a process."""
+        cid = json.loads(self.call("POST", "/containers/create", {
+            "Image": METADATA_TAG, "Cmd": ["true"], "HostConfig": {"NetworkMode": "none"},
+        }))["Id"]
+        self.call("DELETE", f"/containers/{cid}?force=1&v=1")
+
+    def copy_once(self):
+        """A framed upload followed by a request on the same pooled client."""
+        self.call("PUT", f"/containers/{self.copy_container}/archive?path=/tmp", self.copy_archive)
+        self.call("GET", "/_ping")
 
     def rss_kib(self):
         with open(f"/proc/{self.pid}/status") as f:
@@ -154,22 +208,39 @@ def syscalls_per_run(e, runs):
 
 def bench(a):
     base, head = Engine(a.base), Engine(a.head)
+    image_archive, copy_archive, identities = fixtures(platform.machine())
     for e in (base, head):
         wait_ready(e)
         pulled = e.call("POST", f"/images/create?fromImage={IMAGE}")
         for line in pulled.splitlines():
             if json.loads(line).get("error"):
                 raise RuntimeError(f"Benchmark image pull failed: {line!r}")
+        loaded = e.call("POST", "/images/load", image_archive)
+        for line in loaded.splitlines():
+            if json.loads(line).get("error"):
+                raise RuntimeError(f"Benchmark fixture load failed: {line!r}")
+        e.copy_archive = copy_archive
+        e.copy_container = json.loads(e.call("POST", "/containers/create", {
+            "Image": IMAGE, "Cmd": ["sleep", "3600"], "HostConfig": {"NetworkMode": "none"},
+        }))["Id"]
+        e.call("POST", f"/containers/{e.copy_container}/start")
         for _ in range(10):  # warm: first runs fill caches
             e.run_once()
+            e.create_once()
+            e.copy_once()
+        copied = e.call("GET", f"/containers/{e.copy_container}/archive?path=/tmp/asagiri-perf-copy")
+        with tarfile.open(fileobj=io.BytesIO(copied)) as archive:
+            members = archive.getmembers()
+            if len(members) != 1 or archive.extractfile(members[0]).read() != b"x" * 4096:
+                raise RuntimeError("Benchmark upload did not preserve its payload")
     time.sleep(3)
     res = {"base": {}, "head": {}, "workload": {
         "id": WORKLOAD, "image": IMAGE, "runs": a.runs, "warmup_runs": 10,
-        "syscall_runs": 20 if a.strace else 0,
+        "syscall_runs": 20 if a.strace else 0, "fixtures": identities,
     }, "limits": LIMITS}
     for name, e in (("base", base), ("head", head)):
         res[name]["rss_idle"] = e.rss_kib()
-    samples = {k: {"base": [], "head": []} for k in ("run", "ping", "list")}
+    samples = {k: {"base": [], "head": []} for k in TIMINGS}
     for i in range(a.runs):
         # Alternate which goes first, so neither always gets the warmer turn.
         order = ((("base", base), ("head", head)) if i % 2 == 0 else (("head", head), ("base", base)))
@@ -177,6 +248,8 @@ def bench(a):
             samples["ping"][name].append(timed(lambda: e.call("GET", "/_ping")))
             samples["list"][name].append(timed(lambda: e.call("GET", "/containers/json?all=1")))
             samples["run"][name].append(timed(e.run_once))
+            samples["create"][name].append(timed(e.create_once))
+            samples["copy"][name].append(timed(e.copy_once))
     for k, v in samples.items():
         for name in ("base", "head"):
             res[name][k] = summary(v[name])
@@ -188,6 +261,9 @@ def bench(a):
     res["samples_ms"] = samples
     with open(a.out, "w") as f:
         json.dump(res, f, indent=2)
+    for e in (base, head):
+        e.call("DELETE", f"/containers/{e.copy_container}?force=1&v=1")
+        e.conn.close()
 
 
 def sizes(a):
@@ -225,7 +301,10 @@ def report(a):
         rows.append(f"| {label} | {fmt(base)} {unit} | {fmt(head)} {unit} | {'+' if d >= 0 else ''}{fmt(d)} {unit} ({pct:+.1f}%){mark} |")
 
     ms = lambda v: f"{v:.3f}"
-    for key, label in (("run", "docker run --rm alpine true"), ("ping", "GET /_ping"), ("list", "GET /containers/json")):
+    for key, label in (("run", "docker run --rm alpine true"), ("ping", "GET /_ping"), ("list", "GET /containers/json"),
+                       ("create", "Create/remove with 128-entry OCI history"), ("copy", "4 KiB upload and pooled ping")):
+        if key not in res["base"]:
+            continue
         b, h = res["base"][key], res["head"][key]
         row(f"{label}, median", key, b["median"], h["median"], "ms", ms)
         row(f"{label}, p95", key + "_p95", b["p95"], h["p95"], "ms", ms)
@@ -244,6 +323,14 @@ def report(a):
     print("|---|---|---|---|")
     print("\n".join(rows))
     print()
+    if res.get("samples_ms"):
+        print("Paired diagnostics use each adjacent base/head measurement. They do not change the gates above.\n")
+        print("| Timing | Median paired head − base | Head faster pairs |")
+        print("|---|---|---|")
+        for key, sides in res["samples_ms"].items():
+            differences = [head - base for base, head in zip(sides["base"], sides["head"], strict=True)]
+            print(f"| {key} | {statistics.median(differences):+.3f} ms | {sum(d < 0 for d in differences)}/{len(differences)} |")
+        print()
     if failed:
         print(f"**Slower than main:** {', '.join(failed)}. Limits are in `scripts/perf.py` (`LIMITS`).")
     else:

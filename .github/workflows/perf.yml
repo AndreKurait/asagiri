@@ -22,6 +22,11 @@ on:
       baseline:
         description: Optional full main-ancestor commit to compare (same commit runs a noise control)
         type: string
+      harness:
+        description: Harness for this experiment; current can measure older commits with new metrics
+        type: choice
+        options: [baseline, current]
+        default: baseline
 
 permissions:
   contents: read
@@ -113,8 +118,14 @@ jobs:
         if: steps.binaries.outputs.changed == 'true' || github.event_name != 'pull_request'
         env:
           PR: ${{ github.event.pull_request.number }}
+          REQUESTED_HARNESS: ${{ inputs.harness }}
         run: |
           scripts=base/scripts
+          # Only the separately named manual experiment can select the current
+          # harness. PR and push regression checks retain baseline-owned limits.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$REQUESTED_HARNESS" = current ]; then
+            scripts=head/scripts
+          fi
           [ -f "$scripts/perf.py" ] || scripts=head/scripts
           echo "harness=$(git -C "${scripts%/scripts}" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           set +e

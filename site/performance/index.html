@@ -37,6 +37,8 @@
             <option value="run_ms">Container startup · median</option><option value="run_p95_ms">Container startup · p95</option>
             <option value="ping_ms">API ping · median</option><option value="ping_p95_ms">API ping · p95</option>
             <option value="list_ms">Container list · median</option><option value="list_p95_ms">Container list · p95</option>
+            <option value="create_ms">Large image config · create/remove median</option><option value="create_p95_ms">Large image config · create/remove p95</option>
+            <option value="copy_ms">4 KiB upload and ping · median</option><option value="copy_p95_ms">4 KiB upload and ping · p95</option>
             <option value="rss_idle_kib">Idle daemon memory</option><option value="rss_after_kib">Daemon memory after runs</option>
             <option value="syscalls">Daemon system calls per container</option><option value="engine_bytes">Engine binary size</option><option value="init_bytes">Agent binary size</option>
           </select></label>
@@ -60,6 +62,7 @@
       <aside class="performance-method">
         <h2>What these numbers cover</h2>
         <p>The Linux check warms both engines, then alternates 400 requests of each kind between the baseline and the tested commit. Daemon system calls use 20 additional container lifecycles; already-running agent processes are outside that trace. The gate compares medians, daemon memory and system calls against the paired baseline; p95 and binary size are tracked without a failure threshold.</p>
+        <p>Workload v3 also tracks create/remove with a 70,923-byte image config and a 4 KiB upload followed by a pooled API ping. These two measurements are informational while their history develops. They are available in v3 runner groups.</p>
         <p>Shared runners have noise. Absolute values are observations on that runner, and a failed comparison needs investigation. These checks do not measure Mac VM startup, Rosetta, Windows WSL, cold image downloads or application workloads.</p>
         <p>The dashboard shows the latest 500 archived runs; the raw archive retains every published record. A main push measures its resulting commit. Intermediate commits in a multi-commit push are not measured separately. PR results remain in their GHA artifacts.</p>
       </aside>
