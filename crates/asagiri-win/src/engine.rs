@@ -141,7 +141,7 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
         "asagiri-builder",
         || crate::daemon_start::builder_if_running(
             client::get_background("/info").map(|info| info["AsagiriStopped"].as_bool()),
-            || crate::builds::builder().map(drop),
+            || crate::builds::restore_builder().map(drop),
         ).map(drop),
         |result| {
             if let Err(e) = result {
