@@ -263,6 +263,21 @@ jobs:
           mkdir -p target/release-guest
           tar -cSzf target/release-guest/guest-assets.tar.gz -C guest/out Image x86_64/bzImage data.img
           sh scripts/ci/kernel-source.sh target/release-guest/asagiri-kernel-source.tar.xz
+      - name: Verify loop filesystems in both packaged guest kernels
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            qemu-system-arm qemu-system-x86 e2fsprogs
+          mkdir -p guest/out
+          tar -xzf target/release-guest/guest-assets.tar.gz -C guest/out Image x86_64/bzImage
+          python3 tests/kernel-loop.py --output "$RUNNER_TEMP/guest-loop"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: guest-loop
+          path: ${{ runner.temp }}/guest-loop
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: guest-assets
