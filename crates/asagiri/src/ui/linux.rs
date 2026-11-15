@@ -56,6 +56,12 @@ pub mod update {
 
     const BY_APT: &str = "on Linux, Asagiri updates with your other packages (apt or dnf)";
 
+    fn update_note() -> io::Error {
+        io::Error::other(if crate::hostaccess::appdir().is_some() {
+            "download a newer AppImage to update the window; update an existing engine with its package manager or replace both installed engine executables while its service is stopped"
+        } else { BY_APT })
+    }
+
     #[derive(serde::Serialize)]
     pub struct Release {
         pub version: String,
@@ -68,11 +74,11 @@ pub mod update {
     }
 
     pub fn latest() -> io::Result<Release> {
-        Err(io::Error::other(BY_APT))
+        Err(update_note())
     }
 
     pub fn download(_: &Release, _: &mut dyn FnMut(u64, Option<u64>), _: &AtomicBool) -> io::Result<()> {
-        Err(io::Error::other(BY_APT))
+        Err(update_note())
     }
 
     pub fn staged() -> Option<String> {
@@ -80,7 +86,7 @@ pub mod update {
     }
 
     pub fn install_staged() -> io::Result<String> {
-        Err(io::Error::other(BY_APT))
+        Err(update_note())
     }
 
     pub fn app() -> io::Result<PathBuf> {
@@ -135,8 +141,6 @@ pub mod onboarding {
     use std::process::{Command, Stdio};
 
     const SOCKET: &str = crate::client::SERVICE_SOCKET;
-    /// The package's command; pkexec wants a full path.
-    const ASAGIRI: &str = "/usr/bin/asagiri";
 
     /// Each check's state for the page: "ok", "no" (fix it), "bad" (broken:
     /// fix it), "off" (can't tell until an earlier one passes) or "restart"
@@ -146,7 +150,8 @@ pub mod onboarding {
     pub fn checks() -> serde_json::Value {
         let installed = ["/lib/systemd/system/asagiri.service", "/usr/lib/systemd/system/asagiri.service", "/etc/systemd/system/asagiri.service"]
             .iter()
-            .any(|p| Path::new(p).exists());
+            .any(|p| Path::new(p).exists())
+            || crate::hostaccess::appdir().is_some();
         let (running, access) = match std::os::unix::net::UnixStream::connect(SOCKET) {
             Ok(_) => ("ok", "ok"),
             // The engine is there; this session may not use it. In the group
@@ -219,7 +224,18 @@ pub mod onboarding {
         if which("pkexec").is_none() {
             return Err(io::Error::other(format!("this system has no pkexec to ask for your password: in a terminal, run  sudo asagiri host-access {}", user())));
         }
-        let out = Command::new("pkexec").args([ASAGIRI, "host-access", &user()]).stdin(Stdio::null()).output()?;
+        // A user's FUSE mount need not be accessible to root. Start the
+        // original AppImage so its runtime prepares a mount for this process.
+        let mut command = Command::new("pkexec");
+        match std::env::var_os("APPIMAGE").filter(|_| crate::hostaccess::appdir().is_some()) {
+            Some(appimage) => {
+                // The explicit setup command must work even when this
+                // window was launched with the runtime's extraction flag.
+                command.arg(appimage).arg("--appimage-extract-and-run");
+            }
+            None => { command.arg("/usr/bin/asagiri"); }
+        }
+        let out = command.args(["host-access", &user()]).stdin(Stdio::null()).output()?;
         match out.status.code() {
             Some(0) | Some(10) => Ok(()),
             // pkexec: 126 the dialog was dismissed or the password refused, 127 not allowed.

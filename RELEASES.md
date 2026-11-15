@@ -27,8 +27,8 @@ from the trusted default branch, requires the source in main's history, and
 stops after three release attempts. Package, integrity, upload, and canceled
 failures require investigation rather than an automatic retry.
 
-The pipeline builds Linux packages and static engines on native x86_64 and
-arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
+The pipeline builds Linux packages, static engines and AppImages on native
+x86_64 and arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
 x86_64 and arm64 installers and ZIP bundles. It runs release-version unit
 tests, Linux live tests, Linux package installation/removal, app signature and
 DMG verification, and MSI installation/removal on x86_64 and Arm Windows
@@ -36,6 +36,14 @@ runners without starting WSL. Windows Arm packages are cross-built and then
 installed on a GitHub-hosted Windows Arm runner. Installer logs are retained
 for both architectures. Native VM and WSL runtime checks remain separate;
 see the platform limits in the release notes.
+
+The AppImages include the GTK window and pinned runtime source archives.
+Their checks cover extracted binary hashes, CLI execution without FUSE,
+desktop metadata, library resolution and a GTK window under a private X
+server. Both architecture assets are required before publication. Older source
+releases retain their original package contract during publication recovery.
+See [AppImage packaging](packaging/README.md#linux-appimage) for host requirements
+and the limits of the headless check.
 
 Publication is the last step: require the complete asset set, validate feed
 versions and hashes, write `SHA256SUMS` and `release-manifest.json`, attest the

@@ -222,6 +222,13 @@ Choose the download for your system:
   bundles the Docker CLI, Compose, and buildx; `asagiri-lite` contains the
   engine. These packages currently provide the command line interface.
   Static engine tarballs are also included.
+  The AppImage for x86_64 or aarch64 includes the GTK window, static engine and
+  agent. It requires the host's GTK 3, WebKitGTK 4.1 and glibc 2.36 or later;
+  Docker CLI tools remain separate. The window's explicit host setup preserves
+  existing services and installed executables. Use `APPIMAGE_EXTRACT_AND_RUN=1`
+  where FUSE is unavailable. CI checks extraction, CLI execution, bundled
+  runtime source and a headless GTK launch; real desktop authorization and FUSE
+  mounting remain unverified.
 - **macOS:** the DMG for Apple Silicon (`arm64`) or Intel (`x86_64`).
   Default builds are ad hoc signed and are **not notarized by Apple**.
   The release workflow supports Developer ID signing and notarization when
