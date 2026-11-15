@@ -2667,8 +2667,9 @@ fn wait(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
     // and only then start the container.
     http::begin_stream(w, 200, "application/json")?;
     let condition = req.query("condition").unwrap_or("not-running");
-    let body = match engine.wait(&id, condition) {
-        Ok(code) => json!({"StatusCode": code, "Error": null}),
+    let body = match engine.wait_connected(&id, condition, || disconnected(w)) {
+        Ok(Some(code)) => json!({"StatusCode": code, "Error": null}),
+        Ok(None) => return Ok(Next::Close),
         Err(_) => json!({"StatusCode": 0, "Error": null}),
     };
     http::chunk(w, format!("{body}\n").as_bytes())?;
@@ -2708,7 +2709,8 @@ fn attach(req: &Request, engine: &Arc<Engine>, key: &str, w: &mut UnixStream, r:
         forward_stdin(engine.clone(), id, r, close, tty.then_some(keys), Some(stopped.clone()))?;
     }
     let mut result = Ok(());
-    output.pump(stopped.as_deref(), |stream, data| {
+    let client = w.try_clone()?;
+    output.pump_until(|| disconnected(&client) || stopped.as_ref().is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed)), |stream, data| {
         let wanted = match stream { Stream::Stdout => want_out, Stream::Stderr => want_err };
         if !wanted { return Ok(()); }
         let sent = if tty { io::Write::write_all(w, data) } else { http::mux_frame(w, stream as u8, data) };
@@ -2947,7 +2949,7 @@ fn logs(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
     http::chunk(w, &out)?;
     out.clear();
     if let (Some(rx), false) = (logs.live, ended) {
-        'live: while let Ok(r) = rx.recv() {
+        'live: while let Some(r) = receive_connected(&rx, w) {
             let mut next = Some(r);
             // Whatever else is already waiting goes in the same chunk.
             while let Some(r) = next {
@@ -2964,6 +2966,27 @@ fn logs(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
     }
     http::end(w)?;
     Ok(Next::KeepAlive)
+}
+
+/// HUP means the peer closed both halves. A write-half-close alone must
+/// still receive its wait/log response; checking read EOF would drop it.
+fn disconnected(stream: &UnixStream) -> bool {
+    let mut fd = libc::pollfd { fd: stream.as_raw_fd(), events: 0, revents: 0 };
+    // SAFETY: one valid descriptor, no timeout and no borrowed buffer.
+    (unsafe { libc::poll(&mut fd, 1, 0) }) > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+}
+
+fn receive_connected<T>(rx: &std::sync::mpsc::Receiver<T>, stream: &UnixStream) -> Option<T> {
+    loop {
+        if disconnected(stream) {
+            return None;
+        }
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(value) => return Some(value),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+        }
+    }
 }
 
 /// `KILL`, `SIGTERM`, `9` … as a Linux signal number: it is delivered in
@@ -3806,6 +3829,24 @@ mod tests {
         }
         // A stop signal Docker would not parse stops with SIGTERM.
         assert_eq!(signal("BOGUS"), 15);
+    }
+
+    #[test]
+    fn disconnected_distinguishes_half_close_from_full_close() {
+        let (server, client) = UnixStream::pair().unwrap();
+        assert!(!disconnected(&server));
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        assert!(!disconnected(&server));
+        drop(client);
+        assert!(disconnected(&server));
+    }
+
+    #[test]
+    fn quiet_stream_releases_a_disconnected_client() {
+        let (server, client) = UnixStream::pair().unwrap();
+        let (_tx, rx) = std::sync::mpsc::channel::<()>();
+        drop(client);
+        assert_eq!(receive_connected(&rx, &server), None);
     }
 
     /// Reads a socket as `forward_stdin` does, reporting each read's length.

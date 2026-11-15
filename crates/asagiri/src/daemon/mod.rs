@@ -95,7 +95,26 @@ fn raise_open_files() {
     }
 }
 
+fn connection_limit(value: Option<&str>) -> io::Result<usize> {
+    let Some(value) = value else { return Ok(256) };
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        if let Ok(limit @ 1..=4096) = value.parse::<usize>() {
+            return Ok(limit);
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::InvalidInput, "ASAGIRI_MAX_CONNECTIONS must be an integer from 1 to 4096"))
+}
+
 pub fn run(_args: &[String]) -> io::Result<()> {
+    let configured_limit = std::env::var("ASAGIRI_MAX_CONNECTIONS").map_err(|e| match e {
+        std::env::VarError::NotPresent => io::Error::new(io::ErrorKind::NotFound, e),
+        _ => io::Error::new(io::ErrorKind::InvalidInput, e),
+    });
+    let max_open_conns = match configured_limit {
+        Ok(value) => connection_limit(Some(&value))?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => connection_limit(None)?,
+        Err(e) => return Err(e),
+    };
     let t0 = Instant::now();
     raise_open_files();
     // SIGINT/SIGTERM shut down cleanly: power the guest off, remove the socket.
@@ -235,7 +254,6 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     // cap the open ones, so a local flood cannot pile up threads without
     // bound. Reads are bounded in `api::serve` too.
     static OPEN_CONNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    const MAX_OPEN_CONNS: usize = 256;
     struct ReleaseOpenConn;
     impl Drop for ReleaseOpenConn {
         fn drop(&mut self) {
@@ -244,9 +262,9 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     }
     for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
-        if OPEN_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= MAX_OPEN_CONNS {
+        if OPEN_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= max_open_conns {
             OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            diag::warn!("too many open connections; the new one was not served", limit = MAX_OPEN_CONNS);
+            diag::warn!("too many open connections; the new one was not served", limit = max_open_conns);
             continue;
         }
         let engine = engine.clone();
@@ -447,5 +465,21 @@ mod tests {
         let docker = group_id(std::ffi::OsStr::new("docker")).unwrap();
         assert_eq!((meta.uid(), meta.gid(), meta.mode() & 0o777), (0, docker.unwrap_or(0), 0o660));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod connection_limit_tests {
+    use super::connection_limit;
+
+    #[test]
+    fn bounds_and_default_are_explicit() {
+        assert_eq!(connection_limit(None).unwrap(), 256);
+        for value in ["1", "256", "1024", "4096"] {
+            assert_eq!(connection_limit(Some(value)).unwrap(), value.parse::<usize>().unwrap());
+        }
+        for value in ["", "0", "4097", "-1", "+1", " 256", "256 ", "unlimited", "184467440737095516160"] {
+            assert_eq!(connection_limit(Some(value)).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        }
     }
 }
