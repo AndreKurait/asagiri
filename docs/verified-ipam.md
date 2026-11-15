@@ -40,7 +40,9 @@ concurrent API requests and Docker's behavior are outside that proof. Rust
 regressions compare the actual adapter with an exhaustive set-membership
 oracle and exercise both real allocation methods, including dense networks
 whose IPv6 subnet ends at `u128::MAX`. Live Docker API tests cover network
-integration. This is a specific correctness proof, not a blanket Docker
+integration, including Docker's HTTP 500 response for exhausted automatic
+pools and a successful start/connect retry after an address is released.
+This is a specific correctness proof, not a blanket Docker
 compatibility or wall-clock performance guarantee.
 
 ## Reproduce

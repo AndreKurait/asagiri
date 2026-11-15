@@ -106,9 +106,20 @@ def check(path, image):
         leases = [run(ranged, "10.73.1." + str(host)) for host in [128, 129, *range(132, 160)]]
         retry = create(ranged)
         exhausted(retry)
+        other = run(dual, "10.73.0.2", "fd54:77::2")
+        request("POST", "/networks/" + ranged + "/connect", {"Container": other}, (500,))
+        inspected = request("GET", "/containers/" + other + "/json")
+        # Docker retains an empty requested-network entry on this failure.
+        # Neither engine may leave an allocated address or live endpoint.
+        failed_endpoint = inspected["NetworkSettings"]["Networks"].get(ranged, {})
+        assert not any(failed_endpoint.get(key) for key in ("IPAddress", "GlobalIPv6Address", "EndpointID")), failed_endpoint
         remove(leases[0])
+        request("POST", "/networks/" + ranged + "/connect", {"Container": other}, (200,))
+        inspected = request("GET", "/containers/" + other + "/json")
+        assert inspected["NetworkSettings"]["Networks"][ranged]["IPAddress"] == "10.73.1.128"
+        request("POST", "/networks/" + ranged + "/disconnect", {"Container": other, "Force": True}, (200,))
         start(retry, ranged, "10.73.1.128")
-        results.append("IP range includes its endpoints, excludes reservations, exhausts and recovers")
+        results.append("IP range includes its endpoints, excludes reservations, exhausts and recovers on start/connect")
         for cid in list(containers):
             remove(cid)
 

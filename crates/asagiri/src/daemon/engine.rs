@@ -2150,7 +2150,7 @@ impl Engine {
                     Some(want) => self.lock_networks().reserve(&n.name, want).map(|()| want).map_err(Error::Conflict),
                     None => {
                         let avoid = self.wanted_addresses(&n.name);
-                        self.lock_networks().allocate_avoiding(&n.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", n.name)))
+                        self.lock_networks().allocate_avoiding(&n.name, &avoid).ok_or_else(|| Error::Io(io::Error::other(format!("no free address left on network {}", n.name))))
                     }
                 };
                 let ip = match ip {
@@ -2609,7 +2609,12 @@ impl Engine {
             return Ok(None);
         }
         let avoid = self.wanted_addresses6(&n.name);
-        self.lock_networks().allocate6(&n.name, super::network::parse_ip6(want), &avoid).map_err(Error::Conflict)
+        let requested = super::network::parse_ip6(want);
+        // Automatic pool exhaustion is a server allocation failure in
+        // Docker, including a connect to an already-running container.
+        self.lock_networks().allocate6(&n.name, requested, &avoid).map_err(|message| {
+            if requested.is_none() { Error::Io(io::Error::other(message)) } else { Error::Conflict(message) }
+        })
     }
 
     /// Where `<host>` (a `*.asagiri.localhost` name) should go: the container
@@ -2872,7 +2877,7 @@ impl Engine {
             Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
             None => {
                 let avoid = self.wanted_addresses(&net.name);
-                self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", net.name)))?
+                self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Io(io::Error::other(format!("no free address left on network {}", net.name))))?
             }
         };
         let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
