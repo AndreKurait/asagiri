@@ -1127,7 +1127,7 @@ fn pull_hint(e: &asagiri_image::registry::Error, registry: &str, proxy: Option<&
 
 /// `-p` (`HostConfig.PortBindings`) and `-P` (`PublishAllPorts`: every port
 /// the image or `--expose` declares, on a free host port).
-fn port_bindings(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result<Vec<super::ports::Binding>, Error> {
+fn port_bindings(body: &Value, image_cfg: &Value) -> Result<Vec<super::ports::Binding>, Error> {
     let parse = |key: &str| -> Result<(u16, String), Error> {
         let (port, proto) = key.split_once('/').unwrap_or((key, "tcp"));
         let port = port.parse().map_err(|_| Error::BadRequest(format!("invalid port {key}")))?;
@@ -1156,13 +1156,8 @@ fn port_bindings(body: &Value, engine: &Engine, image: &asagiri_image::Image) ->
     }
     if body["HostConfig"]["PublishAllPorts"].as_bool() == Some(true) {
         let mut exposed: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        // The image's own EXPOSE lines live in its config blob.
-        if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-            if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-                if let Some(m) = cfg["config"]["ExposedPorts"].as_object() {
-                    exposed.extend(m.keys().cloned());
-                }
-            }
+        if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
+            exposed.extend(m.keys().cloned());
         }
         for key in exposed {
             let Ok((container_port, proto)) = parse(&key) else { continue };
@@ -1284,7 +1279,7 @@ fn resolve_server(host: &str) -> Option<String> {
 }
 
 /// `-v`, `--mount`, `--tmpfs`, `-v /path` and the image's VOLUME lines.
-fn mounts(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result<Mounts, Error> {
+fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Error> {
     let host = &body["HostConfig"];
     let mut out = Mounts { guest: Vec::new(), info: Vec::new(), volumes: Vec::new(), anon: Vec::new() };
     let check_target = |t: &str| -> Result<(), Error> {
@@ -1431,12 +1426,8 @@ fn mounts(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Result
     // are in its config. Each becomes an anonymous volume, unless something
     // else is already mounted there.
     let mut anonymous: Vec<String> = body["Volumes"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-    if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-        if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-            if let Some(m) = cfg["config"]["Volumes"].as_object() {
-                anonymous.extend(m.keys().cloned());
-            }
-        }
+    if let Some(m) = image_cfg["config"]["Volumes"].as_object() {
+        anonymous.extend(m.keys().cloned());
     }
     for dst in anonymous {
         let taken = out.info.iter().any(|i| i["Destination"].as_str().map(|d| d.trim_end_matches('/')) == Some(dst.trim_end_matches('/')));
@@ -1508,14 +1499,10 @@ fn volumes(req: &Request, engine: &Engine) -> Result<Value, Error> {
 }
 
 /// The TCP ports an image declares (EXPOSE) plus `--expose`.
-fn exposed_ports(body: &Value, engine: &Engine, image: &asagiri_image::Image) -> Vec<u16> {
+fn exposed_ports(body: &Value, image_cfg: &Value) -> Vec<u16> {
     let mut keys: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-    if let Ok(bytes) = engine.store.read_config(&image.config_digest) {
-        if let Ok(cfg) = serde_json::from_slice::<Value>(&bytes) {
-            if let Some(m) = cfg["config"]["ExposedPorts"].as_object() {
-                keys.extend(m.keys().cloned());
-            }
-        }
+    if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
+        keys.extend(m.keys().cloned());
     }
     let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp") || !k.contains('/')).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
     ports.sort_unstable();
@@ -1971,18 +1958,19 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
             return Err(Error::NotFound(format!("No such image: {image_name} for {p}")));
         }
     }
-    // The image's own config, for what Asagiri's image model does not keep.
+    // Read and parse once: ports, volumes, health checks and stop signals all
+    // use the same immutable config, including large image metadata.
     let image_cfg: Value = engine.store.read_config(&image.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
     // Checked before mounts, which may create volumes.
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
-    let ports = port_bindings(&body, engine, &image)?;
+    let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
         warnings.push(super::ports::WSL_PUBLISH_WARNING);
     }
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
-    let mounts = mounts(&body, engine, &image)?;
+    let mounts = mounts(&body, engine, &image_cfg)?;
     let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
@@ -2022,8 +2010,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         hostname: body["Hostname"].as_str().unwrap_or_default().to_owned(),
         stop_signal: body["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal).or_else(|| {
             // The image's STOPSIGNAL.
-            let cfg: Value = serde_json::from_slice(&engine.store.read_config(&image.config_digest).ok()?).ok()?;
-            cfg["config"]["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal)
+            image_cfg["config"]["StopSignal"].as_str().filter(|s| !s.is_empty()).map(signal)
         }),
         stop_timeout: body["StopTimeout"].as_i64(),
         healthcheck,
@@ -2048,7 +2035,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         aliases,
         extra_hosts,
         ports,
-        exposed: exposed_ports(&body, engine, &image),
+        exposed: exposed_ports(&body, &image_cfg),
         host_opts,
         mounts: mounts.guest,
         mount_info: mounts.info,
@@ -3267,6 +3254,21 @@ mod tests {
             "80/udp": [{"HostIp": "::1", "HostPort": "9090"}],
         }));
     }
+    #[test]
+    fn create_ports_share_image_metadata_and_keep_explicit_bindings() {
+        let image_cfg = json!({"config": {"ExposedPorts": {"80/tcp": {}, "5353/udp": {}}}});
+        let body = json!({"ExposedPorts": {"443/tcp": {}}, "HostConfig": {
+            "PublishAllPorts": true, "PortBindings": {"80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]},
+        }});
+        assert_eq!(requested_ports_map(&port_bindings(&body, &image_cfg).unwrap()), json!({
+            "80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}],
+            "443/tcp": [{"HostIp": "", "HostPort": "0"}],
+            "5353/udp": [{"HostIp": "", "HostPort": "0"}],
+        }));
+        assert_eq!(exposed_ports(&body, &image_cfg), vec![80, 443]);
+        assert_eq!(exposed_ports(&body, &Value::Null), vec![443]);
+    }
+
     #[test]
     fn container_list_http_query_keeps_regex_name_filters() {
         use std::io::{BufReader, Write};
