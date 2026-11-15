@@ -497,13 +497,21 @@ pub(super) fn reference_matches(pattern: &str, name: &str) -> bool {
 fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let f = filters(req, &["reference", "dangling", "label"])?;
     let list = engine.store.images()?;
-    Ok(Value::Array(
-        list.iter()
-            .filter(|i| f.any("reference", |p| reference_matches(p, &i.name))
-                && f.bool("dangling").is_none_or(|d| d == (i.name == i.config_digest))
-                && f.labels(&Value::Null))
-            .map(|i| {
-                json!({
+    let mut labels_by_digest = std::collections::HashMap::new();
+    let mut rows = Vec::new();
+    for i in &list {
+        if !f.any("reference", |p| reference_matches(p, &i.name))
+            || !f.bool("dangling").is_none_or(|d| d == (i.name == i.config_digest)) {
+            continue;
+        }
+        // Several tags can name one config; old indexes need at most one
+        // config read per image in this response.
+        let labels = match labels_by_digest.entry(&i.config_digest) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(engine.store.image_labels(i)?),
+        };
+        if f.labels(labels) {
+            rows.push(json!({
                     "Id": i.config_digest,
                     "ParentId": "",
                     "RepoTags": image_tags(i),
@@ -512,14 +520,14 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
                     "Size": i.size,
                     "SharedSize": -1,
                     "VirtualSize": i.size,
-                    "Labels": i.config.labels_json(),
+                    "Labels": labels,
                     "Containers": -1,
                     // Not Docker's: when this image arrived here, for the window.
                     "Pulled": i.pulled_at,
-                })
-            })
-            .collect(),
-    ))
+                }));
+        }
+    }
+    Ok(Value::Array(rows))
 }
 
 pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
@@ -555,6 +563,7 @@ fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json:
     if config.get("Healthcheck").is_some_and(Value::is_null) {
         config.remove("Healthcheck");
     }
+    config.entry("Labels").or_insert_with(|| i.config.labels_json());
     config.extend(serde_json::Map::from_iter([
         ("Env".into(), json!(i.config.env)),
         ("Cmd".into(), json!(i.config.cmd)),

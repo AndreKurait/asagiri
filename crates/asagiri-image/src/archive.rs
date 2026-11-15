@@ -231,7 +231,7 @@ pub fn from_config(name: String, config_digest: &str, config: &Value, layers: Ve
             cmd: strings(&c["Cmd"]),
             working_dir: text(&c["WorkingDir"]),
             user: text(&c["User"]),
-            labels: strings_map(&c["Labels"]),
+            labels: Some(strings_map(&c["Labels"])),
         },
     }
 }
@@ -325,6 +325,7 @@ mod tests {
             loaded[0]
                 .config
                 .labels
+                .as_ref().unwrap()
                 .get("com.example.kind")
                 .map(String::as_str),
             Some("integration")
@@ -333,6 +334,7 @@ mod tests {
             loaded[0]
                 .config
                 .labels
+                .as_ref().unwrap()
                 .get("com.example.version")
                 .map(String::as_str),
             Some("2")

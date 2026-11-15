@@ -817,7 +817,7 @@ impl Client {
                 cmd: run.cmd.unwrap_or_default(),
                 working_dir: run.working_dir.unwrap_or_default(),
                 user: run.user.unwrap_or_default(),
-                labels: run.labels.unwrap_or_default(),
+                labels: Some(run.labels.unwrap_or_default()),
             },
         };
         // The last moment a cancel can stop it: after this it is pulled.

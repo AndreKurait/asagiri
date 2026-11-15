@@ -42,8 +42,9 @@ pub struct RunConfig {
     #[serde(default)]
     pub user: String,
     /// The image's `config.Labels`, sorted so two loads of one image agree.
-    #[serde(default)]
-    pub labels: std::collections::BTreeMap<String, String>,
+    /// None identifies an older index: its labels still live in the config blob.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<std::collections::BTreeMap<String, String>>,
 }
 
 impl RunConfig {
@@ -51,11 +52,8 @@ impl RunConfig {
     /// that has labels, `null` for one without, as Docker's inspect does for
     /// an image with no LABEL (alpine, say).
     pub fn labels_json(&self) -> serde_json::Value {
-        if self.labels.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::to_value(&self.labels).unwrap_or(serde_json::Value::Null)
-        }
+        self.labels.as_ref().filter(|labels| !labels.is_empty())
+            .map_or(serde_json::Value::Null, |labels| serde_json::json!(labels))
     }
 }
 
@@ -278,6 +276,20 @@ impl Store {
     pub fn find(&self, name: &str) -> io::Result<Option<Image>> {
         let r = Reference::parse(name).ok();
         Ok(self.images()?.into_iter().find(|i| i.name == name || i.digest == name || r.as_ref().is_some_and(|r| i.matches(r))))
+    }
+
+    /// Existing indexes predate cached labels. Read their immutable config
+    /// instead of silently treating a previously pulled image as unlabelled.
+    pub fn image_labels(&self, image: &Image) -> io::Result<serde_json::Value> {
+        if image.config.labels.is_some() {
+            return Ok(image.config.labels_json());
+        }
+        let stored: serde_json::Value = serde_json::from_slice(&self.read_config(&image.config_digest)?)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let labels = stored["config"]["Labels"].as_object().map(|labels| labels.iter()
+            .filter(|(_, value)| value.is_string()).map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<serde_json::Map<_, _>>()).unwrap_or_default();
+        Ok(if labels.is_empty() { serde_json::Value::Null } else { labels.into() })
     }
 
     /// Adds `image`, replacing any image with the same name.
@@ -728,18 +740,43 @@ mod tests {
             created: String::new(),
             pulled_at: 0,
             config: RunConfig {
-                labels: [("com.example.label".to_owned(), "1".to_owned())]
+                labels: Some([("com.example.label".to_owned(), "1".to_owned())]
                     .into_iter()
-                    .collect(),
+                    .collect()),
                 ..Default::default()
             },
         };
         store.put_image(image).unwrap();
-        let labels = store.find("labelled:1").unwrap().unwrap().config.labels;
+        let labels = store.find("labelled:1").unwrap().unwrap().config.labels.unwrap();
         assert_eq!(
             labels.get("com.example.label").map(String::as_str),
             Some("1")
         );
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn old_indexes_read_labels_from_the_config_without_rewriting_the_index() {
+        let root = std::env::temp_dir().join(format!("asagiri-old-labels-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        let store = Store::open(&root).unwrap();
+        let stored = serde_json::json!({"config": {"Labels": {"vendor.feature": "enabled", "empty": ""}}});
+        let mut blob = store.ingest().unwrap();
+        blob.write_all(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        let (digest, _) = blob.finish().unwrap();
+        let mut image = crate::archive::from_config("legacy:latest".into(), &digest, &stored, Vec::new());
+        image.config.labels = None;
+        store.put_image(image.clone()).unwrap();
+        let before = fs::read(root.join("images.json")).unwrap();
+        let reopened = Store::open(&root).unwrap();
+        let image = reopened.find("legacy:latest").unwrap().unwrap();
+        assert!(image.config.labels.is_none());
+        assert_eq!(reopened.image_labels(&image).unwrap(), stored["config"]["Labels"]);
+        assert_eq!(fs::read(root.join("images.json")).unwrap(), before);
+        // A known empty map never consults a missing blob or invents labels.
+        let mut known = image;
+        known.config.labels = Some(Default::default());
+        fs::remove_file(reopened.blob_path(&digest).unwrap()).unwrap();
+        assert!(reopened.image_labels(&known).unwrap().is_null());
+        fs::remove_dir_all(root).unwrap();
     }
 }
