@@ -67,6 +67,25 @@ jobs:
           python3 tests/ci-runtime-probes.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
+      - name: Verify WSL daemon startup and bridge recovery
+        run: |
+          mkdir -p "$RUNNER_TEMP/wsl-recovery"
+          test "$(cat "$RUNNER_TEMP/bin/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+          test "$(cat "$RUNNER_TEMP/bin-fixtures/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+          (cd "$RUNNER_TEMP/bin" && sha256sum -c SHA256SUMS)
+          (cd "$RUNNER_TEMP/bin-fixtures" && sha256sum -c SHA256SUMS)
+          sh tests/asagiri-start.sh "$RUNNER_TEMP/bin-fixtures/asagiri-daemon-fixture" "$ASAGIRI_CI_PERF_IMAGE" >"$RUNNER_TEMP/wsl-recovery/startup.log" 2>&1
+          python3 tests/bridge-start.py "$RUNNER_TEMP/bin" "$RUNNER_TEMP/bin-fixtures/asagiri-daemon-fixture" "$ASAGIRI_CI_PERF_IMAGE" --output "$RUNNER_TEMP/wsl-recovery/bridge.json"
+      - name: Preserve WSL startup and bridge evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wsl-recovery-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/wsl-recovery
+            ${{ runner.temp }}/bin-fixtures
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore AppImage compiler dependencies and pinned downloads
         id: appimage_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -160,6 +179,7 @@ jobs:
           path: ${{ runner.temp }}/maven
           key: ${{ steps.maven_cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
           name: linux-${{ runner.arch }}
           path: ${{ runner.temp }}/bin

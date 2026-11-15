@@ -105,6 +105,10 @@ mod integrations;
 mod share;
 #[cfg(windows)]
 mod update;
+#[cfg(any(windows, test))]
+mod wslsync;
+#[cfg(any(windows, test))]
+mod refuse;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
