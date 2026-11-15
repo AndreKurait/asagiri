@@ -387,6 +387,12 @@ def collect(args):
                          f"Asagiri-{version}-{arch}.msi", f"Asagiri-{version}-windows-{arch}.zip",
                          f"latest-mac-{arch}.json"})
     expected.update({"latest-windows-x86_64.json", "latest-windows-arm64.json", "asagiri-kernel-source.tar.xz"})
+    appimage_marker = getattr(args, "source_root", ROOT) / "packaging/linux/appimage-release.json"
+    if appimage_marker.exists():
+        if appimage_marker.is_symlink() or json.loads(appimage_marker.read_text()) != {
+                "schema": 1, "architectures": ["x86_64", "aarch64"]}:
+            raise SystemExit("Invalid AppImage release declaration")
+        expected.update(f"Asagiri-{version}-{arch}.AppImage" for arch in ("x86_64", "aarch64"))
     # A newer publisher can recover an older source release. Its package
     # contract comes from that source checkout, not the publisher's revision.
     marker = getattr(args, "source_root", ROOT) / QEMU_RELEASE

@@ -1,0 +1,54 @@
+{
+  "runtime_commit": "dd6cebedcbddde9c82f89b011e8e1d40b6e43868",
+  "sources": [
+    {
+      "component": "type2-runtime",
+      "name": "type2-runtime-dd6cebed.tar.gz",
+      "url": "https://codeload.github.com/AppImage/type2-runtime/tar.gz/dd6cebedcbddde9c82f89b011e8e1d40b6e43868",
+      "sha256": "f5fec23be76e50e2445ed2d018bac49b367490fc483c62c4637e99ec705d27ba",
+      "licenses": ["type2-runtime-dd6cebedcbddde9c82f89b011e8e1d40b6e43868/LICENSE"]
+    },
+    {
+      "component": "libfuse",
+      "name": "fuse-3.15.0.tar.xz",
+      "url": "https://github.com/libfuse/libfuse/releases/download/fuse-3.15.0/fuse-3.15.0.tar.xz",
+      "sha256": "70589cfd5e1cff7ccd6ac91c86c01be340b227285c5e200baa284e401eea2ca0",
+      "licenses": ["fuse-3.15.0/LICENSE", "fuse-3.15.0/LGPL2.txt"]
+    },
+    {
+      "component": "squashfuse",
+      "name": "squashfuse-0.5.2.tar.gz",
+      "url": "https://github.com/vasi/squashfuse/archive/0.5.2.tar.gz",
+      "sha256": "db0238c5981dabbd80ee09ae15387f390091668ca060a7bc38047912491443d3",
+      "licenses": ["squashfuse-0.5.2/LICENSE"]
+    },
+    {
+      "component": "musl",
+      "name": "musl-1.2.5.tar.gz",
+      "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+      "sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
+      "licenses": ["musl-1.2.5/COPYRIGHT"]
+    },
+    {
+      "component": "zstd",
+      "name": "zstd-1.5.6.tar.gz",
+      "url": "https://codeload.github.com/facebook/zstd/tar.gz/refs/tags/v1.5.6",
+      "sha256": "30f35f71c1203369dc979ecde0400ffea93c27391bfd2ac5a9715d2173d92ff7",
+      "licenses": ["zstd-1.5.6/LICENSE"]
+    },
+    {
+      "component": "zlib",
+      "name": "zlib-1.3.1.tar.gz",
+      "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.3.1",
+      "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
+      "licenses": ["zlib-1.3.1/LICENSE"]
+    },
+    {
+      "component": "mimalloc",
+      "name": "mimalloc-2.1.7.tar.gz",
+      "url": "https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v2.1.7",
+      "sha256": "0eed39319f139afde8515010ff59baf24de9e47ea316a315398e8027d198202d",
+      "licenses": ["mimalloc-2.1.7/LICENSE"]
+    }
+  ]
+}

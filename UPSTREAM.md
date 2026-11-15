@@ -7,7 +7,7 @@ The rename does not change the authorship of inherited code.
 Upstream `main` was reviewed on **2026-11-15** at
 `b249eccc2ed708ce10d7feeb82b6c0869b112443`. Its complete history through
 `baa2d41` is merged; later changes have reviewed ports or explicit equivalence.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **160** public PRs
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **161** public PRs
 as of that review: 93 merged, 40 closed without merging, and 27 open. Every
 PR has an inheritance, port, equivalence, supersession, or hold recorded
 with its reviewed head.
@@ -235,3 +235,11 @@ and fork-specific behavior must still be reviewed after applying a patch.
 
 See the signed integration commits on `main` and the corresponding Asagiri pull
 requests for checks, source revisions, and any follow-up fixes.
+
+The later November 15 scan adds #249 (`978655fba390`): native x86_64 and
+aarch64 AppImages with the GTK window and static engine. The adapted installer
+preserves existing services and different executables. Packaging pins its
+tools, includes runtime sources and licenses, and checks CLI extraction and
+a headless GTK window in CI. Host desktop libraries and Docker CLI tools remain
+separate dependencies; desktop password prompts and FUSE mounting are not
+covered by the headless check.

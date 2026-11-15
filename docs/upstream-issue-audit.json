@@ -14,7 +14,7 @@
     },
     {
       "number": 13,
-      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
       "state": "closed",
       "updated_at": "2026-11-06T11:14:54Z",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
@@ -275,7 +275,7 @@
     },
     {
       "number": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
       "state": "open",
       "updated_at": "2026-11-12T02:37:32Z",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
@@ -284,7 +284,7 @@
     },
     {
       "number": 90,
-      "title": "【GUI】 图形界面能不能支持中文",
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
       "state": "closed",
       "updated_at": "2026-11-10T00:00:18Z",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
@@ -302,7 +302,7 @@
     },
     {
       "number": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
@@ -338,7 +338,7 @@
     },
     {
       "number": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
       "state": "closed",
       "updated_at": "2026-11-10T16:58:28Z",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
@@ -455,7 +455,7 @@
     },
     {
       "number": 170,
-      "title": "请看提交的报告",
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
@@ -645,7 +645,7 @@
     },
     {
       "number": 227,
-      "title": "Linux: every `docker build` fails — Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
+      "title": "Linux: every `docker build` fails \u2014 Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
       "state": "open",
       "updated_at": "2026-11-15T00:03:06Z",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
@@ -663,7 +663,7 @@
     },
     {
       "number": 229,
-      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver — DNS inside the node times out",
+      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver \u2014 DNS inside the node times out",
       "state": "open",
       "updated_at": "2026-11-14T19:46:03Z",
       "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
@@ -672,7 +672,7 @@
     },
     {
       "number": 230,
-      "title": "Linux: container overlay mounts leak across a daemon restart — nothing can start until manually unmounted",
+      "title": "Linux: container overlay mounts leak across a daemon restart \u2014 nothing can start until manually unmounted",
       "state": "open",
       "updated_at": "2026-11-15T00:13:09Z",
       "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
@@ -695,7 +695,7 @@
       "updated_at": "2026-11-15T03:20:13Z",
       "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
       "disposition": "runtime-regression-covered",
-      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount while preserving writable data, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
+      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount under the existing writable-data removal policy, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
       "reviewed_comments": [
         {
           "id": 6888477894,
@@ -727,7 +727,7 @@
       "state": "open",
       "updated_at": "2026-11-15T03:20:14Z",
       "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
-      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount under the existing removal policy. It also retires its veths before address reuse; holding the old namespace open reproduced a stale host-side link, and the corrected replacement retained peer ping and DNS with that link removed. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
     }
   ]
 }

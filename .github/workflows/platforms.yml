@@ -66,6 +66,27 @@ jobs:
         run: |
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
+      - name: Restore AppImage compiler dependencies and pinned downloads
+        id: appimage_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/appimage-cache
+          key: appimage-v1-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'packaging/linux/appimage-build.json') }}
+      - name: Build and inspect the native AppImage
+        run: bash scripts/ci/appimage.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/appimage" "$RUNNER_TEMP/appimage-cache"
+      - name: Preserve AppImage and packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage-${{ runner.arch }}
+          path: ${{ runner.temp }}/appimage/*
+          retention-days: 14
+      - name: Cache verified AppImage dependencies from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.appimage_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/appimage-cache
+          key: ${{ steps.appimage_cache.outputs.cache-primary-key }}
       - name: Cache Linux dependencies from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
