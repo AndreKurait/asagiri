@@ -36,7 +36,7 @@ compiler image, component hashes and runtime checks for this follow-up.
   the problematic defaults and retain overlap rejection.
 - 573 Linux unit tests, live image/archive/BuildKit checks and the separate
   service-restart regression pass. Native Mac/USB/WSL gaps remain in the
-  [79-issue inventory](issue-verification.md).
+  [80-issue inventory](issue-verification.md).
 - Creation shares one parsed image config across its consumers. Versioned
   [performance history](performance.md) adds metadata creation and archive
   workloads, with 15 metrics and all 4,000 raw timings retained per run.

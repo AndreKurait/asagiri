@@ -128,6 +128,8 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     flavor::init();
+    #[cfg(target_os = "macos")]
+    let app_launch = args.is_empty() && setup::launched_from_app();
     // Stdio belongs entirely to JSON-RPC; do not install diagnostic pipe
     // redirection or run engine-version checks for an MCP client.
     #[cfg(any(unix, windows))]
@@ -154,7 +156,7 @@ fn main() -> ExitCode {
         #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "window")))]
         Some("ui") => diag::Part::Ui,
         #[cfg(target_os = "macos")]
-        None if setup::launched_from_app() => diag::Part::Ui,
+        None if app_launch => diag::Part::Ui,
         _ => diag::Part::Cli,
     });
     let result: std::io::Result<()> = match args.first().map(String::as_str) {
@@ -212,7 +214,7 @@ fn main() -> ExitCode {
         Some("diag") => diag::run(&args[1..]),
         // Opening Asagiri.app: set up on first launch, then the window.
         #[cfg(target_os = "macos")]
-        None if setup::launched_from_app() => setup::first_launch().and_then(|()| ui::run(true, None)),
+        None if app_launch => setup::first_launch().and_then(|()| ui::run(true, None)),
         #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "window")))]
         Some("ui") => ui::run(
             args.iter().any(|a| a == "--start"),
@@ -240,7 +242,11 @@ fn main() -> ExitCode {
             // The subcommand only: arguments can carry values.
             #[cfg(unix)]
             if !e.to_string().starts_with("usage:") {
-                diag::warn!("command failed", command = args.first().filter(|a| a.len() <= 20 && a.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')).map_or("", String::as_str), error = e);
+                diag::warn!("command failed", command = diag::command_label(args.first().map(String::as_str), diag::part()), error = e);
+            }
+            #[cfg(target_os = "macos")]
+            if app_launch {
+                ui::launch_error(&e);
             }
             eprintln!("asagiri: {e}");
             ExitCode::FAILURE

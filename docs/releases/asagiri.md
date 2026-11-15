@@ -1,5 +1,11 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+On macOS, unavailable shell profiles no longer interrupt the app's first
+setup. Existing profile contents are preserved when they cannot be read.
+Fatal setup errors identify the failing operation, and opening the app
+from Finder or the Dock presents an error alert if setup or the window fails.
+The log identifies these launches as `app-launch`.
+
 Dense IPv4 and IPv6 networks find free addresses by merging occupied and
 excluded hosts in order. A Verus proof checks the production gap search's
 bounds, lowest-free result, exhaustion and overflow behavior. CI also compares
