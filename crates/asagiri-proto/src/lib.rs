@@ -200,6 +200,12 @@ pub enum Msg<'a> {
     /// the bridge's addresses and routes, its DNS server and, with the last
     /// IPv6 network, the IPv6 NAT table. No reply; an older agent ignores it.
     RemoveBridge { bridge: &'a str },
+    /// Host → guest, in the VM: files the Mac changed under bind mounts, one
+    /// `OP\tPATH` line each: OP is `C` (created), `M` (modified), `A`
+    /// (attributes changed) or `D` (deleted), PATH the file's path in the VM
+    /// (under /mnt/mac). The agent raises the inotify events Linux would for
+    /// a change made in the VM. No reply; an older agent ignores it.
+    FsEvents(StrList<'a>),
     /// Success, for requests with nothing else to say.
     Ack,
 }
@@ -736,6 +742,7 @@ mod kind {
     pub const USB_NODES: u16 = 77;
     pub const CLEANUP_PENDING: u16 = 78;
     pub const CLEANUP_DONE: u16 = 79;
+    pub const FS_EVENTS: u16 = 80;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -817,6 +824,11 @@ pub fn encode_top<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
 /// Encodes a `UsbNodes` reply from the sender's lines.
 pub fn encode_usb_nodes<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
     frame(out, kind::USB_NODES, |out| StrList::put(out, lines));
+}
+
+/// Encodes an `FsEvents` frame from the sender's `OP\tPATH` lines.
+pub fn encode_fs_events<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
+    frame(out, kind::FS_EVENTS, |out| StrList::put(out, lines));
 }
 
 /// Encodes a `Listening` reply from the sender's lines.
@@ -1066,6 +1078,10 @@ impl Msg<'_> {
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
             Msg::UsbNodesQuery => frame(out, kind::USB_NODES_QUERY, |_| {}),
             Msg::UsbNodes(lines) => frame(out, kind::USB_NODES, |o| {
+                put_u32(o, lines.count);
+                o.extend_from_slice(lines.raw);
+            }),
+            Msg::FsEvents(lines) => frame(out, kind::FS_EVENTS, |o| {
                 put_u32(o, lines.count);
                 o.extend_from_slice(lines.raw);
             }),
@@ -1334,6 +1350,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::LISTENING => Msg::Listening(r.list()?),
         kind::USB_NODES_QUERY => Msg::UsbNodesQuery,
         kind::USB_NODES => Msg::UsbNodes(r.list()?),
+        kind::FS_EVENTS => Msg::FsEvents(r.list()?),
         kind::NET_ATTACH => Msg::NetAttach {
             id: r.str()?,
             ifname: r.str()?,
@@ -1506,6 +1523,10 @@ mod tests {
         encode_usb_nodes(&mut buf, &["0\t/dev/ttyUSB0\tserial port", "0\t/dev/bus/usb/003/002\traw USB"]);
         let Msg::UsbNodes(lines) = decode(&buf).unwrap() else { panic!() };
         assert_eq!(lines.iter().collect::<Vec<_>>(), ["0\t/dev/ttyUSB0\tserial port", "0\t/dev/bus/usb/003/002\traw USB"]);
+        let mut buf = Vec::new();
+        encode_fs_events(&mut buf, &["M\t/mnt/mac/Users/a/app/main.js", "D\t/mnt/mac/Users/a/app/old.js"]);
+        let Msg::FsEvents(lines) = decode(&buf).unwrap() else { panic!() };
+        assert_eq!(lines.iter().collect::<Vec<_>>(), ["M\t/mnt/mac/Users/a/app/main.js", "D\t/mnt/mac/Users/a/app/old.js"]);
         let mut buf = Vec::new();
         encode_listening(&mut buf, &["   0: 00000000:11D7 00000000:0000 0A"]);
         let Msg::Listening(lines) = decode(&buf).unwrap() else { panic!() };

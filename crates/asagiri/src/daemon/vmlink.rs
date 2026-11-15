@@ -590,6 +590,12 @@ impl VmLink {
         self.send(|o| Msg::RemoveBridge { bridge }.encode(o))
     }
 
+    /// Files the Mac changed under bind mounts (`OP\tPATH` lines, PATH in
+    /// the VM), for the guest to raise as inotify events. No reply.
+    pub fn fs_events<S: AsRef<str>>(&self, lines: &[S]) -> io::Result<()> {
+        self.send(|o| asagiri_proto::encode_fs_events(o, lines))
+    }
+
     /// The Mac's wall clock, for the guest. Sent at boot, and again while it
     /// runs: the VM's clock stops while the Mac sleeps.
     pub fn set_time(&self) -> io::Result<()> {

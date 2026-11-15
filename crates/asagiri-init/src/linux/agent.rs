@@ -13,7 +13,7 @@ use asagiri_proto::{Exited, MAX_OUTPUT_CHUNK, Msg, Stats, Stream};
 use super::container::{self, NetCtx, Paths, Process};
 use super::net::{self, Bridges, Dhcp};
 use super::removal::Removals;
-use super::{layers, meminfo, sys};
+use super::{fsnotify, layers, meminfo, sys};
 
 /// Input held for a process that is not reading yet. The host sends at most
 /// `INPUT_WINDOW` bytes beyond what `InputConsumed` acknowledged, so a
@@ -111,6 +111,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let mut out = Vec::with_capacity(4096);
     let mut chunk = vec![0u8; MAX_OUTPUT_CHUNK];
     let mut fs_buf = Vec::new();
+    let mut fs_events = fsnotify::Pending::default();
 
     loop {
         removals.start(std::time::Instant::now(), |id| container::begin_remove(paths, id));
@@ -164,6 +165,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         let wait = dns.timeout_ms();
         if wait >= 0 {
             timeout = if timeout < 0 { wait } else { timeout.min(wait) };
+        }
+        // Changes from the Mac still to raise: a few now, the rest after
+        // whatever else is ready.
+        if !fs_events.is_empty() {
+            fs_events.raise_some();
+            if !fs_events.is_empty() {
+                timeout = 0;
+            }
         }
         // SAFETY: `fds` is a valid array of pollfd of the given length.
         let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
@@ -552,6 +561,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         dns.forget_bridge(bridge);
                         bridges.remove(bridge);
                     }
+                    continue;
+                }
+                Ok(Msg::FsEvents(lines)) => {
+                    fs_events.add(lines.iter());
                     continue;
                 }
                 Ok(Msg::Retain(keep)) => {

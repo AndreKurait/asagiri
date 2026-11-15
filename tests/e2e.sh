@@ -589,6 +589,11 @@ t bind-mount-flag "from the mac" $D run --rm --mount "type=bind,source=$BIND,tar
 code bind-mount-missing 125 $D run --rm --mount type=bind,source=/asagiri/does/not/exist,target=/m alpine true
 t bind-v-creates "made" bash -c "$D run --rm -v $BIND/new/dir:/n alpine true && [ -d $BIND/new/dir ] && echo made"
 t bind-file "from the mac" $D run --rm -v "$BIND/hello.txt:/etc/greeting" alpine cat /etc/greeting
+# A file made, changed and deleted on the Mac raises inotify events in the
+# container, as one made there does: file watchers (Vite, webpack, nodemon)
+# pick up saves made in an editor on the Mac. inotifyd prints n (created),
+# c (modified), w (closed after writing) and d (deleted), each once here.
+t bind-inotify "n f c f w f d f" bash -c "mkdir -p $BIND/watched && $D rm -f watcher >/dev/null 2>&1; $D run -d --name watcher -v $BIND/watched:/w alpine inotifyd - /w:ncwd >/dev/null && sleep 2 && echo a > $BIND/watched/f && sleep 1 && echo b >> $BIND/watched/f && sleep 1 && rm $BIND/watched/f && sleep 1.5; $D logs watcher 2>&1 | awk '{print \$1, \$3}' | awk '!(\$0 in s) {s[\$0]; printf \"%s \", \$0}'; $D rm -f watcher >/dev/null; rm -rf $BIND/watched"
 # A linked source is followed at every start, as Docker does: re-pointing a
 # `current` release link and restarting mounts the new target.
 t bind-link-repointed "one two one" bash -c "mkdir -p $BIND/rel/r1 $BIND/rel/r2 && echo one > $BIND/rel/r1/v && echo two > $BIND/rel/r2/v && ln -sfn r1 $BIND/rel/current && $D rm -f relink >/dev/null 2>&1; $D run -d --name relink -v $BIND/rel/current:/app alpine sleep 300 >/dev/null && a=\$($D exec relink cat /app/v) && ln -sfn r2 $BIND/rel/current && sleep 1.5 && $D restart -t 0 relink >/dev/null && b=\$($D exec relink cat /app/v) && $D stop -t 0 relink >/dev/null && ln -sfn r1 $BIND/rel/current && sleep 1.5 && $D start relink >/dev/null && c=\$($D exec relink cat /app/v); $D rm -f relink >/dev/null; rm -rf $BIND/rel; echo \$a \$b \$c"
