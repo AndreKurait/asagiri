@@ -120,6 +120,26 @@ def archive_file(data, expected):
         return archive.extractfile(entries[0]).read()
 
 
+def assert_pulled_image_identity(inspected, image, tag, reference, architecture, token):
+    """Check the exact fixture content and the selected engine's image ID."""
+    expected_id = image["config_digest"]
+    if reference:
+        # The pinned Docker containerd store identifies this single-platform
+        # image by its manifest target. Asagiri retains its config-digest ID.
+        expected_id = image["manifest_digest"]
+        require(inspected.get("Descriptor") == {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": image["manifest_digest"], "size": len(image["manifest"]),
+        } and inspected.get("RepoDigests") == [tag.rsplit(":", 1)[0] + "@" + image["manifest_digest"]],
+                "Reference Docker manifest descriptor/repository identity differs from the OCI fixture")
+    require(inspected["Id"] == expected_id
+            and inspected["RootFS"]["Type"] == "layers"
+            and inspected["RootFS"]["Layers"] == [image["diff_id"]]
+            and inspected["Architecture"] == architecture and inspected["Os"] == "linux"
+            and inspected["Config"]["Labels"].get("dev.asagiri.registry-ca-fixture") == token,
+            "Pulled image identity/content differs from the OCI fixture")
+
+
 class UnixConnection(http.client.HTTPConnection):
     def __init__(self, path):
         super().__init__("localhost", timeout=180)
@@ -409,6 +429,8 @@ class Qualifier:
     def pull(self, model, suffix, success, reference=False):
         repository = "registryca/" + suffix
         image = model.image(repository)
+        manifest_artifact = suffix + "-oci-manifest.json"
+        (self.root / manifest_artifact).write_bytes(image["manifest"])
         name = model.authority + "/" + repository + ":latest"
         certificate_sha256 = model.fingerprints[model.context]
         _, raw = self.api("POST", "/images/create?fromImage=" + quote(name, safe=""), reference=reference)
@@ -420,10 +442,10 @@ class Qualifier:
         inspect_artifact = suffix + "-image-inspect.json"
         if success:
             status, data = self.api("GET", "/images/" + quote(name, safe="") + "/json", reference=reference)
+            (self.root / inspect_artifact).write_bytes(data)
             inspected = json.loads(data)
-            require(inspected["Id"] == image["config_digest"]
-                    and inspected["RootFS"]["Layers"] == [image["diff_id"]],
-                    "Pulled image identity/content differs from the OCI fixture")
+            assert_pulled_image_identity(inspected, image, name, reference,
+                                         self.args.architecture, self.args.token)
             require(model.seen(repository), "Successful pull never reached the TLS registry")
             self.api("DELETE", "/images/" + quote(name, safe="") + "?force=true", reference=reference)
         else:
@@ -432,8 +454,8 @@ class Qualifier:
                     f"Pull failure was not identified as TLS: {errors}")
             status, data = self.api("GET", "/images/" + quote(name, safe="") + "/json",
                                     expected=None, reference=reference)
+            (self.root / inspect_artifact).write_bytes(data)
             require(status == 404, "Rejected pull published an image")
-        (self.root / inspect_artifact).write_bytes(data)
         requests = model.seen(repository)
         require(all(row["certificate_sha256"] == certificate_sha256 for row in requests),
                 "Registry served a different certificate than the intended trust case")
@@ -442,7 +464,7 @@ class Qualifier:
                 "manifest_digest": image["manifest_digest"], "config_digest": image["config_digest"],
                 "diff_id": image["diff_id"], "errors": errors, "http_requests": requests,
                 "stream_artifact": stream_artifact, "inspect_artifact": inspect_artifact,
-                "inspect_status": status}
+                "manifest_artifact": manifest_artifact, "inspect_status": status}
 
     def build(self, model, suffix, success=True, driver="default", installation_failure=False):
         repository = "registryca/" + suffix
