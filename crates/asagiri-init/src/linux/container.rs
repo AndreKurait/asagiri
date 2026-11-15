@@ -1464,6 +1464,13 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     // which is where the user will see why a start failed.
     let fail = |what: &str, e: io::Error| -> ! { child_fail(2, what, e) };
 
+    // --init supervises without exec, so CLOEXEC cannot release the agent's
+    // inherited sockets, pipes and namespace handles. Stdio is now in place;
+    // close everything else before applying the container's limits/filter.
+    if console && p.init {
+        super::pid1::close_inherited().unwrap_or_else(|e| fail("init descriptors", e));
+    }
+
     // While still root with every capability: raising a hard limit needs
     // CAP_SYS_RESOURCE.
     super::hostopts::set_rlimits(&p.host.rlimits).unwrap_or_else(|e| fail("ulimits", e));
