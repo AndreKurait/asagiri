@@ -11,11 +11,13 @@
 //! 4. The socket's access list, with `user` on it (crate::daemon::access), so
 //!    the change applies now, without signing in again.
 //!
+//! `--restart` restarts a running engine as well (the window's Restart
+//! engine, after the package was upgraded), and waits for it to answer.
+//!
 //! Exit status: 0 done; 10 done, but this system keeps no access lists, so
 //! `user` must log out and back in once before Asagiri lets them in.
 
 use std::io;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -26,10 +28,14 @@ const SOCKET: &str = crate::client::SERVICE_SOCKET;
 pub const SIGN_IN_AGAIN: u8 = 10;
 
 pub fn run(args: &[String]) -> io::Result<u8> {
-    let [user] = args else { return Err(io::Error::other("usage: asagiri host-access USER")) };
+    let (restart, args) = match args {
+        [flag, rest @ ..] if flag == "--restart" => (true, rest),
+        _ => (false, args),
+    };
+    let [user] = args else { return Err(io::Error::other("usage: asagiri host-access [--restart] USER")) };
     // SAFETY: geteuid has no preconditions.
     if unsafe { libc::geteuid() } != 0 {
-        return Err(io::Error::other(format!("needs root: sudo asagiri host-access {user}")));
+        return Err(io::Error::other(format!("needs root: sudo asagiri host-access {}{user}", if restart { "--restart " } else { "" })));
     }
     if crate::daemon::access::uid(user).is_none() {
         return Err(io::Error::other(format!("no account named {user}")));
@@ -46,7 +52,7 @@ pub fn run(args: &[String]) -> io::Result<u8> {
         println!("{user} is in the {GROUP} group");
     }
     install_from_appimage()?;
-    engine()?;
+    engine(restart)?;
     match crate::daemon::access::grant(Path::new(SOCKET), GROUP) {
         Ok(_) => {
             println!("{user} can use Asagiri now");
@@ -204,9 +210,10 @@ fn install_new_file(destination: &Path, bytes: &[u8], mode: u32) -> io::Result<(
     result
 }
 
-/// The engine running and answering on its socket.
-fn engine() -> io::Result<()> {
-    if answers() {
+/// The engine running and answering on its socket; with `restart`, a
+/// running one restarted (on the binary the package installed).
+fn engine(restart: bool) -> io::Result<()> {
+    if !restart && answers(Duration::from_millis(250)) {
         return Ok(());
     }
     let active = Command::new("systemctl").args(["is-active", "--quiet", "asagiri"]).status().is_ok_and(|s| s.success());
@@ -216,17 +223,19 @@ fn engine() -> io::Result<()> {
         must(Command::new("systemctl").args(["enable", "--now", "asagiri"]), "systemctl enable --now asagiri")?;
     }
     let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        if answers() {
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if answers(remaining.min(Duration::from_millis(250))) {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(200));
+        if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            std::thread::sleep(remaining.min(Duration::from_millis(200)));
+        }
     }
     Err(io::Error::other("Asagiri's engine didn't start: journalctl -u asagiri says why"))
 }
 
-fn answers() -> bool {
-    UnixStream::connect(SOCKET).is_ok()
+fn answers(timeout: Duration) -> bool {
+    crate::client::probe_socket(Path::new(SOCKET), "/_ping", timeout).is_ok_and(|r| r.ok() && r.body == b"OK")
 }
 
 fn must(cmd: &mut Command, what: &str) -> io::Result<()> {

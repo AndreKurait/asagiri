@@ -655,12 +655,35 @@ fn update_check(manual: bool) {
     {
         emit(notice("error", &trf("{path} comes first on your PATH, so terminals run it instead of this Asagiri. If it's an older Asagiri, remove it: rm {path}", &[("path", &p.display())])));
     }
-    if let Some(v) = crate::client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
+    if let Some(v) = client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| client::engine_version(&r.json()).map(str::to_owned))
         && update::newer(env!("CARGO_PKG_VERSION"), &v)
     {
+        // Opening the window or checking the feed must not stop containers.
+        // The card offers the explicit restart that activates the new engine.
         emit(serde_json::json!({"type": "enginestale", "version": v}).to_string());
     }
     feed_check(manual);
+}
+
+/// Restarts the engine on this build, and tells the page: the engine toast
+/// once it answers as this version, else the error and the card again.
+fn restart_engine_now() {
+    let began = std::time::Instant::now();
+    match update::restart_engine(env!("CARGO_PKG_VERSION")) {
+        Ok(v) => {
+            emit(r#"{"type":"enginestale","version":null}"#.to_owned());
+            emit(serde_json::json!({"type": "enginerestarted", "version": v, "ms": began.elapsed().as_millis() as u64}).to_string());
+        }
+        Err(e) => {
+            diag::error!("the engine did not restart", error = e);
+            emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)])));
+            if let Some(v) = client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| client::engine_version(&r.json()).map(str::to_owned))
+                && update::newer(env!("CARGO_PKG_VERSION"), &v)
+            {
+                emit(serde_json::json!({"type": "enginestale", "version": v}).to_string());
+            }
+        }
+    }
 }
 
 /// Whether the feed has a newer release, and one already staged; the
@@ -759,8 +782,12 @@ fn update_download() {
 /// new window opens once this one has quit.
 fn update_restart() {
     match update::install_staged() {
-        Ok(_) => {
-            update::restart_engine();
+        Ok(version) => {
+            // A failed activation is logged; the new window offers its
+            // restart card instead of interrupting containers on every launch.
+            if let Err(e) = update::restart_engine(&version) {
+                diag::error!("the engine did not restart on the update", version = version, error = e);
+            }
             reopen_after_exit();
             window::quit();
         }
@@ -971,39 +998,19 @@ fn free_on_mac(port: u16, proto: &str) -> bool {
     }
 }
 
-/// Starts `asagiri daemon` in the background if it is not running. It outlives
-/// the window: closing the window leaves containers running.
+/// Starts the engine if it is not running. It outlives the window: closing
+/// the window leaves containers running. On the Mac it goes through the
+/// LaunchAgent when there is one, so a later restart stops the one engine
+/// there is.
 #[cfg_attr(target_os = "linux", allow(unreachable_code))]
 fn ensure_daemon() -> io::Result<()> {
-    if client::alive() {
+    if client::probe("/_ping", Duration::from_millis(250)).is_ok_and(|r| r.ok() && r.body == b"OK") {
         return Ok(());
     }
     // Linux: the engine is a system service, started by systemd, not by the window.
     #[cfg(target_os = "linux")]
     return Err(linux::engine_down());
-    diag::info!("starting the engine");
-    let exe = std::env::current_exe()?;
-    let log_dir = client::socket()?.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).ok_or_else(|| io::Error::other("no ~/.asagiri"))?;
-    std::fs::create_dir_all(&log_dir)?;
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.log"))?;
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("daemon").stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
-    // Its own session, so quitting the window does not take it down.
-    // SAFETY: setsid is async-signal-safe and runs in the child before exec.
-    unsafe {
-        std::os::unix::process::CommandExt::pre_exec(&mut cmd, || {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    cmd.spawn()?;
-    for _ in 0..100 {
-        std::thread::sleep(Duration::from_millis(50));
-        if client::alive() {
-            return Ok(());
-        }
-    }
-    Err(io::Error::other(format!("asagiri daemon did not start; see {}", log_dir.join("daemon.log").display())))
+    update::start_engine()
 }
 
 /// Sends the page every list, from the daemon.
@@ -1516,13 +1523,7 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             Ok(())
         }
         "restartengine" => {
-            std::thread::spawn(|| {
-                let began = std::time::Instant::now();
-                update::restart_engine();
-                emit(r#"{"type":"enginestale","version":null}"#.to_owned());
-                // The page's engine toast (as Windows sends after its restart).
-                emit(serde_json::json!({"type": "enginerestarted", "version": env!("CARGO_PKG_VERSION"), "ms": began.elapsed().as_millis() as u64}).to_string());
-            });
+            std::thread::spawn(restart_engine_now);
             Ok(())
         }
         "setpref" => {

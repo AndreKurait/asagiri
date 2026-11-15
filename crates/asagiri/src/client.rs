@@ -12,6 +12,25 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+mod health;
+mod health_response;
+
+/// A small background GET with a deadline covering the entire exchange.
+pub fn probe(path: &str, timeout: Duration) -> io::Result<Response> {
+    health::request_at(&socket()?, path, timeout)
+}
+
+/// The privileged Linux setup helper probes its fixed service socket.
+#[cfg(target_os = "linux")]
+pub fn probe_socket(socket: &std::path::Path, path: &str, timeout: Duration) -> io::Result<Response> {
+    health::request_at(socket, path, timeout)
+}
+
+#[cfg(target_os = "macos")]
+pub fn probe_connection(timeout: Duration) -> io::Result<UnixStream> {
+    health::connect(&socket()?, std::time::Instant::now() + timeout)
+}
+
 /// Product version for updates and About; older engines used Version alone.
 pub fn engine_version(version: &Value) -> Option<&str> {
     version["AsagiriVersion"].as_str().or_else(|| version["Version"].as_str())

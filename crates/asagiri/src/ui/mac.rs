@@ -559,12 +559,17 @@ define_class!(
             if let Some(engine) = self.ivars().engine.borrow_mut().take() {
                 let _ = engine.join();
             }
-            // Later: a downloaded update goes in as the window quits. The
-            // engine moves to it the next time it starts.
-            if crate::update::staged().is_some()
-                && let Err(e) = crate::update::install_staged()
-            {
-                diag::error!("the update did not install", error = e);
+            // Later: a downloaded update goes in as the window quits, and
+            // the engine moves to it now, not at the next login.
+            if crate::update::staged().is_some() {
+                match crate::update::install_staged() {
+                    Ok(version) => {
+                        if let Err(e) = crate::update::restart_engine(&version) {
+                            diag::error!("the engine did not restart on the update", version = version, error = e);
+                        }
+                    }
+                    Err(e) => diag::error!("the update did not install", error = e),
+                }
             }
         }
     }

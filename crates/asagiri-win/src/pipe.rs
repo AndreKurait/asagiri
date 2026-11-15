@@ -74,8 +74,16 @@ impl Pipe {
 
     /// A client connection to `name`, waiting while every instance is busy.
     pub fn open(name: &str) -> io::Result<Pipe> {
+        Self::open_within(name, std::time::Instant::now() + std::time::Duration::from_secs(5))
+    }
+
+    /// Client connection retries share the caller's deadline with its I/O.
+    pub(crate) fn open_within(name: &str, deadline: std::time::Instant) -> io::Result<Pipe> {
+        if name.is_empty() || name.contains('\0') {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid engine pipe name"));
+        }
         let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
-        for _ in 0..50 {
+        while std::time::Instant::now() < deadline {
             // SAFETY: a valid NUL-terminated name; no security attributes.
             // SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION: if some other
             // account squatted the name, its server can identify but not
@@ -95,8 +103,12 @@ impl Pipe {
             if unsafe { GetLastError() } != ERROR_PIPE_BUSY {
                 return Err(io::Error::last_os_error());
             }
-            // SAFETY: as above.
-            unsafe { WaitNamedPipeW(wide.as_ptr(), 100) };
+            // Zero asks Windows for its default timeout, not a zero wait.
+            // Round up the remaining fraction and keep each retry short.
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else { break };
+            let millis = remaining.as_millis().saturating_add(1).min(100) as u32;
+            // SAFETY: as above; the bounded wait uses the same deadline.
+            unsafe { WaitNamedPipeW(wide.as_ptr(), millis) };
         }
         Err(io::Error::new(io::ErrorKind::TimedOut, format!("{name} stays busy")))
     }

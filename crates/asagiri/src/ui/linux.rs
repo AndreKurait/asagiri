@@ -98,9 +98,35 @@ pub mod update {
         std::env::current_exe()
     }
 
-    /// The engine is the `asagiri` system service: restarting it is root's.
-    pub fn restart_engine() {
-        crate::diag::info!("the engine restarts with: sudo systemctl restart asagiri");
+    /// The engine is the `asagiri` system service, so restarting it is root's:
+    /// `asagiri host-access --restart` through pkexec (one password prompt),
+    /// then the engine must answer as `expect`.
+    pub fn restart_engine(expect: &str) -> io::Result<String> {
+        crate::diag::info!("restarting the engine", version = expect);
+        super::onboarding::restart_engine()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut last = None;
+        while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+            if let Some(v) = crate::client::probe("/version", remaining.min(std::time::Duration::from_secs(1)))
+                .ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned)) {
+                if v == expect {
+                    return Ok(v);
+                }
+                last = Some(v);
+            }
+            if let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+                std::thread::sleep(remaining.min(std::time::Duration::from_millis(250)));
+            }
+        }
+        Err(io::Error::other(match last {
+            Some(v) => format!("the engine came back on {v}, not {expect}: is the asagiri package upgraded?"),
+            None => "the engine did not come back: journalctl -u asagiri says why".to_owned(),
+        }))
+    }
+
+    /// Never called: the window doesn't start Linux's engine (systemd does).
+    pub fn start_engine() -> io::Result<()> {
+        Err(super::engine_down())
     }
 }
 
@@ -226,8 +252,18 @@ pub mod onboarding {
     }
 
     fn host_access() -> io::Result<()> {
+        pkexec_host_access(&[])
+    }
+
+    /// Restarts the `asagiri` service, through the same password prompt.
+    pub fn restart_engine() -> io::Result<()> {
+        pkexec_host_access(&["--restart"])
+    }
+
+    fn pkexec_host_access(flags: &[&str]) -> io::Result<()> {
+        let user = user();
         if which("pkexec").is_none() {
-            return Err(io::Error::other(format!("this system has no pkexec to ask for your password: in a terminal, run  sudo asagiri host-access {}", user())));
+            return Err(io::Error::other(format!("this system has no pkexec to ask for your password: in a terminal, run  sudo asagiri host-access {}{user}", flags.iter().map(|f| format!("{f} ")).collect::<String>())));
         }
         // A user's FUSE mount need not be accessible to root. Start the original
         // AppImage; its bundled runtime creates a fresh root-owned extraction
@@ -240,7 +276,7 @@ pub mod onboarding {
             }
             None => { command.arg("/usr/bin/asagiri"); }
         }
-        let out = command.args(["host-access", &user()]).stdin(Stdio::null()).output()?;
+        let out = command.arg("host-access").args(flags).arg(&user).stdin(Stdio::null()).output()?;
         match out.status.code() {
             Some(0) | Some(10) => Ok(()),
             // pkexec: 126 the dialog was dismissed or the password refused, 127 not allowed.
