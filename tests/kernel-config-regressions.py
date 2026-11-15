@@ -29,6 +29,7 @@ class GuestKernelRequirements(unittest.TestCase):
             38: "BPF_SYSCALL BPF_JIT CGROUPS CGROUP_BPF PERF_EVENTS DEBUG_INFO_BTF",
             41: "TASK_IO_ACCOUNTING",
             72: "FUSE_FS USER_NS",
+            254: "BLK_DEV_LOOP EXT4_FS",
         }
         for arch, text in (("arm64", base), ("x86_64", x86 + (KERNEL / "asagiri-x86_64.config").read_text())):
             config = options(text)
