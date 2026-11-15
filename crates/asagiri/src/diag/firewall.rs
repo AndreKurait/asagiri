@@ -76,12 +76,12 @@ fn capture(command: &mut Command, timeout: Duration, limit: usize) -> io::Result
     })();
     // Keep the leader unreaped until after cleanup, even if it exited first:
     // its PID cannot be reused for an unrelated process group in between.
-    // ECHILD means an external reaper took ownership despite our preflight.
-    // Never signal a numeric group whose leader PID we no longer own.
-    if !matches!(exited(child.id()), Err(ref error) if error.raw_os_error() == Some(libc::ECHILD)) {
-        // SAFETY: this is the group created for our unreaped child, not ours.
-        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
-    }
+    // Any failed observation leaves ownership unknown. Do not signal a
+    // numeric group or block in wait when that ownership cannot be proved.
+    exited(child.id()).map_err(|error| io::Error::new(error.kind(),
+        format!("could not verify diagnostic child ownership; group cleanup skipped: {error}")))?;
+    // SAFETY: this is the group created for our unreaped child, not ours.
+    unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
     let status = child.wait();
     let (out, err) = result?;
     let status = status?;
@@ -93,12 +93,17 @@ fn capture(command: &mut Command, timeout: Duration, limit: usize) -> io::Result
 }
 
 fn exited(pid: u32) -> io::Result<bool> {
-    // SAFETY: a zeroed siginfo_t is valid; waitid writes it for this child.
-    // WNOWAIT observes the status without releasing ownership of its PID.
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let status = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info,
-        libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
-    if status < 0 { Err(io::Error::last_os_error()) } else { Ok(info.si_signo == libc::SIGCHLD) }
+    for _ in 0..8 {
+        // SAFETY: zeroed siginfo_t is valid; waitid writes it for this child.
+        // WNOWAIT observes status without releasing ownership of its PID.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let status = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
+        if status >= 0 { return Ok(info.si_signo == libc::SIGCHLD); }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted { return Err(error); }
+    }
+    Err(io::Error::new(io::ErrorKind::Interrupted, "child ownership observation was repeatedly interrupted"))
 }
 
 fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>, limit: usize) -> io::Result<bool> {
@@ -382,6 +387,7 @@ mod tests {
             std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
         let mut killed = Vec::new();
+        let mut observed_early = Vec::new();
         for (index, ending) in ["wait", "exit 0"].iter().enumerate() {
             let path = dir.join(index.to_string());
             let record = if cfg!(target_os = "linux") {
@@ -389,25 +395,31 @@ mod tests {
             } else {
                 "ps -p \"$helper\" -o pid=,lstart=,stat="
             };
-            // A one-second helper also lets a deliberately broken leader-only
+            // A short-lived helper also lets a deliberately broken leader-only
             // cleanup control finish naturally, without signaling a reused PID.
-            let script = format!("sleep 1 & helper=$!; {record} > \"$1\"; {ending}");
+            let script = format!("sleep 3 & helper=$!; {record} > \"$1\"; {ending}");
             let mut command = Command::new("sh");
             command.args(["-c", &script, "sh"]).arg(&path);
             let start = Instant::now();
-            let error = capture(&mut command, Duration::from_millis(200), 100).unwrap_err();
+            let error = capture(&mut command, Duration::from_millis(500), 100).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::TimedOut);
             assert!(start.elapsed() < Duration::from_secs(2));
             let (pid, identity, _) = helper_stat(&std::fs::read_to_string(&path).unwrap()).unwrap();
             let alive = || helper(pid).is_some_and(|(_, current, live)| current == identity && live);
+            // wait() reaps only the leader. Give group SIGKILL time to finish
+            // on descendants, well before their natural three-second exit.
+            let delivery = Instant::now() + Duration::from_millis(250);
+            while alive() && Instant::now() < delivery { std::thread::sleep(Duration::from_millis(10)); }
             killed.push(!alive());
+            observed_early.push(start.elapsed() < Duration::from_secs(2));
             // Cleanup is checked before waiting. A leaked test helper exits
             // by itself; the negative control must not leak it after failing.
-            let deadline = Instant::now() + Duration::from_secs(2);
+            let deadline = Instant::now() + Duration::from_secs(4);
             while alive() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
             assert!(!alive(), "test helper did not finish");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(observed_early, [true, true], "helper observation missed its pre-exit deadline");
         assert_eq!(killed, [true, true], "timeout cleanup left a live descendant");
     }
 
