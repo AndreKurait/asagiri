@@ -37,6 +37,12 @@ retain nanosecond precision; invalid size, ownership or time overrides fail befo
 replacing a node. File, gzip stdin, chunked API, HTTP URL and save/load routes
 are covered by comparisons with Docker.
 
+Replacing an image tag retains the previous image ID, configuration and layers
+for existing containers. An image without another tag remains available as a
+dangling image, and retagging it removes the redundant dangling record.
+Existing aliases retain their registry provenance. Regression checks cover
+concurrent replacements, shared layers, saved images and container commits.
+
 Unprivileged containers fail before application startup if Linux cannot load
 or attach the cgroup device-access filter. Their identity and writable data
 remain available for retry after correcting the host restriction. Existing
