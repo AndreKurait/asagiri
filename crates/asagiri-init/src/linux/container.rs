@@ -758,11 +758,13 @@ pub fn remove_volume(name: &str) {
     }
 }
 
-pub fn remove(paths: &Paths, id: &str) {
-    if valid_id(id).is_ok() {
-        let base = paths.containers.join(id);
-        let _ = sys::umount_lazy(&base.join("rootfs"));
-        let _ = fs::remove_dir_all(base);
+pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
+    valid_id(id)?;
+    let base = paths.containers.join(id);
+    let _ = sys::umount_lazy(&base.join("rootfs"));
+    match fs::remove_dir_all(base) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
     }
 }
 
@@ -787,9 +789,15 @@ pub fn begin_remove(paths: &Paths, id: &str) -> io::Result<libc::pid_t> {
             }
             libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
         }
-        remove(paths, id);
+        let code = match remove(paths, id) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("asagiri-init: remove {id}: {error}");
+                1
+            }
+        };
         // SAFETY: exit without unwinding copied parent state.
-        unsafe { libc::_exit(0) }
+        unsafe { libc::_exit(code) }
     }
     if pid < 0 { Err(io::Error::last_os_error()) } else { Ok(pid) }
 }
@@ -869,7 +877,9 @@ pub fn retain(paths: &Paths, keep: StrList<'_>, running: &[&str]) {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         if !keep.iter().any(|k| k == name) && !running.contains(&name) {
-            remove(paths, name);
+            if let Err(error) = remove(paths, name) {
+                eprintln!("asagiri-init: remove {name}: {error}");
+            }
         }
     }
 }
@@ -1876,6 +1886,99 @@ fn find_executable(p: &Prepared) -> Option<CString> {
         // SAFETY: valid NUL-terminated path.
         (unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0).then_some(c)
     })
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::{Paths, begin_remove, remove};
+    use crate::linux::removal::Removals;
+    use std::fs;
+    use std::os::unix::fs::DirBuilderExt;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, Instant};
+
+    struct Fixture {
+        root: PathBuf,
+        paths: Paths,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!("asagiri-remove-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+            let paths = Paths { layers: root.join("layers"), containers: root.join("containers"), cgroup: root.join("cgroup") };
+            fs::create_dir(&paths.containers).unwrap();
+            Self { root, paths }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
+    }
+
+    fn run_worker(removals: &mut Removals, paths: &Paths, now: Instant) -> i32 {
+        let mut worker = None;
+        removals.start(now, |id| {
+            let pid = begin_remove(paths, id)?;
+            worker = Some(pid);
+            Ok(pid)
+        });
+        let worker = worker.expect("removal worker was not started");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut status = 0;
+            // SAFETY: observe only the disposable worker owned by removals.
+            let observed = unsafe { libc::waitpid(worker, &mut status, libc::WNOHANG) };
+            if observed == worker {
+                assert!(libc::WIFEXITED(status));
+                let code = libc::WEXITSTATUS(status);
+                assert!(removals.reaped(worker, code, now));
+                eprintln!("removal worker exit={code} reserved={}", removals.ids().count());
+                return code;
+            }
+            assert!(observed == 0 || std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted);
+            // Removals owns failure cleanup too: a timed-out worker is killed
+            // and reaped by its Drop before this fixture removes its files.
+            assert!(Instant::now() < deadline, "removal worker timed out");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn failed_removal_worker_keeps_its_id_until_a_repaired_retry_succeeds() {
+        let f = Fixture::new();
+        let base = f.paths.containers.join("victim");
+        // A regular file cannot be removed as a directory, even by root.
+        fs::write(&base, b"preserve this failed removal").unwrap();
+        let mut removals = Removals::default();
+        let now = Instant::now();
+        removals.enqueue("victim");
+        assert_eq!(run_worker(&mut removals, &f.paths, now), 1);
+        assert!(removals.contains("victim"));
+        assert_eq!(fs::read(&base).unwrap(), b"preserve this failed removal");
+        fs::remove_file(&base).unwrap();
+        fs::create_dir_all(base.join("rootfs")).unwrap();
+        fs::write(base.join("payload"), b"remove this repaired tree").unwrap();
+        assert_eq!(run_worker(&mut removals, &f.paths, now + Duration::from_secs(1)), 0);
+        assert!(removals.is_empty());
+        assert!(!base.exists());
+    }
+
+    #[test]
+    fn explicit_removal_is_idempotent_and_rejects_invalid_ids() {
+        let f = Fixture::new();
+        let base = f.paths.containers.join("present");
+        fs::create_dir_all(base.join("rootfs")).unwrap();
+        fs::write(base.join("payload"), b"remove").unwrap();
+        remove(&f.paths, "present").unwrap();
+        remove(&f.paths, "present").unwrap();
+        assert!(!base.exists());
+        let outside = f.root.join("outside");
+        fs::write(&outside, b"keep").unwrap();
+        assert_eq!(remove(&f.paths, "../outside").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        assert!(begin_remove(&f.paths, "../outside").is_err());
+        assert_eq!(fs::read(outside).unwrap(), b"keep");
+    }
 }
 
 #[cfg(test)]
