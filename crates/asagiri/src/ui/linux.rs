@@ -229,13 +229,13 @@ pub mod onboarding {
         if which("pkexec").is_none() {
             return Err(io::Error::other(format!("this system has no pkexec to ask for your password: in a terminal, run  sudo asagiri host-access {}", user())));
         }
-        // A user's FUSE mount need not be accessible to root. Start the
-        // original AppImage so its runtime prepares a mount for this process.
+        // A user's FUSE mount need not be accessible to root. Start the original
+        // AppImage; its bundled runtime creates a fresh root-owned extraction
+        // after authorization, without trusting the user's temporary directory.
         let mut command = Command::new("pkexec");
         match std::env::var_os("APPIMAGE").filter(|_| crate::hostaccess::appdir().is_some()) {
             Some(appimage) => {
-                // The explicit setup command must work even when this
-                // window was launched with the runtime's extraction flag.
+                // Keep this independent of the running window's extraction.
                 command.arg(appimage).arg("--appimage-extract-and-run");
             }
             None => { command.arg("/usr/bin/asagiri"); }

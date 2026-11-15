@@ -64,6 +64,7 @@ jobs:
           key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml', 'scripts/ci/images.json', 'scripts/ci/build-linux.sh') }}
       - name: Test and build
         run: |
+          python3 tests/ci-runtime-probes.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
       - name: Restore AppImage compiler dependencies and pinned downloads

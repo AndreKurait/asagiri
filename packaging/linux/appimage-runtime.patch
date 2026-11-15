@@ -1,0 +1,268 @@
+--- a/src/runtime/runtime.c
++++ b/src/runtime/runtime.c
+@@ -64,6 +64,17 @@
+ #include <libgen.h>
+ #include <dirent.h>
+ #include <ctype.h>
++
++#include "appimage-extraction.h"
++
++static volatile sig_atomic_t asagiri_running_child;
++
++static void asagiri_forward_signal(int signal) {
++    int saved_errno = errno;
++    if (asagiri_running_child > 0)
++        kill((pid_t) asagiri_running_child, signal);
++    errno = saved_errno;
++}
+ 
+ const char* fusermountPath = NULL;
+ 
+@@ -724,14 +735,18 @@
+         char portable_dir[PATH_MAX];
+         char fullpath[PATH_MAX];
+ 
+-        ssize_t length = readlink(appimage_path, fullpath, sizeof(fullpath));
++        ssize_t length = readlink(appimage_path, fullpath, sizeof(fullpath) - 1);
+         if (length < 0) {
+             fprintf(stderr, "Error getting realpath for %s\n", appimage_path);
+             exit(EXIT_FAILURE);
+         }
+         fullpath[length] = '\0';
+ 
+-        sprintf(portable_dir, "%s.%s", fullpath, name);
++        int portable_length = snprintf(portable_dir, sizeof(portable_dir), "%s.%s", fullpath, name);
++        if (portable_length < 0 || (size_t) portable_length >= sizeof(portable_dir)) {
++            fprintf(stderr, "Portable directory path is too long\n");
++            exit(EXIT_FAILURE);
++        }
+         if (!mkdir(portable_dir, S_IRWXU))
+             fprintf(stderr, "Portable %s directory created at %s\n", name, portable_dir);
+         else
+@@ -797,8 +812,13 @@
+                 }
+                 // fprintf(stderr, "inode.base.inode_type: %i\n", inode.base.inode_type);
+                 // fprintf(stderr, "inode.xtra.reg.file_size: %lu\n", inode.xtra.reg.file_size);
+-                strcpy(prefixed_path_to_extract, "");
+-                strcat(strcat(prefixed_path_to_extract, prefix), trv.path);
++                int path_length = snprintf(prefixed_path_to_extract, sizeof(prefixed_path_to_extract),
++                                           "%s%s", prefix, trv.path);
++                if (path_length < 0 || (size_t) path_length >= sizeof(prefixed_path_to_extract)) {
++                    fprintf(stderr, "Extraction path is too long\n");
++                    rv = false;
++                    break;
++                }
+ 
+                 if (verbose)
+                     fprintf(stdout, "%s\n", prefixed_path_to_extract);
+@@ -945,7 +965,7 @@
+         case FTW_SLN:
+             if (remove(path) != 0) {
+                 fprintf(stderr, "Failed to remove %s: %s\n", path, strerror(errno));
+-                return false;
++                return 1;
+             }
+             break;
+ 
+@@ -953,7 +973,7 @@
+         case FTW_DP:
+             if (rmdir(path) != 0) {
+                 fprintf(stderr, "Failed to remove directory %s: %s\n", path, strerror(errno));
+-                return false;
++                return 1;
+             }
+             break;
+ 
+@@ -970,9 +990,19 @@
+     // FTW_MOUNT: prevent deletion of files on other mounted filesystems
+     // FTW_PHYS: do not follow symlinks, but report symlinks as such; this way, the symlink targets, which might point
+     //           to locations outside path will not be deleted accidentally (attackers might abuse this)
+-    int rv = nftw(path, &rm_recursive_callback, 0, FTW_DEPTH | FTW_MOUNT | FTW_PHYS);
++    int rv = nftw(path, &rm_recursive_callback, 32, FTW_DEPTH | FTW_MOUNT | FTW_PHYS);
+ 
+     return rv == 0;
++}
++
++static bool asagiri_cleanup_extraction(struct asagiri_extraction *extraction) {
++    /* Refuse a replaced name; never remove another invocation's directory. */
++    bool removed = asagiri_owned_extraction(extraction) && rm_recursive(extraction->path);
++    if (!removed)
++        fprintf(stderr, "Failed to clean up private extraction: %s\n", strerror(errno));
++    free(extraction->path);
++    extraction->path = NULL;
++    return removed;
+ }
+ 
+ void build_mount_point(char* mount_dir, const char* const argv0, const char* const temp_base, const size_t templen) {
+@@ -1447,17 +1477,17 @@
+     char portable_config_dir[PATH_MAX];
+ 
+     /* If there is a directory with the same name as the AppImage plus ".home", then export $HOME */
+-    strcpy(portable_home_dir, basepath);
+-    strcat(portable_home_dir, ".home");
+-    if (is_writable_directory(portable_home_dir)) {
++    int home_length = snprintf(portable_home_dir, sizeof(portable_home_dir), "%s.home", basepath);
++    if (home_length >= 0 && (size_t) home_length < sizeof(portable_home_dir) &&
++        is_writable_directory(portable_home_dir)) {
+         fprintf(stderr, "Setting $HOME to %s\n", portable_home_dir);
+         setenv("HOME", portable_home_dir, 1);
+     }
+ 
+     /* If there is a directory with the same name as the AppImage plus ".config", then export $XDG_CONFIG_HOME */
+-    strcpy(portable_config_dir, basepath);
+-    strcat(portable_config_dir, ".config");
+-    if (is_writable_directory(portable_config_dir)) {
++    int config_length = snprintf(portable_config_dir, sizeof(portable_config_dir), "%s.config", basepath);
++    if (config_length >= 0 && (size_t) config_length < sizeof(portable_config_dir) &&
++        is_writable_directory(portable_config_dir)) {
+         fprintf(stderr, "Setting $XDG_CONFIG_HOME to %s\n", portable_config_dir);
+         setenv("XDG_CONFIG_HOME", portable_config_dir, 1);
+     }
+@@ -1492,9 +1522,13 @@
+     char temp_base[PATH_MAX] = P_tmpdir;
+ 
+     {
+-        const char* const TMPDIR = getenv("TMPDIR");
+-        if (TMPDIR != NULL)
+-            strcpy(temp_base, getenv("TMPDIR"));
++        const bool elevated = geteuid() == 0 || geteuid() != getuid() || getegid() != getgid();
++        const char* const selected = asagiri_temp_base(elevated, getenv("TMPDIR"));
++        if (strlen(selected) >= sizeof(temp_base)) {
++            fprintf(stderr, "Temporary directory path is too long\n");
++            exit(EXIT_EXECERROR);
++        }
++        strcpy(temp_base, selected);
+     }
+ 
+     fs_offset = appimage_get_elf_size(appimage_path);
+@@ -1578,40 +1612,28 @@
+     }
+ 
+     if (getenv("APPIMAGE_EXTRACT_AND_RUN") != NULL || (arg && strcmp(arg, "appimage-extract-and-run") == 0)) {
+-        char* hexlified_digest = NULL;
+-
+-        // calculate MD5 hash of file, and use it to make extracted directory name "content-aware"
+-        // see https://github.com/AppImage/AppImageKit/issues/841 for more information
+-        {
+-            FILE* f = fopen(appimage_path, "rb");
+-            if (f == NULL) {
+-                perror("Failed to open AppImage file");
+-                exit(EXIT_EXECERROR);
+-            }
+-
+-            Md5Context ctx;
+-            Md5Initialise(&ctx);
+-
+-            char buf[4096];
+-            size_t bytes_read;
+-            while ((bytes_read = fread(buf, sizeof(char), sizeof(buf), f)) > 0) {
+-                Md5Update(&ctx, buf, (uint32_t) bytes_read);
+-            }
+-
+-            MD5_HASH digest;
+-            Md5Finalise(&ctx, &digest);
+-
+-            hexlified_digest = appimage_hexlify((const char*)digest.bytes, sizeof(digest.bytes));
+-        }
+-
+-        char* prefix = malloc(strlen(temp_base) + 20 + strlen(hexlified_digest) + 2);
+-        strcpy(prefix, temp_base);
+-        strcat(prefix, "/appimage_extracted_");
+-        strcat(prefix, hexlified_digest);
+-        free(hexlified_digest);
+-
+-        if (!extract_appimage(appimage_path, prefix, NULL, false, verbose)) {
+-            fprintf(stderr, "Failed to extract AppImage\n");
++        struct asagiri_extraction extraction;
++        if (!asagiri_create_extraction(&extraction)) {
++            fprintf(stderr, "Cannot create private extraction directory: %s\n", strerror(errno));
++            exit(EXIT_EXECERROR);
++        }
++        char *prefix = extraction.path;
++        if (!extract_appimage(appimage_path, prefix, NULL, true, verbose) ||
++            !asagiri_valid_apprun(&extraction)) {
++            fprintf(stderr, "Failed to extract a private, owned AppRun\n");
++            asagiri_cleanup_extraction(&extraction);
++            exit(EXIT_EXECERROR);
++        }
++
++        /* Keep the directory until this invocation's child has really exited,
++         * including when the launcher receives a signal while waiting. */
++        sigset_t blocked, previous_mask;
++        sigemptyset(&blocked);
++        sigaddset(&blocked, SIGINT);
++        sigaddset(&blocked, SIGTERM);
++        sigaddset(&blocked, SIGHUP);
++        if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0) {
++            asagiri_cleanup_extraction(&extraction);
+             exit(EXIT_EXECERROR);
+         }
+ 
+@@ -1619,8 +1641,11 @@
+         if ((pid = fork()) == -1) {
+             int error = errno;
+             fprintf(stderr, "fork() failed: %s\n", strerror(error));
++            asagiri_cleanup_extraction(&extraction);
++            sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+             exit(EXIT_EXECERROR);
+         } else if (pid == 0) {
++            sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+             const char apprun_fname[] = "AppRun";
+             char* apprun_path = malloc(strlen(prefix) + 1 + strlen(apprun_fname) + 1);
+             strcpy(apprun_path, prefix);
+@@ -1628,7 +1653,7 @@
+             strcat(apprun_path, apprun_fname);
+ 
+             // create copy of argument list without the --appimage-extract-and-run parameter
+-            char* new_argv[argc];
++            char* new_argv[argc + 1];
+             int new_argc = 0;
+             new_argv[new_argc++] = strdup(apprun_path);
+             for (int i = 1; i < argc; ++i) {
+@@ -1654,20 +1679,33 @@
+             exit(EXIT_EXECERROR);
+         }
+ 
++        asagiri_running_child = pid;
++        struct sigaction forward;
++        memset(&forward, 0, sizeof(forward));
++        forward.sa_handler = asagiri_forward_signal;
++        sigemptyset(&forward.sa_mask);
++        if (sigaction(SIGINT, &forward, NULL) != 0 ||
++            sigaction(SIGTERM, &forward, NULL) != 0 ||
++            sigaction(SIGHUP, &forward, NULL) != 0) {
++            /* A child must be reaped before any of its files are removed. */
++            kill(pid, SIGKILL);
++        }
++        sigprocmask(SIG_SETMASK, &previous_mask, NULL);
++
+         int status = 0;
+-        int rv = waitpid(pid, &status, 0);
+-        status = rv > 0 && WIFEXITED (status) ? WEXITSTATUS (status) : EXIT_EXECERROR;
+-
+-        if (getenv("NO_CLEANUP") == NULL) {
+-            if (!rm_recursive(prefix)) {
+-                fprintf(stderr, "Failed to clean up cache directory\n");
+-                if (status == 0)        /* avoid messing existing failure exit status */
+-                    status = EXIT_EXECERROR;
+-            }
+-        }
+-
+-        // template == prefix, must be freed only once
+-        free(prefix);
++        int rv;
++        do {
++            rv = waitpid(pid, &status, 0);
++        } while (rv < 0 && errno == EINTR);
++        asagiri_running_child = 0;
++        status = rv > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : EXIT_EXECERROR;
++
++        if (geteuid() == 0 || getenv("NO_CLEANUP") == NULL) {
++            if (!asagiri_cleanup_extraction(&extraction) && status == 0)
++                status = EXIT_EXECERROR;
++        } else {
++            free(extraction.path);
++        }
+ 
+         exit(status);
+     }

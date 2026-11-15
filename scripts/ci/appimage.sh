@@ -69,6 +69,7 @@ docker run --rm --tmpfs /tmp:exec,nosuid,nodev \
     cargo build --locked --release -p asagiri --features window
     image=$(bash packaging/linux/appimage.sh /bin-input /cache/target/release/asagiri /out /cache/downloads)
     xvfb-run -a python3 tests/appimage.py "$image" /bin-input /cache/target/release/asagiri \
+      --appimagetool "/cache/downloads/appimagetool-1.9.1-$(uname -m).AppImage" \
       --output /out/appimage-verification.json
     dpkg-query -W > /out/appimage-build-packages.txt
   '
