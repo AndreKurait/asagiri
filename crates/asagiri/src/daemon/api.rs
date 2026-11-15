@@ -481,15 +481,20 @@ pub(super) fn filters(req: &Request, known: &[&str]) -> Result<Filters, Error> {
 }
 
 /// Docker's reference filter: `alpine`, `alpine:3`, `library/*`, `*:latest`.
+/// A colon followed by a `/` is a registry's port (`localhost:5000/app`),
+/// not a tag, in the pattern and in the name alike.
 pub(super) fn reference_matches(pattern: &str, name: &str) -> bool {
-    let (repo, tag) = name.rsplit_once(':').unwrap_or((name, "latest"));
+    fn tagged(s: &str) -> Option<(&str, &str)> {
+        s.rsplit_once(':').filter(|(_, t)| !t.contains('/'))
+    }
+    let (repo, tag) = tagged(name).unwrap_or((name, "latest"));
     let glob = |p: &str, s: &str| match p.split_once('*') {
         Some((a, b)) => s.len() >= a.len() + b.len() && s.starts_with(a) && s.ends_with(b),
         None => p == s,
     };
-    match pattern.rsplit_once(':') {
-        Some((p, t)) if !p.contains('/') || !t.contains('/') => glob(p, repo) && glob(t, tag),
-        _ => glob(pattern, repo) || glob(pattern, name),
+    match tagged(pattern) {
+        Some((p, t)) => glob(p, repo) && glob(t, tag),
+        None => glob(pattern, repo) || glob(pattern, name),
     }
 }
 
@@ -3848,6 +3853,33 @@ mod tests {
         let (_tx, rx) = std::sync::mpsc::channel::<()>();
         drop(client);
         assert_eq!(receive_connected(&rx, &server), None);
+    }
+
+    /// `docker images REPO` sends `{"reference":{"REPO":true}}`; a registry
+    /// with a port must not have its port read as a tag.
+    #[test]
+    fn reference_filter_keeps_a_registry_port() {
+        let listed = |pattern: &str| -> Vec<String> {
+            let filters = json!({"reference": {pattern: true}}).to_string();
+            let req = Request::internal("GET", "/images/json", &[("filters", &filters)], Vec::new());
+            let f = super::filters(&req, &["reference", "dangling", "label"]).unwrap();
+            ["alpine", "bitnami/redis:7", "localhost:5000/app", "registry.example.com:5000/team/app:1"]
+                .iter()
+                .map(|n| Reference::parse(n).unwrap().short())
+                .filter(|n| f.any("reference", |p| reference_matches(p, n)))
+                .collect()
+        };
+        assert_eq!(listed("alpine"), ["alpine:latest"]);
+        assert_eq!(listed("bitnami/redis:7"), ["bitnami/redis:7"]);
+        assert_eq!(listed("localhost:5000/app:latest"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("localhost:5000/app"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("localhost:5000/*"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("registry.example.com:5000/team/app"), ["registry.example.com:5000/team/app:1"]);
+        assert!(listed("localhost:5000/other").is_empty());
+        // `docker ps --filter ancestor=`: the image as it was typed at create.
+        assert!(reference_matches("localhost:5000/app:latest", "localhost:5000/app"));
+        assert!(reference_matches("localhost:5000/app", "localhost:5000/app"));
+        assert!(!reference_matches("localhost:5000/app:2", "localhost:5000/app"));
     }
 
     /// Reads a socket as `forward_stdin` does, reporting each read's length.
