@@ -146,3 +146,22 @@ The real-VM regression is an opt-in ignored test:
 an isolated `HOME` and `ASAGIRI_DATA_DIR` containing `alpine:latest` and no
 containers, `ASAGIRI_GUEST_DIR` pointing to matching guest assets, and
 `ASAGIRI_LIVE_VM_RECOVERY=1`. It force-stops only the VM it creates.
+
+### Concurrent Docker API clients
+
+The daemon admits 256 concurrent API connections by default. Long-lived
+container waits, log followers and attached sessions each occupy a connection,
+including when no data is flowing. For larger fleets, set the daemon's startup
+`ASAGIRI_MAX_CONNECTIONS` environment variable to a decimal integer from 1 to
+4096, for example `ASAGIRI_MAX_CONNECTIONS=1024`. Invalid values fail startup.
+Changing it requires restarting the daemon; it does not change socket access.
+
+Budget for the peak number of streams plus ordinary API requests. Each admitted
+connection starts an OS thread and holds at least two socket descriptors;
+attached sessions may allocate more. Thread stacks reserve virtual address
+space (normally 2 MiB per Rust thread, platform dependent), and active requests
+also consume resident memory. Raising the bound does not guarantee sufficient
+file descriptors or memory. Keep a bounded value appropriate to the host and
+leave room for control requests. At the limit new connections are closed.
+Disconnected waits and quiet log followers release their connection promptly;
+a client that only closes its write half can still receive the response.
