@@ -17,6 +17,8 @@ use crate::client;
 /// Desktop's context has the same name on Windows; OrbStack is Mac-only.
 pub const SOURCES: &[(&str, &str)] = if cfg!(windows) { &[("desktop-linux", "Docker Desktop")] } else { &[("orbstack", "OrbStack"), ("desktop-linux", "Docker Desktop")] };
 
+// asagiri-win builds this file too, where docker_cli() gives a String.
+#[allow(clippy::useless_conversion)]
 fn docker() -> io::Result<PathBuf> {
     client::docker_cli().map(PathBuf::from).ok_or_else(|| io::Error::other("no docker CLI found (Asagiri bundles one)"))
 }
@@ -230,31 +232,56 @@ fn pick(given: Option<&str>, answers: impl Fn(&str) -> bool) -> io::Result<&'sta
 const KINDS: [&str; 3] = ["image", "volume", "container"];
 const USAGE: &str = "usage: asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]";
 
-/// The source named (if any) and what to import: everything (`None`) or one
-/// item. A kind without exactly one name is a usage error, never everything.
-fn parse<'a>(words: &[&'a str]) -> io::Result<(Option<&'a str>, Option<(&'a str, &'a str)>)> {
+/// What `asagiri import` was asked to do.
+#[derive(Debug, PartialEq)]
+enum Ask<'a> {
+    Everything,
+    List,
+    One(&'a str, &'a str),
+}
+
+/// The source named (if any) and what to do. A kind without exactly one
+/// name, `--list` with an item, or a flag Asagiri doesn't know is a usage
+/// error, never "import everything".
+fn parse<'a>(args: &[&'a str]) -> io::Result<(Option<&'a str>, Ask<'a>)> {
+    let usage = || io::Error::other(USAGE);
+    let mut list = false;
+    let mut words = Vec::new();
+    for a in args {
+        match *a {
+            "--list" => list = true,
+            f if f.starts_with('-') => return Err(usage()),
+            w => words.push(w),
+        }
+    }
     let (given, rest) = match words.split_first() {
         Some((first, rest)) if !KINDS.contains(first) => (Some(*first), rest),
-        _ => (None, words),
+        _ => (None, &words[..]),
     };
-    match rest {
-        [] => Ok((given, None)),
-        [kind, name] if KINDS.contains(kind) => Ok((given, Some((*kind, *name)))),
-        _ => Err(io::Error::other(USAGE)),
-    }
+    let ask = match (rest, list) {
+        ([], false) => Ask::Everything,
+        ([], true) => Ask::List,
+        ([kind, name], false) if KINDS.contains(kind) => Ask::One(kind, name),
+        _ => return Err(usage()),
+    };
+    Ok((given, ask))
 }
 
 /// `asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]`:
 /// one item, or every image, named volume and container Asagiri lacks.
 pub fn run(args: &[String]) -> io::Result<()> {
-    let words: Vec<&str> = args.iter().filter(|a| !a.starts_with('-')).map(String::as_str).collect();
-    let (given, item) = parse(&words)?;
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("{USAGE}");
+        return Ok(());
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (given, ask) = parse(&args)?;
     let source = pick(given, answers)?;
     if given.is_none() {
         let label = SOURCES.iter().find(|(c, _)| *c == source).map_or(source, |(_, l)| *l);
         println!("from {label} ({source})");
     }
-    if let Some((kind, name)) = item {
+    if let Ask::One(kind, name) = ask {
         let r = match kind {
             "image" => image(source, name),
             "volume" => volume(source, name),
@@ -264,7 +291,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
     }
     let inv = inventory(source)?;
     let list = |k: &str| inv[k].as_array().cloned().unwrap_or_default();
-    if args.iter().any(|a| a == "--list") {
+    if ask == Ask::List {
         for k in ["images", "volumes", "containers"] {
             println!("{k}:");
             for v in list(k) {
@@ -336,14 +363,27 @@ mod tests {
     // everything"; the source may be left out before a kind.
     #[test]
     fn parses_what_to_import() {
-        use super::parse;
-        assert_eq!(parse(&[]).unwrap(), (None, None));
-        assert_eq!(parse(&["orbstack"]).unwrap(), (Some("orbstack"), None));
-        assert_eq!(parse(&["image", "nginx"]).unwrap(), (None, Some(("image", "nginx"))));
-        assert_eq!(parse(&["desktop-linux", "volume", "pg"]).unwrap(), (Some("desktop-linux"), Some(("volume", "pg"))));
-        for bad in [&["orbstack", "image"][..], &["image"], &["orbstack", "image", "a", "b"], &["orbstack", "photo", "a"]] {
+        use super::{Ask, parse};
+        assert_eq!(parse(&[]).unwrap(), (None, Ask::Everything));
+        assert_eq!(parse(&["orbstack"]).unwrap(), (Some("orbstack"), Ask::Everything));
+        assert_eq!(parse(&["--list"]).unwrap(), (None, Ask::List));
+        assert_eq!(parse(&["orbstack", "--list"]).unwrap(), (Some("orbstack"), Ask::List));
+        assert_eq!(parse(&["image", "nginx"]).unwrap(), (None, Ask::One("image", "nginx")));
+        assert_eq!(parse(&["desktop-linux", "volume", "pg"]).unwrap(), (Some("desktop-linux"), Ask::One("volume", "pg")));
+        for bad in [
+            &["orbstack", "image"][..],
+            &["image"],
+            &["orbstack", "image", "a", "b"],
+            &["orbstack", "photo", "a"],
+            // --list with an item would import it.
+            &["--list", "image", "nginx"],
+            &["image", "nginx", "--list"],
+            // An unknown flag must not start a full import.
+            &["--dry-run"],
+            &["orbstack", "-l"],
+        ] {
             assert!(parse(bad).unwrap_err().to_string().starts_with("usage:"), "{bad:?}");
         }
-        assert_eq!(parse(&["podman"]).unwrap(), (Some("podman"), None));
+        assert_eq!(parse(&["podman"]).unwrap(), (Some("podman"), Ask::Everything));
     }
 }
