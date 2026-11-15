@@ -75,6 +75,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bin", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--user-network", action="store_true",
+                        help="Use a custom bridge after reserving another network's subnet")
     args = parser.parse_args()
     binary_dir, output = args.bin.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -107,6 +109,7 @@ def main():
         "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "binaries": binaries, "host_image": host_image, "image": IMAGE,
         "architecture": architecture,
+        "network_mode": "custom" if args.user_network else "default",
         "outer_ports_published": False, "user_docker_socket_mounted": False,
         "hosts": [host, peer], "network": network, "checks": [],
     }
@@ -190,11 +193,25 @@ def main():
         record["peer_ip"], record["engine_ip"] = peer_ip, host_ip
         record["kernel"] = engine("uname", "-sr").stdout.strip()
         dock("pull", IMAGE)
-        dock("run", "-d", "--name", "firewall-client", IMAGE, "sleep", "3600")
+        tested_network = "bridge"
+        if args.user_network:
+            dock("network", "create", "firewall-placeholder")
+            tested_network = "firewall-custom"
+            dock("network", "create", tested_network)
+        dock("run", "-d", "--name", "firewall-client", "--network", tested_network, IMAGE, "sleep", "3600")
         dock("exec", "firewall-client", "apk", "add", "-q", "--no-cache", "python3")
-        bridge = json.loads(dock("network", "inspect", "bridge").stdout)[0]
+        bridge = json.loads(dock("network", "inspect", tested_network).stdout)[0]
         record["bridge"] = bridge
-        container_ip = json.loads(dock("inspect", "firewall-client").stdout)[0]["NetworkSettings"]["IPAddress"]
+        gateway = next(item["Gateway"] for item in bridge["IPAM"]["Config"] if ":" not in item["Subnet"])
+        interfaces = json.loads(engine("ip", "-j", "-4", "address", "show").stdout)
+        matching = [item["ifname"] for item in interfaces
+                    if any(address.get("local") == gateway for address in item["addr_info"])]
+        assert len(matching) == 1 and re.fullmatch(r"asagiri[0-9]+", matching[0]), matching
+        bridge_interface = matching[0]
+        assert (bridge_interface != "asagiri0") == args.user_network
+        record["bridge_interface"] = bridge_interface
+        record["gateway"] = gateway
+        container_ip = json.loads(dock("inspect", "firewall-client").stdout)[0]["NetworkSettings"]["Networks"][tested_network]["IPAddress"]
         assert iptables("-S", "FORWARD").stdout.strip() == "-P FORWARD ACCEPT"
         version = engine("iptables", "--version").stdout.strip()
         assert "nf_tables" in version, version
@@ -210,8 +227,8 @@ def main():
 
         # The same narrow rules documented for an iptables-managed host.
         # Keep DROP, other bridges and unsolicited ingress outside them.
-        outbound = ["-i", "asagiri0", "-o", "eth0", "-j", "ACCEPT"]
-        replies = ["-i", "eth0", "-o", "asagiri0", "-m", "conntrack",
+        outbound = ["-i", bridge_interface, "-o", "eth0", "-j", "ACCEPT"]
+        replies = ["-i", "eth0", "-o", bridge_interface, "-m", "conntrack",
                    "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"]
         for rule in (outbound, replies):
             iptables("-I", "FORWARD", "1", *rule)
@@ -292,6 +309,8 @@ def main():
         result("Docker and Asagiri firewall ownership remains intact")
         reference("rm", "-f", "firewall-reference")
         dock("rm", "-f", "firewall-client")
+        if args.user_network:
+            dock("network", "rm", tested_network, "firewall-placeholder")
         record["status"] = "passed"
     except BaseException as error:
         record["status"] = "failed"

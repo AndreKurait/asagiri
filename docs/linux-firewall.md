@@ -34,6 +34,22 @@ Use the actual interfaces on your machine. Custom bridge networks need their
 own explicit allowance. VPNs, multiple uplinks, IPv6 and native nftables
 firewalls need rules appropriate to their routing and policy.
 
+Compose normally creates a project network with its own bridge and subnet.
+Allowing only `asagiri0` therefore does not enable egress from that project.
+Find its gateway and the interface holding that address:
+
+```sh
+docker --context asagiri network inspect myproject_default \
+  --format '{{range .IPAM.Config}}{{println .Subnet .Gateway}}{{end}}'
+ip -4 -o address show
+```
+
+Use that bridge, for example `asagiri2`, in the rules below. Repeat for each
+network whose egress you intend to allow. Inspect again after recreating
+networks because their subnets and bridge names can change. Asagiri's own
+NAT table covers the bridges it creates; the host firewall still needs the
+corresponding forwarding allowances.
+
 ## Docker with its iptables backend
 
 Docker can leave the host's `FORWARD` policy at `DROP`. Its `DOCKER-USER`
@@ -86,10 +102,14 @@ reproduces blocking under `FORWARD DROP`, and verifies the scoped allowances.
 It also starts a pinned Docker daemon beside Asagiri and exercises the real
 `DOCKER-USER` chain. The checks retain the drop policy, require an unpublished
 listener to remain unreachable from outside, and remove the allowances to
-confirm that blocking returns.
+confirm that blocking returns. The `--user-network` variant reserves another
+network first, then repeats all checks on a custom bridge. It derives the
+interface from that network's actual gateway instead of assuming `asagiri0`
+or a fixed subnet.
 
 The script preserves the source and binary identities, rules, logs and
-cleanup results. Platform CI and both Linux release architectures run it.
+cleanup results. Platform CI and both Linux release architectures run the
+default and custom-network variants.
 It changes only the disposable hosts' firewall rules, publishes no outer
 ports and mounts no user Docker socket. This tests the IPv4 iptables path;
 it does not certify every UFW/firewalld policy, VPN, IPv6 route or WSL host.

@@ -379,81 +379,102 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         }
     };
     let mut veths = Vec::new();
-    let mut macvlans = Unplug(Vec::new());
-    // Not bridged, but with sysctls to write: no network to wait for.
-    if let Some(go) = go.take_if(|_| !bridged) {
-        drop(prepared.net_ready.take());
-        super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
-        // SAFETY: one byte to a pipe we own: "go on".
-        unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
-    }
-    if let Some(go) = go {
-        drop(prepared.net_ready.take());
-        // Named after the container, plus a per-start counter: after a
-        // restart the previous veth may still be on its way out with the old
-        // network namespace. 15 characters at most, the kernel's limit.
-        static STARTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xffff;
-        let host_if = format!("kv{}{n:04x}", &spec.id[..spec.id.len().min(9)]);
-        let mac = net_opts::values(spec.net.opts, net_opts::MAC).next().and_then(net::parse_mac);
-        let v6 = net::Ip6::from_opts(spec.net.opts);
-        let plug = net::Plug::from_opts(spec.net.opts);
-        match net::attach_container(net.bridges, spec.net.bridge, &host_if, pid, spec.net.ip, spec.net.prefix, spec.net.gateway, mac, v6, plug)
-            .map_err(|e| kill_child(io::Error::new(e.kind(), format!("network: {e}"))))?
-        {
-            Some(link) => macvlans.0.push(link),
-            None => veths.push(host_if),
+    let started = (|| {
+        let mut macvlans = Unplug(Vec::new());
+        // Not bridged, but with sysctls to write: no network to wait for.
+        if let Some(go) = go.take_if(|_| !bridged) {
+            drop(prepared.net_ready.take());
+            super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
+            // SAFETY: one byte to a pipe we own: "go on".
+            unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
         }
-        if embedded_dns {
-            // An IPv6-only network's bridge has no IPv4 address to serve on,
-            // and its containers no A records. A macvlan or ipvlan network
-            // has no gateway to serve on: its containers ask 127.0.0.11.
-            if !plug.no_ipv4 {
-                if !plug.own_link() {
-                    net.dns.serve(spec.net.bridge, spec.net.gateway).map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
+        if let Some(go) = go {
+            drop(prepared.net_ready.take());
+            // Named after the container, plus a per-start counter: after a
+            // restart the previous veth may still be on its way out with the old
+            // network namespace. 15 characters at most, the kernel's limit.
+            static STARTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xffff;
+            let host_if = format!("kv{}{n:04x}", &spec.id[..spec.id.len().min(9)]);
+            let mac = net_opts::values(spec.net.opts, net_opts::MAC).next().and_then(net::parse_mac);
+            let v6 = net::Ip6::from_opts(spec.net.opts);
+            let plug = net::Plug::from_opts(spec.net.opts);
+            match net::attach_container(net.bridges, spec.net.bridge, &host_if, pid, spec.net.ip, spec.net.prefix, spec.net.gateway, mac, v6, plug)
+                .map_err(|e| kill_child(io::Error::new(e.kind(), format!("network: {e}"))))?
+            {
+                Some(link) => macvlans.0.push(link),
+                None => veths.push(host_if),
+            }
+            if embedded_dns {
+                // An IPv6-only network's bridge has no IPv4 address to serve on,
+                // and its containers no A records. A macvlan or ipvlan network
+                // has no gateway to serve on: its containers ask 127.0.0.11.
+                if !plug.no_ipv4 {
+                    if !plug.own_link() {
+                        net.dns.serve(spec.net.bridge, spec.net.gateway).map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
+                    }
+                    net.dns.register(spec.net.bridge, spec.net.dns_names.iter(), spec.net.ip);
                 }
-                net.dns.register(spec.net.bridge, spec.net.dns_names.iter(), spec.net.ip);
+                // 127.0.0.11 in the container, when its resolv.conf names it. Not
+                // when it names the gateway (the default bridge in the VM): the
+                // listener would only hold port 53, and a DNS server in the
+                // container could not bind it.
+                if nameserver == Some(super::dns::EMBEDDED) {
+                    std::fs::File::open(format!("/proc/{pid}/ns/net"))
+                        .and_then(|ns| net.dns.serve_in(&ns, pid, spec.net.ip, spec.net.bridge))
+                        .map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
+                }
+                if let Some(v) = v6 {
+                    net.dns.register6(spec.net.bridge, spec.net.dns_names.iter(), spec.net.ip, v.ip);
+                }
+                // `--dns`: names the network does not know go to these instead.
+                let servers: Vec<[u8; 4]> = net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect();
+                net.dns.set_upstream(spec.net.ip, servers);
             }
-            // 127.0.0.11 in the container, when its resolv.conf names it. Not
-            // when it names the gateway (the default bridge in the VM): the
-            // listener would only hold port 53, and a DNS server in the
-            // container could not bind it.
-            if nameserver == Some(super::dns::EMBEDDED) {
-                std::fs::File::open(format!("/proc/{pid}/ns/net"))
-                    .and_then(|ns| net.dns.serve_in(&ns, pid, spec.net.ip, spec.net.bridge))
-                    .map_err(|e| kill_child(io::Error::new(e.kind(), format!("dns: {e}"))))?;
-            }
-            if let Some(v) = v6 {
-                net.dns.register6(spec.net.bridge, spec.net.dns_names.iter(), spec.net.ip, v.ip);
-            }
-            // `--dns`: names the network does not know go to these instead.
-            let servers: Vec<[u8; 4]> = net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect();
-            net.dns.set_upstream(spec.net.ip, servers);
+            super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
+            // SAFETY: one byte to a pipe we own: "your network is ready".
+            unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
         }
-        super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
-        // SAFETY: one byte to a pipe we own: "your network is ready".
-        unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
-    }
-    // An exec can be requested as soon as Started is sent. Joining a mount
-    // namespace before its init pivots would give that exec the old root.
-    // Wait for the child's mount setup, including pivot_root, before exposing it.
-    wait_root_ready(root_ready).map_err(kill_child)?;
-    let (stdin, stdout, stderr) = finish_stdio(parent_io, child_io).map_err(kill_child)?;
-    Ok(Process {
-        id: spec.id.to_owned(),
-        container: None,
-        pid,
-        stdout,
-        stderr,
-        stdin,
-        tty: prepared.tty,
-        dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
-        late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
-        veths,
-        ways_out: Vec::new(),
-        macvlans: std::mem::take(&mut macvlans.0),
-        netns,
-        teardown: Some(Teardown { base, rootfs, cgroup, remove }),
+        // An exec can be requested as soon as Started is sent. Joining a mount
+        // namespace before its init pivots would give that exec the old root.
+        // Wait for the child's mount setup, including pivot_root, before exposing it.
+        wait_root_ready(root_ready).map_err(kill_child)?;
+        let (stdin, stdout, stderr) = finish_stdio(parent_io, child_io).map_err(kill_child)?;
+        Ok(Process {
+            id: spec.id.to_owned(),
+            container: None,
+            pid,
+            stdout,
+            stderr,
+            stdin,
+            tty: prepared.tty,
+            dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
+            late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
+            veths: std::mem::take(&mut veths),
+            ways_out: Vec::new(),
+            macvlans: std::mem::take(&mut macvlans.0),
+            netns,
+            teardown: Some(Teardown { base, rootfs, cgroup, remove }),
+        })
+    })();
+    started.map_err(|error| {
+        // A rejected spawn never enters the agent's process table, so its
+        // reap path cannot release DNS. Close the namespace-owned socket and
+        // pending queries now, and remove only this container's registrations.
+        net.dns.drop_container(pid);
+        if bridged && embedded_dns {
+            net.dns.unregister(spec.net.bridge, spec.net.ip);
+        }
+        // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
+        // rmdir does not race the failed child (or any descendants) exiting.
+        kill_cgroup(&undo.cgroup);
+        // A held namespace can outlive the failed child. Retire only this
+        // attempt's unique links before another attach reuses its address.
+        net::retire(&veths);
+        // The parent mounted the rootfs before cloning. A failed child has
+        // no Process teardown either; detach this attempt's mount and retain
+        // stopped-container data under the same policy as pre-clone errors.
+        cleanup(error)
     })
 }
 

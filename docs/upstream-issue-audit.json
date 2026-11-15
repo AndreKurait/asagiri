@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-15T02:06:40.708048+00:00",
+  "reviewed_at": "2026-11-15T03:31:54.298532+00:00",
   "repository": "libracoder/kiri",
-  "count": 78,
+  "count": 79,
   "issues": [
     {
       "number": 10,
@@ -692,19 +692,42 @@
       "number": 246,
       "title": "buildx docker-container builder fails on first start: mount rootfs Resource busy (os error 16)",
       "state": "open",
-      "updated_at": "2026-11-15T01:58:08Z",
+      "updated_at": "2026-11-15T03:20:13Z",
       "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
       "disposition": "runtime-regression-covered",
-      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. The exact reported XanMod 7.3/ext4 host remains unverified."
+      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount while preserving writable data, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
+      "reviewed_comments": [
+        {
+          "id": 6888477894,
+          "updated_at": "2026-11-15T03:20:13Z",
+          "body_sha256": "308c1963317c9b822b97d1d26d212fba838ec70c96be4c842aea23c181bf67dd"
+        }
+      ]
     },
     {
       "number": 247,
       "title": "Bridge containers have no outbound TCP/UDP when host FORWARD policy is DROP (no accept or MASQUERADE rules for kiri0)",
       "state": "open",
-      "updated_at": "2026-11-15T01:58:10Z",
+      "updated_at": "2026-11-15T03:20:11Z",
       "body_sha256": "ab4c1c41c7f7b222c2b9da4b5001a4244fba6d986b3b5704610dcd3f5491ca33",
       "disposition": "documented-and-verified",
-      "reason": "A private IPv4 iptables-nft reproduction on ae4c2c2 confirms that Asagiri NAT is present and a separate FORWARD DROP blocks TCP/UDP/DNS. Interface-scoped FORWARD and real DOCKER-USER allowances restore egress beside Docker 29.9.3 while preserving the drop policy, each engine table and unsolicited inbound blocking. The guide covers inspection, removal and persistence; custom UFW/firewalld policies, IPv6, VPNs and the exact reporter host remain unverified."
+      "reason": "Private IPv4 iptables-nft checks reproduce FORWARD DROP blocking TCP/UDP/DNS despite Asagiri owning a NAT table. Interface-scoped FORWARD and real DOCKER-USER allowances restore egress beside Docker while preserving the drop policy and unsolicited inbound blocking. CI runs all 33 checks on both the default bridge and a custom network created after a placeholder network, deriving its actual interface and gateway. The guide explains Compose networks and separate allowances. Custom UFW/firewalld policies, IPv6, VPNs and the exact reporter host remain unverified.",
+      "reviewed_comments": [
+        {
+          "id": 6888477697,
+          "updated_at": "2026-11-15T03:20:11Z",
+          "body_sha256": "b129c1c32e71aa16c5d13e088e5084efe38fcd546148384c4ca8ab7119f43ea6"
+        }
+      ]
+    },
+    {
+      "number": 248,
+      "disposition": "fix-and-regression-with-limits",
+      "title": "Removing a network leaks its DNS listener: next network on the same subnet fails with 'dns bind: Address in use'",
+      "state": "open",
+      "updated_at": "2026-11-15T03:20:14Z",
+      "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
+      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
     }
   ]
 }
