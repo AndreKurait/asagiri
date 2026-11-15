@@ -49,10 +49,7 @@ pub fn sources() -> Vec<Value> {
     SOURCES
         .iter()
         .map(|(ctx, label)| {
-            let running = cli().is_ok_and(|mut c| {
-                c.args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
-            });
-            json!({"id": ctx, "label": label, "running": running})
+            json!({"id": ctx, "label": label, "running": answers(ctx)})
         })
         .collect()
 }
@@ -203,17 +200,65 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Whether `ctx`'s engine answers.
+fn answers(ctx: &str) -> bool {
+    cli().is_ok_and(|mut c| c.args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success()))
+}
+
+/// The engine to import from: the one named, or else the first that
+/// answers. Only the engines that need it are asked (`answers` waits on
+/// each), and one that isn't there gets a plain message instead of docker's
+/// "context not found" (#266).
+fn pick(given: Option<&str>, answers: impl Fn(&str) -> bool) -> io::Result<&'static str> {
+    let label = |id: &'static str| SOURCES.iter().find(|(c, _)| *c == id).map_or(id, |(_, l)| *l);
+    match given {
+        Some(id) => {
+            let id = known(id)?;
+            if answers(id) {
+                Ok(id)
+            } else {
+                Err(io::Error::other(format!("{} isn't installed or running here (no docker context \"{id}\" answering)", label(id))))
+            }
+        }
+        None => SOURCES.iter().map(|(c, _)| *c).find(|c| answers(c)).ok_or_else(|| {
+            let names: Vec<&str> = SOURCES.iter().map(|(_, l)| *l).collect();
+            io::Error::other(format!("nothing to import from: {} isn't installed or running here", names.join(" or ")))
+        }),
+    }
+}
+
+const KINDS: [&str; 3] = ["image", "volume", "container"];
+const USAGE: &str = "usage: asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]";
+
+/// The source named (if any) and what to import: everything (`None`) or one
+/// item. A kind without exactly one name is a usage error, never everything.
+fn parse<'a>(words: &[&'a str]) -> io::Result<(Option<&'a str>, Option<(&'a str, &'a str)>)> {
+    let (given, rest) = match words.split_first() {
+        Some((first, rest)) if !KINDS.contains(first) => (Some(*first), rest),
+        _ => (None, words),
+    };
+    match rest {
+        [] => Ok((given, None)),
+        [kind, name] if KINDS.contains(kind) => Ok((given, Some((*kind, *name)))),
+        _ => Err(io::Error::other(USAGE)),
+    }
+}
+
 /// `asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]`:
 /// one item, or every image, named volume and container Asagiri lacks.
 pub fn run(args: &[String]) -> io::Result<()> {
     let words: Vec<&str> = args.iter().filter(|a| !a.starts_with('-')).map(String::as_str).collect();
-    let source = words.first().copied().unwrap_or("orbstack");
-    if let [_, kind, name] = words[..] {
+    let (given, item) = parse(&words)?;
+    let source = pick(given, answers)?;
+    if given.is_none() {
+        let label = SOURCES.iter().find(|(c, _)| *c == source).map_or(source, |(_, l)| *l);
+        println!("from {label} ({source})");
+    }
+    if let Some((kind, name)) = item {
         let r = match kind {
             "image" => image(source, name),
             "volume" => volume(source, name),
-            "container" => container(source, name),
-            _ => return Err(io::Error::other("import image, volume or container NAME")),
+            _ => container(source, name),
         };
         return r.map(|()| println!("{kind} {name}: done"));
     }
@@ -257,5 +302,48 @@ mod tests {
     fn anonymous_volumes() {
         assert!(super::anonymous(&"a1".repeat(32)));
         assert!(!super::anonymous("pgdata"));
+    }
+
+    // #266: a fresh machine with neither engine gets a plain answer, not
+    // docker's "context not found"; with no source named, the first that
+    // answers is used, and only as many engines are asked as needed.
+    #[test]
+    fn picks_a_running_source() {
+        use super::pick;
+        let none = |_: &str| false;
+        let only_desktop = |c: &str| c == "desktop-linux";
+        if cfg!(windows) {
+            assert_eq!(pick(None, none).unwrap_err().to_string(), "nothing to import from: Docker Desktop isn't installed or running here");
+        } else {
+            assert_eq!(pick(None, none).unwrap_err().to_string(), "nothing to import from: OrbStack or Docker Desktop isn't installed or running here");
+            assert!(pick(Some("orbstack"), only_desktop).is_err());
+            // Named: only that engine is asked.
+            let asked = std::cell::RefCell::new(Vec::new());
+            assert_eq!(pick(Some("desktop-linux"), |c: &str| { asked.borrow_mut().push(c.to_owned()); true }).unwrap(), "desktop-linux");
+            assert_eq!(*asked.borrow(), ["desktop-linux"]);
+            // Not named: stops at the first that answers.
+            asked.borrow_mut().clear();
+            assert_eq!(pick(None, |c: &str| { asked.borrow_mut().push(c.to_owned()); true }).unwrap(), "orbstack");
+            assert_eq!(*asked.borrow(), ["orbstack"]);
+        }
+        assert_eq!(pick(None, only_desktop).unwrap(), "desktop-linux");
+        assert!(pick(Some("desktop-linux"), none).unwrap_err().to_string().starts_with("Docker Desktop isn't installed or running here"));
+        // An unknown source is refused before any engine is asked.
+        assert_eq!(pick(Some("podman"), |_: &str| panic!("asked")).unwrap_err().to_string(), "unknown source podman");
+    }
+
+    // A kind without exactly one name is a usage error, never "import
+    // everything"; the source may be left out before a kind.
+    #[test]
+    fn parses_what_to_import() {
+        use super::parse;
+        assert_eq!(parse(&[]).unwrap(), (None, None));
+        assert_eq!(parse(&["orbstack"]).unwrap(), (Some("orbstack"), None));
+        assert_eq!(parse(&["image", "nginx"]).unwrap(), (None, Some(("image", "nginx"))));
+        assert_eq!(parse(&["desktop-linux", "volume", "pg"]).unwrap(), (Some("desktop-linux"), Some(("volume", "pg"))));
+        for bad in [&["orbstack", "image"][..], &["image"], &["orbstack", "image", "a", "b"], &["orbstack", "photo", "a"]] {
+            assert!(parse(bad).unwrap_err().to_string().starts_with("usage:"), "{bad:?}");
+        }
+        assert_eq!(parse(&["podman"]).unwrap(), (Some("podman"), None));
     }
 }
