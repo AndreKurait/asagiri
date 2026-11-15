@@ -67,6 +67,30 @@ pub fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
 }
 
+/// Keep an auxiliary process tied to the agent without retaining its sockets,
+/// locks or container pipes. Standard input/output/error stay available.
+///
+/// # Safety
+/// Call only in a forked child of the single-threaded agent. The child must
+/// finish with `_exit`, since inherited Rust values still refer to closed fds.
+pub unsafe fn isolate_worker(parent: libc::pid_t, keep: Option<RawFd>) -> io::Result<()> {
+    // SAFETY: prctl takes a signal number; getppid closes the parent-death race.
+    check(unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } as _, "worker death signal")?;
+    if unsafe { libc::getppid() } != parent {
+        return Err(io::Error::other("worker parent exited"));
+    }
+    let end = keep.filter(|&fd| fd >= 3).map_or(libc::c_uint::MAX, |fd| fd as u32 - 1);
+    if end >= 3 {
+        // SAFETY: ranges exclude the descriptor the child will use.
+        check(unsafe { libc::syscall(libc::SYS_close_range, 3u32, end, 0u32) }, "worker close fds")?;
+    }
+    if let Some(fd) = keep.filter(|&fd| fd >= 3) {
+        // SAFETY: close the remaining inherited descriptors.
+        check(unsafe { libc::syscall(libc::SYS_close_range, fd as u32 + 1, libc::c_uint::MAX, 0u32) }, "worker close fds")?;
+    }
+    Ok(())
+}
+
 pub fn write_file(p: &str, contents: &str) -> io::Result<()> {
     std::fs::write(p, contents).map_err(|e| io::Error::new(e.kind(), format!("write {p}: {e}")))
 }

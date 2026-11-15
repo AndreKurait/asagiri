@@ -42,7 +42,11 @@ run() { # run <script> [image] [options]
   shift
   interpreter=python3
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
-  out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
+  if [ "$test_script" = system-df-concurrency ]; then
+    out=$(docker exec -e ASAGIRI_AGENT_PID_FILE=/var/lib/asagiri/agent.lock "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
+  else
+    out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
+  fi
   case "$test_script" in
     failed-start-veth|remove-responsive)
       echo "[$rc] $test_script${*:+ $*}: structured result"
@@ -69,6 +73,7 @@ run image-rootfs-digests alpine:3.21
 run image-load-completion
 run image-tag-retention alpine:3.21
 run layer-concurrency
+run system-df-concurrency alpine:3.21
 run container-addresses
 run network-allocation alpine:3.21
 run network-dns-reuse alpine:3.21

@@ -255,8 +255,28 @@ impl Windows {
 /// answers so far, and the latest one.
 #[derive(Default)]
 struct UsageSlot {
-    lines: Mutex<(u64, Option<Vec<String>>)>,
+    lines: Mutex<(u64, Option<Result<Vec<String>, String>>)>,
     arrived: Condvar,
+}
+
+impl UsageSlot {
+    fn publish(&self, result: Result<Vec<String>, String>) {
+        let mut g = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        g.0 += 1;
+        g.1 = Some(result);
+        drop(g);
+        self.arrived.notify_all();
+    }
+
+    fn after(&self, asked: u64, wait: std::time::Duration) -> io::Result<Vec<String>> {
+        let g = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        let (g, _) = self.arrived.wait_timeout_while(g, wait, |g| g.0 == asked).unwrap_or_else(|e| e.into_inner());
+        if g.0 == asked {
+            Err(io::Error::new(io::ErrorKind::TimedOut, "usage measurement timed out"))
+        } else {
+            g.1.clone().expect("published generation has a result").map_err(io::Error::other)
+        }
+    }
 }
 
 impl VmLink {
@@ -291,14 +311,14 @@ impl VmLink {
                         on_event(Event::Output { id, stream, data });
                         continue;
                     }
-                    // Not a reply: the guest measures on a thread and sends
+                    // Not a reply: the guest measures in a worker and sends
                     // this when done, between other replies.
                     Ok(Msg::Usage(lines)) => {
-                        let mut g = slot.lines.lock().unwrap_or_else(|e| e.into_inner());
-                        g.0 += 1;
-                        g.1 = Some(lines.iter().map(str::to_owned).collect());
-                        drop(g);
-                        slot.arrived.notify_all();
+                        slot.publish(Ok(lines.iter().map(str::to_owned).collect()));
+                        continue;
+                    }
+                    Ok(Msg::UsageError(error)) => {
+                        slot.publish(Err(error.to_owned()));
                         continue;
                     }
                     Ok(Msg::CleanupPending(id)) => { cleaning.pending(id); continue; }
@@ -349,6 +369,7 @@ impl VmLink {
             for slot in queue.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
                 let _ = slot.send(Reply::Error("the VM stopped".into()));
             }
+            slot.publish(Err("the VM stopped".into()));
             on_event(Event::Lost);
             wins.finish_loss();
         })?;
@@ -397,14 +418,12 @@ impl VmLink {
     }
 
     /// What the guest's layers, containers and volumes take on disk: the
-    /// `KIND NAME BYTES` lines of `Msg::Usage`, or None if they don't come
-    /// within `wait` or the VM stops.
-    pub fn usage(&self, wait: std::time::Duration) -> Option<Vec<String>> {
+    /// `KIND NAME BYTES` lines of `Msg::Usage`. A worker error, timeout or
+    /// lost connection is an error, never a successful empty measurement.
+    pub fn usage(&self, wait: std::time::Duration) -> io::Result<Vec<String>> {
         let asked = self.usage.lines.lock().unwrap_or_else(|e| e.into_inner()).0;
-        self.send(|o| Msg::UsageQuery.encode(o)).ok()?;
-        let g = self.usage.lines.lock().unwrap_or_else(|e| e.into_inner());
-        let (g, _) = self.usage.arrived.wait_timeout_while(g, wait, |g| g.0 == asked).unwrap_or_else(|e| e.into_inner());
-        if g.0 == asked { None } else { g.1.clone() }
+        self.send(|o| Msg::UsageQuery.encode(o))?;
+        self.usage.after(asked, wait)
     }
 
     pub fn has_layer(&self, digest: &str) -> io::Result<bool> {
@@ -739,6 +758,28 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn usage_failure_wakes_waiters_and_a_later_measurement_recovers() {
+        let slot = Arc::new(UsageSlot::default());
+        let barrier = Arc::new(std::sync::Barrier::new(5));
+        let mut waiters = Vec::new();
+        for _ in 0..4 {
+            let (slot, barrier) = (slot.clone(), barrier.clone());
+            waiters.push(std::thread::spawn(move || {
+                barrier.wait();
+                slot.after(0, std::time::Duration::from_secs(2)).unwrap_err().to_string()
+            }));
+        }
+        barrier.wait();
+        slot.publish(Err("usage worker was killed".into()));
+        for waiter in waiters {
+            assert_eq!(waiter.join().unwrap(), "usage worker was killed");
+        }
+        slot.publish(Ok(vec!["v data 4096".into()]));
+        assert_eq!(slot.after(1, std::time::Duration::ZERO).unwrap(), ["v data 4096"]);
+        assert_eq!(slot.after(2, std::time::Duration::ZERO).unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
 
     #[test]
     fn a_failed_write_disconnects_before_the_reader_accounts_loss() {

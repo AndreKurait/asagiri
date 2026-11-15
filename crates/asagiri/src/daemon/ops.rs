@@ -451,15 +451,14 @@ impl DiskUsage {
 }
 
 /// `docker system df`: sizes as they are on the engine's disk, measured by
-/// the guest. A layer not unpacked yet counts at its download size; if the
-/// guest doesn't answer, so does every layer, and containers and volumes go
-/// unmeasured, as before.
+/// the guest. A layer not unpacked yet counts at its download size. A failed
+/// measurement is an API error, not a successful response with invented sizes.
 fn system_df(engine: &Engine) -> Result<Value, Error> {
     let images = engine.store.images()?;
     let used: Vec<String> = engine.each(|c| Some(c.spec.image_id.clone()));
-    let measured = engine.vm().ok().and_then(|vm| vm.usage(std::time::Duration::from_secs(120)));
-    let du = measured.as_deref().map(DiskUsage::parse);
-    let layer_size = |l: &asagiri_image::Layer| du.as_ref().and_then(|d| d.layers.get(l.digest.trim_start_matches("sha256:")).copied()).unwrap_or(l.size);
+    let measured = engine.vm()?.usage(std::time::Duration::from_secs(120))?;
+    let du = DiskUsage::parse(&measured);
+    let layer_size = |l: &asagiri_image::Layer| du.layers.get(l.digest.trim_start_matches("sha256:")).copied().unwrap_or(l.size);
     // How many images use each layer, for each image's shared size.
     let mut users: HashMap<&str, usize> = HashMap::new();
     for i in &images {
@@ -474,9 +473,7 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
     // containers still use, and leftovers the next VM start clears.
     let mut seen = HashSet::new();
     let mut layers_size: u64 = images.iter().flat_map(|i| &i.layers).filter(|l| seen.insert(l.digest.trim_start_matches("sha256:"))).map(layer_size).sum();
-    if let Some(d) = &du {
-        layers_size += d.layers.iter().filter(|(hex, _)| !seen.contains(hex.as_str())).map(|(_, b)| b).sum::<u64>();
-    }
+    layers_size += du.layers.iter().filter(|(hex, _)| !seen.contains(hex.as_str())).map(|(_, b)| b).sum::<u64>();
     let image_size = |i: &asagiri_image::Image| -> u64 { i.layers.iter().map(layer_size).sum() };
     let image_rows: Vec<Value> = images
         .iter()
@@ -499,7 +496,7 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
         .collect();
     let containers = engine.each(|c| {
         if c.spec.engine_service { return None; }
-        let rw = du.as_ref().and_then(|d| d.containers.get(&c.id).copied()).unwrap_or(0);
+        let rw = du.containers.get(&c.id).copied().unwrap_or(0);
         let image = images.iter().find(|i| i.config_digest == c.spec.image_id).map_or(0, image_size);
         Some(json!({
             "Id": c.id,
@@ -519,7 +516,7 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
         .volume_list()
         .iter()
         .map(|v| {
-            let size = du.as_ref().and_then(|d| d.volumes.get(&v.name)).map_or(-1, |b| *b as i64);
+            let size = du.volumes.get(&v.name).map_or(-1, |b| *b as i64);
             json!({
                 "Name": v.name,
                 "Driver": "local",

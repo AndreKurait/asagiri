@@ -47,8 +47,9 @@ pub const INPUT_WINDOW: usize = 4 << 20;
 /// remains prompt while same-container restarts wait for cleanup.
 /// 11 reports the file working set and refaults for pressure-aware ballooning.
 /// 12 adds the private, framed BuildKit Unix-socket relay.
+/// 13 reports asynchronous disk-usage worker failures separately from replies.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 12;
+pub const PROTOCOL: u16 = 13;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -130,6 +131,8 @@ pub enum Msg<'a> {
     /// unpacked layer, by blob hex), `c` (a container's writable layer, by
     /// id) or `v` (a volume, by name). BYTES is what it takes on disk.
     Usage(StrList<'a>),
+    /// An asynchronous usage measurement failed; other agent work continues.
+    UsageError(&'a str),
     /// Host → guest: metadata of a path inside a running container's root
     /// (symlinks are not followed). Answered by `FsStat` or `Error`.
     FsStatRequest { id: &'a str, path: &'a str },
@@ -736,6 +739,7 @@ mod kind {
     pub const USB_NODES: u16 = 77;
     pub const CLEANUP_PENDING: u16 = 78;
     pub const CLEANUP_DONE: u16 = 79;
+    pub const USAGE_ERROR: u16 = 80;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1005,6 +1009,7 @@ impl Msg<'_> {
                 put_u32(o, lines.count);
                 o.extend_from_slice(lines.raw);
             }),
+            Msg::UsageError(error) => frame(out, kind::USAGE_ERROR, |o| put_str(o, error)),
             Msg::RetainLayers(ids) => frame(out, kind::RETAIN_LAYERS, |o| {
                 put_u32(o, ids.count);
                 o.extend_from_slice(ids.raw);
@@ -1305,6 +1310,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::RETAIN_LAYERS => Msg::RetainLayers(r.list()?),
         kind::USAGE_QUERY => Msg::UsageQuery,
         kind::USAGE => Msg::Usage(r.list()?),
+        kind::USAGE_ERROR => Msg::UsageError(r.str()?),
         kind::FS_STAT_REQUEST => Msg::FsStatRequest { id: r.str()?, path: r.str()? },
         kind::FS_STAT => Msg::FsStat(read_entry(&mut r)?),
         kind::FS_LIST_REQUEST => Msg::FsListRequest { id: r.str()?, path: r.str()? },
@@ -1496,6 +1502,7 @@ mod tests {
         round(Msg::ContainerStats(ContainerStats { read_ns: 1, mem_current: 2, online_cpus: 4, rx_bytes: 9, io_write_bytes: 11, ..Default::default() }));
         round(Msg::TopQuery { id: "c1" });
         round(Msg::UsageQuery);
+        round(Msg::UsageError("usage worker exited"));
         let mut buf = Vec::new();
         encode_usage(&mut buf, &["l 0a1b 4096", "c c1 0", "v data 12288"]);
         let Msg::Usage(lines) = decode(&buf).unwrap() else { panic!() };

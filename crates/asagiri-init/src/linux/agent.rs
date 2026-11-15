@@ -97,12 +97,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let udp = super::relay::listen_udp()?;
     let pressure = memory_pressure_trigger();
     let mut last_pressure = std::time::Instant::now() - std::time::Duration::from_secs(1);
-    // `docker system df`: measured on a thread, which wakes the loop through
-    // this pipe; the loop sends the `Usage` lines (it is the only writer).
-    let (usage_wake, usage_ring) = usage_pipe()?;
-    let usage_ring = std::sync::Arc::new(usage_ring);
-    let (usage_tx, usage_rx) = std::sync::mpsc::channel::<Vec<String>>();
-    let mut measuring = false;
+    // `docker system df` walks storage in one auxiliary process. Keeping the
+    // parent single-threaded is required by every fork/clone path below.
+    let mut measuring: Option<super::usage::Measurement> = None;
     let mut relays: Vec<super::relay::Relay> = Vec::new();
     let mut procs = Procs::new();
     let mut removals = Removals::default();
@@ -134,7 +131,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         fds.push(libc::pollfd { fd: udp.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: pressure.as_ref().map_or(-1, |f| f.as_raw_fd()), events: libc::POLLPRI, revents: 0 });
         fds.push(libc::pollfd { fd: term.as_ref().map_or(-1, |f| f.as_raw_fd()), events: libc::POLLIN, revents: 0 });
-        fds.push(libc::pollfd { fd: usage_wake.as_raw_fd(), events: libc::POLLIN, revents: 0 });
+        fds.push(libc::pollfd { fd: measuring.as_ref().map_or(-1, super::usage::Measurement::fd), events: libc::POLLIN, revents: 0 });
         for r in &relays {
             r.interest(&mut fds);
         }
@@ -207,15 +204,19 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 stop_containers(&mut procs, &mut dns, &mut removals, paths);
                 return Ok(());
             }
-            if pfd.fd == usage_wake.as_raw_fd() {
-                let mut sink = [0u8; 16];
-                // SAFETY: reading into a buffer we own from a descriptor we own.
-                while unsafe { libc::read(usage_wake.as_raw_fd(), sink.as_mut_ptr().cast(), sink.len()) } > 0 {}
-                while let Ok(lines) = usage_rx.try_recv() {
-                    measuring = false;
-                    out.clear();
-                    asagiri_proto::encode_usage(&mut out, &lines);
-                    conn.write_all(&out)?;
+            if measuring.as_ref().is_some_and(|m| m.fd() == pfd.fd) {
+                match measuring.as_mut().expect("matched measurement").on_readable() {
+                    Ok(None) => {}
+                    Ok(Some(frame)) => {
+                        measuring = None;
+                        conn.write_all(&frame)?;
+                    }
+                    Err(error) => {
+                        measuring = None;
+                        out.clear();
+                        Msg::UsageError(&error.to_string()).encode(&mut out);
+                        conn.write_all(&out)?;
+                    }
                 }
                 continue;
             }
@@ -531,14 +532,15 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 Ok(Msg::UsageQuery) => {
                     // No reply here: replies go in order, and this can take
                     // seconds. The lines follow as a `Usage` message.
-                    if !measuring {
-                        measuring = true;
-                        let (layers, containers, tx, ring) = (paths.layers.clone(), paths.containers.clone(), usage_tx.clone(), usage_ring.clone());
-                        let _ = std::thread::Builder::new().name("usage".into()).spawn(move || {
-                            let _ = tx.send(super::usage::measure(&layers, &containers, Path::new(container::VOLUMES)));
-                            // SAFETY: writing one byte from a buffer we own to a descriptor we own.
-                            unsafe { libc::write(ring.as_raw_fd(), [1u8].as_ptr().cast(), 1) };
-                        });
+                    if measuring.is_none() {
+                        match super::usage::Measurement::start(&paths.layers, &paths.containers, Path::new(container::VOLUMES)) {
+                            Ok(measurement) => measuring = Some(measurement),
+                            Err(error) => {
+                                out.clear();
+                                Msg::UsageError(&error.to_string()).encode(&mut out);
+                                conn.write_all(&out)?;
+                            }
+                        }
                     }
                     continue;
                 }
@@ -1054,13 +1056,4 @@ mod clock_tests {
         assert!(off_by_more(now - 3_600_000_000_000, now, 250_000_000));
         assert!(off_by_more(now + 300_000_000, now, 250_000_000));
     }
-}
-
-/// A non-blocking pipe: (read end the loop polls, write end the thread rings).
-fn usage_pipe() -> io::Result<(OwnedFd, OwnedFd)> {
-    let mut fds = [0; 2];
-    // SAFETY: `fds` has room for the two descriptors pipe2 writes.
-    sys::check(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) } as _, "pipe")?;
-    // SAFETY: pipe2 just opened both; nothing else owns them.
-    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
 }
