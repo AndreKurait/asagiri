@@ -55,3 +55,27 @@ Use a disposable Windows account or VM; do not alter a real user's setup.
 
 The `incomplete_setup_resumes_from_persisted_state` unit test checks these
 decisions without running WSL. Native WSL recovery remains a separate check.
+
+## macOS: first launch and visible errors (#250)
+
+Use a disposable Mac desktop account and record its shell configuration.
+These checks have not been performed by the pure filesystem regression suite.
+
+1. Install the app in the test account. Make `.zprofile` a dangling symlink
+   whose target directory is absent, then launch the app from Finder.
+   Confirm the symlink remains unchanged, the other shell profiles are
+   updated, the engine LaunchAgent is created and the window opens.
+2. Repeat with a `.zprofile` containing invalid UTF-8 bytes. Confirm those
+   bytes remain unchanged and optional shell integration does not prevent
+   the window or engine setup.
+3. In that disposable account, make the app's command-link directory
+   unwritable before first launch. Confirm a visible error identifies
+   command-link installation and the log contains `command: app-launch`.
+   Confirm Quit dismisses the error; repair the directory and open again.
+4. Repeat launch from the Dock and `open -a`. Inspect the app process and
+   log; the `open` command's successful dispatch alone is not a test pass.
+5. Confirm an existing Docker or OrbStack socket/context remains selected
+   unless the user explicitly chooses to switch it.
+
+The reporter's exact launch failure still needs reproduction; the filesystem
+tests establish two setup failure cases, not the cause on that machine.
