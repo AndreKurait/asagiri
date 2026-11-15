@@ -1280,10 +1280,49 @@ pub fn on_message(msg: &str) {
         cmd @ ("diaglogs" | "diagreport" | "diagsend" | "diagcrashes" | "diagsendcrash" | "diagfolder") => {
             crate::diag::handle(cmd, c.name, c.id, &c.value);
         }
-        "importsources" => emit(json!({"type": "importsources", "sources": []}).to_string()),
+        // Settings → Import, from Docker Desktop: as on the Mac and Linux.
+        "importsources" => {
+            std::thread::spawn(|| emit(json!({"type": "importsources", "sources": crate::import::sources()}).to_string()));
+        }
+        "inventory" => {
+            let source = c.name;
+            std::thread::spawn(move || {
+                let event = match crate::import::inventory(&source) {
+                    Ok(mut v) => {
+                        v["type"] = "inventory".into();
+                        v
+                    }
+                    Err(e) => json!({"type": "inventory", "source": source, "error": e.to_string()}),
+                };
+                emit(event.to_string());
+            });
+        }
+        "import" => {
+            let (source, picked) = (c.name, c.value);
+            std::thread::spawn(move || {
+                let (mut done, mut failed) = (0, 0);
+                for (kind, f) in [("images", crate::import::image as fn(&str, &str) -> std::io::Result<()>), ("volumes", crate::import::volume), ("containers", crate::import::container)] {
+                    for name in picked[kind].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
+                        emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "running"}).to_string());
+                        match f(&source, name) {
+                            Ok(()) => {
+                                done += 1;
+                                emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "done"}).to_string());
+                            }
+                            Err(e) => {
+                                failed += 1;
+                                emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "error", "error": e.to_string()}).to_string());
+                            }
+                        }
+                    }
+                }
+                emit(json!({"type": "importdone", "done": done, "failed": failed}).to_string());
+                send(Cmd::Refresh);
+            });
+        }
         "zoom" => Handle.run(crate::app::Ui::toggle_maximized),
         // The window has Windows' own title bar to drag.
-        "drag" | "toolsretry" | "inventory" | "import" => {}
+        "drag" | "toolsretry" => {}
         _ => {}
     }
 }

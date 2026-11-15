@@ -13,11 +13,22 @@ use serde_json::{Value, json};
 
 use crate::client;
 
-/// The engines Asagiri can import from: docker context name, label.
-pub const SOURCES: [(&str, &str); 2] = [("orbstack", "OrbStack"), ("desktop-linux", "Docker Desktop")];
+/// The engines Asagiri can import from: docker context name, label. Docker
+/// Desktop's context has the same name on Windows; OrbStack is Mac-only.
+pub const SOURCES: &[(&str, &str)] = if cfg!(windows) { &[("desktop-linux", "Docker Desktop")] } else { &[("orbstack", "OrbStack"), ("desktop-linux", "Docker Desktop")] };
 
 fn docker() -> io::Result<PathBuf> {
-    client::docker_cli().ok_or_else(|| io::Error::other("no docker CLI found (Asagiri.app bundles one)"))
+    client::docker_cli().map(PathBuf::from).ok_or_else(|| io::Error::other("no docker CLI found (Asagiri bundles one)"))
+}
+
+/// The docker CLI, run without a console window of its own (Windows opens
+/// one for each console program a windowed one starts).
+fn cli() -> io::Result<Command> {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(docker()?);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+    Ok(cmd)
 }
 
 fn known(source: &str) -> io::Result<&'static str> {
@@ -26,7 +37,7 @@ fn known(source: &str) -> io::Result<&'static str> {
 
 /// `docker --context ctx <args>`, its output as JSON lines.
 fn json_lines(ctx: &str, args: &[&str]) -> io::Result<Vec<Value>> {
-    let out = Command::new(docker()?).arg("--context").arg(ctx).args(args).stderr(Stdio::piped()).output()?;
+    let out = cli()?.arg("--context").arg(ctx).args(args).stderr(Stdio::piped()).output()?;
     if !out.status.success() {
         return Err(io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_owned()));
     }
@@ -38,8 +49,8 @@ pub fn sources() -> Vec<Value> {
     SOURCES
         .iter()
         .map(|(ctx, label)| {
-            let running = docker().is_ok_and(|d| {
-                Command::new(d).args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+            let running = cli().is_ok_and(|mut c| {
+                c.args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
             });
             json!({"id": ctx, "label": label, "running": running})
         })
@@ -90,10 +101,9 @@ pub fn inventory(source: &str) -> io::Result<Value> {
 /// `docker --context src save IMAGE | docker --context asagiri load`.
 pub fn image(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
-    let d = docker()?;
-    let mut save = Command::new(&d).args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut save = cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let out = save.stdout.take().ok_or_else(|| io::Error::other("no output from docker save"))?;
-    let load = Command::new(&d).args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let load = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
     let saved = save.wait_with_output()?;
     if !saved.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&saved.stderr).trim())));
@@ -106,7 +116,7 @@ pub fn image(source: &str, name: &str) -> io::Result<()> {
 
 /// An image with `tar` that both engines have, for the volume helpers.
 fn helper_image(ctx: &str) -> io::Result<&'static str> {
-    let has = |c: &str, img: &str| Command::new(docker().ok()?).args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
+    let has = |c: &str, img: &str| cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
     for img in ["alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"] {
         if has(ctx, img) == Some(true) {
             if has(crate::flavor::CONTEXT.get(), img) != Some(true) {
@@ -122,18 +132,17 @@ fn helper_image(ctx: &str) -> io::Result<&'static str> {
 /// untar in a helper on Asagiri. Both helpers remove themselves.
 pub fn volume(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
-    let d = docker()?;
     let img = helper_image(ctx)?;
-    let _ = Command::new(&d).args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).stdout(Stdio::null()).stderr(Stdio::null()).status();
     let src_mount = format!("{name}:/from:ro");
     let dst_mount = format!("{name}:/to");
-    let mut read = Command::new(&d)
+    let mut read = cli()?
         .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
     let out = read.stdout.take().ok_or_else(|| io::Error::other("no output from the source helper"))?;
-    let write = Command::new(&d)
+    let write = cli()?
         .args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"])
         .stdin(out)
         .stdout(Stdio::null())
@@ -164,7 +173,7 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
     for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
         if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
-            let _ = Command::new(docker()?).args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
         }
         // The source's own short ID is no name in Asagiri.
         let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
