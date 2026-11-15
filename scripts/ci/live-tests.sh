@@ -67,6 +67,7 @@ run cleanup-responsive alpine:3.21 --crash-agent
 run remove-cleanup-retry alpine:3.21
 run api-connections alpine:3.21
 run archive-completion alpine:3.21
+run init-descriptors alpine:3.21
 run overlay-copyup alpine:3.21
 run kind-network alpine:3.21
 run mcp-integration alpine:3.21
