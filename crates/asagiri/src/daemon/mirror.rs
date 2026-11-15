@@ -157,7 +157,7 @@ fn add_mirror(registries: &mut Vec<(String, Vec<String>)>, registry: &str, mirro
     }
 }
 
-pub fn config(engine: &Engine) -> String {
+pub fn config(engine: &Engine, configured: &super::registry_config::Config) -> String {
     // One table per registry: BuildKit refuses a buildkitd.toml that names
     // one twice, and Asagiri's own mirror and Settings' may both cover Hub.
     let mut registries: Vec<(String, Vec<String>)> = Vec::new();
@@ -182,7 +182,6 @@ pub fn config(engine: &Engine) -> String {
     // Settings → Registry mirrors: Docker Hub only, as Docker's are. They
     // come after Asagiri's own mirror, which serves images built or loaded
     // here and answers 404 for everything else.
-    let configured = super::registry_config::snapshot();
     for mirror in &configured.mirrors {
         add_mirror(&mut registries, "docker.io", mirror.buildkit());
         if mirror.http && !http.contains(&mirror.host) {
@@ -205,6 +204,12 @@ fn render_config(registries: Vec<(String, Vec<String>)>, http: Vec<String>, sett
     }
     for host in http { entries.entry(host).or_default().1 = true; }
     for host in settings.authorities() { entries.entry(host.into()).or_default().2 = true; }
+    for host in settings.ca_certificates().keys() {
+        entries.entry(host.clone()).or_default();
+        // Docker references may spell the default HTTPS port explicitly.
+        let parsed: ureq::http::uri::Authority = host.parse().expect("validated CA authority");
+        if parsed.port().is_none() { entries.entry(format!("{host}:443")).or_default(); }
+    }
     let mut out = String::new();
     for (registry, (mirrors, http, insecure)) in entries {
         out.push_str(&format!("[registry.{}]\n", serde_json::to_string(&registry).unwrap()));
@@ -215,8 +220,18 @@ fn render_config(registries: Vec<(String, Vec<String>)>, http: Vec<String>, sett
         // certificate allowed, then HTTP fallback, for this authority only.
         if http || insecure { out.push_str("  http = true\n"); }
         if insecure { out.push_str("  insecure = true\n"); }
+        if let Some(pem) = settings.ca_certificates().get(registry.strip_suffix(":443").unwrap_or(&registry)) {
+            out.push_str(&format!("  ca = [{}]\n", serde_json::to_string(&ca_path(pem)).unwrap()));
+        }
     }
     out
+}
+
+/// A content-addressed filename; no user-controlled authority enters a path.
+pub fn ca_path(pem: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest: String = Sha256::digest(pem.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("/etc/buildkit/registry-ca-{digest}.pem")
 }
 
 fn serve(listener: TcpListener, engine: Weak<Engine>) {
@@ -335,6 +350,19 @@ fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_ca_tables_keep_https_verification_and_bind_certificate_bytes() {
+        let ca = include_str!("../../../asagiri-image/tests/fixtures/registry-ca/ca.pem");
+        let settings = asagiri_image::RegistrySettings::default().with_ca_certificates(&[("registry.example:443".into(), ca.into())].into()).unwrap();
+        let config = render_config(vec![], vec![], &settings);
+        assert!(config.contains("[registry.\"registry.example\"]"));
+        assert!(config.contains("[registry.\"registry.example:443\"]"));
+        assert_eq!(config.matches(&ca_path(ca)).count(), 2);
+        assert!(!config.contains("insecure"));
+        assert!(!config.contains("http ="));
+        assert_ne!(ca_path(ca), ca_path(include_str!("../../../asagiri-image/tests/fixtures/registry-ca/other-ca.pem")));
+    }
 
     #[test]
     fn parses_mirror_paths() {
