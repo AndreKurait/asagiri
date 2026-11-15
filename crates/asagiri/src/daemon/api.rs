@@ -1962,6 +1962,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     // use the same immutable config, including large image metadata.
     let image_cfg: Value = engine.store.read_config(&image.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
     // Checked before mounts, which may create volumes.
+    let labels = labels_from(&body, &image_cfg)?;
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
     let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
@@ -2027,7 +2028,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         dns_options: strings(&host["DnsOptions"]).unwrap_or_default(),
         domainname: body["Domainname"].as_str().unwrap_or_default().to_owned(),
         links,
-        labels: body["Labels"].clone(),
+        labels,
         tty: body["Tty"].as_bool().unwrap_or(false),
         open_stdin: body["OpenStdin"].as_bool().unwrap_or(false),
         stdin_once: body["StdinOnce"].as_bool().unwrap_or(false),
@@ -2154,6 +2155,25 @@ fn stop_timeout(req: &Request, engine: &Engine, id: &str) -> Duration {
         Some(t) => super::engine::stop_wait(t),
         None => engine.stop_timeout(id),
     }
+}
+
+/// Image labels inherited at create, with explicit container values taking precedence.
+fn labels_from(body: &Value, image_cfg: &Value) -> Result<Value, Error> {
+    let mut labels = image_cfg["config"]["Labels"].as_object().cloned().unwrap_or_default();
+    match &body["Labels"] {
+        Value::Null => {}
+        Value::Object(given) => {
+            for (key, value) in given {
+                // Docker decodes null map values as empty strings, which override image labels.
+                let value = if value.is_null() { "" } else {
+                    value.as_str().ok_or_else(|| Error::BadRequest("invalid Labels: values must be strings".into()))?
+                };
+                labels.insert(key.clone(), Value::String(value.to_owned()));
+            }
+        }
+        _ => return Err(Error::BadRequest("invalid Labels: expected an object".into())),
+    }
+    Ok(Value::Object(labels))
 }
 
 /// `Config.Healthcheck` merged over the image's HEALTHCHECK, as Docker does at create.
@@ -3227,6 +3247,24 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_labels_are_inherited_and_explicit_values_override() {
+        let image = json!({"config": {"Labels": {"owner": "image", "shared": "image"}}});
+        for body in [json!({}), json!({"Labels": null}), json!({"Labels": {}})] {
+            assert_eq!(labels_from(&body, &image).unwrap(), image["config"]["Labels"]);
+        }
+        assert_eq!(labels_from(&json!({"Labels": {"shared": "container", "new": "explicit"}}), &image).unwrap(),
+            json!({"owner": "image", "shared": "container", "new": "explicit"}));
+        for value in [json!(""), Value::Null] {
+            assert_eq!(labels_from(&json!({"Labels": {"shared": value}}), &image).unwrap(),
+                json!({"owner": "image", "shared": ""}));
+        }
+        assert_eq!(labels_from(&json!({}), &Value::Null).unwrap(), json!({}));
+        for labels in [json!("invalid"), json!([]), json!({"key": 1}), json!({"key": false})] {
+            assert!(matches!(labels_from(&json!({"Labels": labels}), &image), Err(Error::BadRequest(_))));
+        }
+    }
 
     #[test]
     fn unsupported_isolation_is_rejected_instead_of_silently_accepted() {
