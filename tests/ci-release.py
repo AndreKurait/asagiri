@@ -374,13 +374,15 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.package_recovery(checks=self.checks()[1:])
 
-    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False, qemu=True):
+    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False, qemu=True, appimage=True):
         package_version = version.replace("-", "." if normalized else "~", 1)
         names = {"asagiri-kernel-source.tar.xz"}
         if qemu:
             names.add(release.QEMU_SOURCE)
         for arch, deb in (("x86_64", "amd64"), ("aarch64", "arm64")):
             names.add(f"asagiri-{version}-linux-{arch}.tar.gz")
+            if appimage:
+                names.add(f"Asagiri-{version}-{arch}.AppImage")
             for package in ("asagiri", "asagiri-lite"):
                 names.update({f"{package}_{package_version}_{deb}.deb",
                               f"{package}-{package_version}-1.{arch}.rpm"})
@@ -408,7 +410,7 @@ class ReleaseTests(unittest.TestCase):
                 manifest = json.loads((dist / "release-manifest.json").read_text())
                 self.assertEqual(manifest["commit"], COMMIT)
                 self.assertEqual(manifest["version"], version)
-                self.assertEqual(len(manifest["assets"]), 24)
+                self.assertEqual(len(manifest["assets"]), 26)
                 self.assertEqual({asset["name"] for asset in manifest["assets"]}, set(original))
                 self.assertNotIn("~", (dist / "SHA256SUMS").read_text())
                 for asset in manifest["assets"]:
@@ -422,13 +424,24 @@ class ReleaseTests(unittest.TestCase):
             root = Path(folder)
             dist = root / "dist"
             dist.mkdir()
-            self.package_assets(dist, qemu=False)
+            self.package_assets(dist, qemu=False, appimage=False)
             with patch.dict(release.os.environ, {"GITHUB_ACTIONS": "false"}):
                 release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
                                                 commit=COMMIT, repo=REPO, source_root=root))
             assets = json.loads((dist / "release-manifest.json").read_text())["assets"]
             self.assertEqual(len(assets), 23)
             self.assertNotIn(release.QEMU_SOURCE, {row["name"] for row in assets})
+            self.assertFalse(any(row["name"].endswith(".AppImage") for row in assets))
+
+    def test_declared_appimages_are_required_before_publication(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dist = Path(folder)
+            self.package_assets(dist, appimage=False)
+            original = {path.name: path.read_bytes() for path in dist.iterdir()}
+            with self.assertRaisesRegex(SystemExit, "AppImage"):
+                release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
+                                                commit=COMMIT, repo=REPO))
+            self.assertEqual({path.name: path.read_bytes() for path in dist.iterdir()}, original)
 
     def test_emulator_cannot_publish_without_its_source_archive(self):
         with tempfile.TemporaryDirectory() as folder:

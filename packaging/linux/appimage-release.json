@@ -1,0 +1,4 @@
+{
+  "schema": 1,
+  "architectures": ["x86_64", "aarch64"]
+}

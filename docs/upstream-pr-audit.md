@@ -1,8 +1,8 @@
 # Upstream pull request audit — 2026-11-15
 
-Reviewed all **160 public PRs: 93 merged, 40 closed without merging, and 27 open**
-at the 2026-11-15T00:19:56.862528+00:00 snapshot, with upstream main `b249eccc2ed708ce10d7feeb82b6c0869b112443`.
-The runtime verified for this refresh is `749c40cb92d2fba877365a37fe1fadbc7462c3cb`.
+Reviewed all **161 public PRs: 93 merged, 40 closed without merging, and 28 open**
+at the 2026-11-15T03:57:02.734689+00:00 snapshot, with upstream main `b249eccc2ed708ce10d7feeb82b6c0869b112443`.
+The runtime verified for the initial November 15 refresh was `749c40cb92d2fba877365a37fe1fadbc7462c3cb`.
 The complete history through `baa2d41` is inherited; subsequent changes are
 represented by reviewed ports or explicit equivalence, as recorded below.
 
@@ -10,6 +10,16 @@ represented by reviewed ports or explicit equivalence, as recorded below.
 merge, ancestry result and port. [UPSTREAM.md](../UPSTREAM.md) describes the
 integration policy. Review includes code and remaining differences, rather
 than treating ancestry or an upstream closure as proof of behavior.
+
+## November 15 Windows recovery review follow-up
+
+The open-PR review audit found an unaddressed #61 requirement: bridge recovery still sent Start and cleared the persisted stopped mark. Recovery now restores only daemon availability; background/window startup follows the same rule, and explicit Start remains the wake operation. Concurrent startup checks share a guard, while a bounded background queue retains one pending retry without blocking command handling. A separate worker restores managed Buildx registration and the saved builder preference only after the daemon explicitly reports a running engine. Stopped, unknown and unavailable engines skip that setup. Pure policy/concurrency tests cover these boundaries. Native Windows sleep and WSL restart still require the [platform procedure](../tests/native-window-regressions.md).
+
+## November 15 AppImage follow-up
+
+Reviewed #249 at `978655fba390dbaf62f95cfd6f226bb431440cf2`. Adapted the AppImage launcher, GTK bundle and explicit host installation to Asagiri. Pinned the builder/runtime by SHA-256, included runtime source archives and license notices, and preserved existing services and different installed executables. CI builds native x86_64/aarch64 release assets and checks extraction, exact input hashes, CLI execution without FUSE, GTK library resolution and a headless window. Docker CLI tools and desktop libraries remain host dependencies; real desktop authorization and FUSE mounting remain unverified.
+The packaging artifacts record the actual source commit, source file hashes,
+compiler image, component hashes and runtime checks for this follow-up.
 
 ## November 15 refresh
 
@@ -30,7 +40,7 @@ than treating ancestry or an upstream closure as proof of behavior.
   the problematic defaults and retain overlap rejection.
 - 573 Linux unit tests, live image/archive/BuildKit checks and the separate
   service-restart regression pass. Native Mac/USB/WSL gaps remain in the
-  [76-issue inventory](issue-verification.md).
+  [80-issue inventory](issue-verification.md).
 - Creation shares one parsed image config across its consumers. Versioned
   [performance history](performance.md) adds metadata creation and archive
   workloads, with 15 metrics and all 4,000 raw timings retained per run.
@@ -106,7 +116,7 @@ preserve explicit exclusions, supersession and platform limits.
 | [#56](https://github.com/libracoder/kiri/pull/56) — UI: keep Images Actions visible when a tag is long | merged | `54ee598952b6` | **inherited** — Merged upstream commit 3fa32335cc68 is an ancestor of Asagiri. |
 | [#58](https://github.com/libracoder/kiri/pull/58) — UI: Chinese language option for the main window and Settings | closed | `c700637fcb91` | **superseded** — Multilingual UI is inherited through merged #95; do not restore the earlier two-language prototype. |
 | [#60](https://github.com/libracoder/kiri/pull/60) — Security: Linux, WSL: containers reach the internet and are firewalled on kernels before 6.3 | open | `641dc55411cb` | **equivalent** — Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head. |
-| [#61](https://github.com/libracoder/kiri/pull/61) — Windows: the engine starts again after WSL goes away | open | `21658a689c85` | **equivalent** — Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head. |
+| [#61](https://github.com/libracoder/kiri/pull/61) — Windows: the engine starts again after WSL goes away | open | `21658a689c85` | **equivalent-with-reviewed-recovery** — The rebased upstream patch is equivalent to the inherited bridge-recovery change. A later review found that its Cmd::Start path undid Stop after WSL restarted. Asagiri now restores daemon availability separately from explicit wake, also on background/window startup, serializes concurrent copy/start checks, and coalesces recovery off the command loop. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure state/concurrency regressions cover Stop preservation and retry ordering; native Windows sleep, WSL restart and end-to-end recovery remain unverified. |
 | [#62](https://github.com/libracoder/kiri/pull/62) — CI: run the UI tests on every pull request | merged | `9610d272b0e3` | **inherited** — Merged upstream commit 41ecc592d1b3 is an ancestor of Asagiri. |
 | [#63](https://github.com/libracoder/kiri/pull/63) — Guest kernel: per-process I/O accounting, so Typesense starts | merged | `07003a637a1d` | **inherited** — Merged upstream commit d4e361b5bac3 is an ancestor of Asagiri. |
 | [#65](https://github.com/libracoder/kiri/pull/65) — Security: only root may load BPF programs in the guest kernel | merged | `f59555cf70b1` | **inherited** — Merged upstream commit 8295c185edd2 is an ancestor of Asagiri. |
@@ -226,3 +236,4 @@ preserve explicit exclusions, supersession and platform limits.
 | [#242](https://github.com/libracoder/kiri/pull/242) — image store: atomic writes, a write lock, and fail-soft index recovery (#224) | open | `087b52bd8b49` | **equivalent-with-stricter-recovery** — Asagiri already serializes read/modify/replace across processes, writes unique synced temporary files and recovers a complete typed index with trailing bytes only after preserving its exact original. It retains explicit errors for incomplete records, failed backups and unavailable cross-process locks instead of discarding records or overwriting an unpreserved index. Existing concurrent-write and corruption regressions pass. |
 | [#243](https://github.com/libracoder/kiri/pull/243) — Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd | merged | `f7fc8ab8cefb` | **ported-and-equivalent** — Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head. |
 | [#244](https://github.com/libracoder/kiri/pull/244) — Release notes for 0.2.1 | merged | `019304807fbd` | **upstream-release-documentation** — Reviewed the Kiri 0.2.1 release notes and confirmed the squash tree exactly matches this head. Product-specific version and release claims are kept in Kiri; Asagiri maintains its own release notes and explicit platform verification limits. |
+| [#249](https://github.com/libracoder/kiri/pull/249) — Add App image support | open | `978655fba390` | **ported-with-platform-limits** — Adapted the AppImage launcher, GTK bundle and explicit host installation to Asagiri. Pinned the builder/runtime by SHA-256, included runtime source archives and license notices, and preserved existing services and different installed executables. CI builds native x86_64/aarch64 release assets and checks extraction, exact input hashes, CLI execution without FUSE, GTK library resolution and a headless window. Docker CLI tools and desktop libraries remain host dependencies; real desktop authorization and FUSE mounting remain unverified. |

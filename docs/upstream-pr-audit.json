@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-15T00:19:56.862528+00:00",
+  "reviewed_at": "2026-11-15T03:57:02.734689+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "b249eccc2ed708ce10d7feeb82b6c0869b112443",
   "asagiri_runtime_revision": "749c40cb92d2fba877365a37fe1fadbc7462c3cb",
   "counts": {
-    "total": 160,
+    "total": 161,
     "merged": 93,
     "closed_unmerged": 40,
-    "open": 27
+    "open": 28
   },
   "pulls": [
     {
@@ -144,7 +144,7 @@
     },
     {
       "number": 15,
-      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -264,7 +264,7 @@
     },
     {
       "number": 31,
-      "title": "UI: window — built-in terminal panel",
+      "title": "UI: window \u2014 built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -573,8 +573,18 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "equivalent",
-      "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head."
+      "disposition": "equivalent-with-reviewed-recovery",
+      "reason": "The rebased upstream patch is equivalent to the inherited bridge-recovery change. A later review found that its Cmd::Start path undid Stop after WSL restarted. Asagiri now restores daemon availability separately from explicit wake, also on background/window startup, serializes concurrent copy/start checks, and coalesces recovery off the command loop. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure state/concurrency regressions cover Stop preservation and retry ordering; native Windows sleep, WSL restart and end-to-end recovery remain unverified.",
+      "review_followup": {
+        "review_id": 5833930023,
+        "source_files": [
+          "crates/asagiri-win/src/daemon_start.rs",
+          "crates/asagiri-win/src/engine.rs",
+          "crates/asagiri-win/src/serve.rs",
+          "crates/asagiri-win/src/main.rs"
+        ],
+        "native_wsl_verified": false
+      }
     },
     {
       "number": 62,
@@ -741,7 +751,7 @@
     },
     {
       "number": 95,
-      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -935,7 +945,7 @@
     },
     {
       "number": 115,
-      "title": "UI: Settings → Domains — choose the ports container names answer on",
+      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -1609,7 +1619,7 @@
     },
     {
       "number": 179,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1621,7 +1631,7 @@
     },
     {
       "number": 180,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1645,7 +1655,7 @@
     },
     {
       "number": 182,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -1748,7 +1758,7 @@
           "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
         }
       ],
-      "title": "UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page",
+      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
       "state": "merged",
       "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
       "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
@@ -1794,7 +1804,7 @@
     },
     {
       "number": 197,
-      "title": "UI: Linux VM card — show the engine's real state after any Start or Stop",
+      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
       "state": "merged",
       "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
       "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
@@ -1808,7 +1818,7 @@
     },
     {
       "number": 198,
-      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an…",
+      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
       "state": "open",
       "head": "d2bc825e00c661662cad0c44f70486ce98f31193",
       "merge": null,
@@ -1822,7 +1832,7 @@
     },
     {
       "number": 200,
-      "title": "UI: Settings → Appearance — 21 more languages, 37 in all",
+      "title": "UI: Settings \u2192 Appearance \u2014 21 more languages, 37 in all",
       "state": "merged",
       "head": "8f2507f1d6367928251d766358d159f9305addb9",
       "merge": "def2b5be30b4ea3849298d0ffa5f016483d47ff5",
@@ -1837,7 +1847,7 @@
     },
     {
       "number": 205,
-      "title": "UI: Settings → Appearance — Amharic, Kiri's first Ethiopian language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Amharic, Kiri's first Ethiopian language",
       "state": "merged",
       "head": "9cd28afe685747ec2286a6c1780b52d6abe5442b",
       "merge": "99b63c07fc003d3dcd8e03c76891ba747b5c984f",
@@ -1913,7 +1923,7 @@
     },
     {
       "number": 217,
-      "title": "Settings › Network: Container addresses",
+      "title": "Settings \u203a Network: Container addresses",
       "state": "open",
       "head": "9fa8ca02a719c02d2cf8e006b74f0f362a59e00a",
       "merge": null,
@@ -1930,7 +1940,7 @@
     },
     {
       "number": 219,
-      "title": "UI: First start — a searchable language list instead of the tile wall",
+      "title": "UI: First start \u2014 a searchable language list instead of the tile wall",
       "state": "closed",
       "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
       "merge": null,
@@ -1945,7 +1955,7 @@
     },
     {
       "number": 220,
-      "title": "UI: Sidebar — Linux VM stays short in seven languages",
+      "title": "UI: Sidebar \u2014 Linux VM stays short in seven languages",
       "state": "closed",
       "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
       "merge": null,
@@ -2025,7 +2035,7 @@
     },
     {
       "number": 235,
-      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
       "state": "closed",
       "head": "95022ff7564ed8a5269f20e27476cf5daa08aeeb",
       "merge": null,
@@ -2039,7 +2049,7 @@
     },
     {
       "number": 236,
-      "title": "UI: First start and Settings — a searchable language list",
+      "title": "UI: First start and Settings \u2014 a searchable language list",
       "state": "merged",
       "head": "9f04a26d4195cc44a63c68d627ffa689f23553a9",
       "merge": "98790f7ae37237c0dcf0030882e1e6b9995c5db1",
@@ -2053,7 +2063,7 @@
     },
     {
       "number": 238,
-      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
       "state": "merged",
       "head": "a8f7b53a3e4ce1119fcad53c44af6cf5a836e250",
       "merge": "2f8de03858b66b422a4502718a6f8a89cf4a1c5f",
@@ -2111,7 +2121,7 @@
       ],
       "reason": "Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head.",
       "number": 243,
-      "title": "Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd",
+      "title": "Engine: Testcontainers works \u2014 Docker engine version, kept-alive copies, the image's command for an empty Cmd",
       "state": "merged",
       "head": "f7fc8ab8cefb86bd8802f8142aa6c34d93a06592",
       "merge": "8318b8d7683202bd3d438b1baf788fa8526fa52b",
@@ -2129,6 +2139,29 @@
       "merge": "b249eccc2ed708ce10d7feeb82b6c0869b112443",
       "head_in_history": false,
       "merge_in_history": false
+    },
+    {
+      "disposition": "ported-with-platform-limits",
+      "ports": [],
+      "reason": "Adapted the AppImage launcher, GTK bundle and explicit host installation to Asagiri. Pinned the builder/runtime by SHA-256, included runtime source archives and license notices, and preserved existing services and different installed executables. CI builds native x86_64/aarch64 release assets and checks extraction, exact input hashes, CLI execution without FUSE, GTK library resolution and a headless window. Docker CLI tools and desktop libraries remain host dependencies; real desktop authorization and FUSE mounting remain unverified.",
+      "number": 249,
+      "title": "Add App image support",
+      "state": "open",
+      "head": "978655fba390dbaf62f95cfd6f226bb431440cf2",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "adaptation_files": [
+        "packaging/linux/appimage.sh",
+        "crates/asagiri/src/hostaccess.rs",
+        "tests/appimage.py",
+        "scripts/ci/appimage.sh"
+      ]
     }
-  ]
+  ],
+  "followup_review": {
+    "upstream_pr": 249,
+    "source_head": "978655fba390dbaf62f95cfd6f226bb431440cf2",
+    "runtime_revision_note": "The recorded runtime revision belongs to the initial November 15 audit; the AppImage follow-up is source-bound by its CI packaging evidence."
+  }
 }
