@@ -1105,6 +1105,36 @@ impl Client {
         Ok(tags)
     }
 
+    /// What the registry serves for `r` right now, for `GET
+    /// /distribution/{name}/json` (`docker manifest inspect`, and the update
+    /// checks of Watchtower, Arcane, Portainer): the manifest's or index's
+    /// descriptor, and the platforms it is for. Nothing is pulled; for a
+    /// single-platform manifest its config is read for the platform.
+    pub fn distribution(&self, r: &Reference) -> Result<serde_json::Value, Error> {
+        let (bytes, media_type) = self.manifest(r, &r.reference).map_err(|e| not_found(e, r))?;
+        if r.is_digest() && sha256_digest(&bytes) != r.reference {
+            return Err(Error::Manifest("manifest failed digest check".into()));
+        }
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| Error::Manifest(e.to_string()))?;
+        // The platform of a single manifest is in its config. It is only a
+        // nicety: the descriptor is what update checks compare, so a config
+        // that can't be had (a cache without the blob, a rate limit) leaves
+        // the platforms empty instead of failing the answer, as on Docker.
+        // Only a well-formed digest goes into the URL.
+        let config = match manifest["config"]["digest"].as_str() {
+            Some(digest) if manifest["manifests"].is_null() && crate::store::digest_hex(digest).is_ok() => {
+                let url = format!("{}/v2/{}/blobs/{digest}", self.api_base(r), r.repository);
+                self.get(r, &url, None)
+                    .ok()
+                    .and_then(|mut resp| resp.body_mut().with_config().limit(4 << 20).read_to_vec().ok())
+                    .filter(|body| sha256_digest(body) == digest)
+                    .and_then(|body| serde_json::from_slice(&body).ok())
+            }
+            _ => None,
+        };
+        Ok(distribution_json(&bytes, &media_type, &manifest, config.as_ref()))
+    }
+
     /// `docker login`: checks the credentials against the registry at
     /// `server` (`https://index.docker.io/v1/`, `ghcr.io`, `localhost:5000`).
     pub fn login(&self, server: &str) -> Result<(), Error> {
@@ -1318,6 +1348,37 @@ struct ContainerConfig {
     labels: Option<std::collections::BTreeMap<String, String>>,
 }
 
+/// Docker's answer to `GET /distribution/{name}/json`: the descriptor of
+/// what the registry served (`bytes`), and its platforms, from the index's
+/// entries (all of them, as Docker lists them) or, for a single manifest,
+/// from its `config` blob. The manifest's own mediaType comes first, as
+/// Docker trusts it over a registry's Content-Type.
+fn distribution_json(bytes: &[u8], content_type: &str, manifest: &serde_json::Value, config: Option<&serde_json::Value>) -> serde_json::Value {
+    let header = content_type.split(';').next().unwrap_or_default().trim();
+    let media_type = manifest["mediaType"].as_str().filter(|m| !m.is_empty()).unwrap_or(header);
+    let platform = |p: &serde_json::Value| {
+        let text = |k: &str| p[k].as_str().unwrap_or_default().to_owned();
+        let mut out = serde_json::json!({"architecture": text("architecture"), "os": text("os")});
+        for k in ["variant", "os.version"] {
+            if let Some(v) = p[k].as_str().filter(|v| !v.is_empty()) {
+                out[k] = v.into();
+            }
+        }
+        if let Some(f) = p["os.features"].as_array().filter(|f| !f.is_empty()) {
+            out["os.features"] = f.clone().into();
+        }
+        out
+    };
+    let platforms: Vec<serde_json::Value> = match manifest["manifests"].as_array() {
+        Some(entries) => entries.iter().map(|m| platform(&m["platform"])).collect(),
+        None => config.filter(|c| c["os"].is_string()).map(platform).into_iter().collect(),
+    };
+    serde_json::json!({
+        "Descriptor": {"mediaType": media_type, "digest": sha256_digest(bytes), "size": bytes.len()},
+        "Platforms": platforms,
+    })
+}
+
 /// A registry answers a name that doesn't exist with 401 (Docker Hub hides
 /// private repositories that way) and a missing tag with 404. Say it as
 /// `docker pull` does, not as the raw registry reply; a wrong password stays as it is.
@@ -1347,6 +1408,87 @@ mod tests {
         let wrong = Error::Status { url: String::new(), status: 401, body: "unauthorized: incorrect username or password".into() };
         assert!(matches!(not_found(wrong, &r), Error::Status { status: 401, .. }));
         assert!(matches!(not_found(Error::Status { url: String::new(), status: 500, body: String::new() }, &r), Error::Status { status: 500, .. }));
+    }
+
+    #[test]
+    fn distribution_answers_as_docker_does() {
+        use serde_json::json;
+        // An index: every entry's platform, attestations too, as Docker lists them.
+        let index = json!({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [
+            {"digest": "sha256:a", "platform": {"architecture": "amd64", "os": "linux"}},
+            {"digest": "sha256:b", "platform": {"architecture": "arm64", "os": "linux", "variant": "v8"}},
+            {"digest": "sha256:c", "platform": {"architecture": "unknown", "os": "unknown"}}]});
+        let bytes = serde_json::to_vec(&index).unwrap();
+        let got = distribution_json(&bytes, "application/vnd.oci.image.index.v1+json", &index, None);
+        assert_eq!(got["Descriptor"], json!({"mediaType": "application/vnd.oci.image.index.v1+json", "digest": sha256_digest(&bytes), "size": bytes.len()}));
+        assert_eq!(got["Platforms"], json!([{"architecture": "amd64", "os": "linux"}, {"architecture": "arm64", "os": "linux", "variant": "v8"}, {"architecture": "unknown", "os": "unknown"}]));
+        // A single manifest: the platform comes from its config; its own
+        // mediaType wins over a registry's generic Content-Type.
+        let single = json!({"schemaVersion": 2, "mediaType": "application/vnd.docker.distribution.manifest.v2+json", "config": {"digest": "sha256:cfg"}});
+        let bytes = serde_json::to_vec(&single).unwrap();
+        let got = distribution_json(&bytes, "", &single, Some(&json!({"architecture": "arm64", "os": "linux", "rootfs": {}})));
+        assert_eq!(got["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
+        assert_eq!(got["Platforms"], json!([{"architecture": "arm64", "os": "linux"}]));
+        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Platforms"], json!([]));
+        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
+        let bare = json!({"schemaVersion": 2, "config": {"digest": "sha256:cfg"}});
+        assert_eq!(distribution_json(&serde_json::to_vec(&bare).unwrap(), "application/vnd.oci.image.manifest.v1+json; x=1", &bare, None)["Descriptor"]["mediaType"], "application/vnd.oci.image.manifest.v1+json");
+    }
+
+    /// A loopback registry that answers by path: `answer` gives the status,
+    /// Content-Type and body for each request; every path asked is kept.
+    fn path_server(answer: impl Fn(&str) -> (u16, &'static str, Vec<u8>) + Send + 'static) -> (String, std::sync::Arc<Mutex<Vec<String>>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        std::thread::spawn(move || {
+            for c in listener.incoming() {
+                let Ok(mut c) = c else { break };
+                let mut head = Vec::new();
+                let mut b = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
+                    head.push(b[0]);
+                }
+                let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
+                let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+                seen.lock().unwrap().push(path.clone());
+                let (status, ct, body) = answer(&path);
+                let _ = write!(c, "HTTP/1.1 {status} X\r\nContent-Type: {ct}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = c.write_all(&body);
+            }
+        });
+        (host, asked)
+    }
+
+    // The answer stands without the config: a cache missing the blob (or a
+    // rate limit on it) leaves the platforms empty, and a malformed config
+    // digest is never put in a URL.
+    #[test]
+    fn distribution_does_without_the_config() {
+        let config = br#"{"architecture":"arm64","os":"linux"}"#.to_vec();
+        let cfg_digest = sha256_digest(&config);
+        for (case, digest, serve_config) in [("present", cfg_digest.clone(), true), ("missing", cfg_digest.clone(), false), ("malformed", "sha256:../../x?".to_owned(), true)] {
+            let manifest = serde_json::to_vec(&serde_json::json!({"schemaVersion": 2, "mediaType": OCI_MANIFEST, "config": {"digest": digest}, "layers": []})).unwrap();
+            let (m, c) = (manifest.clone(), config.clone());
+            let (host, asked) = path_server(move |path| {
+                if path.contains("/manifests/") {
+                    (200, OCI_MANIFEST, m.clone())
+                } else if path.contains("/blobs/") && serve_config {
+                    (200, "application/octet-stream", c.clone())
+                } else {
+                    (404, "application/json", b"{}".to_vec())
+                }
+            });
+            let r = Reference::parse(&format!("{host}/app:1")).unwrap();
+            let got = test_client().distribution(&r).unwrap_or_else(|e| panic!("{case}: {e}"));
+            assert_eq!(got["Descriptor"]["digest"], sha256_digest(&manifest), "{case}");
+            assert_eq!(got["Descriptor"]["mediaType"], OCI_MANIFEST, "{case}");
+            let platforms = if case == "present" { serde_json::json!([{"architecture": "arm64", "os": "linux"}]) } else { serde_json::json!([]) };
+            assert_eq!(got["Platforms"], platforms, "{case}");
+            let blobs = asked.lock().unwrap().iter().filter(|p| p.contains("/blobs/")).count();
+            assert_eq!(blobs, usize::from(case != "malformed"), "{case}: blob requests");
+        }
     }
 
     #[test]
