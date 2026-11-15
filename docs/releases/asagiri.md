@@ -49,13 +49,13 @@ failed starts from accumulating sockets and mounts while preserving other
 containers' DNS registrations. Writable data follows the existing removal
 policy: an automatically removed container may discard its data.
 Failed attempts also retire their virtual network links before a later attach
-reuses the address, even if the old network namespace remains alive. The live regression also
-deletes and recreates networks on the same subnet.
+reuses the address, even if the old network namespace remains alive. The live
+regression also deletes and recreates networks on the same subnet.
 
 Unprivileged containers fail before application startup if Linux cannot load
-or attach the cgroup device-access filter. Their identity and writable data
-remain available for retry after correcting the host restriction. Existing
-image and bind-mounted device nodes also need access filtering, so dropping
+or attach the cgroup device-access filter. Unless automatic removal is enabled,
+their identity and writable data remain available for retry after correcting
+the host restriction. Existing image and bind-mounted device nodes also need access filtering, so dropping
 the ability to create new nodes is no longer used as a fallback. Both bundled
 guest kernels enable the required BPF/cgroup support.
 
