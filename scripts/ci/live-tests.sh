@@ -63,6 +63,7 @@ run layer-concurrency
 run container-addresses
 run network-allocation alpine:3.21
 run network-dns-reuse alpine:3.21
+run failed-start-veth alpine:3.21
 run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent

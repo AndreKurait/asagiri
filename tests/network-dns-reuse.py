@@ -14,11 +14,16 @@ import uuid
 parser = argparse.ArgumentParser()
 parser.add_argument("socket")
 parser.add_argument("image")
+parser.add_argument("--docker-reference", action="store_true")
 args = parser.parse_args()
+if not args.docker_reference:
+    assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1"
+    assert os.environ.get("ASAGIRI_DATA_DIR") == "/test-store"
 prefix = "asagiri-dns-reuse-" + uuid.uuid4().hex[:12]
 scratch = tempfile.TemporaryDirectory(prefix=prefix + "-")
 networks, containers, findings = [], [], []
-record = {"prefix": prefix, "checks": [], "findings": findings}
+record = {"prefix": prefix, "checks": [], "findings": findings,
+          "engine": "Docker" if args.docker_reference else "Asagiri"}
 
 
 def cli(*items, ok=True):
@@ -46,6 +51,16 @@ def host_dns_sockets(gateway):
             if row.split()[1] == address]
 
 
+def wait_for_gateway_release(gateway):
+    deadline = time.monotonic() + 10
+    while True:
+        remaining = host_dns_sockets(gateway)
+        if not remaining:
+            return
+        assert time.monotonic() < deadline, ("gateway DNS socket survives network deletion", gateway, remaining)
+        time.sleep(.05)
+
+
 def agent_sockets():
     rows = []
     for path in Path("/proc").iterdir():
@@ -54,10 +69,28 @@ def agent_sockets():
         try:
             if (path / "comm").read_text().strip() != "asagiri-init":
                 continue
-            fds = [os.readlink(fd) for fd in (path / "fd").iterdir()]
-            rows.append({"pid": int(path.name), "sockets": sorted(fd for fd in fds if fd.startswith("socket:"))})
+            stat = (path / "stat").read_text().rsplit(")", 1)[1].split()
+            if stat[0] == "Z":
+                continue
+            fds = []
+            for fd in (path / "fd").iterdir():
+                try:
+                    fds.append(os.readlink(fd))
+                except FileNotFoundError:
+                    pass  # A descriptor may close while this live process is sampled.
+            rows.append({"pid": int(path.name), "start_time": stat[19],
+                         "sockets": sorted(fd for fd in fds if fd.startswith("socket:"))})
         except (FileNotFoundError, PermissionError, ProcessLookupError):
             continue
+    return rows
+
+
+def require_agent(expected=None):
+    rows = agent_sockets()
+    assert len(rows) == 1, ("expected one readable live Asagiri agent", rows)
+    if expected is not None:
+        assert (rows[0]["pid"], rows[0]["start_time"]) == (expected["pid"], expected["start_time"]), \
+            ("agent changed during cleanup checks", expected, rows)
     return rows
 
 
@@ -88,8 +121,7 @@ try:
         containers.remove(cid)
         cli("network", "rm", name)
         networks.remove(name)
-        remaining = host_dns_sockets(gateway)
-        assert not remaining, ("gateway DNS socket survives network deletion", gateway, remaining)
+        wait_for_gateway_release(gateway)
     check("three network lifecycles reuse the same subnet and release gateway DNS", subnet=subnet)
 
     network = prefix + "-failure"
@@ -99,7 +131,7 @@ try:
     live = cli("run", "-d", "--name", prefix + "-live", "--network", network,
                "--ip", address, "--network-alias", active_alias, args.image, "sleep", "3600").stdout.strip()
     containers.append(live)
-    before = agent_sockets()
+    before = [] if args.docker_reference else require_agent()
     alias = "removed." + prefix + ".invalid"
     bad = cli("create", "--name", prefix + "-bad", "--network", network,
               "--network-alias", alias, "--sysctl", "net.ipv4.ip_local_port_range=invalid",
@@ -117,7 +149,9 @@ try:
         state = json.loads(cli("inspect", bad).stdout)[0]["State"]
         assert not state["Running"], state
         time.sleep(0.1)
-        mounts = agent_mounts(before[0]["pid"], bad) if before else []
+        if not args.docker_reference:
+            require_agent(before[0])
+        mounts = agent_mounts(before[0]["pid"], bad) if not args.docker_reference else []
         failures.append({"exit": started.returncode, "stderr": started.stderr, "state": state,
                          "agent_rootfs_mounts": mounts})
     if any(item["agent_rootfs_mounts"] for item in failures):
@@ -128,20 +162,27 @@ try:
     check("writable data survives repeated rejected starts")
     cli("rm", bad)
     containers.remove(bad)
-    time.sleep(0.2)
-    after = agent_sockets()
+    after = []
+    if not args.docker_reference:
+        deadline = time.monotonic() + 10
+        while True:
+            after = require_agent(before[0])
+            mounts = agent_mounts(before[0]["pid"], bad)
+            cgroups = [str(path) for path in Path("/sys/fs/cgroup").rglob(bad)]
+            if not mounts and not cgroups or time.monotonic() >= deadline:
+                break
+            time.sleep(.05)
     record["failed_starts"] = failures
     record["agent_sockets_before"] = before
     record["agent_sockets_after"] = after
-    if before:
-        record["agent_rootfs_mounts_after_removal"] = agent_mounts(before[0]["pid"], bad)
-        record["cgroups_after_removal"] = [str(path) for path in Path("/sys/fs/cgroup").rglob(bad)]
+    if not args.docker_reference:
+        record["agent_rootfs_mounts_after_removal"] = mounts
+        record["cgroups_after_removal"] = cgroups
         if record["agent_rootfs_mounts_after_removal"]:
             findings.append("removing the rejected container leaves rootfs mounts")
         if record["cgroups_after_removal"]:
             findings.append("removing the rejected container leaves its cgroup")
-    if before and after:
-        assert len(before) == len(after) == 1 and before[0]["pid"] == after[0]["pid"]
+    if not args.docker_reference:
         extra = sorted(set(after[0]["sockets"]) - set(before[0]["sockets"]))
         record["additional_agent_sockets"] = extra
         if extra:
@@ -162,8 +203,7 @@ try:
     containers.remove(live)
     cli("network", "rm", network)
     networks.remove(network)
-    remaining = host_dns_sockets(gateway)
-    assert not remaining, ("failed-start network leaves gateway DNS bound", gateway, remaining)
+    wait_for_gateway_release(gateway)
     name = prefix + "-recreated"
     actual, _ = create_network(name, subnet)
     assert actual == subnet

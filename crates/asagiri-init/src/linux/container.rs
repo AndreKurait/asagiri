@@ -378,8 +378,8 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
             None => e,
         }
     };
+    let mut veths = Vec::new();
     let started = (|| {
-        let mut veths = Vec::new();
         let mut macvlans = Unplug(Vec::new());
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
@@ -450,7 +450,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
             tty: prepared.tty,
             dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
             late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
-            veths,
+            veths: std::mem::take(&mut veths),
             ways_out: Vec::new(),
             macvlans: std::mem::take(&mut macvlans.0),
             netns,
@@ -468,6 +468,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
         // rmdir does not race the failed child (or any descendants) exiting.
         kill_cgroup(&undo.cgroup);
+        // A held namespace can outlive the failed child. Retire only this
+        // attempt's unique links before another attach reuses its address.
+        net::retire(&veths);
         // The parent mounted the rootfs before cloning. A failed child has
         // no Process teardown either; detach this attempt's mount and retain
         // stopped-container data under the same policy as pre-clone errors.
