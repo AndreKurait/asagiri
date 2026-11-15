@@ -4688,3 +4688,41 @@ mod start_exit_tests {
         assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
     }
 }
+
+#[cfg(test)]
+mod builder_trust_tests {
+    use super::*;
+
+    #[test]
+    fn running_builder_noop_start_cannot_clear_pending_trust() {
+        let dir = std::env::temp_dir().join(format!("asagiri-builder-trust-{}-{}", std::process::id(), random_hex(8)));
+        std::fs::create_dir(&dir).unwrap();
+        let engine = Engine::boot(Store::open(&dir).unwrap()).unwrap();
+        // Match the existing synthetic engine tests: no restart records,
+        // no real guest, and any attempted guest boot is disabled.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "test:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true, config_digest: "sha256:test".into(),
+            layers: Vec::new(), size: 0, platform: "linux/arm64".into(), created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image":"test:local", "image_id":"sha256:test", "entrypoint":[], "cmd":["true"],
+            "env":[], "cwd":"/", "user":"", "auto_remove":false, "network_mode":"none", "labels":{},
+            "restart":{"name":"no", "max_retries":0}
+        })).unwrap();
+        let id = engine.create(Some(super::super::builder::container_name()), spec, &image).unwrap();
+        engine.lock().containers.get_mut(&id).unwrap().status = Status::Running;
+        // Exercise the real behavior that made the bug possible, not a fake
+        // start callback: start_inner succeeds without touching the guest.
+        assert!(engine.start(&id).is_ok());
+        let pending = std::sync::atomic::AtomicBool::new(true);
+        assert!(matches!(super::super::builder::start_with_trust(&engine, &id, &pending), Err(Error::Conflict(_))));
+        assert!(pending.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(engine.with(&id, |c| c.status).unwrap(), Status::Running);
+        pending.store(false, std::sync::atomic::Ordering::Release);
+        assert!(super::super::builder::start_with_trust(&engine, &id, &pending).is_ok());
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(engine);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

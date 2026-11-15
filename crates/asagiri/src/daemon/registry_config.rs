@@ -12,7 +12,7 @@ use asagiri_image::{Mirror, RegistrySettings};
 use serde_json::{Value, json};
 
 const MAX_BYTES: u64 = 64 << 10;
-const KEYS: [&str; 4] = ["registry-mirrors", "insecure-registries", "max-concurrent-downloads", "max-concurrent-uploads"];
+const KEYS: [&str; 5] = ["registry-ca-certificates", "registry-mirrors", "insecure-registries", "max-concurrent-downloads", "max-concurrent-uploads"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
@@ -41,6 +41,12 @@ impl Config {
         };
         let insecure = map.get("insecure-registries").map(|v| strings(v, "insecure-registries", 64)).transpose()?.unwrap_or_default();
         let settings = RegistrySettings::new(&insecure, count("max-concurrent-downloads", 4)?, count("max-concurrent-uploads", 5)?)?;
+        let bundles = match map.get("registry-ca-certificates") {
+            None => Default::default(),
+            Some(value) => serde_json::from_value::<std::collections::BTreeMap<String, String>>(value.clone())
+                .map_err(|_| "registry-ca-certificates must map authorities to PEM certificate strings")?,
+        };
+        let settings = settings.with_ca_certificates(&bundles)?;
         let mirrors = match map.get("registry-mirrors") {
             None => legacy.to_vec(),
             Some(value) => {
@@ -55,8 +61,16 @@ impl Config {
         Ok(Self { settings, mirrors })
     }
 
+    pub fn patched(&self, patch: &Value) -> Result<Self, String> {
+        let patch = patch.as_object().ok_or("daemon config must be an object")?;
+        let mut value = self.report();
+        for (key, value_patch) in patch { value[key] = value_patch.clone(); }
+        Self::parse(&value, &[])
+    }
+
     pub fn report(&self) -> Value {
         json!({
+            "registry-ca-certificates": self.settings.ca_certificates(),
             "registry-mirrors": self.mirrors.iter().map(Mirror::as_url).collect::<Vec<_>>(),
             "insecure-registries": self.settings.insecure_registries(),
             "max-concurrent-downloads": self.settings.max_downloads(),
@@ -97,10 +111,7 @@ impl Saved {
     }
 
     fn update(&mut self, patch: &Value) -> Result<Value, String> {
-        let patch = patch.as_object().ok_or("daemon config must be an object")?;
-        let mut value = self.config.report();
-        for (key, value_patch) in patch { value[key] = value_patch.clone(); }
-        let config = Config::parse(&value, &[])?;
+        let config = self.config.patched(patch)?;
         if config != self.config {
             persist(&self.path, &config.report()).map_err(|e| format!("saving daemon.json: {e}"))?;
             self.config = config;
@@ -163,6 +174,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("asagiri-config-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn registry_ca_policy_roundtrips_and_rejects_invalid_bundles() {
+        let ca = include_str!("../../../asagiri-image/tests/fixtures/registry-ca/ca.pem");
+        let config = Config::parse(&json!({"registry-ca-certificates":{"registry.example:443":ca}}), &[]).unwrap();
+        assert_eq!(config, Config::parse(&config.report(), &[]).unwrap());
+        for value in [json!([]), json!({"registry.example":42}), json!({"registry.example":"invalid"}), json!({"*.example":ca})] {
+            assert!(Config::parse(&json!({"registry-ca-certificates":value}), &[]).is_err());
+        }
+        assert!(Config::parse(&json!({"registry-ca-certificates":{"registry.example":ca},"insecure-registries":["registry.example:443"]}), &[]).is_err());
     }
 
     #[test]
