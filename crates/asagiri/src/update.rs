@@ -25,6 +25,10 @@ use sha2::{Digest, Sha256};
 #[path = "update_feed.rs"]
 mod feed;
 pub use feed::configured;
+mod process;
+#[cfg(test)]
+#[path = "../../asagiri-win/src/update/wsl.rs"]
+mod wsl_scripts;
 /// The biggest download accepted (the app is about 60 MB packed).
 const MAX_DOWNLOAD: u64 = 2 << 30;
 
@@ -185,13 +189,122 @@ pub fn install_staged() -> io::Result<String> {
     Ok(version)
 }
 
-/// Restarts the daemon on the app's current binary. Running containers stop;
-/// those with a restart policy start again.
-pub fn restart_engine() {
-    crate::diag::info!("restarting the engine");
-    // SAFETY: getuid cannot fail.
-    let uid = unsafe { libc::getuid() };
-    let _ = Command::new("/bin/launchctl").args(["kickstart", "-k", &format!("gui/{uid}/dev.asagiri.daemon")]).stderr(std::process::Stdio::null()).status();
+/// Restarts the engine on the app's current binary and waits until it
+/// answers as `expect` (the version now installed), which it returns.
+/// Running containers stop; those with a restart policy start again.
+///
+/// The running engine is stopped whoever started it: the LaunchAgent, the
+/// window (ensure_daemon, when it got there first) or a terminal. Asking
+/// launchd alone (`kickstart -k`) missed the last two: the job it restarted
+/// found the old engine still on the socket and exited, and the old one kept
+/// running while the window said it had restarted.
+pub fn restart_engine(expect: &str) -> io::Result<String> {
+    crate::diag::info!("restarting the engine", version = expect);
+    stop_engine()?;
+    start_engine()?;
+    let found = wait_for_version(expect, std::time::Duration::from_secs(60));
+    match found {
+        Some(v) if v == expect => {
+            crate::diag::info!("engine restarted", version = v);
+            Ok(v)
+        }
+        Some(v) => Err(io::Error::other(format!("the engine came back on {v}, not {expect}"))),
+        None => Err(io::Error::other(format!("the engine did not come back; see {}", log_path().display()))),
+    }
+}
+
+/// Starts the engine if it is not running: through the LaunchAgent when it
+/// starts this copy of Asagiri, so launchd owns the one engine there is, else
+/// as a child of its own session. Returns once it answers.
+pub fn start_engine() -> io::Result<()> {
+    if engine_answers(std::time::Duration::from_millis(250)) {
+        return Ok(());
+    }
+    crate::diag::info!("starting the engine");
+    let agent_started = crate::setup::start_agent().unwrap_or_else(|error| {
+        crate::diag::warn!("could not start the LaunchAgent; starting the engine directly", error = error);
+        false
+    });
+    if !agent_started {
+        spawn_daemon()?;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+        if engine_answers(remaining.min(std::time::Duration::from_millis(250))) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Err(io::Error::other(format!("asagiri daemon did not start; see {}", log_path().display())))
+}
+
+fn engine_answers(timeout: std::time::Duration) -> bool {
+    crate::client::probe("/_ping", timeout).is_ok_and(|response| response.ok() && response.body == b"OK")
+}
+
+fn log_path() -> PathBuf {
+    crate::client::socket().ok().and_then(|s| Some(s.parent()?.parent()?.join("daemon.log"))).unwrap_or_else(|| PathBuf::from("daemon.log"))
+}
+
+/// `asagiri daemon` in its own session, so quitting the window does not take
+/// it down; its output goes to daemon.log.
+fn spawn_daemon() -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+    let log_file = log_path();
+    if let Some(dir) = log_file.parent() {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    }
+    let log = std::fs::OpenOptions::new().create(true).append(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&log_file)?;
+    let metadata = log.metadata()?;
+    // SAFETY: geteuid has no preconditions.
+    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::other("the daemon log is not this user's regular file"));
+    }
+    log.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    let mut cmd = Command::new(std::env::current_exe()?);
+    cmd.arg("daemon").stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
+    // SAFETY: setsid is async-signal-safe and runs in the child before exec.
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut cmd, || {
+            if libc::setsid() < 0 { return Err(io::Error::last_os_error()); }
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn()?;
+    // A directly started engine can outlive its window, but one that exits
+    // while the window is still open must be reaped.
+    std::thread::spawn(move || { let _ = child.wait(); });
+    Ok(())
+}
+
+/// Stops the engine on the socket, if one answers: SIGTERM (it powers the
+/// VM off and removes the socket), then SIGKILL if it is still there after
+/// 30 seconds.
+fn stop_engine() -> io::Result<()> {
+    let Some(engine) = process::Engine::connect()? else { return Ok(()) };
+    crate::diag::info!("stopping the engine", pid = engine.pid());
+    engine.stop()
+}
+
+/// The engine's version once it answers as `expect`, or the last other
+/// version it gave when `limit` runs out (None if it never answered).
+pub fn wait_for_version(expect: &str, limit: std::time::Duration) -> Option<String> {
+    let deadline = std::time::Instant::now() + limit;
+    let mut last = None;
+    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+        if let Some(v) = crate::client::probe("/version", remaining.min(std::time::Duration::from_secs(1)))
+            .ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned)) {
+            if v == expect {
+                return Some(v);
+            }
+            last = Some(v);
+        }
+        if let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+            std::thread::sleep(remaining.min(std::time::Duration::from_millis(250)));
+        }
+    }
+    last
 }
 
 /// Whether `new_app` is a genuine Asagiri `promised`, newer than this build.
@@ -288,10 +401,10 @@ pub fn run(args: &[String]) -> io::Result<()> {
         return Err(io::Error::other("download the new .deb or .rpm from https://github.com/AndreKurait/asagiri/releases and install it as before"));
     }
     download(&release, &mut |_, _| {}, &AtomicBool::new(false))?;
-    install_staged()?;
+    let version = install_staged()?;
     // The daemon runs from the app: restart it on the new binary.
-    restart_engine();
-    println!("updated to Asagiri {}", release.version);
+    restart_engine(&version)?;
+    println!("updated to Asagiri {version}, and the engine runs it");
     Ok(())
 }
 
