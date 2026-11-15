@@ -433,9 +433,12 @@
         "tests/archive-upload-ownership.py",
         "tests/archive-configured-user.py",
         "tests/archive-overwrite.py",
-        "tests/archive-directory-times.py"
+        "tests/archive-directory-times.py",
+        "scripts/ci/ddev.py",
+        "tests/ddev/pins.json",
+        "tests/ddev/README.md"
       ],
-      "remaining": "Gzip uploads, ownership, replacement rules, and directory timestamps have Docker comparisons; a complete DDEV project has not been rerun."
+      "remaining": "The complete PHP/MariaDB/HTTPS DDEV project has Linux CI coverage, including restart and router configuration replacement. Native macOS VM behavior from the report still needs verification."
     },
     {
       "issue": 112,
@@ -866,6 +869,30 @@
       "issue": 245,
       "title": "docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
       "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
+    },
+    {
+      "issue": 246,
+      "title": "buildx docker-container builder fails on first start: mount rootfs Resource busy (os error 16)",
+      "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
+      "coverage": "automated",
+      "checks": [
+        "tests/buildx-bootstrap.py",
+        "tests/archive-completion.py",
+        "tests/linux-service-recovery.py",
+        "docs/linux-service-recovery.md"
+      ],
+      "remaining": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. The exact reported XanMod 7.3/ext4 host remains unverified."
+    },
+    {
+      "issue": 247,
+      "title": "Bridge containers have no outbound TCP/UDP when host FORWARD policy is DROP (no accept or MASQUERADE rules for kiri0)",
+      "body_sha256": "ab4c1c41c7f7b222c2b9da4b5001a4244fba6d986b3b5704610dcd3f5491ca33",
+      "coverage": "documentation",
+      "checks": [
+        "docs/linux-firewall.md",
+        "tests/linux-firewall.py"
+      ],
+      "remaining": "A private IPv4 iptables-nft reproduction on ae4c2c2 confirms that Asagiri NAT is present and a separate FORWARD DROP blocks TCP/UDP/DNS. Interface-scoped FORWARD and real DOCKER-USER allowances restore egress beside Docker 29.9.3 while preserving the drop policy, each engine table and unsolicited inbound blocking. The guide covers inspection, removal and persistence; custom UFW/firewalld policies, IPv6, VPNs and the exact reporter host remain unverified."
     }
   ]
 }

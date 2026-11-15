@@ -11,7 +11,7 @@ The [complete PR audit](docs/upstream-pr-audit.md) covers all **160** public PRs
 as of that review: 93 merged, 40 closed without merging, and 27 open. Every
 PR has an inheritance, port, equivalence, supersession, or hold recorded
 with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all 76
+The [issue verification inventory](docs/issue-verification.md) maps all 78
 reported issues to checks and remaining gaps. Closed upstream issues are not
 automatically considered verified on Asagiri.
 

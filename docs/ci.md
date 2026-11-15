@@ -14,6 +14,12 @@ must be removed after the JVM exits. The outer test host publishes no ports.
 Maven artifacts are cached by the test POM and architecture; only successful
 main checks save them, and Maven requires repository checksums.
 
+The [Linux firewall probe](linux-firewall.md) runs on the platform job and both
+Linux release architectures. Disposable hosts reproduce `FORWARD DROP` and
+verify scoped TCP, UDP and DNS egress, NAT, inbound isolation and coexistence
+with a pinned Docker daemon. Rules, source identities and logs are retained
+for 90 days; the hosts and their private network are removed afterward.
+
 The live suite also connects the official MCP Python SDK 2.3.0 to the stdio
 server. It verifies protocol negotiation, schema parsing, default denial,
 read tools, redaction, separately allowed actions and permission revocation.

@@ -3,6 +3,10 @@
 For Docker, Podman and user-selected Colima endpoints, see the separate
 [container engine comparison](engine-comparison.md).
 
+The Linux platform job also records [IPv4/IPv6 allocation microbenchmarks](verified-ipam.md)
+alongside a Verus proof of the production gap search. Its 26 paired workloads
+and raw artifacts supplement the engine measurements below.
+
 The [performance dashboard](https://andrekurait.github.io/asagiri/performance/)
 tracks completed main builds. The `Speed` GitHub Actions workflow compares each
 tested commit with its baseline on one GitHub-hosted Linux runner. Pull requests

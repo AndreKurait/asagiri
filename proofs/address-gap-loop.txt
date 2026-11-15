@@ -1,0 +1,11 @@
+    for address in walk: occupied
+        invariant
+            walk.iter.obeys_prophetic_iter_laws(),
+            walk.iter.decrease() is Some,
+            first <= candidate <= last,
+            candidate - first <= walk.index(),
+            forall|i: int, j: int| 0 <= i <= j < walk.seq().len()
+                ==> walk.seq()[i] <= walk.seq()[j],
+            forall|i: int| 0 <= i < walk.index() ==> walk.seq()[i] < candidate,
+            forall|a: u128| first <= a < candidate ==> walk.seq().contains(a),
+    {

@@ -2150,7 +2150,7 @@ impl Engine {
                     Some(want) => self.lock_networks().reserve(&n.name, want).map(|()| want).map_err(Error::Conflict),
                     None => {
                         let avoid = self.wanted_addresses(&n.name);
-                        self.lock_networks().allocate_avoiding(&n.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", n.name)))
+                        self.lock_networks().allocate_avoiding(&n.name, &avoid).ok_or_else(|| Error::Io(io::Error::other(format!("no free address left on network {}", n.name))))
                     }
                 };
                 let ip = match ip {
@@ -2609,7 +2609,12 @@ impl Engine {
             return Ok(None);
         }
         let avoid = self.wanted_addresses6(&n.name);
-        self.lock_networks().allocate6(&n.name, super::network::parse_ip6(want), &avoid).map_err(Error::Conflict)
+        let requested = super::network::parse_ip6(want);
+        // Automatic pool exhaustion is a server allocation failure in
+        // Docker, including a connect to an already-running container.
+        self.lock_networks().allocate6(&n.name, requested, &avoid).map_err(|message| {
+            if requested.is_none() { Error::Io(io::Error::other(message)) } else { Error::Conflict(message) }
+        })
     }
 
     /// Where `<host>` (a `*.asagiri.localhost` name) should go: the container
@@ -2822,6 +2827,12 @@ impl Engine {
     /// Blocks until the condition holds. Returns the exit code.
     /// `condition`: `not-running` (default), `next-exit` or `removed`.
     pub fn wait(&self, key: &str, condition: &str) -> Result<i32, Error> {
+        self.wait_connected(key, condition, || false).map(|code| code.expect("uncancelled wait"))
+    }
+
+    /// A Docker wait ends when its client disconnects, even if the container
+    /// keeps running. A bounded condvar wait lets that release its API slot.
+    pub fn wait_connected(&self, key: &str, condition: &str, disconnected: impl Fn() -> bool) -> Result<Option<i32>, Error> {
         let mut st = self.lock();
         let id = resolve(&st, key)?;
         let exits_before = st.containers.get(&id).map_or(0, |c| c.exits);
@@ -2829,17 +2840,20 @@ impl Engine {
             match st.containers.get(&id) {
                 None => {
                     let code = st.removed.iter().rev().find(|(r, _)| *r == id).map_or(0, |(_, c)| *c);
-                    return Ok(code);
+                    return Ok(Some(code));
                 }
                 Some(c) => match condition {
                     "removed" => {}
-                    "next-exit" if c.exits > exits_before => return Ok(c.exit_code),
+                    "next-exit" if c.exits > exits_before => return Ok(Some(c.exit_code)),
                     "next-exit" => {}
-                    _ if c.status != Status::Running => return Ok(c.exit_code),
+                    _ if c.status != Status::Running => return Ok(Some(c.exit_code)),
                     _ => {}
                 },
             }
-            st = self.changed.wait(st).unwrap_or_else(|e| e.into_inner());
+            if disconnected() {
+                return Ok(None);
+            }
+            st = self.changed.wait_timeout(st, Duration::from_millis(250)).unwrap_or_else(|e| e.into_inner()).0;
         }
     }
 
@@ -2872,7 +2886,7 @@ impl Engine {
             Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
             None => {
                 let avoid = self.wanted_addresses(&net.name);
-                self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Conflict(format!("no free address left on network {}", net.name)))?
+                self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Io(io::Error::other(format!("no free address left on network {}", net.name))))?
             }
         };
         let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
@@ -3371,6 +3385,16 @@ impl Engine {
             }
         }
         *removing = removing.wrapping_add(1);
+        // Keep the stopped container addressable if cleanup times out. The
+        // lifecycle guard excludes a new start while the guest finishes, and
+        // a failed removal can be retried without losing its writable layer.
+        // Lost containers are pruned by retain() on the next boot: removal
+        // must not boot a replacement or wait for a retiring VM.
+        let needs_cleanup = self.lock().containers.get(&id)
+            .is_some_and(|c| c.started.is_some() && !c.vm_stopped);
+        if needs_cleanup && let Some(vm) = self.awake() {
+            vm.remove(&id)?;
+        }
         let mut st = self.lock();
         // The lifecycle guard excludes a new start until removal is complete.
         let removed = st.containers.remove(&id);
@@ -3391,13 +3415,6 @@ impl Engine {
         }
         if removed.as_ref().is_some_and(|c| !c.spec.auto_remove) {
             self.save();
-        }
-        // Lost containers are pruned by retain() on the next boot. Removal
-        // must not boot a replacement or wait for a retiring VM.
-        if removed.as_ref().is_some_and(|c| c.started.is_some() && !c.vm_stopped)
-            && let Some(vm) = self.awake()
-        {
-            vm.remove(&id)?;
         }
         if with_volumes {
             for v in anon {

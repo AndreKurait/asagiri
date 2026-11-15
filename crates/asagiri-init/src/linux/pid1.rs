@@ -14,6 +14,46 @@ use super::sys::child_fail;
 const NOT_FORWARDED: [libc::c_int; 9] =
     [libc::SIGFPE, libc::SIGILL, libc::SIGSEGV, libc::SIGBUS, libc::SIGABRT, libc::SIGTRAP, libc::SIGSYS, libc::SIGTTIN, libc::SIGTTOU];
 
+/// The supervisor does not exec, so it must close the descriptors that an
+/// ordinary container releases through CLOEXEC. Called before user limits
+/// and seccomp, with stdin/stdout/stderr already installed.
+pub(super) fn close_inherited() -> io::Result<()> {
+    // SAFETY: this runs only in the cloned child's private descriptor table.
+    if unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0) } == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != Some(libc::ENOSYS) {
+        return Err(error);
+    }
+    close_inherited_one_by_one()
+}
+
+/// Kernels before close_range still support the native backend. Use the
+/// inherited hard limit before applying a possibly smaller container limit;
+/// /proc inside the container can be replaced by a caller's bind mount.
+fn close_inherited_one_by_one() -> io::Result<()> {
+    // SAFETY: getrlimit initializes a plain local structure.
+    let mut limit: libc::rlimit = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if limit.rlim_max == libc::RLIM_INFINITY {
+        return Err(io::Error::other("cannot bound inherited descriptors"));
+    }
+    for fd in 3..limit.rlim_max.min(libc::c_int::MAX as libc::rlim_t) {
+        // SAFETY: only the child's inherited descriptor table is affected.
+        if unsafe { libc::close(fd as libc::c_int) } != 0 {
+            let error = io::Error::last_os_error();
+            // Linux releases the descriptor even when close reports EINTR.
+            if !matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINTR)) {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Runs `exe` as PID 1's child and supervises it. Called by the container's
 /// first process in place of its exec, after everything else is set up
 /// (user, capabilities, seccomp), so both run with the same rights.
@@ -118,5 +158,38 @@ mod tests {
     fn statuses_read_as_a_shell_reports_them() {
         assert_eq!(exit_code(3 << 8), 3);
         assert_eq!(exit_code(libc::SIGTERM), 128 + 15);
+    }
+
+    #[test]
+    fn inherited_descriptors_close_without_losing_stdio() {
+        for fallback in [false, true] {
+            // SAFETY: the child changes only its own descriptor table and
+            // exits directly, without running the test harness destructors.
+            unsafe {
+                let child = libc::fork();
+                assert!(child >= 0);
+                if child == 0 {
+                    let limit = libc::rlimit { rlim_cur: 128, rlim_max: 128 };
+                    if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 {
+                        libc::_exit(1);
+                    }
+                    let fd = libc::fcntl(1, libc::F_DUPFD_CLOEXEC, 64);
+                    if fd < 64 {
+                        libc::_exit(2);
+                    }
+                    let result = if fallback { close_inherited_one_by_one() } else { close_inherited() };
+                    if result.is_err() || libc::fcntl(fd, libc::F_GETFD) != -1 {
+                        libc::_exit(3);
+                    }
+                    if libc::fcntl(1, libc::F_GETFD) < 0 || libc::fcntl(2, libc::F_GETFD) < 0 {
+                        libc::_exit(4);
+                    }
+                    libc::_exit(0);
+                }
+                let mut status = 0;
+                assert_eq!(libc::waitpid(child, &mut status, 0), child);
+                assert_eq!(status, 0, "fallback={fallback}");
+            }
+        }
     }
 }

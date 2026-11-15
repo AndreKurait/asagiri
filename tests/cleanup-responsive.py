@@ -29,8 +29,14 @@ try:
     if (item/'comm').read_text().strip()=='asagiri-init' and fields[0]!='Z' and int(fields[1])==1:init.append(int(item.name))
    except (OSError,ValueError):pass
  assert len(init)==1,init
+ # Delay only this cleanup mount. Injecting every descendant's umount2 also
+ # delays the restarted container's pivot-root teardown, doubling the fault
+ # to 30 seconds and racing the client's independent 30-second deadline.
+ roots={line.split()[4] for line in pathlib.Path('/proc',str(init[0]),'mountinfo').read_text().splitlines() if line.split()[4].endswith('/'+victim+'/rootfs')}
+ assert len(roots)==1,roots
+ rootfs=roots.pop()
  log=open('/tmp/cleanup-delay.trace','wb')
- trace=subprocess.Popen(['strace','-f','-e','trace=umount2','-e','inject=umount2:delay_enter=15s','-p',str(init[0])],stdout=log,stderr=log)
+ trace=subprocess.Popen(['strace','-f','-P',rootfs,'-e','trace=umount2','-e','inject=umount2:delay_enter=15s','-p',str(init[0])],stdout=log,stderr=log)
  deadline=time.monotonic()+10
  while time.monotonic()<deadline:
   status=pathlib.Path('/proc',str(init[0]),'status').read_text()
@@ -52,7 +58,7 @@ try:
   if blocked:break
   time.sleep(.01)
  assert blocked, 'No traced umount2 entry barrier observed'
- observed=time.monotonic();report={'initPid':init[0],'blockedPid':blocked,'barrierSeconds':observed-began,'injectedDelaySeconds':15,'expectedBlocked':a.expect_blocked}
+ observed=time.monotonic();report={'initPid':init[0],'blockedPid':blocked,'barrierSeconds':observed-began,'injectedDelaySeconds':15,'injectionPath':rootfs,'expectedBlocked':a.expect_blocked}
  started=time.monotonic()
  try:exec_check();report['unrelatedExec']='completed'
  except subprocess.TimeoutExpired:report['unrelatedExec']='timeout'
