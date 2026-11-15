@@ -512,7 +512,7 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
                     "Size": i.size,
                     "SharedSize": -1,
                     "VirtualSize": i.size,
-                    "Labels": null,
+                    "Labels": i.config.labels_json(),
                     "Containers": -1,
                     // Not Docker's: when this image arrived here, for the window.
                     "Pulled": i.pulled_at,
@@ -3544,6 +3544,26 @@ mod tests {
         assert_eq!(upload_compression(&[0x28, 0xb5, 0x2f, 0xfd, 0, 0]), Upload::Unsupported("zstd"));
         assert_eq!(upload_compression(b"etc/ho"), Upload::Tar);
         assert_eq!(upload_compression(b""), Upload::Tar);
+    }
+
+    /// `docker image inspect` shows the image's `config.Labels` (#206): a
+    /// labelled image carries them, an unlabelled one shows null, as Docker's.
+    #[test]
+    fn image_inspect_shows_config_labels() {
+        let shown = |labels: serde_json::Value| {
+            let stored = json!({"os": "linux", "architecture": "arm64", "created": "2026-01-01T00:00:00Z", "config": {"Labels": labels}});
+            let image = asagiri_image::archive::from_config(
+                "labelled:latest".into(),
+                &format!("sha256:{}", "1".repeat(64)),
+                &stored,
+                Vec::new(),
+            );
+            assert_eq!(image.config.labels_json(), labels);
+            image_inspect_value(&image, &stored)["Config"]["Labels"].clone()
+        };
+        let wanted = serde_json::json!({"com.openmausbot.local-vm": "1", "com.openmausbot.cua-driver": "0.37.0"});
+        assert_eq!(shown(wanted.clone()), wanted);
+        assert_eq!(shown(serde_json::Value::Null), serde_json::Value::Null);
     }
 
     /// DDEV's CopyIntoVolume sends a gzipped tar: the guest gets the tar.

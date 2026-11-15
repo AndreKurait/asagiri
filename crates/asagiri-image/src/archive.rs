@@ -200,6 +200,15 @@ pub fn from_config(name: String, config_digest: &str, config: &Value, layers: Ve
     let c = &config["config"];
     let strings = |v: &Value| v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
     let text = |v: &Value| v.as_str().unwrap_or_default().to_owned();
+    let strings_map = |v: &Value| {
+        v.as_object()
+            .map(|o| {
+                o.iter()
+                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     let os = config["os"].as_str().unwrap_or("linux");
     // A config that names no architecture was made for this machine.
     let host = crate::registry::Platform::host_linux();
@@ -222,6 +231,7 @@ pub fn from_config(name: String, config_digest: &str, config: &Value, layers: Ve
             cmd: strings(&c["Cmd"]),
             working_dir: text(&c["WorkingDir"]),
             user: text(&c["User"]),
+            labels: strings_map(&c["Labels"]),
         },
     }
 }
@@ -297,20 +307,36 @@ mod tests {
             w.write_all(bytes).unwrap();
             w.finish().unwrap()
         };
-        let config = json!({"os": "linux", "architecture": "arm64", "created": "2026-01-01T00:00:00Z", "config": {"Cmd": ["echo", "hi"], "Env": ["A=1"]}});
+        let config = json!({"os": "linux", "architecture": "arm64", "created": "2026-01-01T00:00:00Z", "config": {"Cmd": ["echo", "hi"], "Env": ["A=1"], "Labels": {"com.example.kind": "integration", "com.example.version": "2"}}});
         let (cfg, _) = put(&serde_json::to_vec(&config).unwrap());
         let (layer, size) = put(b"\x1f\x8bnot really gzip");
         let image = from_config("demo:1".into(), &cfg, &config, vec![Layer { digest: layer.clone(), size, media_type: media_type_of(&store.blob_path(&layer).unwrap()).unwrap().into() }]);
         store.put_image(image.clone()).unwrap();
 
         let mut tarball = Vec::new();
-        save(&store, &[image.clone()], &mut tarball).unwrap();
+        save(&store, std::slice::from_ref(&image), &mut tarball).unwrap();
 
         let other = Store::open(dir.join("other")).unwrap();
         let loaded = load(&other, tarball.as_slice()).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].name, "demo:1");
         assert_eq!(loaded[0].config.cmd, ["echo", "hi"]);
+        assert_eq!(
+            loaded[0]
+                .config
+                .labels
+                .get("com.example.kind")
+                .map(String::as_str),
+            Some("integration")
+        );
+        assert_eq!(
+            loaded[0]
+                .config
+                .labels
+                .get("com.example.version")
+                .map(String::as_str),
+            Some("2")
+        );
         assert_eq!(loaded[0].layers[0].digest, layer);
         assert!(loaded[0].layers[0].media_type.ends_with("gzip"));
         assert_eq!(other.find("demo:1").unwrap().unwrap().config_digest, cfg);

@@ -41,6 +41,22 @@ pub struct RunConfig {
     pub working_dir: String,
     #[serde(default)]
     pub user: String,
+    /// The image's `config.Labels`, sorted so two loads of one image agree.
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+}
+
+impl RunConfig {
+    /// The labels as the Docker Engine API shows them: the map for an image
+    /// that has labels, `null` for one without, as Docker's inspect does for
+    /// an image with no LABEL (alpine, say).
+    pub fn labels_json(&self) -> serde_json::Value {
+        if self.labels.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::to_value(&self.labels).unwrap_or(serde_json::Value::Null)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -693,5 +709,37 @@ mod tests {
         assert_eq!(named("localhost:5000/app:1").repo(), "localhost:5000/app");
         assert_eq!(named("localhost:5000/app").repo(), "localhost:5000/app");
         assert_eq!(named(&format!("kindest/node@sha256:{}", "a".repeat(64))).repo(), "kindest/node");
+    }
+
+    #[test]
+    fn labels_survive_a_save_and_a_load() {
+        let root =
+            std::env::temp_dir().join(format!("asagiri-store-labels-test-{}", std::process::id()));
+        let store = Store::open(&root).unwrap();
+        let image = Image {
+            name: "labelled:1".into(),
+            digest: format!("sha256:{}", "1".repeat(64)),
+            index_digest: None,
+            local_tag: false,
+            config_digest: format!("sha256:{}", "2".repeat(64)),
+            layers: Vec::new(),
+            size: 0,
+            platform: "linux/arm64".into(),
+            created: String::new(),
+            pulled_at: 0,
+            config: RunConfig {
+                labels: [("com.example.label".to_owned(), "1".to_owned())]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+        };
+        store.put_image(image).unwrap();
+        let labels = store.find("labelled:1").unwrap().unwrap().config.labels;
+        assert_eq!(
+            labels.get("com.example.label").map(String::as_str),
+            Some("1")
+        );
+        fs::remove_dir_all(&root).unwrap();
     }
 }
