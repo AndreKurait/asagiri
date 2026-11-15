@@ -56,6 +56,11 @@ pub mod update {
 
     const BY_APT: &str = "on Linux, Asagiri updates with your other packages (apt or dnf)";
 
+    /// Linux's package manager or an explicit AppImage replacement owns updates.
+    pub fn configured() -> bool {
+        false
+    }
+
     fn update_note() -> io::Error {
         io::Error::other(if crate::hostaccess::appdir().is_some() {
             "download a newer AppImage to update the window; update an existing engine with its package manager or replace both installed engine executables while its service is stopped"

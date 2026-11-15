@@ -63,7 +63,7 @@ the account control of the engine and its containers.
 The AppImage does not update a system-installed engine automatically. Continue
 using the package manager for an existing package installation. For an engine
 installed through AppImage onboarding, stop the service and explicitly replace
-both installed executables together when updating, or install a current package.
+both installed executables together when updating.
 
 `appimage.sh` builds and checks a native AppImage from source using the pinned
 Rust/Debian container. `STATIC_BIN` must contain this commit's static engine,
