@@ -11,6 +11,7 @@
 #   and WebKitGTK) for this machine's own architecture, when
 #   libwebkit2gtk-4.1-dev is installed; it goes in the full asagiri package
 # - asagiri and asagiri-lite as .deb and .rpm for each (packaging/linux/build.sh)
+# - an AppImage for the native architecture when the GTK window is available
 #
 #   scripts/ci/linux-build.sh
 #
@@ -44,8 +45,17 @@ for arch in x86_64 aarch64; do
   bash scripts/windows-engine.sh "$root" "$bins/$arch" "$arch"
   bash packaging/linux/fetch-cli.sh "target/linux-cli-$arch" "$HOME/.cache/asagiri-linux-cli" "$arch"
   w=; [ "$arch" = "$(uname -m)" ] && w=$window
-  bash packaging/linux/build.sh "$bins/$arch" target/packages "$arch" "target/linux-cli-$arch" $w
+  set -- "$bins/$arch" target/packages "$arch" "target/linux-cli-$arch"
+  [ -z "$w" ] || set -- "$@" "$w"
+  bash packaging/linux/build.sh "$@"
 done
+if [ -n "$window" ]; then
+  bash packaging/linux/appimage.sh "$bins/$(uname -m)" "$window" target/packages
+fi
 cd target/packages
-sha256sum *.deb *.rpm > SHA256SUMS-linux
+set -- *.deb *.rpm
+for appimage in *.AppImage; do
+  [ ! -f "$appimage" ] || set -- "$@" "$appimage"
+done
+sha256sum "$@" > SHA256SUMS-linux
 cat SHA256SUMS-linux

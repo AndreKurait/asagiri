@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-15T03:31:54.298532+00:00",
+  "reviewed_at": "2026-11-15T04:40:03.199775+00:00",
   "repository": "libracoder/kiri",
-  "count": 79,
+  "count": 80,
   "issues": [
     {
       "number": 10,
@@ -316,7 +316,7 @@
       "updated_at": "2026-11-09T10:05:22Z",
       "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
       "disposition": "implemented-unverified-platform",
-      "reason": "WSL recovery port retained; native Windows sleep/wake reproduction is still a separate check."
+      "reason": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
     },
     {
       "number": 94,
@@ -695,7 +695,7 @@
       "updated_at": "2026-11-15T03:20:13Z",
       "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
       "disposition": "runtime-regression-covered",
-      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount while preserving writable data, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
+      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount under the existing writable-data removal policy, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
       "reviewed_comments": [
         {
           "id": 6888477894,
@@ -727,7 +727,16 @@
       "state": "open",
       "updated_at": "2026-11-15T03:20:14Z",
       "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
-      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount under the existing removal policy. It also retires its veths before address reuse; holding the old namespace open reproduced a stale host-side link, and the corrected replacement retained peer ping and DNS with that link removed. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+    },
+    {
+      "number": 250,
+      "title": "macOS: launching Kiri from Finder/Dock exits silently (open returns 0), and the log records command=\"\" instead of what failed",
+      "state": "open",
+      "updated_at": "2026-11-15T04:39:21Z",
+      "body_sha256": "408452731af103e31938c696d86e5f294551a302e61df7c5774d9101e368edd9",
+      "disposition": "partially-covered",
+      "reason": "First-launch setup continues past optional shell-profile failures and preserves unreadable profile contents. Fatal setup errors identify the operation, app-launch logs have a nonempty command label, and the native app presents an error alert. Two original filesystem regressions were reproduced and corrected; the reporter's exact Finder/Dock failure and native alert remain unverified."
     }
   ]
 }

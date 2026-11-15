@@ -16,6 +16,32 @@ With a bridged container running, inspect the engine's NAT table and the
 host's forwarding policy:
 
 ```sh
+sudo asagiri diag firewall
+```
+
+This read-only command reports active Asagiri-named bridges with their IPv4
+subnets and gateways, the main routing table's default uplink, Asagiri's
+NAT table, nftables forward chains with a drop policy, and the iptables
+frontend and forwarding policy. For an iptables `FORWARD DROP` policy and
+one default uplink, it prints interface-scoped examples for each observed
+bridge, using UFW or `DOCKER-USER` when their unconditional forwarding jump
+is present. Review existing rules and their order before applying an example.
+An earlier accept may already allow the traffic; a drop policy alone does
+not prove that the packet is blocked.
+
+The command does not start an engine, change rules, send packets or contact
+an external service. It uses the installed `ip`, `nft` and `iptables` tools,
+limits each command to two seconds and each output stream to 1 MiB, and
+reports unavailable, denied or malformed checks as unknown with a nonzero
+exit status. It does not evaluate IPv6, policy routing, VPNs, explicit
+drop/reject rule traversal, or a separate iptables-legacy ruleset when the
+selected frontend is nft. It runs only when requested, adding no work to
+container startup. Reinspect after recreating a network or reloading the
+host firewall.
+
+For the full rules and routing details:
+
+```sh
 sudo nft list table ip asagiri
 sudo iptables -S FORWARD
 sudo nft list ruleset
@@ -102,7 +128,10 @@ reproduces blocking under `FORWARD DROP`, and verifies the scoped allowances.
 It also starts a pinned Docker daemon beside Asagiri and exercises the real
 `DOCKER-USER` chain. The checks retain the drop policy, require an unpublished
 listener to remain unreachable from outside, and remove the allowances to
-confirm that blocking returns. The `--user-network` variant reserves another
+confirm that blocking returns. The diagnostic is checked against the actual
+bridge/subnet, `FORWARD DROP`, and Docker's chain, with nftables and iptables
+snapshots required to remain unchanged after inspection.
+The `--user-network` variant reserves another
 network first, then repeats all checks on a custom bridge. It derives the
 interface from that network's actual gateway instead of assuming `asagiri0`
 or a fixed subnet.

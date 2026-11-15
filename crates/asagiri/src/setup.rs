@@ -101,7 +101,8 @@ pub fn launched_from_app() -> bool {
 /// The first time the app opens: the same as `asagiri setup`, quietly, except
 /// `*.asagiri.local`, which the window offers and the user chooses.
 pub fn first_launch() -> io::Result<()> {
-    if agent_plist()?.is_file() && agent_runs_this()? {
+    if setup_step("locate the LaunchAgent", agent_plist())?.is_file()
+        && setup_step("read the existing LaunchAgent", agent_runs_this())? {
         // Set up by an older Asagiri: make sure the commands are there too.
         if let Some(contents) = bundle_contents() {
             let _ = bundled_cli(&contents);
@@ -113,6 +114,10 @@ pub fn first_launch() -> io::Result<()> {
         return Ok(());
     }
     run(&["--no-domains".to_owned()])
+}
+
+fn setup_step<T>(operation: &str, result: io::Result<T>) -> io::Result<T> {
+    result.map_err(|error| io::Error::new(error.kind(), format!("{operation}: {error}")))
 }
 
 pub fn run(args: &[String]) -> io::Result<()> {
@@ -131,8 +136,8 @@ pub fn run(args: &[String]) -> io::Result<()> {
         println!("{}", docker_socket_fallback(&crate::daemon::socket_path()?));
         return result;
     }
-    let socket = crate::daemon::socket_path()?;
-    context(&socket)?;
+    let socket = setup_step("locate the engine socket", crate::daemon::socket_path())?;
+    setup_step("write the Docker context", context(&socket))?;
     println!("docker context `{CONTEXT}` → unix://{}", socket.display());
     if flag("--use") && !dev() {
         let path = docker_dir()?.join("config.json");
@@ -142,10 +147,10 @@ pub fn run(args: &[String]) -> io::Result<()> {
         println!("docker now uses Asagiri by default (`docker context use default` to switch back)");
     }
     if let Some(contents) = bundle_contents() {
-        bundled_cli(&contents)?;
+        setup_step("install the bundled command links", bundled_cli(&contents))?;
     }
     if !flag("--no-agent") {
-        let plist = agent()?;
+        let plist = setup_step("install the engine LaunchAgent", agent())?;
         println!("asagiri daemon starts at login ({})", plist.display());
     }
     match builder() {
@@ -511,7 +516,13 @@ fn bundled_cli(contents: &Path) -> io::Result<()> {
     // Asagiri Dev's commands are run by path: ~/.asagiri-dev/bin/asagiri.
     if !dev() {
         let h = home()?;
-        shell_path(&h, &zdotdir(&h))?;
+        // Personal shell profiles are optional command-line integration.
+        // A missing symlink target must not prevent the app's engine service
+        // and window from starting.
+        if let Err(error) = shell_path(&h, &zdotdir(&h)) {
+            crate::diag::warn!("shell PATH integration incomplete", error = error);
+            eprintln!("Asagiri's app setup continues without some shell PATH entries: {error}");
+        }
         system_link(&asagiri);
     }
     let mut bin = contents.join("Resources/bin");
@@ -643,17 +654,34 @@ fn zdotdir(home: &Path) -> PathBuf {
 }
 
 fn shell_path(home: &Path, zdotdir: &Path) -> io::Result<()> {
+    let mut errors = Vec::new();
     for (file, line) in profiles(home, zdotdir) {
-        let text = std::fs::read_to_string(&file).unwrap_or_default();
-        if text.contains(PROFILE_MARK) {
-            continue;
+        if let Err(error) = shell_profile(&file, line) {
+            errors.push(format!("{}: {error}", file.display()));
         }
-        if let Some(dir) = file.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let sep = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
-        std::fs::write(&file, format!("{text}{sep}\n{PROFILE_MARK}\n{line}\n"))?;
     }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("could not update shell profiles: {}", errors.join("; "))))
+    }
+}
+
+fn shell_profile(file: &Path, line: &str) -> io::Result<()> {
+    let text = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound
+            && std::fs::symlink_metadata(file).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) => String::new(),
+        Err(error) => return Err(error),
+    };
+    if text.contains(PROFILE_MARK) {
+        return Ok(());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let sep = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+    std::fs::write(file, format!("{text}{sep}\n{PROFILE_MARK}\n{line}\n"))?;
     Ok(())
 }
 
@@ -726,15 +754,20 @@ fn agent() -> io::Result<PathBuf> {
     // bootout returns before launchd has let the old job go, and a
     // bootstrap in that moment fails (error 5): try again for a few seconds.
     let mut ok = false;
+    let mut last_failure = String::new();
     for _ in 0..20 {
-        ok = Command::new("/bin/launchctl").args(["bootstrap", &format!("gui/{}", uid())]).arg(&path).stderr(std::process::Stdio::null()).status()?.success();
+        let output = setup_step(
+            &format!("run /bin/launchctl bootstrap for {}", path.display()),
+            Command::new("/bin/launchctl").args(["bootstrap", &format!("gui/{}", uid())]).arg(&path).output())?;
+        ok = output.status.success();
         if ok {
             break;
         }
+        last_failure = format!("{}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim());
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
     if !ok {
-        return Err(io::Error::other(format!("launchctl could not load {}", path.display())));
+        return Err(io::Error::other(format!("/bin/launchctl bootstrap could not load {} ({last_failure})", path.display())));
     }
     Ok(path)
 }
@@ -863,6 +896,44 @@ fn uninstall() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn setup_error_identifies_the_operation_and_keeps_its_kind() {
+        let error = super::setup_step::<()>(
+            "install the engine LaunchAgent",
+            Err(std::io::Error::from_raw_os_error(libc::ENOENT))).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("install the engine LaunchAgent"));
+        assert!(error.to_string().contains("os error 2"));
+    }
+
+    #[test]
+    fn broken_shell_profile_does_not_prevent_other_shells() {
+        let home = scratch("dangling-profile");
+        let target = home.join("unavailable/profile");
+        let profile = home.join(".zprofile");
+        std::os::unix::fs::symlink(&target, &profile).unwrap();
+        let error = super::shell_path(&home, &home).unwrap_err();
+        assert_eq!(std::fs::read_link(&profile).unwrap(), target);
+        assert!(!target.exists());
+        assert!(home.join(".zshrc").is_file());
+        assert!(home.join(".bash_profile").is_file());
+        assert!(error.to_string().contains(".zprofile"), "{error}");
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn unreadable_shell_profile_is_not_truncated() {
+        let home = scratch("unreadable-profile");
+        let profile = home.join(".zprofile");
+        let original = b"existing settings \xff\xfe\n";
+        std::fs::write(&profile, original).unwrap();
+        let error = super::shell_path(&home, &home).unwrap_err();
+        assert_eq!(std::fs::read(&profile).unwrap(), original);
+        assert!(home.join(".zshrc").is_file());
+        assert!(error.to_string().contains(".zprofile"), "{error}");
+        std::fs::remove_dir_all(home).unwrap();
+    }
+
     #[test]
     fn launch_agent_restarts_failed_exits_but_not_a_clean_stop() {
         use std::io::Write;

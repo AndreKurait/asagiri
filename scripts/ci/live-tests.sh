@@ -43,8 +43,17 @@ run() { # run <script> [image] [options]
   interpreter=python3
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
-  echo "[$rc] $test_script${*:+ $*}: $(echo "$out" | tail -1 | cut -c1-200)"
-  if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); echo "$out" | sed 's/^/    /'; fi
+  case "$test_script" in
+    failed-start-veth|remove-responsive)
+      echo "[$rc] $test_script${*:+ $*}: structured result"
+      printf '%s\n' "$out"
+      ;;
+    *)
+      echo "[$rc] $test_script${*:+ $*}: $(echo "$out" | tail -1 | cut -c1-200)"
+      if [ "$rc" -ne 0 ]; then printf '%s\n' "$out" | sed 's/^/    /'; fi
+      ;;
+  esac
+  if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); fi
 }
 
 run api-version --cold

@@ -41,6 +41,9 @@ pub mod console;
 
 pub mod redact;
 pub mod report;
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod firewall;
 
 pub use report::run;
 
@@ -50,6 +53,17 @@ pub enum Part {
     Ui,
     Daemon,
     Cli,
+}
+
+/// A useful action name without retaining arbitrary command-line arguments.
+pub fn command_label(command: Option<&str>, part: Part) -> &str {
+    match command {
+        None if part == Part::Ui => "app-launch",
+        None => "unknown",
+        Some(command) if !command.is_empty() && command.len() <= 20
+            && command.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') => command,
+        _ => "invalid-command",
+    }
 }
 
 impl Part {
@@ -579,6 +593,17 @@ pub fn save_crash(dir: &Path, t: SystemTime, part: Part, text: &str) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_labels_identify_app_launch_without_logging_arguments() {
+        assert_eq!(command_label(None, Part::Ui), "app-launch");
+        assert_eq!(command_label(None, Part::Cli), "unknown");
+        assert_eq!(command_label(Some("ui"), Part::Ui), "ui");
+        assert_eq!(command_label(Some("container"), Part::Cli), "container");
+        for value in ["", "password=secret", "run\nforged", "é", "a-command-name-that-is-too-long"] {
+            assert_eq!(command_label(Some(value), Part::Cli), "invalid-command");
+        }
+    }
 
     #[test]
     fn closed_output_is_not_a_crash() {

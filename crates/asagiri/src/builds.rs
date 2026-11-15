@@ -331,6 +331,35 @@ pub fn ensure_builder() {
 }
 
 pub fn builder() -> io::Result<bool> {
+    builder_with(PreferenceErrors::Warn)
+}
+
+/// Recovery needs to report a saved choice that could not be restored.
+/// Interactive setup keeps its existing best-effort preference warning.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn restore_builder() -> io::Result<bool> {
+    builder_with(PreferenceErrors::Return)
+}
+
+enum PreferenceErrors {
+    Warn,
+    Return,
+}
+
+impl PreferenceErrors {
+    fn finish(self, preferences: io::Result<()>) -> io::Result<bool> {
+        if let Err(e) = preferences {
+            let message = format!("could not set which builder it uses ({e})");
+            if matches!(self, Self::Return) {
+                return Err(io::Error::new(e.kind(), message));
+            }
+            println!("docker build: {message}");
+        }
+        Ok(true)
+    }
+}
+
+fn builder_with(preferences: PreferenceErrors) -> io::Result<bool> {
     let Some(docker) = crate::client::docker_cli() else { return Ok(false) };
     // buildx talks to the daemon, and can wait on it for good: give the
     // daemon (just started by the LaunchAgent or systemd) a few seconds, else skip.
@@ -372,10 +401,7 @@ pub fn builder() -> io::Result<bool> {
     }
     // Which builder plain `docker build` uses, Docker's or Asagiri's, as
     // chosen (crate::buildwith): it needs this builder to exist.
-    if let Err(e) = crate::buildwith::apply() {
-        println!("docker build: could not set which builder it uses ({e})");
-    }
-    Ok(true)
+    preferences.finish(crate::buildwith::apply())
 }
 
 /// The docker context named CONTEXT, pointing at Asagiri's socket, made when
@@ -426,6 +452,45 @@ fn failure(what: &str, stderr: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_reports_preference_file_errors_and_can_retry() {
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let dir = std::env::temp_dir().join(format!("asagiri-builder-recovery-{}-{}",
+            std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _scratch = Scratch(dir.clone());
+        let p = crate::buildwith::Places {
+            docker: dir.join("docker"), buildx: dir.join("docker/buildx"),
+            state: dir.join("state/build.json"), builder: "asagiri-build".into(), context: "asagiri".into(),
+        };
+        std::fs::create_dir_all(p.buildx.join("instances")).unwrap();
+        std::fs::create_dir_all(p.state.parent().unwrap()).unwrap();
+        std::fs::write(&p.state, br#"{"with":"asagiri","builtin":true}"#).unwrap();
+        std::fs::write(p.buildx.join("instances/asagiri-build"), br#"{"Name":"asagiri-build"}"#).unwrap();
+        let config = p.docker.join("config.json");
+        std::fs::write(&config, b"{invalid config").unwrap();
+
+        // This is the completion branch the real builder registration uses,
+        // with a real preference-file error rather than a mocked Err closure.
+        let error = PreferenceErrors::Return.finish(p.apply(Some("Docker"))).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains(&config.display().to_string()));
+        assert_eq!(std::fs::read(&config).unwrap(), b"{invalid config");
+        assert_eq!(p.saved(), Some(crate::buildwith::With::Asagiri));
+        // Existing explicit setup still succeeds with its preference warning.
+        assert!(PreferenceErrors::Warn.finish(p.apply(Some("Docker"))).unwrap());
+
+        std::fs::write(&config, br#"{"credsStore":"fixture","aliases":{"other":"keep"}}"#).unwrap();
+        assert!(PreferenceErrors::Return.finish(p.apply(Some("Docker"))).unwrap());
+        assert!(p.taken());
+        let restored: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        assert_eq!(restored["credsStore"], "fixture");
+        assert_eq!(restored["aliases"]["other"], "keep");
+        assert_eq!(restored["aliases"]["builder"], "buildx");
+    }
 
     #[test]
     fn managed_build_history_appears_once_and_other_existing_builders_stay() {
