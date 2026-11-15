@@ -19,6 +19,7 @@ settings it started with. Invalid settings are rejected before saving.
 |---|---|---|
 | `registry-mirrors` | `[]` | Up to 16 Docker Hub mirror URLs, in fallback order |
 | `insecure-registries` | `[]` | Up to 64 explicit authorities or literal-IP CIDRs |
+| `registry-ca-certificates` | `{}` | Up to 16 exact authorities mapped to PEM CA bundles, 48 KiB total |
 | `max-concurrent-downloads` | `4` | 1–16 layer downloads per pull; the small image config is fetched separately |
 | `max-concurrent-uploads` | `5` | 1–16 blob uploads per push, including the image config |
 
@@ -31,7 +32,12 @@ specify `registry-mirrors`, Asagiri imports the legacy
 
 ## Private registries
 
-HTTPS with certificate verification is the default. Loopback registries keep
+HTTPS with certificate verification is the default. For a locally issued TLS
+certificate, configure [registry CA certificates](registry-ca-certificates.md)
+to keep verification enabled. CA changes are rejected before saving while the
+builder is busy; pending configuration must apply before new builds start.
+
+Loopback registries keep
 their existing HTTP behavior. To use a private HTTP registry or a self-signed
 certificate, opt in to its exact authority:
 

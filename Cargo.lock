@@ -78,6 +78,7 @@ dependencies = [
 name = "asagiri-image"
 version = "0.0.0"
 dependencies = [
+ "rustls",
  "serde",
  "serde_json",
  "sha2",

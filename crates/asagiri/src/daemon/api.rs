@@ -274,8 +274,8 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
                     Err(e) => return reply(w, Err(e), 204),
                     _ => {}
                 }
-                super::builder::before_start(engine, id);
-                return reply(w, engine.start(id).map(|()| Value::Null), 204);
+                let result = super::builder::start(engine, id);
+                return reply(w, result.map(|()| Value::Null), 204);
             }
             ("POST", "stop") => {
                 let t = stop_timeout(req, engine, id);
@@ -294,8 +294,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
                 let r = engine.stop(id, t).and_then(|_| {
                     // Wait for the exit to be recorded before starting again.
                     engine.wait(id, "not-running")?;
-                    super::builder::before_start(engine, id);
-                    engine.start(id)
+                    super::builder::start(engine, id)
                 });
                 return reply(w, r.map(|()| Value::Null), 204);
             }
@@ -846,7 +845,7 @@ fn set_registry_mirrors(req: &Request, engine: &Arc<Engine>) -> Result<Value, Er
     // BuildKit reads its mirrors from buildkitd.toml at each start; an
     // unchanged save leaves a running builder alone.
     if super::registry_mirrors::list() != before {
-        super::builder::refresh(engine);
+        super::builder::refresh(engine)?;
     }
     Ok(report)
 }
@@ -856,13 +855,7 @@ fn set_daemon_config(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error
         return Err(Error::BadRequest("daemon config exceeds 64 KiB".into()));
     }
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
-    let before = super::registry_config::snapshot();
-    let report = super::registry_config::set(&body).map_err(Error::BadRequest)?;
-    let after = super::registry_config::snapshot();
-    if before.mirrors != after.mirrors || before.settings.insecure_registries() != after.settings.insecure_registries() {
-        super::builder::refresh(engine);
-    }
-    Ok(report)
+    super::builder::set_registry_config(engine, &body)
 }
 
 fn set_domain_ports(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error> {
@@ -2840,7 +2833,13 @@ fn exec_start(req: &Request, engine: &Arc<Engine>, id: &str, w: &mut UnixStream,
         engine.exec_console(id, size);
     }
     let stdin = engine.with_exec(id, |e| e.config.stdin).unwrap_or(false);
-    let (tty, rx) = match engine.exec_start(id) {
+    let admission = match super::builder::before_exec(engine, id) {
+        Ok(guard) => guard,
+        Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
+    };
+    let started = engine.exec_start(id);
+    drop(admission);
+    let (tty, rx) = match started {
         Ok(v) => v,
         Err(e) => {
             error(w, e)?;

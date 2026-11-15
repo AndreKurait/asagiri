@@ -53,8 +53,14 @@ pub(crate) fn connector_with(stall: Duration) -> impl Connector<(), Out = impl T
 /// including redirects and token servers. They are never an agent-wide
 /// disable switch. The caller creates a new pool when this policy changes.
 pub(crate) fn registry_connector(settings: crate::RegistrySettings) -> impl Connector<(), Out = impl Transport> {
+    let trusted = settings.ca_certificates().iter().map(|(host, pem)| {
+        let roots = crate::settings::ca_roots(pem).expect("admitted CA bundle");
+        let config = ureq::Agent::config_builder().tls_config(ureq::tls::TlsConfig::builder().root_certs(roots).build()).build();
+        (host.clone(), (RustlsConnector::default(), config))
+    }).collect();
     ().chain(ConnectProxyConnector::default()).chain(HappyConnector { stall: STALL }).chain(RegistryTls {
         settings,
+        trusted,
         secure: RustlsConnector::default(),
         insecure: RustlsConnector::default(),
         insecure_config: ureq::Agent::config_builder()
@@ -65,6 +71,7 @@ pub(crate) fn registry_connector(settings: crate::RegistrySettings) -> impl Conn
 #[derive(Debug)]
 struct RegistryTls {
     settings: crate::RegistrySettings,
+    trusted: std::collections::BTreeMap<String, (RustlsConnector, ureq::config::Config)>,
     secure: RustlsConnector,
     insecure: RustlsConnector,
     insecure_config: ureq::config::Config,
@@ -74,6 +81,17 @@ impl<In: Transport> Connector<In> for RegistryTls {
     type Out = <RustlsConnector as Connector<In>>::Out;
 
     fn connect(&self, details: &ConnectionDetails, chained: Option<In>) -> Result<Option<Self::Out>, Error> {
+        if let Some((connector, config)) = details.uri.authority()
+            .and_then(|a| crate::settings::https_authority(a.as_str()).ok())
+            .and_then(|host| self.trusted.get(&host)) {
+            let scoped = ConnectionDetails {
+                uri: details.uri, addrs: details.addrs.clone(), config, request_level: false,
+                resolver: details.resolver, now: details.now, timeout: details.timeout,
+                current_time: details.current_time.clone(), run_connector: details.run_connector.clone(),
+                register_shutdown: details.register_shutdown.clone(),
+            };
+            return connector.connect(&scoped, chained);
+        }
         let allowed = details.uri.authority().is_some_and(|a| self.settings.allows_insecure(a.as_str()));
         if !allowed {
             return self.secure.connect(details, chained);
@@ -431,5 +449,73 @@ mod tests {
         let closed = TcpListener::bind("[::1]:0").ok().map(|l| l.local_addr().unwrap()).unwrap_or(addr("[::1]:9"));
         let stream = race(&[closed, open], ATTEMPT_DELAY, Some(Duration::from_secs(5)), Arc::new(|a, limit| connect_one(a, limit, true))).unwrap();
         assert_eq!(stream.peer_addr().unwrap(), open);
+    }
+}
+
+#[cfg(test)]
+mod registry_ca_tests {
+    use super::*;
+    use std::net::TcpListener;
+    use rustls::pki_types::pem::PemObject;
+    const CA: &str = include_str!("../tests/fixtures/registry-ca/ca.pem");
+    const OTHER: &str = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
+
+    fn server() -> (u16, thread::JoinHandle<()>) {
+        let cert = ureq::tls::Certificate::from_pem(include_bytes!("../tests/fixtures/registry-ca/server.pem")).unwrap();
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_slice(include_bytes!("../tests/fixtures/registry-ca/server.key")).unwrap();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions().unwrap().with_no_client_auth()
+            .with_single_cert(vec![rustls::pki_types::CertificateDer::from(cert.der().to_vec())], key).unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(true).unwrap();
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
+                    Err(_) => return,
+                }
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+            let conn = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+            let mut tls = rustls::StreamOwned::new(conn, stream);
+            let mut request = [0; 4096];
+            if tls.read(&mut request).is_ok() { let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"); }
+        });
+        (port, handle)
+    }
+
+    fn agent(policy: crate::RegistrySettings) -> ureq::Agent {
+        ureq::Agent::with_parts(ureq::Agent::config_builder().proxy(None).timeout_global(Some(Duration::from_secs(3))).build(),
+            registry_connector(policy), ureq::unversioned::resolver::DefaultResolver::default())
+    }
+
+    #[test]
+    fn scoped_ca_requires_correct_chain_name_and_authority() {
+        for case in ["trusted", "default", "wrong-ca", "wrong-name", "wrong-port"] {
+            let (port, worker) = server();
+            let hostname = if case == "wrong-name" { "localhost" } else { "127.0.0.1" };
+            let selected_port = if case == "wrong-port" { if port == 65535 { 65534 } else { port + 1 } } else { port };
+            let mut bundles = std::collections::BTreeMap::new();
+            if case != "default" { bundles.insert(format!("{hostname}:{selected_port}"), if case == "wrong-ca" { OTHER } else { CA }.to_owned()); }
+            let policy = crate::RegistrySettings::default().with_ca_certificates(&bundles).unwrap();
+            let result = agent(policy).get(format!("https://{hostname}:{port}/v2/")).call();
+            assert_eq!(result.is_ok(), case == "trusted", "{case}: {result:?}");
+            worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn trusted_connection_does_not_trust_another_destination_in_same_pool() {
+        let (first, first_worker) = server();
+        let (second, second_worker) = server();
+        let policy = crate::RegistrySettings::default().with_ca_certificates(&[(format!("127.0.0.1:{first}"), CA.to_owned())].into()).unwrap();
+        let client = agent(policy);
+        assert!(client.get(format!("https://127.0.0.1:{first}/v2/")).call().is_ok());
+        assert!(client.get(format!("https://127.0.0.1:{second}/v2/")).call().is_err());
+        first_worker.join().unwrap(); second_worker.join().unwrap();
     }
 }
