@@ -13,7 +13,7 @@ mod linux {
     pub(super) fn removal_process_regression() {
         use std::os::unix::fs::DirBuilderExt;
         use std::time::{Duration, Instant};
-        use container::{Paths, begin_remove};
+        use container::{Paths, begin_root_cleanup};
         use removal::Removals;
 
         fn single_thread() {
@@ -25,7 +25,7 @@ mod linux {
             let mut worker = None;
             removals.start(now, |id| {
                 single_thread();
-                let pid = begin_remove(paths, id)?;
+                let pid = begin_root_cleanup(paths, id, true)?;
                 worker = Some(pid);
                 Ok(pid)
             });
@@ -100,7 +100,11 @@ mod linux {
         assert!(removals.is_empty());
         assert!(!base.exists());
         single_thread();
-        assert!(std::fs::read_to_string(format!("/proc/self/task/{}/children", std::process::id())).unwrap().trim().is_empty());
+        let mut status = 0;
+        // SAFETY: this process owns every child; unlike proc's children
+        // file, ECHILD is available on the packaged guest kernel too.
+        assert_eq!(unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) }, -1);
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
         println!("PASS removal-process: single-threaded worker reports deletion failure, reserves its ID, and completes repaired retry");
     }
 }

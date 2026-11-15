@@ -46,6 +46,7 @@ if [ "$mode" = tests ]; then set -- "$@" --privileged; fi
     }
     clean_workspace
     if [ "$mode" = tests ]; then
+      export ASAGIRI_REQUIRE_SHARED_ROOT_TEST=1
       cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
     fi
     cargo build --release --locked -p "$engine" -p "$engine-init"

@@ -9,6 +9,10 @@
 set -u
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
+# Establish Docker's allowed serialization behavior before testing the private
+# Asagiri build. The fixture itself never pulls or touches unowned containers.
+docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
+python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
@@ -44,7 +48,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive)
+    failed-start-veth|remove-responsive|shared-root)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -80,6 +84,7 @@ run remove-cleanup-retry alpine:3.21
 run remove-responsive alpine:3.21
 run api-connections alpine:3.21
 run archive-completion alpine:3.21
+run shared-root alpine:3.21
 run init-descriptors alpine:3.21
 run device-filter-failure alpine:3.21
 run overlay-copyup alpine:3.21

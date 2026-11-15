@@ -453,7 +453,15 @@ impl VmLink {
     ) -> io::Result<u32> {
         self.wait_cleanup(id)?;
         self.windows.open(id);
-        let r = self.call(|o| asagiri_proto::encode_run(o, id, layers, argv, env, cwd, user, hostname, flags, net, mounts, limits, caps, opts), None).and_then(started);
+        let r = loop {
+            let r = self.call(|o| asagiri_proto::encode_run(o, id, layers, argv, env, cwd, user, hostname, flags, net.clone(), mounts, limits, caps, opts), None).and_then(started);
+            if !matches!(&r, Err(error) if error.to_string() == asagiri_proto::ROOT_CLEANUP_PENDING) { break r; }
+            // A copy reply travels on another socket, so the next Run may
+            // arrive before its root's CleanupPending was read. The guest
+            // sends Pending before the retryable error, preserving the
+            // ordinary reply queue. Other calls can proceed during this wait.
+            if let Err(error) = self.wait_cleanup(id) { break Err(error); }
+        };
         if r.is_err() {
             self.windows.close(id);
         }

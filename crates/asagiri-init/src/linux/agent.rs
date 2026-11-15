@@ -12,7 +12,7 @@ use asagiri_proto::{Exited, MAX_OUTPUT_CHUNK, Msg, Stats, Stream};
 
 use super::container::{self, NetCtx, Paths, Process};
 use super::net::{self, Bridges, Dhcp};
-use super::removal::Removals;
+use super::roots::Roots;
 use super::{layers, meminfo, sys};
 
 /// Input held for a process that is not reading yet. The host sends at most
@@ -37,6 +37,7 @@ struct Proc {
     cleanup: Option<libc::pid_t>,
     cleanup_finished: bool,
     exit_announced: bool,
+    root_released: bool,
 }
 
 // Linux can reuse a reaped PID while its output is draining or its filesystem
@@ -105,7 +106,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let mut measuring = false;
     let mut relays: Vec<super::relay::Relay> = Vec::new();
     let mut procs = Procs::new();
-    let mut removals = Removals::default();
+    let roots = Roots::default();
+    // Drop/stop the direct copy children before their lease table and its
+    // filesystem workers, including when an I/O error leaves this loop.
+    let mut copy_jobs = super::copy::Broker::new(&roots);
     let mut fds: Vec<libc::pollfd> = Vec::with_capacity(16);
     let mut frame = Vec::with_capacity(4096);
     let mut out = Vec::with_capacity(4096);
@@ -113,7 +117,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let mut fs_buf = Vec::new();
 
     loop {
-        removals.start(std::time::Instant::now(), |id| container::begin_remove(paths, id));
+        roots.start(paths, std::time::Instant::now());
+        copy_jobs.advance(paths, |id| copy_view(&procs, id));
+        root_events(&roots, &procs, &mut conn, &mut out)?;
         fds.clear();
         fds.push(libc::pollfd { fd: conn.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.push(libc::pollfd { fd: sigfd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
@@ -138,6 +144,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         for r in &relays {
             r.interest(&mut fds);
         }
+        copy_jobs.interest(&mut fds);
         let mut hung = false;
         for p in procs.values() {
             // A hung-up pty polls as ready all the time; skip it a moment.
@@ -154,7 +161,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         }
         // SAFETY: `fds` is a valid array of pollfd of the given length.
         let mut timeout = dhcp.as_ref().map_or(-1, Dhcp::timeout_ms);
-        if removals.needs_retry_poll() {
+        if roots.needs_retry_poll() {
             timeout = if timeout < 0 { 250 } else { timeout.min(250) };
         }
         if hung {
@@ -204,7 +211,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 continue;
             }
             if term.as_ref().is_some_and(|t| t.as_raw_fd() == pfd.fd) {
-                stop_containers(&mut procs, &mut dns, &mut removals, paths);
+                stop_containers(&mut procs, &mut dns, &roots, &mut copy_jobs, paths);
                 return Ok(());
             }
             if pfd.fd == usage_wake.as_raw_fd() {
@@ -258,11 +265,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 continue;
             }
             if pfd.fd == copies.as_raw_fd() {
-                let running: Vec<(&str, libc::pid_t)> =
-                    procs.values().filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| (p.run.id.as_str(), p.run.pid)).collect();
-                let cleaning: Vec<&str> = procs.values().filter(|p| p.run.container.is_none() && p.exited.is_some())
-                    .map(|p| p.run.id.as_str()).chain(removals.ids()).collect();
-                super::copy::accept(&copies, &running, &cleaning, paths);
+                copy_jobs.accept(&copies, paths);
                 continue;
             }
             if pfd.fd == ssh_agent.as_raw_fd() {
@@ -290,6 +293,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             if dns.owns(pfd.fd) {
                 let upstream = dhcp.as_ref().and_then(|d| d.lease.as_ref()).map_or(&host_dns[..], |l| &l.dns);
                 dns.on_readable(pfd.fd, upstream);
+                continue;
+            }
+            if copy_jobs.owns(pfd.fd) {
+                copy_jobs.readable(pfd.fd);
                 continue;
             }
             // Only process stdin is polled for writing beyond this point.
@@ -324,7 +331,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
         if fds[1].revents != 0 {
             drain_signals(&sigfd);
-            reap(&mut procs, &mut dns, &mut removals);
+            reap(&mut procs, &mut dns, &roots, &mut copy_jobs);
         }
 
         // Announce the process exit promptly. A separate per-ID cleanup barrier
@@ -356,7 +363,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             if !p.cleanup_finished {
                 p.cleanup = container::begin_teardown(&p.run);
                 if p.cleanup.is_some() { continue; }
+                p.cleanup_finished = true;
             }
+            if roots.cleaning(&id) { continue; }
             let p = procs.remove(&id).expect("listed above");
             if container::has_filesystem_teardown(&p.run) {
                 out.clear();
@@ -370,7 +379,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 // The host went away: on a Linux host, the daemon died. Its
                 // containers do not outlive it (there is no live restore).
                 if host_process {
-                    stop_containers(&mut procs, &mut dns, &mut removals, paths);
+                    stop_containers(&mut procs, &mut dns, &roots, &mut copy_jobs, paths);
                 }
                 return Ok(());
             }
@@ -382,7 +391,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     if host_process {
                         // The daemon has stopped them Docker's way already;
                         // what is left is killed and torn down.
-                        stop_containers(&mut procs, &mut dns, &mut removals, paths);
+                        stop_containers(&mut procs, &mut dns, &roots, &mut copy_jobs, paths);
                     } else {
                         for p in procs.values().filter(|p| p.exited.is_none()) {
                             // SAFETY: signalling a child we started and have not reaped.
@@ -407,8 +416,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(stored) => Msg::LayerStored(stored).encode(&mut out),
                     Err(e) => Msg::Error(&format!("unpack {}: {e}", begin.digest)).encode(&mut out),
                 },
-                Ok(Msg::Run(spec)) if procs.contains_key(spec.id) || removals.contains(spec.id) => {
+                Ok(Msg::Run(spec)) if procs.contains_key(spec.id) || roots.removing(spec.id) => {
                     Msg::Error(&format!("container {} is running or being cleaned up", spec.id)).encode(&mut out);
+                }
+                Ok(Msg::Run(spec)) if roots.cleaning(spec.id) => {
+                    // Ordinary control replies are FIFO. Answer now, then
+                    // let only this host caller wait for CleanupDone/retry.
+                    Msg::CleanupPending(spec.id).encode(&mut out);
+                    Msg::Error(asagiri_proto::ROOT_CLEANUP_PENDING).encode(&mut out);
                 }
                 Ok(Msg::Run(spec)) => match {
                     // A container that wants the network must not start before the
@@ -421,6 +436,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     container::spawn(
                     &spec,
                     paths,
+                    &roots,
                     NetCtx { bridges: &mut bridges, dns: &mut dns, upstream_dns: dhcp.as_ref().and_then(|d| d.lease.as_ref()).map_or(&host_dns[..], |l| &l.dns), join_pid },
                 )
                 } {
@@ -494,7 +510,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 }
                 Ok(Msg::Remove { id }) => {
                     if !procs.contains_key(id) && container::valid_id(id).is_ok() {
-                        removals.enqueue(id);
+                        roots.remove(id);
                     }
                     continue;
                 }
@@ -555,7 +571,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Retain(keep)) => {
-                    let running: Vec<&str> = procs.values().map(|p| p.run.id.as_str()).chain(removals.ids()).collect();
+                    let leased = roots.unfinished();
+                    let running: Vec<&str> = procs.values().map(|p| p.run.id.as_str()).chain(leased.iter().map(String::as_str)).collect();
                     container::retain(paths, keep, &running);
                     continue;
                 }
@@ -796,7 +813,29 @@ fn running_rootfs(procs: &Procs, paths: &Paths, id: &str) -> Option<std::path::P
 }
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, exit_announced: false }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, exit_announced: false, root_released: false }
+}
+
+fn copy_view(procs: &Procs, id: &str) -> super::copy::View {
+    match procs.get(id).filter(|p| p.run.container.is_none()) {
+        Some(p) if p.exited.is_none() => super::copy::View::Running(p.run.pid),
+        Some(_) => super::copy::View::Cleaning,
+        None => super::copy::View::Stopped,
+    }
+}
+
+fn root_events(roots: &Roots, procs: &Procs, conn: &mut File, out: &mut Vec<u8>) -> io::Result<()> {
+    out.clear();
+    for (id, _) in roots.events() {
+        // Reconcile both owners of the same per-ID barrier. A root worker
+        // finishing cannot clear a process cleanup that is still pending.
+        let pending = roots.cleaning(&id)
+            || procs.get(&id).is_some_and(|p| p.exited.is_some() && container::has_filesystem_teardown(&p.run));
+        if pending { Msg::CleanupPending(&id).encode(out); }
+        else { Msg::CleanupDone(&id).encode(out); }
+    }
+    if !out.is_empty() { conn.write_all(out)?; }
+    Ok(())
 }
 
 /// Writes as much pending input as the process will take without blocking,
@@ -910,14 +949,15 @@ fn child_signals() -> io::Result<OwnedFd> {
 /// Linux host: kill and reap running processes, then join filesystem workers
 /// before tearing down containers. Retry admission is bounded; joining an
 /// active filesystem worker still waits for its I/O to finish.
-fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut Removals, paths: &Paths) {
+fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, paths: &Paths) {
+    copies.shutdown();
     for p in procs.values().filter(|p| p.exited.is_none()) {
         // SAFETY: signalling a child we started and have not reaped.
         unsafe { libc::kill(p.run.pid, libc::SIGKILL) };
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, removals);
+        reap(procs, dns, roots, copies);
         if procs.values().all(|p| p.exited.is_some()) || std::time::Instant::now() >= deadline {
             break;
         }
@@ -926,14 +966,14 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut 
     // A worker shares these paths/mounts. Join it before shutdown touches them.
     let removal_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, removals);
-        let removing = removals.poll_shutdown(std::time::Instant::now(), removal_deadline, |id| container::begin_remove(paths, id));
+        reap(procs, dns, roots, copies);
+        let removing = roots.poll_shutdown(paths, std::time::Instant::now(), removal_deadline);
         if !removing && procs.values().all(|p| p.cleanup.is_none()) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    for id in removals.ids() {
+    for id in roots.unfinished() {
         eprintln!("asagiri-init: remove {id}: unfinished at shutdown; container files remain");
     }
     for p in procs.values().filter(|p| !p.cleanup_finished) {
@@ -985,12 +1025,16 @@ fn drain_signals(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), info.as_mut_ptr().cast(), info.len()) } > 0 {}
 }
 
-fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut Removals) {
+fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>) {
     loop {
         let mut status = 0;
         // SAFETY: plain waitpid on any child.
         let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
         if pid <= 0 {
+            for p in procs.values_mut().filter(|p| p.exited.is_some() && !p.root_released) {
+                container::release_root(&p.run, roots);
+                p.root_released = true;
+            }
             return;
         }
         let code = if libc::WIFEXITED(status) {
@@ -1000,7 +1044,7 @@ fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut Removals) {
         } else {
             continue;
         };
-        if !removals.reaped(pid, code, std::time::Instant::now()) && record_exit(procs, pid, code) {
+        if !copies.reaped(pid, code) && !roots.reaped(pid, code, std::time::Instant::now()) && record_exit(procs, pid, code) {
             // Drop the PID-owned resolver before another spawn can reuse this
             // PID. Output and filesystem cleanup retain the stable ID only.
             dns.drop_container(pid);
