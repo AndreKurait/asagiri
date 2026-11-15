@@ -41,6 +41,9 @@ pub mod console;
 
 pub mod redact;
 pub mod report;
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod firewall;
 
 pub use report::run;
 

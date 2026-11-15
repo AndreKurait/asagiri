@@ -39,6 +39,7 @@ use crate::daemon::time;
 const USAGE: &str = "\
 usage: asagiri diag logs [-f] [--ui|--engine|--cli] [--errors] [--op ID] [-n N]
        asagiri diag report [--out PATH] [--send]
+       asagiri diag firewall   (Linux: inspect host forwarding; no changes)
 
 logs     Asagiri's own log, oldest first: the window (--ui), the engine
          (--engine) and the command line (--cli), all three by default.
@@ -69,6 +70,8 @@ pub fn run(args: &[String]) -> io::Result<()> {
     match args.first().map(String::as_str) {
         Some("logs") => logs_cli(&args[1..]),
         Some("report") => report_cli(&args[1..]),
+        #[cfg(target_os = "linux")]
+        Some("firewall") => super::firewall::run(&args[1..]),
         _ => Err(io::Error::other(USAGE)),
     }
 }

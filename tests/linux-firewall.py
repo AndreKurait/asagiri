@@ -143,6 +143,41 @@ def main():
         print("PASS " + name, flush=True)
         save()
 
+    def check_diagnostic(name, expected_chain):
+        # Inspect this fixture's real namespace and binary. Read-only output
+        # must describe its actual network and cannot change either ruleset.
+        def stable_rules(value):
+            if isinstance(value, list):
+                return [stable_rules(item) for item in value]
+            if isinstance(value, dict):
+                # Background packets may advance counter values while the
+                # inspection runs. Their expression and all rules stay.
+                return {key: ({field: stable_rules(data) for field, data in item.items()
+                               if field not in ("packets", "bytes")}
+                              if key == "counter" and isinstance(item, dict)
+                              else stable_rules(item)) for key, item in value.items()}
+            return value
+        nft_before = stable_rules(json.loads(engine("nft", "-j", "list", "ruleset").stdout))
+        filter_before = iptables("-S").stdout
+        tested = engine("/opt/asagiri/asagiri", "diag", "firewall", timeout=15)
+        text = tested.stdout
+        assert f"Bridge {bridge_interface}:" in text and f"gateway {gateway})" in text
+        assert "masquerade expression: present" in text
+        assert "iptables forwarding policy: -P FORWARD DROP" in text
+        assert f"-I {expected_chain} 1 -i {bridge_interface} -o eth0 -j ACCEPT" in text
+        assert "does not simulate rule traversal or prove a packet is blocked" in text
+        assert stable_rules(json.loads(engine("nft", "-j", "list", "ruleset").stdout)) == nft_before
+        assert iptables("-S").stdout == filter_before
+        path = output / ("diagnostic-" + name + ".txt")
+        path.write_text(text)
+        record.setdefault("diagnostics", []).append({
+            "name": name, "status": "passed", "exit": tested.returncode,
+            "bridge": bridge_interface, "gateway": gateway, "chain": expected_chain,
+            "firewall_rules_unchanged": True,
+            "output_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        })
+        save()
+
     def exchange(name, address, via_container, allowed, expected_ip):
         for protocol in ("tcp", "udp", "dns"):
             port = "53" if protocol == "dns" else "18473"
@@ -222,6 +257,7 @@ def main():
         result("Asagiri owns its NAT table and iptables uses nf_tables")
         exchange("default forwarding", peer_ip, True, True, host_ip)
         iptables("-P", "FORWARD", "DROP")
+        check_diagnostic("forward-drop", "FORWARD")
         exchange("DROP blocks bridge egress", peer_ip, True, False, host_ip)
         exchange("host network remains reachable under DROP", peer_ip, False, True, host_ip)
 
@@ -280,6 +316,7 @@ def main():
         docker_user_before = iptables("-S", "DOCKER-USER").stdout
         assert docker_user_before.startswith("-N DOCKER-USER\n")
         assert iptables("-S", "FORWARD").stdout.startswith("-P FORWARD DROP\n")
+        check_diagnostic("docker-user", "DOCKER-USER")
         reference("pull", IMAGE)
         reference("run", "-d", "--name", "firewall-reference", IMAGE, "sleep", "3600")
         reference("exec", "firewall-reference", "apk", "add", "-q", "--no-cache", "python3")
