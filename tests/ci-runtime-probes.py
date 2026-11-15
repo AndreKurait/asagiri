@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Check process identity in runtime probes without starting an engine."""
 import ast
-import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/network-dns-reuse.py"
@@ -23,12 +22,18 @@ class AgentIdentity(unittest.TestCase):
         self.agent = {"pid": 130, "start_time": "297796", "sockets": ["socket:[349759]"]}
         self.worker = {"pid": 449, "start_time": "297913", "sockets": ["socket:[351090]"]}
         self.rows = [self.agent, self.worker, {"pid": 450, "start_time": "297913", "sockets": []}]
-        self.namespace = {"Path": Path, "os": os, "agent_sockets": lambda: self.rows}
+        def lock_path(location):
+            self.assertEqual(location, "/var/lib/asagiri/agent.lock")
+            return self.lock
+        self.namespace = {"Path": lock_path, "agent_sockets": lambda: self.rows}
         exec(CODE, self.namespace)
         self.require = self.namespace["require_agent"]
-        self.environment = patch.dict(os.environ, {"ASAGIRI_DATA_DIR": self.scratch.name})
-        self.environment.start()
-        self.addCleanup(self.environment.stop)
+
+    def test_record_matches_the_native_agents_store(self):
+        source = (ROOT / "crates/asagiri-init/src/linux/mod.rs").read_text()
+        store = re.search(r'const DATA: &str = "([^"]+)";', source).group(1)
+        self.assertEqual(str(Path(store) / "agent.lock"), "/var/lib/asagiri/agent.lock")
+        self.assertEqual(self.require(), [self.agent])
 
     def test_forked_workers_do_not_replace_the_recorded_agent(self):
         self.assertEqual(self.require(), [self.agent])
