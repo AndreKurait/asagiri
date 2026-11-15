@@ -1,5 +1,41 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+Dense IPv4 and IPv6 networks find free addresses by merging occupied and
+excluded hosts in order. A Verus proof checks the production gap search's
+bounds, lowest-free result, exhaustion and overflow behavior. CI also compares
+the actual allocation methods across 26 paired workloads, records an
+unchanged-source control with identical executables, and retains the raw
+timings. These checks supplement the existing engine performance gates.
+Automatic pool exhaustion returns Docker's HTTP 500 response on start and
+network connect. Live checks cover dense dual-stack allocation, static and
+auxiliary reservations, range boundaries, failed allocation and retry.
+
+Containers inherit image labels when created, and explicit container labels
+override matching image labels. Inspect and label-filtered discovery retain
+the merged labels across daemon restart. Invalid label values return HTTP
+400 before mount side effects.
+
+If container removal reaches the filesystem cleanup deadline, the stopped
+container remains available with its writable data intact. A later removal
+can retry, and the destroy event is published only after cleanup succeeds.
+The cleanup deadline and lifecycle lock remain in place.
+
+Quiet container waits, log followers and output-only attached sessions release
+their API connection when the client disconnects. Clients that only close
+their write half still receive the response. The startup
+`ASAGIRI_MAX_CONNECTIONS` setting accepts 1 to 4096 concurrent connections,
+with a default of 256; operators must budget threads, descriptors and memory
+and leave capacity for control requests.
+
+Containers started with `--init` release inherited sockets, pipes and namespace
+handles before supervision. Stdio, signal forwarding and child reaping remain
+available, including for TTY and nonroot containers.
+
+Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
+HTTP and trusted HTTPS requests through Traefik before and after a restart.
+The test uses a private engine and checks the downloaded CLI, image digests,
+derived base layers and cleanup.
+
 The engine now serves Docker's built-in BuildKit driver. Builds can load
 images directly, receive contexts and secrets, reuse cache, export files,
 resolve `host-gateway`, and cancel without blocking the next build. Setup

@@ -35,6 +35,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Install the pinned Rust toolchain for IPAM verification
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+      - name: Verify IPAM contracts and prover negative controls
+        run: python3 scripts/ci/verify-ipam.py --cache "$RUNNER_TEMP/verus-cache" --output "$RUNNER_TEMP/ipam-proof"
+      - name: Compare IPv4 and IPv6 allocation performance with an unchanged-source control
+        run: |
+          python3 scripts/ci/ipam-performance.py --baseline HEAD --output "$RUNNER_TEMP/ipam-performance/control"
+          python3 scripts/ci/ipam-performance.py --output "$RUNNER_TEMP/ipam-performance/comparison"
+      - name: Preserve IPAM proofs and paired benchmark samples
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ipam-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/ipam-proof
+            ${{ runner.temp }}/ipam-performance
+          retention-days: 90
       - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
       - name: Restore Linux dependencies
         id: cache
@@ -71,6 +89,17 @@ jobs:
           key: testcontainers-java-v1-${{ runner.arch }}-${{ hashFiles('tests/testcontainers/pom.xml') }}
       - name: Test Java Testcontainers and MySQL
         run: sh scripts/ci/testcontainers.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/maven"
+      - name: Test a real DDEV PHP, MariaDB and HTTPS project
+        run: python3 scripts/ci/ddev.py "$RUNNER_TEMP/bin" --output "$RUNNER_TEMP/ddev"
+      - name: Preserve DDEV runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ddev-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/ddev/*.json
+            ${{ runner.temp }}/ddev/*.log
+          retention-days: 90
       - name: Cache verified Java SDK dependencies from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.maven_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

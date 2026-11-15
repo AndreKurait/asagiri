@@ -107,12 +107,14 @@ fn forward(mut pipe: UnixStream, output: Output, stop: &AtomicBool, stdout: bool
 
 impl Output {
     /// Sends the output to `send` until it ends, `send` fails or `stop` is
-    /// set. `stop` is polled, so a caller that never cancels passes none and
-    /// sleeps until there is output.
-    pub(super) fn pump(self, stop: Option<&AtomicBool>, mut send: impl FnMut(Stream, &[u8]) -> io::Result<()>) {
-        fn next<T>(rx: &mpsc::Receiver<T>, stop: Option<&AtomicBool>) -> Option<T> {
-            let Some(stop) = stop else { return rx.recv().ok() };
-            while !stop.load(Ordering::Relaxed) {
+    /// set. Cancellation is polled while output is quiet.
+    pub(super) fn pump(self, stop: Option<&AtomicBool>, send: impl FnMut(Stream, &[u8]) -> io::Result<()>) {
+        self.pump_until(|| stop.is_some_and(|stop| stop.load(Ordering::Relaxed)), send)
+    }
+
+    pub(super) fn pump_until(self, cancelled: impl Fn() -> bool, mut send: impl FnMut(Stream, &[u8]) -> io::Result<()>) {
+        fn next<T>(rx: &mpsc::Receiver<T>, cancelled: &impl Fn() -> bool) -> Option<T> {
+            while !cancelled() {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(item) => return Some(item),
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -122,15 +124,15 @@ impl Output {
             None
         }
         match self {
-            Self::Live(rx) => while let Some((stream, bytes)) = next(&rx, stop) {
+            Self::Live(rx) => while let Some((stream, bytes)) = next(&rx, &cancelled) {
                 if send(stream, &bytes).is_err() { break; }
             },
             Self::Logs(logs) => {
                 for record in logs.past.tail(None) {
-                    if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) || send(record.stream, &record.data).is_err() { return; }
+                    if cancelled() || send(record.stream, &record.data).is_err() { return; }
                 }
                 if let Some(rx) = logs.live {
-                    while let Some(record) = next(&rx, stop) {
+                    while let Some(record) = next(&rx, &cancelled) {
                         if send(record.stream, &record.data).is_err() { break; }
                     }
                 }

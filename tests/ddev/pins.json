@@ -1,0 +1,24 @@
+{
+  "version": "v1.25.5",
+  "source_commit": "d2d47af37016254dfe6580cde4e1e470dfd43daa",
+  "host_image": "docker:28.0.4-cli@sha256:2bccc79fc5fed23d876bf244fa5fbe78c54bf6b6145a9483604306fd797237d5",
+  "archives": {
+    "amd64": {
+      "name": "ddev_linux-amd64.v1.25.5.tar.gz",
+      "sha256": "dff7c63e9a64d7d4ca7a93a35fcfa15fa67d6402ecf95a37d645fb2a98a4f30c",
+      "bytes": 19208931
+    },
+    "arm64": {
+      "name": "ddev_linux-arm64.v1.25.5.tar.gz",
+      "sha256": "d02de249cd12e153802a91c14207026aee1f4c1c0f842ce57c4373d876b124c8",
+      "bytes": 17475613
+    }
+  },
+  "images": {
+    "ddev/ddev-utilities:latest": "sha256:97822ff9a06416ea8ba09853427565b351556fb08a3b1ef944101fcf829b2710",
+    "ddev/ddev-xhgui:v1.25.5": "sha256:bf071059b1326ba9056e3c46314593f53613f2853c55111e46b21cd7def58992",
+    "ddev/ddev-dbserver-mariadb-11.8:v1.25.5": "sha256:623553831914c7f832f5ec7e77af9111014dbfdbf5d1166755810cde27120568",
+    "ddev/ddev-traefik-router:v1.25.5": "sha256:e89796fc5cc3ece4c6ad23591e22df4446c51ceed281f7946ae170766acc4d84",
+    "ddev/ddev-webserver:v1.25.5": "sha256:74d9597e8f0eefff17429cd41dff268b289f1a6ced0b485d6bde2afdbc98f2ff"
+  }
+}
