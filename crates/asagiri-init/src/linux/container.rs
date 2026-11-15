@@ -876,10 +876,9 @@ pub fn retain(paths: &Paths, keep: StrList<'_>, running: &[&str]) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if !keep.iter().any(|k| k == name) && !running.contains(&name) {
-            if let Err(error) = remove(paths, name) {
-                eprintln!("asagiri-init: remove {name}: {error}");
-            }
+        if !keep.iter().any(|k| k == name) && !running.contains(&name)
+            && let Err(error) = remove(paths, name) {
+            eprintln!("asagiri-init: remove {name}: {error}");
         }
     }
 }
@@ -1891,12 +1890,10 @@ fn find_executable(p: &Prepared) -> Option<CString> {
 #[cfg(test)]
 mod removal_tests {
     use super::{Paths, begin_remove, remove};
-    use crate::linux::removal::Removals;
     use std::fs;
     use std::os::unix::fs::DirBuilderExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{Duration, Instant};
 
     struct Fixture {
         root: PathBuf,
@@ -1916,51 +1913,18 @@ mod removal_tests {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
     }
 
-    fn run_worker(removals: &mut Removals, paths: &Paths, now: Instant) -> i32 {
-        let mut worker = None;
-        removals.start(now, |id| {
-            let pid = begin_remove(paths, id)?;
-            worker = Some(pid);
-            Ok(pid)
-        });
-        let worker = worker.expect("removal worker was not started");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let mut status = 0;
-            // SAFETY: observe only the disposable worker owned by removals.
-            let observed = unsafe { libc::waitpid(worker, &mut status, libc::WNOHANG) };
-            if observed == worker {
-                assert!(libc::WIFEXITED(status));
-                let code = libc::WEXITSTATUS(status);
-                assert!(removals.reaped(worker, code, now));
-                eprintln!("removal worker exit={code} reserved={}", removals.ids().count());
-                return code;
-            }
-            assert!(observed == 0 || std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted);
-            // Removals owns failure cleanup too: a timed-out worker is killed
-            // and reaped by its Drop before this fixture removes its files.
-            assert!(Instant::now() < deadline, "removal worker timed out");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
     #[test]
-    fn failed_removal_worker_keeps_its_id_until_a_repaired_retry_succeeds() {
+    fn failed_recursive_removal_keeps_its_files_until_a_repaired_retry_succeeds() {
         let f = Fixture::new();
         let base = f.paths.containers.join("victim");
         // A regular file cannot be removed as a directory, even by root.
         fs::write(&base, b"preserve this failed removal").unwrap();
-        let mut removals = Removals::default();
-        let now = Instant::now();
-        removals.enqueue("victim");
-        assert_eq!(run_worker(&mut removals, &f.paths, now), 1);
-        assert!(removals.contains("victim"));
+        assert_eq!(remove(&f.paths, "victim").unwrap_err().raw_os_error(), Some(libc::ENOTDIR));
         assert_eq!(fs::read(&base).unwrap(), b"preserve this failed removal");
         fs::remove_file(&base).unwrap();
         fs::create_dir_all(base.join("rootfs")).unwrap();
         fs::write(base.join("payload"), b"remove this repaired tree").unwrap();
-        assert_eq!(run_worker(&mut removals, &f.paths, now + Duration::from_secs(1)), 0);
-        assert!(removals.is_empty());
+        remove(&f.paths, "victim").unwrap();
         assert!(!base.exists());
     }
 
