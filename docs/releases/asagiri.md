@@ -15,6 +15,11 @@ override matching image labels. Inspect and label-filtered discovery retain
 the merged labels across daemon restart. Invalid label values return HTTP
 400 before mount side effects.
 
+If container removal reaches the filesystem cleanup deadline, the stopped
+container remains available with its writable data intact. A later removal
+can retry, and the destroy event is published only after cleanup succeeds.
+The cleanup deadline and lifecycle lock remain in place.
+
 Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
 HTTP and trusted HTTPS requests through Traefik before and after a restart.
 The test uses a private engine and checks the downloaded CLI, image digests,

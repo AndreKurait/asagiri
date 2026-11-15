@@ -3376,6 +3376,16 @@ impl Engine {
             }
         }
         *removing = removing.wrapping_add(1);
+        // Keep the stopped container addressable if cleanup times out. The
+        // lifecycle guard excludes a new start while the guest finishes, and
+        // a failed removal can be retried without losing its writable layer.
+        // Lost containers are pruned by retain() on the next boot: removal
+        // must not boot a replacement or wait for a retiring VM.
+        let needs_cleanup = self.lock().containers.get(&id)
+            .is_some_and(|c| c.started.is_some() && !c.vm_stopped);
+        if needs_cleanup && let Some(vm) = self.awake() {
+            vm.remove(&id)?;
+        }
         let mut st = self.lock();
         // The lifecycle guard excludes a new start until removal is complete.
         let removed = st.containers.remove(&id);
@@ -3396,13 +3406,6 @@ impl Engine {
         }
         if removed.as_ref().is_some_and(|c| !c.spec.auto_remove) {
             self.save();
-        }
-        // Lost containers are pruned by retain() on the next boot. Removal
-        // must not boot a replacement or wait for a retiring VM.
-        if removed.as_ref().is_some_and(|c| c.started.is_some() && !c.vm_stopped)
-            && let Some(vm) = self.awake()
-        {
-            vm.remove(&id)?;
         }
         if with_volumes {
             for v in anon {
