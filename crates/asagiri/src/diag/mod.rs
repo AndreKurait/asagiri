@@ -314,6 +314,11 @@ pub fn rotated(path: &Path, n: usize) -> PathBuf {
 }
 
 fn append(part: Part, line: &str) -> io::Result<()> {
+    // Failure-path unit tests must not append to the user's application logs.
+    // Tests of file output call append_to with their own temporary directory.
+    if cfg!(test) {
+        return Ok(());
+    }
     let path = log_path(part).ok_or_else(|| io::Error::other("HOME is not set"))?;
     append_to(&path, line, MAX_LOG)
 }

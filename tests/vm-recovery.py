@@ -4,13 +4,16 @@
 After each crash, read persisted state without any API requests. An API call
 could boot the replacement and hide a broken automatic recovery worker.
 """
+import http.client
 import json
 import os
 from pathlib import Path
 import select
 import signal
+import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -34,6 +37,7 @@ def check(path, image):
     containers = []
     eligible = []
     excluded = {}
+    removal_proofs = {}
     prefix = "asagiri-recovery-" + uuid.uuid4().hex[:10]
 
     def cli(*args, ok=True):
@@ -59,6 +63,19 @@ def check(path, image):
             if identity[0] == "/opt/asagiri/asagiri-init" and identity[1] == 1 and identity[3] == "asagiri-init":
                 found.append((int(entry.name), identity))
         return found
+
+    def inspect_status(cid):
+        connection = http.client.HTTPConnection("localhost", timeout=10)
+        connection.sock = socket.socket(socket.AF_UNIX)
+        connection.sock.settimeout(10)
+        connection.sock.connect(path)
+        try:
+            connection.request("GET", "/containers/" + cid + "/json", headers={"Connection": "close"})
+            response = connection.getresponse()
+            response.read()
+            return response.status
+        finally:
+            connection.close()
 
     def crash_agent():
         assert process(1) == daemon, "the daemon must not restart"
@@ -99,6 +116,15 @@ def check(path, image):
                 cli("exec", cid, "sh", "-c", "echo persisted > /recovery-proof")
             else:
                 excluded[cid] = "exited" if start else "created"
+            if name in ("no", "created"):
+                content = (prefix + "-" + name).encode()
+                with tempfile.NamedTemporaryFile(prefix=prefix + "-", dir="/tmp") as proof:
+                    proof.write(content)
+                    proof.flush()
+                    cli("cp", proof.name, cid + ":/removal-proof")
+                upper = Path("/var/lib/asagiri/containers") / cid / "upper"
+                assert (upper / "removal-proof").read_bytes() == content
+                removal_proofs[cid] = (upper, content)
 
         for count in (1, 2):
             old_pid = crash_agent()
@@ -120,6 +146,25 @@ def check(path, image):
                 assert cli("exec", cid, "cat", "/recovery-proof").stdout.strip() == "persisted"
             print(f"PASS agent crash {count}: automatic recovery, RestartCount={count}, writable layers and excluded policies", flush=True)
 
+        current_agent = agents()
+        for cid, (upper, content) in removal_proofs.items():
+            assert (upper / "removal-proof").read_bytes() == content
+            assert saved[cid]["status"] == excluded[cid]
+            if excluded[cid] == "exited":
+                assert saved[cid]["vm_stopped"] is True
+            cli("rm", cid)
+            assert inspect_status(cid) == 404
+            deadline = time.monotonic() + 10
+            while upper.parent.exists():
+                assert time.monotonic() < deadline, ("removed container left its writable layer", cid)
+                time.sleep(0.05)
+            assert agents() == current_agent and process(1) == daemon, "removal restarted the engine"
+            for survivor in eligible:
+                assert cli("exec", survivor, "cat", "/recovery-proof").stdout.strip() == "persisted"
+            containers.remove(cid)
+            excluded.pop(cid)
+        print("PASS created and crash-stopped rm: writable layers reclaimed by the awake agent; unrelated containers preserved", flush=True)
+
         for cid in eligible:
             cli("stop", "-t", "0", cid)
         crash_agent()
@@ -138,7 +183,7 @@ def check(path, image):
         failures = []
         for cid in reversed(containers):
             result = cli("rm", "-f", cid, ok=False)
-            if result.returncode:
+            if result.returncode or inspect_status(cid) != 404:
                 failures.append((cid, result.stderr))
         if failures and sys.exc_info()[0] is None:
             raise AssertionError(("could not clean up recovery containers", failures))
