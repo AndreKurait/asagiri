@@ -1,7 +1,7 @@
 {
-  "reviewed_at": "2026-11-15T00:19:56.862528+00:00",
+  "reviewed_at": "2026-11-15T02:06:40.708048+00:00",
   "repository": "libracoder/kiri",
-  "count": 76,
+  "count": 78,
   "issues": [
     {
       "number": 10,
@@ -687,6 +687,24 @@
       "state": "open",
       "updated_at": "2026-11-14T23:19:25Z",
       "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
+    },
+    {
+      "number": 246,
+      "title": "buildx docker-container builder fails on first start: mount rootfs Resource busy (os error 16)",
+      "state": "open",
+      "updated_at": "2026-11-15T01:58:08Z",
+      "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
+      "disposition": "runtime-regression-covered",
+      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. The exact reported XanMod 7.3/ext4 host remains unverified."
+    },
+    {
+      "number": 247,
+      "title": "Bridge containers have no outbound TCP/UDP when host FORWARD policy is DROP (no accept or MASQUERADE rules for kiri0)",
+      "state": "open",
+      "updated_at": "2026-11-15T01:58:10Z",
+      "body_sha256": "ab4c1c41c7f7b222c2b9da4b5001a4244fba6d986b3b5704610dcd3f5491ca33",
+      "disposition": "documented-and-verified",
+      "reason": "A private IPv4 iptables-nft reproduction on ae4c2c2 confirms that Asagiri NAT is present and a separate FORWARD DROP blocks TCP/UDP/DNS. Interface-scoped FORWARD and real DOCKER-USER allowances restore egress beside Docker 29.9.3 while preserving the drop policy, each engine table and unsolicited inbound blocking. The guide covers inspection, removal and persistence; custom UFW/firewalld policies, IPv6, VPNs and the exact reporter host remain unverified."
     }
   ]
 }

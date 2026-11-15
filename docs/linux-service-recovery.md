@@ -35,6 +35,16 @@ hosts, with private sockets and no published outer ports:
 - The stopped volume/bind archive, ownership and `/proc` symlink checks pass,
   along with the real BuildKit Docker driver, concurrent builds and cancellation.
 
+`tests/buildx-bootstrap.py` also requires six newly created `docker-container`
+builders to bootstrap on their first attempt, then builds, loads and runs an
+image through the managed builder. A successful retry does not turn an initial
+failure into a passing check. This covers the first-start sequence in upstream
+report #246; its exact XanMod 7.3/ext4 host remains a separate validation target.
+
+For outbound TCP or DNS failures where `--network host` works, check
+[the host firewall's forwarding policy](linux-firewall.md). NAT and forwarding
+permission are separate requirements.
+
 ## Overlay copy-up and commit contents
 
 Overlay mounts explicitly use `metacopy=off,redirect_dir=off`. A chmod or

@@ -36,6 +36,11 @@ HTTP and trusted HTTPS requests through Traefik before and after a restart.
 The test uses a private engine and checks the downloaded CLI, image digests,
 derived base layers and cleanup.
 
+Linux firewall guidance explains bridge egress under a host `FORWARD DROP`
+policy. A disposable-host regression checks scoped forwarding allowances,
+NAT, unsolicited inbound blocking and coexistence with a real Docker daemon.
+The host's global policy and each engine's firewall ownership are preserved.
+
 The engine now serves Docker's built-in BuildKit driver. Builds can load
 images directly, receive contexts and secrets, reuse cache, export files,
 resolve `host-gateway`, and cancel without blocking the next build. Setup
