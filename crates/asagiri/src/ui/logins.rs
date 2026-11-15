@@ -21,6 +21,8 @@ use crate::client;
 // Docker's base64, the engine's own file (asagiri-win doesn't link asagiri-image).
 #[path = "../../../asagiri-image/src/b64.rs"]
 mod b64;
+// Windows includes this module by path from asagiri-win.
+#[path = "logins/config.rs"]
 mod config;
 
 /// Docker Hub's key in config.json and with credential helpers.
