@@ -1,5 +1,16 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+Dense IPv4 and IPv6 networks find free addresses by merging occupied and
+excluded hosts in order. A Verus proof checks the production gap search's
+bounds, lowest-free result, exhaustion and overflow behavior. CI also compares
+the actual allocation methods across 26 paired workloads and retains the
+raw timings. These checks supplement the existing engine performance gates.
+
+Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
+HTTP and trusted HTTPS requests through Traefik before and after a restart.
+The test uses a private engine and checks the downloaded CLI, image digests,
+derived base layers and cleanup.
+
 The engine now serves Docker's built-in BuildKit driver. Builds can load
 images directly, receive contexts and secrets, reuse cache, export files,
 resolve `host-gateway`, and cancel without blocking the next build. Setup

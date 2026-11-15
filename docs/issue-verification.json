@@ -433,9 +433,12 @@
         "tests/archive-upload-ownership.py",
         "tests/archive-configured-user.py",
         "tests/archive-overwrite.py",
-        "tests/archive-directory-times.py"
+        "tests/archive-directory-times.py",
+        "scripts/ci/ddev.py",
+        "tests/ddev/pins.json",
+        "tests/ddev/README.md"
       ],
-      "remaining": "Gzip uploads, ownership, replacement rules, and directory timestamps have Docker comparisons; a complete DDEV project has not been rerun."
+      "remaining": "The complete PHP/MariaDB/HTTPS DDEV project has Linux CI coverage, including restart and router configuration replacement. Native macOS VM behavior from the report still needs verification."
     },
     {
       "issue": 112,

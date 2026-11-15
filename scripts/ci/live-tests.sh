@@ -59,6 +59,7 @@ run image-rootfs-digests alpine:3.21
 run image-load-completion
 run layer-concurrency
 run container-addresses
+run network-allocation alpine:3.21
 run cleanup-responsive alpine:3.21
 run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent

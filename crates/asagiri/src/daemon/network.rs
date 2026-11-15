@@ -20,6 +20,19 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
+/// Merge ordered host parts without copying the occupied tree or scanning
+/// entries before an IP range. Duplicates are fine for `first_gap`.
+fn merged_hosts<T: Copy + Ord>(a: impl Iterator<Item = T>, b: impl Iterator<Item = T>) -> impl Iterator<Item = T> {
+    let mut a = a.peekable();
+    let mut b = b.peekable();
+    std::iter::from_fn(move || match (a.peek(), b.peek()) {
+        (Some(x), Some(y)) if x <= y => a.next(),
+        (Some(_), Some(_)) => b.next(),
+        (Some(_), None) => a.next(),
+        (None, _) => b.next(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Network {
     pub id: String,
@@ -146,19 +159,25 @@ impl V6 {
             }
             None => (1, self.last()),
         };
-        // Taken addresses are few: the search ends within as many steps.
-        let mut h = first;
-        loop {
-            if h > last {
-                return None;
-            }
-            let ip = (base + h).to_be_bytes();
-            if !self.used.contains(&h) && !self.reserved(ip) && !avoid.contains(&ip) {
-                self.used.insert(h);
-                return Some(ip);
-            }
-            h = h.checked_add(1)?;
+        if first > last {
+            return None;
         }
+        // Keep small/sparse networks allocation-free. On a dense network,
+        // merge ordered entries instead of looking each one up again.
+        let fast_last = first.saturating_add(15).min(last);
+        let fast = (first..=fast_last).find(|h| !self.used.contains(h) && !self.reserved((base + h).to_be_bytes()) && !avoid.contains(&(base + h).to_be_bytes()));
+        let host = match fast {
+            Some(h) => h,
+            None if fast_last == last => return None,
+            None => {
+                let first = fast_last + 1;
+                let excluded: BTreeSet<u128> = std::iter::once(self.gateway).chain(self.aux.values().copied()).chain(avoid.iter().copied())
+                    .map(|ip| u128::from_be_bytes(ip).wrapping_sub(base)).filter(|h| first <= *h && *h <= last).collect();
+                super::address_gap::first_gap(merged_hosts(self.used.range(first..=last).copied(), excluded.into_iter()), first, last)?
+            }
+        };
+        self.used.insert(host);
+        Some((base + host).to_be_bytes())
     }
 
     fn release(&mut self, ip: [u8; 16]) {
@@ -245,7 +264,21 @@ impl Network {
             }
             None => (1, size - 2),
         };
-        let host = (first..=last).find(|h| !self.used.contains(h) && !self.reserved((base + h).to_be_bytes()) && !avoid.contains(&(base + h).to_be_bytes()))?;
+        if first > last {
+            return None;
+        }
+        let fast_last = first.saturating_add(15).min(last);
+        let fast = (first..=fast_last).find(|h| !self.used.contains(h) && !self.reserved((base + h).to_be_bytes()) && !avoid.contains(&(base + h).to_be_bytes()));
+        let host = match fast {
+            Some(h) => h,
+            None if fast_last == last => return None,
+            None => {
+                let first = fast_last + 1;
+                let excluded: BTreeSet<u32> = std::iter::once(self.gateway).chain(self.aux.values().copied()).chain(avoid.iter().copied())
+                    .map(|ip| u32::from_be_bytes(ip).wrapping_sub(base)).filter(|h| first <= *h && *h <= last).collect();
+                super::address_gap::first_gap(merged_hosts(self.used.range(first..=last).copied(), excluded.into_iter()).map(u128::from), first as u128, last as u128)? as u32
+            }
+        };
         self.used.insert(host);
         Some((base + host).to_be_bytes())
     }
@@ -1324,6 +1357,95 @@ mod tests {
         d.release([10, 5, 0, 2]);
         let mut g = net(Some(Ipam { subnet: [10, 5, 0, 0], prefix: 24, gateway: Some([10, 5, 0, 254]), ip_range: None, aux: BTreeMap::new() }));
         assert_eq!(g.allocate_avoiding(&[]), Some([10, 5, 0, 1]));
+    }
+
+    #[test]
+    fn ordered_host_merge_and_gap_match_an_exhaustive_set_oracle() {
+        use super::super::address_gap::first_gap;
+        // Independent set membership checks cover overlaps, duplicate
+        // entries across the streams, empty/reversed ranges, and gaps.
+        for a in 0..64u32 {
+            let a: BTreeSet<u128> = (0..6).filter(|i| a & (1 << i) != 0).map(|i| i as u128).collect();
+            for b in 0..64u32 {
+                let b: BTreeSet<u128> = (0..6).filter(|i| b & (1 << i) != 0).map(|i| i as u128).collect();
+                for first in 0..8u128 {
+                    for last in 0..8u128 {
+                        let expected = (first..=last).find(|h| !a.contains(h) && !b.contains(h));
+                        assert_eq!(first_gap(merged_hosts(a.iter().copied(), b.iter().copied()), first, last), expected);
+                    }
+                }
+            }
+        }
+        let max = u128::MAX;
+        assert_eq!(first_gap([max - 1, max - 1, max].into_iter(), max - 1, max), None);
+        assert_eq!(first_gap([max - 1].into_iter(), max - 1, max), Some(max));
+        assert_eq!(first_gap(std::iter::empty(), max, max), Some(max));
+        let mut visits = 0;
+        assert_eq!(first_gap([1, 2, 9, max].into_iter().inspect(|_| visits += 1), 1, max), Some(3));
+        assert_eq!(visits, 3, "a large empty address range is not enumerated");
+    }
+
+    #[test]
+    fn dense_ipv4_and_ipv6_allocations_match_membership_search() {
+        // Deterministic combinations exercise both the short search and
+        // the ordered merge, including reserved, foreign and reused IPs.
+        for seed in 0..128u32 {
+            let mut n = net(Some(Ipam { subnet: [10, 5, 0, 0], prefix: 24, gateway: Some([10, 5, 0, 1]), ip_range: None, aux: BTreeMap::new() }));
+            let base = u32::from_be_bytes(n.subnet);
+            n.used.extend(2..80 + seed);
+            n.used.extend((82 + seed..250).step_by(3));
+            n.aux.insert("reserved".into(), (base + 80 + seed).to_be_bytes());
+            let avoid = [(base + 81 + seed).to_be_bytes(), [10, 6, 0, 1], [0; 4]];
+            let expected = (1..=254u32).map(|h| (base + h).to_be_bytes())
+                .find(|ip| !n.used.contains(&(u32::from_be_bytes(*ip) - base)) && !n.reserved(*ip) && !avoid.contains(ip));
+            let allocated = n.allocate_avoiding(&avoid);
+            assert_eq!(allocated, expected);
+            if let Some(ip) = allocated { n.release(ip); assert_eq!(n.allocate_avoiding(&avoid), Some(ip)); }
+            n.release((base + 37).to_be_bytes());
+            assert_eq!(n.allocate_avoiding(&avoid), Some((base + 37).to_be_bytes()));
+
+            let base6 = u128::MAX - 255;
+            let mut six = V6 {
+                subnet: base6.to_be_bytes(), prefix: 120, gateway: (base6 + 1).to_be_bytes(),
+                user_subnet: true, ip_range: None, aux: BTreeMap::new(),
+                used: (2..80 + seed as u128).collect(),
+            };
+            six.aux.insert("reserved".into(), (base6 + 80 + seed as u128).to_be_bytes());
+            let avoid6 = [(base6 + 81 + seed as u128).to_be_bytes(), [0; 16]];
+            let expected6 = (1..=255u128).map(|h| (base6 + h).to_be_bytes())
+                .find(|ip| !six.used.contains(&(u128::from_be_bytes(*ip) - base6)) && !six.reserved(*ip) && !avoid6.contains(ip));
+            let allocated6 = six.allocate_avoiding(&avoid6);
+            assert_eq!(allocated6, expected6);
+            if let Some(ip) = allocated6 { six.release(ip); assert_eq!(six.allocate_avoiding(&avoid6), Some(ip)); }
+            six.release((base6 + 37).to_be_bytes());
+            assert_eq!(six.allocate_avoiding(&avoid6), Some((base6 + 37).to_be_bytes()));
+        }
+    }
+
+    #[test]
+    fn dense_ranges_exhaust_and_reuse_their_last_address() {
+        let mut n = net(Some(Ipam { subnet: [10, 5, 0, 0], prefix: 24, gateway: Some([10, 5, 0, 1]), ip_range: Some(([10, 5, 0, 128], 25)), aux: BTreeMap::new() }));
+        let base = u32::from_be_bytes(n.subnet);
+        n.used.extend(1..254);
+        assert_eq!(n.allocate_avoiding(&[]), Some([10, 5, 0, 254]));
+        assert_eq!(n.allocate_avoiding(&[]), None);
+        n.release((base + 3).to_be_bytes());
+        assert_eq!(n.allocate_avoiding(&[]), None, "a released host outside --ip-range stays outside");
+        n.release([10, 5, 0, 200]);
+        assert_eq!(n.allocate_avoiding(&[]), Some([10, 5, 0, 200]));
+        let base6 = u128::MAX - 255;
+        let mut six = V6 {
+            subnet: base6.to_be_bytes(), prefix: 120, gateway: (base6 + 1).to_be_bytes(),
+            user_subnet: true, ip_range: Some(((base6 + 128).to_be_bytes(), 121)),
+            aux: BTreeMap::new(), used: (1..255).collect(),
+        };
+        assert_eq!(six.allocate_avoiding(&[]), Some(u128::MAX.to_be_bytes()), "IPv6 has no broadcast address");
+        assert_eq!(six.allocate_avoiding(&[]), None);
+        six.release((base6 + 3).to_be_bytes());
+        assert_eq!(six.allocate_avoiding(&[]), None);
+        six.release(u128::MAX.to_be_bytes());
+        assert_eq!(six.allocate_avoiding(&[u128::MAX.to_be_bytes()]), None);
+        assert_eq!(six.allocate_avoiding(&[]), Some(u128::MAX.to_be_bytes()));
     }
 
     #[test]
