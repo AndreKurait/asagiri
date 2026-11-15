@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::Weak;
 use std::time::Duration;
 
@@ -33,20 +33,22 @@ const RESCAN: Duration = Duration::from_secs(1);
 const LATENCY: f64 = 0.05;
 /// At most this many lines per message to the guest.
 const BATCH: usize = 512;
+/// The callback never waits for the guest, and cannot grow an unbounded queue.
+const QUEUED_BATCHES: usize = 16;
 
 pub fn start(engine: Weak<Engine>) {
     let _ = std::thread::Builder::new().name("asagiri-watch".into()).spawn(move || run(engine));
 }
 
 fn run(engine: Weak<Engine>) {
-    let (tx, rx) = channel::<Vec<(String, u32)>>();
+    let (tx, rx) = sync_channel::<Vec<(String, u32)>>(QUEUED_BATCHES);
     let mut stream: Option<Stream> = None;
     let mut roots: Vec<String> = Vec::new();
     let mut known = Known::default();
     loop {
         let Some(e) = engine.upgrade() else { return };
         let now = e.mac_bind_sources();
-        if now != roots {
+        if now != roots || (stream.is_none() && !now.is_empty()) {
             stream = None; // stops the old one
             roots = now;
             known = Known::default();
@@ -90,7 +92,9 @@ fn watch_dirs(roots: &[String]) -> Vec<String> {
 fn lines(first: Vec<(String, u32)>, rx: &Receiver<Vec<(String, u32)>>, roots: &[String], known: &mut Known) -> Vec<String> {
     let mut order = Vec::new();
     let mut flags: HashMap<String, u32> = HashMap::new();
-    for (path, f) in first.into_iter().chain(rx.try_iter().flatten()) {
+    // Leave a continually busy producer for the next turn, so bind changes
+    // and engine shutdown are still observed during a filesystem storm.
+    for (path, f) in first.into_iter().chain(rx.try_iter().take(QUEUED_BATCHES).flatten()) {
         let Some(path) = under(&path, roots) else { continue };
         match flags.get_mut(&path) {
             Some(all) => *all |= f,
@@ -114,11 +118,35 @@ fn lines(first: Vec<(String, u32)>, rx: &Receiver<Vec<(String, u32)>>, roots: &[
 /// other path. Mac folders ignore case, and FSEvents may spell a path as
 /// it is on disk rather than as the bind source was written.
 fn under(path: &str, roots: &[String]) -> Option<String> {
+    if !path.starts_with('/') || path.contains(['\n', '\0'])
+        || path.split('/').any(|part| part == "..")
+        || MAC_ROOT.len() + path.len() >= 4096
+    {
+        return None;
+    }
     roots.iter().find_map(|r| {
+        let r = r.trim_end_matches('/');
+        if r.is_empty() {
+            return Some(path.to_owned());
+        }
         let head = path.get(..r.len())?;
         let rest = &path[r.len()..];
-        (head.eq_ignore_ascii_case(r) && (rest.is_empty() || rest.starts_with('/'))).then(|| format!("{r}{rest}"))
+        if !(rest.is_empty() || rest.starts_with('/')) {
+            return None;
+        }
+        // Case folding alone can confuse two different bind sources on a
+        // case-sensitive Mac volume. Fold only names of the same inode.
+        let same = head == r || (head.eq_ignore_ascii_case(r) && same_file(head, r));
+        same.then(|| format!("{r}{rest}"))
     })
+}
+
+fn same_file(a: &str, b: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
 }
 
 /// The paths seen to exist, so a file FSEvents still marks "created" is
@@ -200,6 +228,8 @@ unsafe extern "C" {
     fn FSEventStreamCreate(alloc: CFRef, cb: Callback, ctx: *const FSEventStreamContext, paths: CFRef, since: u64, latency: f64, flags: u32) -> FSEventStreamRef;
     fn FSEventStreamSetDispatchQueue(stream: FSEventStreamRef, queue: *mut c_void);
     fn FSEventStreamStart(stream: FSEventStreamRef) -> u8;
+    #[cfg(test)]
+    fn FSEventStreamFlushSync(stream: FSEventStreamRef);
     fn FSEventStreamStop(stream: FSEventStreamRef);
     fn FSEventStreamInvalidate(stream: FSEventStreamRef);
     fn FSEventStreamRelease(stream: FSEventStreamRef);
@@ -227,7 +257,7 @@ const CREATE_FILE_EVENTS: u32 = 0x10;
 /// only their changes are copied out of FSEvents (a bind-mounted file is
 /// watched through its whole folder, often the home folder).
 struct Info {
-    tx: Sender<Vec<(String, u32)>>,
+    tx: SyncSender<Vec<(String, u32)>>,
     roots: Vec<String>,
     warned: AtomicBool,
 }
@@ -244,7 +274,7 @@ extern "C" fn on_events(_: FSEventStreamRef, info: *mut c_void, n: usize, paths:
     // Info this stream was made with, freed only by `release_info` once the
     // stream is gone.
     let (info, paths, flags) = unsafe { (&*(info as *const Info), std::slice::from_raw_parts(paths as *const *const c_char, n), std::slice::from_raw_parts(flags, n)) };
-    let mut events = Vec::new();
+    let mut events = Vec::with_capacity(BATCH);
     for (p, &f) in paths.iter().zip(flags) {
         if f & (flag::MUST_SCAN_SUB_DIRS | flag::USER_DROPPED | flag::KERNEL_DROPPED) != 0 && !info.warned.swap(true, Ordering::Relaxed) {
             crate::diag::warn!("FSEvents dropped changes to bind mounts; some file watchers in containers may miss them");
@@ -253,10 +283,26 @@ extern "C" fn on_events(_: FSEventStreamRef, info: *mut c_void, n: usize, paths:
         let Ok(path) = unsafe { CStr::from_ptr(*p) }.to_str() else { continue };
         if under(path, &info.roots).is_some() {
             events.push((path.to_owned(), f));
+            if events.len() == BATCH && !deliver(info, std::mem::take(&mut events)) {
+                return;
+            }
         }
     }
     if !events.is_empty() {
-        let _ = info.tx.send(events);
+        deliver(info, events);
+    }
+}
+
+fn deliver(info: &Info, events: Vec<(String, u32)>) -> bool {
+    match info.tx.try_send(events) {
+        Ok(()) => true,
+        Err(TrySendError::Full(_)) => {
+            if !info.warned.swap(true, Ordering::Relaxed) {
+                crate::diag::warn!("bind-mount file events exceeded the pending limit; some file watchers may miss changes");
+            }
+            false
+        }
+        Err(TrySendError::Disconnected(_)) => false,
     }
 }
 
@@ -274,7 +320,7 @@ fn queue() -> *mut c_void {
 }
 
 impl Stream {
-    fn start(dirs: &[String], roots: Vec<String>, tx: Sender<Vec<(String, u32)>>) -> std::io::Result<Stream> {
+    fn start(dirs: &[String], roots: Vec<String>, tx: SyncSender<Vec<(String, u32)>>) -> std::io::Result<Stream> {
         let info = Box::into_raw(Box::new(Info { tx, roots, warned: AtomicBool::new(false) }));
         // SAFETY: CoreFoundation objects made and released here. FSEvents
         // owns `info` from FSEventStreamCreate on and frees it through
@@ -357,8 +403,111 @@ mod tests {
         let roots = ["/Users/a/app".to_owned(), "/Users/a/.env".to_owned()];
         assert_eq!(under("/Users/a/app/src/main.js", &roots).as_deref(), Some("/Users/a/app/src/main.js"));
         assert_eq!(under("/Users/a/.env", &roots).as_deref(), Some("/Users/a/.env"));
-        assert_eq!(under("/users/A/App/src/main.js", &roots).as_deref(), Some("/Users/a/app/src/main.js"));
+        assert_eq!(under("/users/A/App/src/main.js", &roots), None, "case variants must resolve to the same source");
         assert_eq!(under("/Users/a/application/x", &roots), None);
         assert_eq!(under("/Users/a/.envrc", &roots), None);
+        assert_eq!(under("/Users/a/app/../secret", &roots), None);
+        assert_eq!(under("/Users/a/app/bad\nM\t/mnt/mac/outside", &roots), None);
+        assert_eq!(under("/Users/a/app/bad\0suffix", &roots), None);
+        assert_eq!(under("/Users/a/app/x", &["/".to_owned()]).as_deref(), Some("/Users/a/app/x"));
+        assert_eq!(under("/Users/a/app/x", &["/Users/a/app/".to_owned()]).as_deref(), Some("/Users/a/app/x"));
+    }
+
+    struct Temp(std::path::PathBuf);
+
+    impl Temp {
+        fn new() -> Temp {
+            let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("asagiri-filewatch-{}-{nonce}", std::process::id()));
+            std::fs::create_dir(&path).unwrap();
+            Temp(path.canonicalize().unwrap())
+        }
+    }
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn case_variants_only_match_the_same_real_source() {
+        let temp = Temp::new();
+        let root = temp.0.join("MixedCase");
+        std::fs::create_dir(&root).unwrap();
+        let other = temp.0.join("mixedcase");
+        let roots = [root.to_str().unwrap().to_owned()];
+        if !other.exists() {
+            std::fs::create_dir(&other).unwrap();
+        }
+        let expected = super::same_file(root.to_str().unwrap(), other.to_str().unwrap());
+        assert_eq!(under(other.to_str().unwrap(), &roots).is_some(), expected);
+    }
+
+    #[test]
+    fn native_file_bind_receives_writes_atomic_saves_and_deletion() {
+        use super::{FSEventStreamFlushSync, Stream, lines, sync_channel};
+        let temp = Temp::new();
+        let file = temp.0.join("watched.txt");
+        std::fs::write(&file, b"initial").unwrap();
+        let roots = vec![file.to_str().unwrap().to_owned()];
+        let (tx, rx) = sync_channel(super::QUEUED_BATCHES);
+        let stream = Stream::start(&[temp.0.to_str().unwrap().to_owned()], roots.clone(), tx).unwrap();
+        let mut known = Known::default();
+        for expected in ['M', 'M', 'D'] {
+            // SAFETY: a live stream, flushed away from its callback queue.
+            unsafe { FSEventStreamFlushSync(stream.0) };
+            while rx.try_recv().is_ok() {}
+            if expected == 'D' {
+                std::fs::remove_file(&file).unwrap();
+            } else if std::fs::read(&file).unwrap() == b"initial" {
+                std::fs::write(&file, b"edited").unwrap();
+            } else {
+                let replacement = temp.0.join("save.tmp");
+                std::fs::write(&replacement, b"atomic-save").unwrap();
+                std::fs::rename(replacement, &file).unwrap();
+            }
+            std::fs::write(temp.0.join("unrelated.txt"), b"outside the file bind").unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                let first = rx.recv_timeout(remaining).expect("native FSEvents did not report the edit");
+                let changes = lines(first, &rx, &roots, &mut known);
+                assert!(changes.iter().all(|line| line.ends_with(file.to_str().unwrap())), "{changes:?}");
+                if changes.iter().any(|line| line.starts_with(expected)) {
+                    break;
+                }
+            }
+        }
+        drop(stream);
+    }
+
+    #[test]
+    fn callback_batches_are_bounded_and_never_wait_for_a_slow_guest() {
+        use super::{Info, Ordering, on_events, sync_channel};
+        use std::ffi::CString;
+        use std::sync::atomic::AtomicBool;
+        let (tx, rx) = sync_channel(2);
+        let (done_tx, done_rx) = sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            // The warning is already emitted; the test never writes user logs.
+            let mut info = Info { tx, roots: vec!["/owned".into()], warned: AtomicBool::new(true) };
+            let paths: Vec<_> = (0..super::BATCH * 5).map(|i| CString::new(format!("/owned/{i}")).unwrap()).collect();
+            let mut pointers: Vec<_> = paths.iter().map(|p| p.as_ptr()).collect();
+            let flags = vec![MODIFIED; paths.len()];
+            on_events(std::ptr::null_mut(), (&raw mut info).cast(), paths.len(), pointers.as_mut_ptr().cast(), flags.as_ptr(), std::ptr::null());
+            assert!(info.warned.load(Ordering::Relaxed));
+            done_tx.send(()).unwrap();
+        });
+        let result = done_rx.recv_timeout(std::time::Duration::from_secs(2));
+        if result.is_err() {
+            drop(rx); // Release an incorrectly blocking callback before failing.
+            worker.join().unwrap();
+            panic!("the filesystem callback waited for its consumer");
+        }
+        let batches: Vec<_> = rx.try_iter().collect();
+        assert_eq!(batches.len(), 2);
+        assert!(batches.iter().all(|batch| batch.len() == super::BATCH));
+        worker.join().unwrap();
     }
 }

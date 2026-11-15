@@ -65,7 +65,9 @@ fn valid<'a>(lines: impl Iterator<Item = &'a str>) -> impl Iterator<Item = Strin
         let ok = matches!(op, "C" | "M" | "A" | "D")
             && path.starts_with(MAC)
             && path.len() > MAC.len()
+            && path.len() < 4096
             && !path.contains('\n')
+            && !path.contains('\0')
             && !path.split('/').any(|part| part == "..");
         ok.then(|| format!("{op}\t{path}\n"))
     })
@@ -87,5 +89,16 @@ mod tests {
         p.add(["M\t/mnt/mac/a", "M\t/mnt/mac/b"].into_iter());
         p.add(["M\t/mnt/mac/a"].into_iter());
         assert_eq!(p.0.len(), 2);
+    }
+
+    #[test]
+    fn queued_changes_and_kernel_path_lengths_are_bounded() {
+        let mut p = Pending::default();
+        let lines: Vec<_> = (0..super::MAX_PENDING + 100).map(|i| format!("M\t/mnt/mac/{i}")).collect();
+        p.add(lines.iter().map(String::as_str));
+        assert_eq!(p.0.len(), super::MAX_PENDING);
+        assert_eq!(p.1.len(), super::MAX_PENDING);
+        let invalid = ["M\t/mnt/mac/a\0other".to_owned(), format!("M\t/mnt/mac/{}", "a".repeat(4096))];
+        assert!(valid(invalid.iter().map(String::as_str)).next().is_none());
     }
 }
