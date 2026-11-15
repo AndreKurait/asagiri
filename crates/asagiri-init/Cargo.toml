@@ -22,3 +22,7 @@ workspace = true
 [[test]]
 name = "trim-process"
 harness = false
+
+[[test]]
+name = "removal-process"
+harness = false

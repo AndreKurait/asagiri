@@ -86,7 +86,17 @@ def agent_sockets():
 
 
 def require_agent(expected=None):
-    rows = agent_sockets()
+    # Copy, removal and container-start workers briefly inherit the agent's
+    # process name after fork. The data-directory lock records the agent PID;
+    # counting every process named asagiri-init mistakes workers for restarts.
+    # The native agent owns /var/lib/asagiri; ASAGIRI_DATA_DIR selects the
+    # daemon's separate metadata store, not the agent's lock directory.
+    lock = Path("/var/lib/asagiri/agent.lock")
+    text = lock.read_text().strip()
+    assert text.isdecimal() and int(text) > 0, ("invalid recorded agent PID", text)
+    pid = int(text)
+    rows = [row for row in agent_sockets() if row["pid"] == pid]
+    assert lock.read_text().strip() == text, "agent PID changed while sampling descriptors"
     assert len(rows) == 1, ("expected one readable live Asagiri agent", rows)
     if expected is not None:
         assert (rows[0]["pid"], rows[0]["start_time"]) == (expected["pid"], expected["start_time"]), \

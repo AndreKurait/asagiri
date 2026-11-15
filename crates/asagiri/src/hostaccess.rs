@@ -93,11 +93,18 @@ fn install_appimage_files(appdir: &Path, bin: &Path, unit: &Path) -> io::Result<
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     // Preflight both inputs and destinations before creating installed files.
     // Never follow a source link or replace an existing, different executable.
+    let readonly_fuse = validate_appimage_source(appdir)?;
     let mut inputs = Vec::new();
     for name in ["asagiri", "asagiri-init"] {
         let mut source = OpenOptions::new().read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(appdir.join("usr/bin").join(name))?;
-        if !source.metadata()?.is_file() { return Err(io::Error::other("AppImage engine input is not a regular file")); }
+        let metadata = source.metadata()?;
+        // SAFETY: geteuid has no preconditions.
+        if !metadata.is_file() || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o100 == 0
+            || (!readonly_fuse && metadata.uid() != unsafe { libc::geteuid() }) {
+            return Err(io::Error::other("AppImage engine input is not an owned, regular executable"));
+        }
         let mut bytes = Vec::new();
         source.read_to_end(&mut bytes)?;
         let existing = if let Ok(metadata) = std::fs::symlink_metadata(bin.join(name)) {
@@ -128,6 +135,54 @@ fn install_appimage_files(appdir: &Path, bin: &Path, unit: &Path) -> io::Result<
     let contents = include_str!("../../../packaging/linux/asagiri.service")
         .replace("/usr/bin/asagiri", "/usr/local/bin/asagiri");
     install_new_file(unit, contents.as_bytes(), 0o644)
+}
+
+fn validate_appimage_source(appdir: &Path) -> io::Result<bool> {
+    use std::fs;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let dir = fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(appdir)?;
+    let mut filesystem = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    let mut flags = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: both outputs point to valid writable storage and dir is open.
+    if unsafe { libc::fstatfs(dir.as_raw_fd(), filesystem.as_mut_ptr()) } != 0
+        || unsafe { libc::fstatvfs(dir.as_raw_fd(), flags.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // A real read-only FUSE mount can legitimately report the image builder's
+    // UID. Environment variables and a ".mount_" name do not prove a mount.
+    // SAFETY: the successful calls above initialized both outputs.
+    let readonly_fuse = unsafe { filesystem.assume_init() }.f_type as u64 == 0x6573_5546
+        && unsafe { flags.assume_init() }.f_flag & libc::ST_RDONLY != 0;
+    if !readonly_fuse {
+        // SAFETY: geteuid has no preconditions.
+        let owner = unsafe { libc::geteuid() };
+        let metadata = dir.metadata()?;
+        if metadata.uid() != owner || metadata.mode() & 0o7777 != 0o700 {
+            return Err(io::Error::other("AppImage extraction must be private and owned by the installing user"));
+        }
+        // The runtime creates this directory after elevation. A private child
+        // is unsafe if another user can rename or replace an ancestor.
+        let absolute = appdir.canonicalize()?;
+        for parent in absolute.ancestors().skip(1) {
+            let metadata = fs::symlink_metadata(parent)?;
+            if !metadata.is_dir() || (metadata.uid() != 0 && metadata.uid() != owner)
+                || (metadata.mode() & 0o022 != 0 && !(metadata.uid() == 0 && metadata.mode() & 0o1000 != 0)) {
+                return Err(io::Error::other("AppImage extraction has an untrusted parent directory"));
+            }
+        }
+    }
+    for child in ["usr", "usr/bin"] {
+        let metadata = fs::symlink_metadata(appdir.join(child))?;
+        // SAFETY: geteuid has no preconditions.
+        if !metadata.is_dir() || metadata.mode() & 0o022 != 0
+            || (!readonly_fuse && metadata.uid() != unsafe { libc::geteuid() }) {
+            return Err(io::Error::other("AppImage executable directory is not an owned, regular directory"));
+        }
+    }
+    Ok(readonly_fuse)
 }
 
 fn install_new_file(destination: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
@@ -192,8 +247,10 @@ mod tests {
             let root = std::env::temp_dir().join(format!("asagiri-appimage-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             std::fs::create_dir(&root).unwrap();
             std::fs::create_dir_all(root.join("app/usr/bin")).unwrap();
+            std::fs::set_permissions(root.join("app"), std::fs::Permissions::from_mode(0o700)).unwrap();
             for name in ["asagiri", "asagiri-init", "asagiri-window"] {
                 std::fs::write(root.join("app/usr/bin").join(name), name).unwrap();
+                std::fs::set_permissions(root.join("app/usr/bin").join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
             }
             Self(root)
         }
@@ -249,6 +306,27 @@ mod tests {
         assert_eq!(f.install().unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read_to_string(f.0.join("bin/asagiri")).unwrap(), "existing engine");
         assert!(!f.0.join("bin/asagiri-init").exists());
+        assert!(!f.0.join("units").exists());
+    }
+
+    #[test]
+    fn writable_bundle_paths_are_rejected_before_installation() {
+        for path in ["app", "app/usr", "app/usr/bin", "app/usr/bin/asagiri-init", "."] {
+            let f = Fixture::new();
+            std::fs::set_permissions(f.0.join(path), std::fs::Permissions::from_mode(0o777)).unwrap();
+            assert!(f.install().is_err(), "accepted writable {path}");
+            assert!(!f.0.join("bin").exists());
+            assert!(!f.0.join("units").exists());
+        }
+    }
+
+    #[test]
+    fn a_linked_bundle_directory_cannot_supply_installed_executables() {
+        let f = Fixture::new();
+        std::fs::rename(f.0.join("app/usr/bin"), f.0.join("substitute")).unwrap();
+        symlink(f.0.join("substitute"), f.0.join("app/usr/bin")).unwrap();
+        assert!(f.install().is_err());
+        assert!(!f.0.join("bin").exists());
         assert!(!f.0.join("units").exists());
     }
 }

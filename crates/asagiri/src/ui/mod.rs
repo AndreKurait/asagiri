@@ -24,6 +24,8 @@ mod gtk;
 use gtk as window;
 pub use window::run;
 #[cfg(target_os = "macos")]
+pub use window::launch_error;
+#[cfg(target_os = "macos")]
 use crate::{import, setup, update};
 #[cfg(target_os = "linux")]
 mod linux;
