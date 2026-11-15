@@ -28,12 +28,18 @@
 }
 :root[dir=rtl] { --start: right; --end: left; --fwd: 270deg; --dir: -1; }
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg: #F3F1F7; --side: #ECE9F2; --panel: #FFFFFF; --raised: #F5F3F8; --line: #DDD9E8;
     --text: #161B33; --muted: #5E6773; --faint: #8A929C; --row-hover: rgba(15, 20, 25, .035);
     --sun-text: #8A6100; --red-text: #B42318; --ext-text: #6941C6;
     color-scheme: light;
   }
+}
+:root[data-theme="light"] {
+  --bg: #F3F1F7; --side: #ECE9F2; --panel: #FFFFFF; --raised: #F5F3F8; --line: #DDD9E8;
+  --text: #161B33; --muted: #5E6773; --faint: #8A929C; --row-hover: rgba(15, 20, 25, .035);
+  --sun-text: #8A6100; --red-text: #B42318; --ext-text: #6941C6;
+  color-scheme: light;
 }
 /* Type: four sizes, and nothing else (tests/ui/type.js checks). Small print,
    the base everything you read is set in, section headings, page titles.
@@ -457,7 +463,8 @@ td.r, th.r { text-align: var(--end); }
    running, a grey outline stopped, red failed; a state with none is left out.
    An image nothing uses steps back. */
 :root { --lit-hi: #A8F5D4; }
-@media (prefers-color-scheme: light) { :root { --lit-hi: #0F9E6A; } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --lit-hi: #0F9E6A; } }
+:root[data-theme="light"] { --lit-hi: #0F9E6A; }
 td.used .l1 { display: flex; align-items: center; gap: 6px; min-height: 17px; }
 td.used .off { color: var(--faint); }
 td.used .l2 { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--muted); font-size: var(--fs); font-variant-numeric: tabular-nums; }
@@ -565,7 +572,8 @@ tr.member .tree::after { content: ""; position: absolute; inset-inline-start: 7.
 /* A row's name opens it, a link; so does the rest of a row that has a page. */
 .link { color: var(--blue-light); cursor: pointer; }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
-@media (prefers-color-scheme: light) { .link { color: var(--blue); } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .link { color: var(--blue); } }
+:root[data-theme="light"] .link { color: var(--blue); }
 /* A container's page. */
 .dhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 4px 0 14px; }
 .dhead .tile { width: 40px; height: 40px; border-radius: 10px; }
@@ -1031,7 +1039,8 @@ td.actions .acts-row { margin-inline-start: auto; width: max-content; padding-in
 /* The build question: each answer in a line of its own, its name in the text colour. */
 .dialog.alert > p.bw-opt b { color: var(--text); font-weight: 600; }
 .dialog.alert > p.bw-later { font-size: var(--fs-small); }
-@media (prefers-color-scheme: light) { .dialog.alert > .ico.info { --ink: var(--blue); } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .dialog.alert > .ico.info { --ink: var(--blue); } }
+:root[data-theme="light"] .dialog.alert > .ico.info { --ink: var(--blue); }
 /* Removing: a red tint, not a block of red. */
 .port-row { display: grid; grid-template-columns: 1fr 18px 1fr 74px 30px; gap: 8px; align-items: center; }
 .port-row input, .port-row select { height: 30px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: var(--fs) ui-monospace, "SF Mono", Menlo, monospace; min-width: 0; }
@@ -2096,13 +2105,15 @@ body.beat { --beat: ring 1.6s ease-out; }
 .rp-dialog .err { font-size: var(--fs); color: var(--red-text); }
 /* --- The built-in terminal: a panel under the page (tests/ui/terminal.js) ----------- */
 :root { --term-bg: #0B0F13; --term-fg: #D7DCE1; }
-@media (prefers-color-scheme: light) { :root { --term-bg: #FFFFFF; --term-fg: #1F2328; } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --term-bg: #FFFFFF; --term-fg: #1F2328; } }
+:root[data-theme="light"] { --term-bg: #FFFFFF; --term-fg: #1F2328; }
 main { position: relative; }
 /* Raised above the page: a shadow up onto it, a lighter top edge and a lifted
    header, so the panel never reads as more of the page. */
 .htdrawer { flex: none; height: var(--ht-h, 300px); border-top: 1px solid color-mix(in srgb, var(--text) 16%, var(--line)); position: relative; z-index: 3; display: flex; flex-direction: column; min-height: 0; background: var(--panel);
   box-shadow: 0 -10px 28px rgb(0 0 0 / .32), 0 -1px 0 rgb(0 0 0 / .25); }
-@media (prefers-color-scheme: light) { .htdrawer { box-shadow: 0 -8px 22px rgb(0 0 0 / .10); } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .htdrawer { box-shadow: 0 -8px 22px rgb(0 0 0 / .10); } }
+:root[data-theme="light"] .htdrawer { box-shadow: 0 -8px 22px rgb(0 0 0 / .10); }
 .htdrawer[hidden] { display: none; }
 .htdrawer.max { position: absolute; inset: 0; height: auto; border-top: 0; z-index: 10; }
 .htgrip { position: absolute; top: -3px; inset-inline-start: 0; inset-inline-end: 0; height: 6px; cursor: row-resize; z-index: 5; }
@@ -2731,7 +2742,7 @@ const prefs = { font: "System", mono: "System Mono", scale: 1, tab: "appearance"
 const ACCENTS = [["blue", "Coral", "#C64A32"], ["purple", "Purple", "#8C6EF5"], ["orange", "Orange", "#F58228"], ["teal", "Teal", "#14B4A5"], ["pink", "Pink", "#EC408C"], ["green", "Green", "#28AA5A"]];
 /* i18n */ void [tr("Coral"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green")];
 const darkNow = () => prefs.theme === "dark" || (prefs.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { themeBtn(); if (ui.view === "settings") render(); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { applyPrefs(); themeBtn(); if (ui.view === "settings") render(); });
 // The strip's theme button shows what a click switches to.
 function themeBtn() {
   const b = $("theme-toggle"), dark = darkNow();
@@ -2748,6 +2759,7 @@ const LOG_SIZES = [[11, "Small"], [13, "Medium"], [15, "Large"]];
 /* i18n */ void [tr("Small"), tr("Medium"), tr("Large")];
 const quote = (f) => `"${String(f).replace(/["\\]/g, "")}"`;
 function applyPrefs() {
+  document.documentElement.dataset.theme = darkNow() ? "dark" : "light";
   const r = document.documentElement.style;
   const base = prefs.font === "System" ? '-apple-system, BlinkMacSystemFont, "SF Pro Text"' : `${quote(prefs.font)}, -apple-system`;
   r.setProperty("--ui-base", base);
