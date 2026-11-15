@@ -204,6 +204,9 @@ class Registry:
                 pass
 
             def reply(self, status, body=b"", media="application/json", digest=None):
+                content_digest = "sha256:" + sha(body)
+                if digest is not None:
+                    require(digest == content_digest, "Fixture response has the wrong content digest")
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Content-Type", media)
@@ -213,7 +216,7 @@ class Registry:
                 self.send_header("Connection", "close")
                 self.close_connection = True
                 if digest:
-                    self.send_header("Docker-Content-Digest", digest)
+                    self.send_header("Docker-Content-Digest", content_digest)
                 self.end_headers()
                 if self.command != "HEAD" and body:
                     self.wfile.write(body)
@@ -711,6 +714,7 @@ class Qualifier:
             ], 30)
             require(code == 0, repr(stderr))
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(cert, key)
             contexts[name] = context
             fingerprints[context] = sha(ssl.PEM_cert_to_DER_cert(cert.read_text()))
@@ -841,6 +845,7 @@ class Qualifier:
                 probes = []
                 for name, model in self.models.items():
                     client = ssl.create_default_context(cadata=ca["a"])
+                    client.minimum_version = ssl.TLSVersion.TLSv1_2
                     expected_name = WRONG_NAME if name == "wrong-name" else self.args.address
                     with socket.create_connection(model.server.server_address, timeout=5) as raw:
                         with client.wrap_socket(raw, server_hostname=expected_name) as stream:
