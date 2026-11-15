@@ -2971,7 +2971,9 @@ fn logs(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream) -> io::Res
 /// HUP means the peer closed both halves. A write-half-close alone must
 /// still receive its wait/log response; checking read EOF would drop it.
 fn disconnected(stream: &UnixStream) -> bool {
-    let mut fd = libc::pollfd { fd: stream.as_raw_fd(), events: 0, revents: 0 };
+    // Darwin needs an event interest to report peer closure. Writable alone
+    // is not a disconnection; only the error/hangup bits below cancel.
+    let mut fd = libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
     // SAFETY: one valid descriptor, no timeout and no borrowed buffer.
     (unsafe { libc::poll(&mut fd, 1, 0) }) > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
 }
