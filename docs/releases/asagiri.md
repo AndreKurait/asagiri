@@ -43,6 +43,12 @@ dangling image, and retagging it removes the redundant dangling record.
 Existing aliases retain their registry provenance. Regression checks cover
 concurrent replacements, shared layers, saved images and container commits.
 
+Rejected container starts release their embedded DNS listener, names and
+parent rootfs mount before returning the setup error. This prevents repeated
+failed starts from accumulating sockets and mounts while preserving writable
+data and other containers' DNS registrations. The live regression also
+deletes and recreates networks on the same subnet.
+
 Unprivileged containers fail before application startup if Linux cannot load
 or attach the cgroup device-access filter. Their identity and writable data
 remain available for retry after correcting the host restriction. Existing
