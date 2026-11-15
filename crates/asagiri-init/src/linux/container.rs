@@ -465,6 +465,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         if bridged && embedded_dns {
             net.dns.unregister(spec.net.bridge, spec.net.ip);
         }
+        // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
+        // rmdir does not race the failed child (or any descendants) exiting.
+        kill_cgroup(&undo.cgroup);
         // The parent mounted the rootfs before cloning. A failed child has
         // no Process teardown either; detach this attempt's mount and retain
         // stopped-container data under the same policy as pre-clone errors.
