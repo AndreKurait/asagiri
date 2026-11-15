@@ -7,15 +7,12 @@
 //! node a container makes for a disk is useless. `--device` and
 //! `--device-cgroup-rule` add rules to it.
 //!
-//! If the kernel cannot attach the filter, the caller drops `CAP_MKNOD`
-//! instead (the container's `/dev` has no block nodes to begin with), so
-//! device access is never left open.
+//! Unprivileged containers must not start if the kernel cannot install this
+//! filter. Dropping `CAP_MKNOD` alone would leave device nodes already present
+//! in image layers or bind mounts accessible.
 
 use std::io;
 use std::os::fd::RawFd;
-
-/// Capability number for `CAP_MKNOD`; the fallback drops it.
-pub const CAP_MKNOD: u32 = 27;
 
 const BPF_PROG_LOAD: i32 = 5;
 const BPF_PROG_ATTACH: i32 = 8;
@@ -173,7 +170,7 @@ struct ProgAttach {
 /// Attaches the device filter to `cgroup_fd` (a fd on the container's cgroup
 /// directory). The container is cloned into that cgroup, so the filter is in
 /// force before its first instruction. `extra`: rules beyond the default
-/// list. `Err` means the caller should drop `CAP_MKNOD` instead.
+/// list. `Err` means the caller must reject an unprivileged container start.
 pub fn restrict(cgroup_fd: RawFd, extra: &[Rule]) -> io::Result<()> {
     let prog = program(extra);
     let license = *b"GPL\0";

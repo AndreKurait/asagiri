@@ -10,6 +10,14 @@ along with ownership, permission bits, timestamps and device numbers. Extraction
 creates these nodes without opening them. A special node can replace a symlink
 at its own path without changing the symlink's former target.
 
+An ordinary container still needs its cgroup device-access filter. If Linux
+refuses to load or attach that filter, startup fails before the application
+runs; removing the ability to create new nodes would not protect existing
+image nodes. The bundled guest kernels enable `CONFIG_BPF_SYSCALL` and
+`CONFIG_CGROUP_BPF`. On a Linux host, these facilities and permission to attach
+the filter are required. After correcting the host restriction, the same
+container can be started again.
+
 ```sh
 docker --context asagiri export my-container > rootfs.tar
 docker --context asagiri import \
