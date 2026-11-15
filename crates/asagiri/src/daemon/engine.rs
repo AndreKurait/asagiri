@@ -176,6 +176,10 @@ pub struct Spec {
     /// TCP ports the image (or `--expose`) declares; picks the domain's port.
     #[serde(default)]
     pub exposed: Vec<u16>,
+    /// All declared port/protocol pairs, retained for Docker inspection.
+    /// Older records keep their TCP declarations in `exposed`.
+    #[serde(default)]
+    pub exposed_port_keys: Vec<String>,
     /// Bind mounts as the guest takes them: `source\ttarget\tflags`, where
     /// `source` is a path inside the VM.
     #[serde(default)]

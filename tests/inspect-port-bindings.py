@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Requested loopback bindings survive lifecycle; allocated ports stay separate."""
+"""Docker inspection preserves requested bindings and exposed protocols."""
 import http.client
 import json
 import os
@@ -45,6 +45,7 @@ def check(path, image):
         for requested in (str(free_port()), '0'):
             cid = call('create', '--name', 'inspect-binding-' + uuid.uuid4().hex,
                        '--label', 'asagiri.test=inspect-port-bindings',
+                       '--expose', '5353/udp', '--expose', '9000/tcp',
                        '-p', '127.0.0.1:' + requested + ':8080', '--entrypoint', '/bin/sh', image,
                        '-c', "while :; do printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 21\\r\\nConnection: close\\r\\n\\r\\nloopback-binding-test' | nc -l -p 8080 >/dev/null; done")
             owned.append(cid)
@@ -57,6 +58,8 @@ def check(path, image):
                 row = inspect(cid)
                 assert row['State']['Status'] == phase, row['State']
                 assert row['HostConfig'].get('PortBindings') == expected, (phase, row['HostConfig'].get('PortBindings'), expected)
+                exposed = row['Config'].get('ExposedPorts')
+                assert exposed == {'8080/tcp': {}, '5353/udp': {}, '9000/tcp': {}}, (phase, exposed)
                 if phase != 'running':
                     continue
                 actual = row['NetworkSettings']['Ports']['8080/tcp']
@@ -78,6 +81,12 @@ def check(path, image):
             call('rm', '-v', cid)
             owned.remove(cid)
             print('PASS requested ' + ('ephemeral' if requested == '0' else 'fixed') + ' loopback binding through create/start/stop; actual port isolated')
+        cid = call('create', '--network', 'none', '--entrypoint', '/bin/true', image)
+        owned.append(cid)
+        assert 'ExposedPorts' not in inspect(cid)['Config'], 'An absent exposed-port map must be omitted'
+        call('rm', '-v', cid)
+        owned.remove(cid)
+        print('PASS empty exposed-port map omitted')
     finally:
         for cid in owned:
             subprocess.run(docker + ['rm', '-fv', cid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
