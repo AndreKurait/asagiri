@@ -78,7 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.commit }}
+          # This job is skipped for package recovery. Otherwise plan verifies
+          # github.sha belongs to main, and emits exactly that source commit.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] action and inputs come from the verified release checkout
         with:
