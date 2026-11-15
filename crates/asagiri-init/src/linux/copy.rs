@@ -633,6 +633,29 @@ fn is_opaque(path: &std::path::Path) -> bool {
     n == 1 && v[0] == b'y'
 }
 
+/// An older kernel-default mount may already have left entries whose data
+/// exists only in the merged filesystem. Never publish their raw upper bytes
+/// as a successful diff/commit: a redirect looks empty and metacopy looks zeroed.
+fn require_complete_upper(path: &std::path::Path) -> io::Result<()> {
+    let c = sys::cstr(path)?;
+    for (name, kind) in [(c"trusted.overlay.metacopy", "metadata-only file"), (c"trusted.overlay.redirect", "directory redirect")] {
+        // SAFETY: valid paths/names; a null buffer with zero length queries
+        // presence and never follows a container-controlled final symlink.
+        let n = unsafe { libc::lgetxattr(c.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0) };
+        if n >= 0 {
+            return Err(io::Error::new(io::ErrorKind::Unsupported, format!(
+                "cannot archive an older overlay {kind} at {}; preserve its mounted filesystem before recreating the container",
+                path.display()
+            )));
+        }
+        let error = io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENODATA | libc::ENOTSUP)) {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
 /// The marker's path in the writable layer.
 fn at_marker(rel: &std::path::Path) -> bool {
     rel.as_os_str().as_encoded_bytes() == container::MARKER.to_bytes()
@@ -690,6 +713,7 @@ fn layer_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Res
         false
     };
     let upper = std::path::PathBuf::from("/");
+    require_complete_upper(&upper)?;
     // Every path in the writable layer, parents first.
     let mut entries: Vec<(std::path::PathBuf, fs::Metadata)> = Vec::new();
     let mut stack = vec![std::path::PathBuf::new()];
@@ -701,6 +725,7 @@ fn layer_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Res
         for e in names.into_iter().rev() {
             let r = rel.join(e.file_name());
             let Ok(m) = fs::symlink_metadata(e.path()) else { continue };
+            require_complete_upper(&e.path())?;
             // An image's own file at the marker's path is the image's, and
             // one that replaces it is a change.
             if is_marker(&r, &m) && !in_lower(&r) {
