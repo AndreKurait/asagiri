@@ -22,20 +22,30 @@ assert Path("/.dockerenv").is_file()
 assert os.readlink("/proc/1/exe") == "/opt/asagiri/asagiri"
 docker = ["docker", "-H", "unix://" + args.socket]
 network = "failed-veth-" + uuid.uuid4().hex[:12]
-containers, held, tracer, starting = [], None, None, None
+containers, networks, held, tracer, starting = [], [], None, None, None
 scratch = tempfile.TemporaryDirectory(prefix=network + "-")
 trace = Path(scratch.name) / "sysctl.trace"
 record = {"probe": "failed-start-veth", "expected_stale": args.expect_stale}
 
 
 def cli(*items, timeout=30):
-    return subprocess.check_output(docker + list(items), stderr=subprocess.STDOUT, timeout=timeout)
+    result = subprocess.run(docker + list(items), capture_output=True, timeout=timeout)
+    assert result.returncode == 0, (items, result.returncode, result.stdout.decode(), result.stderr.decode())
+    return result.stdout
 
 
 try:
-    cli("network", "create", network)
-    info = json.loads(cli("network", "inspect", network))[0]
+    # Docker requires a user-configured subnet for an explicit container IP.
+    # Let this private engine choose an available range, then request it explicitly.
+    selection = network + "-range"
+    cli("network", "create", selection)
+    networks.append(selection)
+    info = json.loads(cli("network", "inspect", selection))[0]
     subnet = ipaddress.ip_network(next(row["Subnet"] for row in info["IPAM"]["Config"] if ":" not in row["Subnet"]))
+    cli("network", "rm", selection)
+    networks.remove(selection)
+    cli("network", "create", "--subnet", str(subnet), network)
+    networks.append(network)
     address, peer_address = str(subnet.network_address + 10), str(subnet.network_address + 20)
     peer = cli("run", "-d", "--network", network, "--ip", peer_address,
                "--network-alias", "live-peer", args.image, "sleep", "120").decode().strip()
@@ -138,9 +148,10 @@ finally:
         result = subprocess.run(docker + ["rm", "-f", cid], capture_output=True, text=True, timeout=30)
         if result.returncode and "no such container" not in result.stderr.lower():
             cleanup_errors.append(result.stderr)
-    result = subprocess.run(docker + ["network", "rm", network], capture_output=True, text=True, timeout=30)
-    if result.returncode and "not found" not in result.stderr.lower():
-        cleanup_errors.append(result.stderr)
+    for name in reversed(networks):
+        result = subprocess.run(docker + ["network", "rm", name], capture_output=True, text=True, timeout=30)
+        if result.returncode and "not found" not in result.stderr.lower():
+            cleanup_errors.append(result.stderr)
     scratch.cleanup()
     record["cleanup_errors"] = cleanup_errors
     print(json.dumps(record), flush=True)
