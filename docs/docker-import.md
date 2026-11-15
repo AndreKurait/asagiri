@@ -6,8 +6,11 @@ HTTP(S) URL. Large uploads and chunked HTTP bodies are streamed to the image
 store.
 
 Image layers retain FIFOs, character and block device nodes, and their hardlinks,
-along with ownership, permission bits, timestamps and device numbers. Extraction
-creates these nodes without opening them. A special node can replace a symlink
+along with ownership, permission bits, modification times and device numbers.
+Local PAX modification times retain nanosecond precision, including dates
+before the epoch. Malformed PAX size, ownership or time records fail extraction
+before a special node replaces an existing entry. Extraction creates these
+nodes without opening them. A special node can replace a symlink
 at its own path without changing the symlink's former target.
 
 An ordinary container still needs its cgroup device-access filter. If Linux

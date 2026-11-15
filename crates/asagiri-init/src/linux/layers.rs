@@ -295,11 +295,38 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
 /// opening it (a FIFO could block, and device I/O must never run during unpack).
 /// Like whiteouts, parents must be real directories in this private layer.
 fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Path) -> io::Result<()> {
-    let header = entry.header();
     if entry.size() != 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "special layer entry has a payload"));
     }
     let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid special layer metadata");
+    let mut pax_mtime = None;
+    if let Some(extensions) = entry.pax_extensions()? {
+        for extension in extensions {
+            let extension = extension?;
+            match extension.key_bytes() {
+                b"uid" | b"gid" if !extension.value_bytes().is_empty() => {
+                    // tar applies valid owner overrides to the header, but
+                    // silently falls back on parse errors. Validate the raw
+                    // records before replacing a node or creating parents.
+                    let owner: u32 = extension.value().map_err(|_| invalid())?
+                        .parse().map_err(|_| invalid())?;
+                    if owner == u32::MAX { return Err(invalid()); }
+                },
+                b"mtime" => {
+                    // Unlike uid/gid, tar leaves the physical mtime intact.
+                    pax_mtime = if extension.value_bytes().is_empty() { None }
+                        else { Some(pax_node_time(extension.value_bytes())?) };
+                },
+                b"size" if !extension.value_bytes().is_empty() => {
+                    let size: u64 = extension.value().map_err(|_| invalid())?
+                        .parse().map_err(|_| invalid())?;
+                    if size != 0 { return Err(invalid()); }
+                },
+                _ => {},
+            }
+        }
+    }
+    let header = entry.header();
     let uid: libc::uid_t = header.uid()?.try_into().map_err(|_| invalid())?;
     let gid: libc::gid_t = header.gid()?.try_into().map_err(|_| invalid())?;
     // -1 means 'leave unchanged' to chown, not a representable image owner.
@@ -307,7 +334,10 @@ fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Pa
         return Err(invalid());
     }
     let mode = header.mode()? & 0o7777;
-    let mtime: libc::time_t = header.mtime()?.try_into().map_err(|_| invalid())?;
+    let mtime = match pax_mtime {
+        Some(time) => time,
+        None => libc::timespec { tv_sec: header.mtime()?.try_into().map_err(|_| invalid())?, tv_nsec: 0 },
+    };
     let kind = header.entry_type();
     let (file_type, major, minor) = if kind.is_fifo() {
         (libc::S_IFIFO, 0, 0)
@@ -336,7 +366,7 @@ fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Pa
     // worker just created the node. All paths and arrays outlive each call.
     sys::check(unsafe { libc::lchown(target.as_ptr(), uid, gid) } as _, "chown layer node")?;
     sys::check(unsafe { libc::chmod(target.as_ptr(), mode) } as _, "chmod layer node")?;
-    let times = [libc::timespec { tv_sec: mtime, tv_nsec: 0 }; 2];
+    let times = [mtime; 2];
     sys::check(unsafe {
         libc::utimensat(libc::AT_FDCWD, target.as_ptr(), times.as_ptr(), libc::AT_SYMLINK_NOFOLLOW)
     } as _, "restore layer node time")?;
@@ -354,6 +384,27 @@ fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Pa
         }
     }
     Ok(())
+}
+
+/// PAX decimals may precede the epoch or exceed nanosecond precision. Avoid
+/// floating-point rounding; truncate excess fractional digits toward zero,
+/// then normalize a negative fraction into a nonnegative timespec nanosecond.
+fn pax_node_time(value: &[u8]) -> io::Result<libc::timespec> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid PAX layer timestamp");
+    let value = std::str::from_utf8(value).map_err(|_| invalid())?;
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    let mut seconds: libc::time_t = whole.parse().map_err(|_| invalid())?;
+    let mut nanos: libc::c_long = 0;
+    for (index, digit) in fraction.bytes().enumerate() {
+        if !digit.is_ascii_digit() { return Err(invalid()); }
+        if index < 9 { nanos = nanos * 10 + libc::c_long::from(digit - b'0'); }
+    }
+    for _ in fraction.len()..9 { nanos *= 10; }
+    if value.starts_with('-') && nanos != 0 {
+        seconds = seconds.checked_sub(1).ok_or_else(invalid)?;
+        nanos = 1_000_000_000 - nanos;
+    }
+    Ok(libc::timespec { tv_sec: seconds, tv_nsec: nanos })
 }
 
 fn escapes() -> io::Error {
@@ -671,6 +722,108 @@ mod tests {
         assert_eq!(m.uid().to_string(), uid);
         assert_eq!(m.gid().to_string(), gid);
         fs::remove_dir_all(dest).unwrap();
+    }
+
+    #[test]
+    fn special_fifo_rejects_invalid_pax_numbers_before_replacement() {
+        let mut accepted = Vec::new();
+        for key in ["uid", "gid", "size"] {
+            for value in ["18446744073709551616", "not-an-owner", "4294967296", "4294967295", "-1"] {
+                let dest = scratch(&format!("special-pax-invalid-{key}-{value}"));
+                fs::write(dest.join("pipe"), b"keep the existing file").unwrap();
+                let mut b = tar::Builder::new(Vec::new());
+                b.append_pax_extensions([(key, value.as_bytes())]).unwrap();
+                let mut h = header(0, 0o600);
+                h.set_entry_type(tar::EntryType::Fifo);
+                b.append_data(&mut h, "pipe", io::empty()).unwrap();
+                let bytes = b.into_inner().unwrap();
+                let result = untar(&bytes[..], &dest);
+                // Never open the target if the old implementation made a FIFO.
+                let unchanged = fs::symlink_metadata(dest.join("pipe")).unwrap().is_file()
+                    && fs::read(dest.join("pipe")).unwrap() == b"keep the existing file";
+                if result.is_ok() || !unchanged {
+                    accepted.push(format!("{key}={value}"));
+                }
+                fs::remove_dir_all(dest).unwrap();
+            }
+        }
+        assert!(accepted.is_empty(), "invalid numeric metadata modified the layer: {accepted:?}");
+    }
+
+    #[test]
+    fn special_fifo_uses_fractional_pax_mtime() {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        for (index, (value, seconds, nanos)) in [
+            ("1700000000.25", 1_700_000_000, 250_000_000),
+            ("1700000001", 1_700_000_001, 0),
+            ("-0.25", -1, 750_000_000),
+            ("1700000000.1234567899", 1_700_000_000, 123_456_789),
+            ("", 0, 0),
+        ].into_iter().enumerate() {
+            let dest = scratch(&format!("special-pax-time-{index}"));
+            let mut b = tar::Builder::new(Vec::new());
+            b.append_pax_extensions([("mtime", value.as_bytes())]).unwrap();
+            let mut h = header(0, 0o600);
+            h.set_entry_type(tar::EntryType::Fifo);
+            h.set_uid(u64::from(unsafe { libc::geteuid() }));
+            h.set_gid(u64::from(unsafe { libc::getegid() }));
+            b.append_data(&mut h, "pipe", io::empty()).unwrap();
+            let bytes = b.into_inner().unwrap();
+            // The locked reader exposes PAX mtime separately; its physical
+            // header retains zero, unlike the applied uid/gid overrides.
+            let mut archive = tar::Archive::new(&bytes[..]);
+            let mut entry = archive.entries().unwrap().next().unwrap().unwrap();
+            assert_eq!(entry.header().mtime().unwrap(), 0);
+            let timestamp = entry.pax_extensions().unwrap().unwrap()
+                .find_map(|item| {
+                    let item = item.unwrap();
+                    (item.key_bytes() == b"mtime").then(|| item.value_bytes().to_vec())
+                }).unwrap();
+            assert_eq!(timestamp, value.as_bytes());
+            untar(&bytes[..], &dest).unwrap();
+            let m = fs::symlink_metadata(dest.join("pipe")).unwrap();
+            assert!(m.file_type().is_fifo());
+            fs::remove_dir_all(dest).unwrap();
+            assert_eq!((m.mtime(), m.mtime_nsec()), (seconds, nanos), "{value}");
+        }
+    }
+
+    #[test]
+    fn special_pax_timestamp_bounds_and_precision() {
+        for (value, seconds, nanos) in [
+            ("0", 0, 0), ("+1.25", 1, 250_000_000), ("1.", 1, 0),
+            ("-0.000000001", -1, 999_999_999), ("-1.25", -2, 750_000_000),
+            ("-0.0000000009", 0, 0),
+            ("9223372036854775807.999999999", i64::MAX, 999_999_999),
+            ("-9223372036854775808", i64::MIN, 0),
+        ] {
+            let time = pax_node_time(value.as_bytes()).unwrap();
+            assert_eq!((time.tv_sec, time.tv_nsec), (seconds, nanos), "{value}");
+        }
+        for value in ["", "NaN", "1e9", "1.2.3", ".25", " 1", "1.123456789x",
+                      "9223372036854775808", "-9223372036854775809", "-9223372036854775808.1"] {
+            assert_eq!(pax_node_time(value.as_bytes()).err().unwrap().kind(), io::ErrorKind::InvalidData, "{value}");
+        }
+        assert!(pax_node_time(b"1.\xff").is_err());
+    }
+
+    #[test]
+    fn special_fifo_rejects_invalid_pax_time_before_replacement() {
+        for (index, value) in ["NaN", "1.2.3", "1.123456789x", "9223372036854775808",
+                               "-9223372036854775808.1"].into_iter().enumerate() {
+            let dest = scratch(&format!("special-pax-invalid-time-{index}"));
+            fs::write(dest.join("pipe"), b"keep the existing file").unwrap();
+            let mut b = tar::Builder::new(Vec::new());
+            b.append_pax_extensions([("mtime", value.as_bytes())]).unwrap();
+            let mut h = header(0, 0o600);
+            h.set_entry_type(tar::EntryType::Fifo);
+            b.append_data(&mut h, "pipe", io::empty()).unwrap();
+            let bytes = b.into_inner().unwrap();
+            assert_eq!(untar(&bytes[..], &dest).unwrap_err().kind(), io::ErrorKind::InvalidData);
+            assert!(fs::symlink_metadata(dest.join("pipe")).unwrap().is_file());
+            assert_eq!(fs::read(dest.join("pipe")).unwrap(), b"keep the existing file");
+            fs::remove_dir_all(dest).unwrap();
+        }
     }
 
     fn layer_blob(files: &[(&str, &[u8])]) -> Vec<u8> {

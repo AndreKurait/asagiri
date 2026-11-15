@@ -75,12 +75,13 @@ def check(path, base, reference=False):
         names.append("replaced-link")
         # Inspect metadata only: opening a FIFO can block and device I/O must
         # never be part of an image-materialization regression.
-        script = "stat -c '%f %u %g %Y %t %T %i' " + " ".join(
+        script = "export LC_ALL=C TZ=UTC\nstat -c '%f %u %g %Y %t %T %i' " + " ".join(
             "/import-special/" + name for name in names)
         script += "\nreadlink /import-special/fifo-symlink\ncat /import-message\n"
+        script += "stat -c 'pax %f %u %g %Y %y' /import-special/pax-fifo\n"
         rows = cli("run", "--rm", "--network", "none", "--entrypoint", "sh",
                    image, "-ec", script).stdout.decode().splitlines()
-        assert len(rows) == len(names) + 2 and rows[-2:] == ["fifo", "asagiri-import-ok"], rows
+        assert len(rows) == len(names) + 3 and rows[-3:-1] == ["fifo", "asagiri-import-ok"], rows
         inodes = {}
         expected = [node for node in nodes for _ in range(2)] + [("replaced-link", stat.S_IFIFO, 0, 0)]
         for name, row, (original, kind, major, minor) in zip(names, rows, expected):
@@ -92,6 +93,11 @@ def check(path, base, reference=False):
                 assert inode == inodes[original], (name, inode, inodes[original])
             else:
                 inodes[name] = inode
+        marker, mode, uid, gid, seconds, timestamp = rows[-1].split(maxsplit=5)
+        assert marker == "pax" and (stat.S_IFMT(int(mode, 16)), stat.S_IMODE(int(mode, 16)),
+                                   int(uid), int(gid), int(seconds)) == (
+            stat.S_IFIFO, 0o2640, 1234, 2345, 1_700_000_000), rows[-1]
+        assert re.search(r"\.250000001 \+0000$", timestamp), timestamp
         print("PASS imported FIFOs, device nodes, owners, modes, times and links", flush=True)
 
     try:
@@ -131,6 +137,12 @@ def check(path, base, reference=False):
             replacement.type, replacement.mode = tarfile.FIFOTYPE, 0o2640
             replacement.uid, replacement.gid, replacement.mtime = 1234, 2345, 1_700_000_000
             tar.addfile(replacement)
+            pax_node = tarfile.TarInfo("import-special/pax-fifo")
+            pax_node.type, pax_node.mode = tarfile.FIFOTYPE, 0o2640
+            # Deliberately distinct physical fields exercise PAX precedence.
+            pax_node.uid, pax_node.gid, pax_node.mtime = 0, 0, 0
+            pax_node.pax_headers = {"uid": "1234", "gid": "2345", "mtime": "1700000000.250000001"}
+            tar.addfile(pax_node)
         raw = data.getvalue()
         assert len(raw) > 8 << 20, "exercise an upload above the JSON body limit"
         tag = prefix + ":file"
