@@ -50,7 +50,8 @@ Path(sys.argv[2]).write_text(json.dumps({
     "files": files,
 }, indent=2) + "\n")
 PY
-docker run --rm --tmpfs /tmp \
+# AppImage's no-FUSE path executes extracted files from its temporary directory.
+docker run --rm --tmpfs /tmp:exec,nosuid,nodev \
   -v "$root:/src:ro" -v "$bin:/bin-input:ro" -v "$out:/out" "${cache_mount[@]}" \
   -w /src -e CARGO_TARGET_DIR=/cache/target -e CARGO_HOME=/cache/cargo \
   -e CARGO_INCREMENTAL=0 -e CARGO_PROFILE_DEV_DEBUG=0 -e CARGO_PROFILE_TEST_DEBUG=0 \
