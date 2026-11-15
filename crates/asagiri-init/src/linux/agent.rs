@@ -907,9 +907,9 @@ fn child_signals() -> io::Result<OwnedFd> {
     }
 }
 
-/// Linux host: every process still running is killed and reaped (a few
-/// seconds at most), and each container torn down: mounts, cgroup, and the
-/// writable layer of a `--rm` one. Veths go with their network namespaces.
+/// Linux host: kill and reap running processes, then join filesystem workers
+/// before tearing down containers. Retry admission is bounded; joining an
+/// active filesystem worker still waits for its I/O to finish.
 fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut Removals, paths: &Paths) {
     for p in procs.values().filter(|p| p.exited.is_none()) {
         // SAFETY: signalling a child we started and have not reaped.
@@ -924,10 +924,17 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, removals: &mut 
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     // A worker shares these paths/mounts. Join it before shutdown touches them.
-    while procs.values().any(|p| p.cleanup.is_some()) || !removals.is_empty() {
-        removals.start(std::time::Instant::now(), |id| container::begin_remove(paths, id));
+    let removal_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
         reap(procs, dns, removals);
+        let removing = removals.poll_shutdown(std::time::Instant::now(), removal_deadline, |id| container::begin_remove(paths, id));
+        if !removing && procs.values().all(|p| p.cleanup.is_none()) {
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    for id in removals.ids() {
+        eprintln!("asagiri-init: remove {id}: unfinished at shutdown; container files remain");
     }
     for p in procs.values().filter(|p| !p.cleanup_finished) {
         container::teardown(&p.run, false);
