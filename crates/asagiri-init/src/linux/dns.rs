@@ -99,6 +99,8 @@ pub struct Dns {
     /// bridge → name → (the container's IPv4 address there, its IPv6 one):
     /// the IPv4 address is what `unregister` names the container by.
     names6: HashMap<String, HashMap<String, Owned6>>,
+    /// Bridge to its Docker network name, for DNS search order.
+    networks: HashMap<String, String>,
     /// Container address → its `--dns` servers, used instead of the VM's.
     clients: HashMap<[u8; 4], Vec<[u8; 4]>>,
     pending: Vec<Pending>,
@@ -217,6 +219,13 @@ impl Dns {
         }
     }
 
+    /// `bridge` is Docker network `name` (`net_opts::NETWORK`).
+    pub fn name_network(&mut self, bridge: &str, name: &str) {
+        if self.networks.get(bridge).is_none_or(|n| n != name) {
+            self.networks.insert(bridge.to_owned(), name.to_owned());
+        }
+    }
+
     /// A removed network's bridge: its server and names go.
     pub fn forget_bridge(&mut self, bridge: &str) {
         self.servers.retain(|s| s.container.is_some() || !s.bridges.iter().any(|b| b == bridge));
@@ -225,6 +234,7 @@ impl Dns {
         }
         self.names.remove(bridge);
         self.names6.remove(bridge);
+        self.networks.remove(bridge);
         self.forget_pending();
     }
 
@@ -316,10 +326,12 @@ impl Dns {
     fn answer(&self, server: usize, q: &[u8]) -> Option<Vec<u8>> {
         let (name, qtype, end) = parse_question(q)?;
         let host = vec![super::net::HOST_ADDR];
-        // The first of the server's networks that has the name answers.
-        let bridge = self.servers[server].bridges.iter().find(|b| {
-            self.names.get(*b).is_some_and(|t| t.contains_key(&name)) || self.names6.get(*b).is_some_and(|t| t.contains_key(&name))
-        });
+        // Compose registers service aliases on every joined network. Search
+        // equivalent networks by their Docker names, rather than join order,
+        // so a project can use its own `db` before a shared network's alias.
+        let bridge = self.servers[server].bridges.iter()
+            .filter(|b| self.names.get(*b).is_some_and(|t| t.contains_key(&name)) || self.names6.get(*b).is_some_and(|t| t.contains_key(&name)))
+            .min_by_key(|b| self.networks.get(*b).map_or(b.as_str(), String::as_str));
         let addrs = bridge.and_then(|b| self.names.get(b)).and_then(|t| t.get(&name));
         let addrs6 = bridge.and_then(|b| self.names6.get(b)).and_then(|t| t.get(&name));
         // The host's names answer A with the host's address, and AAAA with
@@ -623,6 +635,31 @@ mod tests {
         assert!(dns.answer(0, &query("db", 1)).is_none(), "gone with the network");
         dns.drop_container(42);
         assert!(dns.servers.is_empty());
+    }
+
+    #[test]
+    fn a_containers_networks_are_searched_by_docker_network_name() {
+        for (shared, project, shared_answers) in [("kiri_shared_t", "kra_default", true), ("ddev_default", "ddev-a_default", false), ("zz_shared", "kca_default", false)] {
+            let mut dns = Dns::default();
+            dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], sock: udp_socket().unwrap(), container: Some((42, [10, 1, 0, 2])) });
+            dns.name_network("asagiri1", shared);
+            dns.name_network("asagiri2", project);
+            dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 3]);
+            dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 4]);
+            dns.register("asagiri2", ["db"].iter(), [10, 2, 0, 3]);
+            let q = query("db", 1);
+            let got = answers(&dns.answer(0, &q).unwrap(), q.len());
+            let want = if shared_answers { vec![(1, vec![10, 1, 0, 3]), (1, vec![10, 1, 0, 4])] } else { vec![(1, vec![10, 2, 0, 3])] };
+            assert_eq!(got, want, "{shared} and {project}");
+        }
+    }
+
+    #[test]
+    fn a_removed_networks_name_goes_with_its_bridge() {
+        let mut dns = Dns::default();
+        dns.name_network("asagiri1", "frontend");
+        dns.forget_bridge("asagiri1");
+        assert!(dns.networks.is_empty());
     }
 
     #[test]

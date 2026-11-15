@@ -410,6 +410,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 None => veths.push(host_if),
             }
             if embedded_dns {
+                if let Some(name) = net_opts::values(spec.net.opts, net_opts::NETWORK).next() {
+                    net.dns.name_network(spec.net.bridge, name);
+                }
                 // An IPv6-only network's bridge has no IPv4 address to serve on,
                 // and its containers no A records. A macvlan or ipvlan network
                 // has no gateway to serve on: its containers ask 127.0.0.11.

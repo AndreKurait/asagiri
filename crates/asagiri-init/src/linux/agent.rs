@@ -663,6 +663,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         });
                         match attached {
                             Ok(link) => {
+                                if let Some(name) = asagiri_proto::net_opts::values(n.opts, asagiri_proto::net_opts::NETWORK).next() {
+                                    dns.name_network(n.bridge, name);
+                                }
                                 if !plug.no_ipv4 {
                                     dns.register(n.bridge, n.dns_names.iter(), n.ip);
                                 }
