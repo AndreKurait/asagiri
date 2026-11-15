@@ -62,6 +62,13 @@ int main(void) {
         struct loop_config config = {0};
         config.fd = disk;
         CHECK(ioctl(loop, LOOP_CONFIGURE, &config) == 0, "attach owned image");
+        /* CONFIG_BLK_DEV_WRITE_MOUNTED=n rejects a filesystem mount while
+         * another writer holds the block device open. Match losetup's
+         * lifetime: configure, close, mount; reopen only after unmounting.
+         * LOOP_CONFIGURE did not request AUTOCLEAR, so closing keeps the
+         * attachment alive for the actual mount/write/reattach checks.
+         */
+        CHECK(close(loop) == 0, "close loop configuration handle");
         CHECK(mount(device, "/mnt", "ext4", 0, NULL) == 0, "mount ext4 loop image");
         if (pass == 0) {
             int file = open("/mnt/proof", O_WRONLY | O_CREAT | O_EXCL, 0600);
@@ -78,6 +85,8 @@ int main(void) {
             close(file);
         }
         CHECK(umount("/mnt") == 0, "unmount owned filesystem");
+        loop = open(device, O_RDWR);
+        CHECK(loop >= 0, "reopen unmounted loop device");
         CHECK(ioctl(loop, LOOP_CLR_FD) == 0, "detach owned image");
         struct loop_info64 info;
         errno = 0;
