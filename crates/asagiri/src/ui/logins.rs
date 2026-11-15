@@ -5,7 +5,9 @@
 //! the docker CLI finds one (config.json's `credHelpers`, then `credsStore`,
 //! then `auths`) and saved where the CLI will look: with the configured
 //! credential helper, or, with none, in the Keychain or Windows' Credential
-//! Manager. A password never goes into config.json, a log or an event.
+//! Manager. Linux detects pass/secretservice for a fresh config, then falls
+//! back to a private config.json. Its base64 credentials are not encrypted.
+//! Passwords and tokens never belong in logs or window events.
 
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +21,7 @@ use crate::client;
 // Docker's base64, the engine's own file (asagiri-win doesn't link asagiri-image).
 #[path = "../../../asagiri-image/src/b64.rs"]
 mod b64;
+mod config;
 
 /// Docker Hub's key in config.json and with credential helpers.
 pub const HUB: &str = "https://index.docker.io/v1/";
@@ -106,11 +109,17 @@ pub fn header_for(reference: &str) -> Option<String> {
 
 /// The docker CLI's directory: `DOCKER_CONFIG`, else `~/.docker`.
 fn config_dir() -> Option<PathBuf> {
-    if let Some(d) = std::env::var_os("DOCKER_CONFIG") {
-        return Some(PathBuf::from(d));
-    }
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
-    Some(PathBuf::from(home).join(".docker"))
+    config_dir_with(std::env::var_os("DOCKER_CONFIG"),
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }))
+}
+
+fn config_dir_with(config: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    config.filter(|value| !value.is_empty()).map(PathBuf::from)
+        .or_else(|| home.filter(|value| !value.is_empty()).map(|value| PathBuf::from(value).join(".docker")))
+}
+
+fn config_path() -> io::Result<PathBuf> {
+    config_dir().map(|d| d.join("config.json")).ok_or_else(|| io::Error::other("no home folder"))
 }
 
 /// config.json's JSON; a file saved by Notepad may start with a BOM.
@@ -120,39 +129,89 @@ fn parse_config(b: &[u8]) -> serde_json::Result<Value> {
 
 /// config.json, or `{}` when there is none (or it can't be read).
 fn read_config() -> Value {
-    config_dir().and_then(|d| std::fs::read(d.join("config.json")).ok()).and_then(|b| parse_config(&b).ok()).unwrap_or_else(|| json!({}))
+    config_path().ok().and_then(|p| config::read(&p).ok()).unwrap_or_else(|| json!({}))
 }
 
 /// Changes config.json's `auths`, through a temporary file so a crash never
 /// leaves half a config. A config that can't be read is left alone.
 fn edit_auths(change: impl FnOnce(&mut serde_json::Map<String, Value>)) -> io::Result<()> {
-    let path = config_dir().ok_or_else(|| io::Error::other("no home folder"))?.join("config.json");
-    let mut cfg: Value = match std::fs::read(&path) {
-        Ok(b) => parse_config(&b).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", path.display())))?,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => json!({}),
-        Err(e) => return Err(e),
-    };
-    let Some(obj) = cfg.as_object_mut() else { return Err(io::Error::new(io::ErrorKind::InvalidData, "config.json isn't an object")) };
-    let auths = obj.entry("auths").or_insert_with(|| json!({}));
-    if !auths.is_object() {
-        *auths = json!({});
-    }
-    if let Some(a) = auths.as_object_mut() {
-        change(a);
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("asagiri-tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&cfg).map_err(io::Error::other)?)?;
-    std::fs::rename(tmp, path)
+    config::edit(&config_path()?, |cfg| {
+        change(config::auths(cfg)?);
+        Ok(())
+    })
 }
 
 /// The credential helper config.json names for `key`: its own in
 /// `credHelpers`, else `credsStore`.
 fn helper_name(cfg: &Value, key: &str) -> Option<String> {
-    let own = cfg["credHelpers"].as_object().and_then(|m| m.iter().find(|(k, _)| server_key(k) == key)).and_then(|(_, v)| v.as_str());
-    own.or(cfg["credsStore"].as_str()).filter(|n| valid_helper(n)).map(str::to_owned)
+    configured_helper(cfg, key).ok().flatten()
+}
+
+fn configured_helper(cfg: &Value, key: &str) -> io::Result<Option<String>> {
+    let own = match cfg.get("credHelpers") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(helpers)) => helpers.iter().find(|(k, _)| server_key(k) == key).map(|(_, v)| v),
+        Some(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "config.json credHelpers isn't an object")),
+    };
+    match own.or_else(|| cfg.get("credsStore")) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(name)) if name.is_empty() => Ok(None),
+        Some(Value::String(name)) if valid_helper(name) => Ok(Some(name.clone())),
+        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "config.json has an invalid credential helper name")),
+    }
+}
+
+struct Helper {
+    name: String,
+    path: PathBuf,
+    detected: bool,
+}
+
+fn contains_auth(cfg: &Value) -> bool {
+    cfg["auths"].as_object().is_some_and(|a| !a.is_empty())
+        || cfg["credHelpers"].as_object().is_some_and(|a| !a.is_empty())
+        || cfg["credsStore"].as_str().is_some_and(|s| !s.is_empty())
+}
+
+fn resolve_helper(cfg: &Value, key: &str, native_default: Option<&str>,
+                  lookup: impl Fn(&str) -> Option<PathBuf>) -> io::Result<Option<Helper>> {
+    if let Some(name) = configured_helper(cfg, key)? {
+        let path = lookup(&name).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound,
+            format!("configured docker-credential-{name} wasn't found")))?;
+        return Ok(Some(Helper { name, path, detected: false }));
+    }
+    // Docker detects a Linux native store only for configs without auth
+    // settings. Existing inline logins must remain readable by both clients.
+    if !contains_auth(cfg) && let Some(name) = native_default && let Some(path) = lookup(name) {
+        return Ok(Some(Helper { name: name.to_owned(), path, detected: true }));
+    }
+    Ok(None)
+}
+
+fn executable_file(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else { return false };
+    if !metadata.is_file() { return false; }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 { return false; }
+    }
+    true
+}
+
+fn linux_helper_on_path(path: &std::ffi::OsStr) -> &'static str {
+    // Docker picks pass only when the pass program is executable on PATH.
+    // It then checks that one helper, without trying the other native store.
+    if std::env::split_paths(path).any(|dir| executable_file(&dir.join("pass"))) {
+        "pass"
+    } else {
+        "secretservice"
+    }
+}
+
+fn native_default_helper() -> Option<&'static str> {
+    cfg!(target_os = "linux").then(|| linux_helper_on_path(
+        &std::env::var_os("PATH").unwrap_or_default()))
 }
 
 /// A helper name is part of a file name: nothing that could leave the folder.
@@ -165,7 +224,7 @@ fn valid_helper(name: &str) -> bool {
 fn helper_path(name: &str) -> Option<PathBuf> {
     let file = format!("docker-credential-{name}{}", std::env::consts::EXE_SUFFIX);
     let path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-    path.into_iter().chain(helper_dirs()).map(|d| d.join(&file)).find(|f| f.is_file())
+    path.into_iter().chain(helper_dirs()).map(|d| d.join(&file)).find(|f| executable_file(f))
 }
 
 #[cfg(not(windows))]
@@ -279,19 +338,18 @@ fn auths_entry<'a>(cfg: &'a Value, key: &str) -> Option<&'a Value> {
 /// when there's no helper; then config.json itself.
 pub fn find(key: &str) -> Option<Login> {
     let cfg = read_config();
-    let helper = helper_name(&cfg, key).and_then(|n| helper_path(&n));
-    let found = match &helper {
-        Some(path) => run(path, "get", key.as_bytes()).ok().and_then(|o| parse_get(&o)),
-        None => os::get(key),
-    };
-    found.or_else(|| auths_entry(&cfg, key).and_then(inline))
+    match resolve_helper(&cfg, key, native_default_helper(), helper_path).ok()? {
+        Some(helper) => run(&helper.path, "get", key.as_bytes()).ok().and_then(|o| parse_get(&o)),
+        None => os::get(key).or_else(|| auths_entry(&cfg, key).and_then(inline)),
+    }
 }
 
 /// Where a new sign-in for `key` goes, said for people.
 fn store_label(cfg: &Value, key: &str) -> String {
-    match helper_name(cfg, key).filter(|n| helper_path(n).is_some()) {
-        Some(n) => format!("Saved with docker-credential-{n}"),
-        None => format!("Kept in {}", os::NAME),
+    match resolve_helper(cfg, key, native_default_helper(), helper_path) {
+        Ok(Some(helper)) => format!("Saved with docker-credential-{}", helper.name),
+        Ok(None) => format!("Kept in {}", os::NAME),
+        Err(e) => e.to_string(),
     }
 }
 
@@ -299,19 +357,61 @@ fn store_label(cfg: &Value, key: &str) -> String {
 /// noting the registry in `auths` as `docker login` does (and dropping a
 /// password written there before); else in the system's store. Says where.
 fn save(key: &str, login: &Login) -> Result<String, String> {
-    let cfg = read_config();
-    if let Some((name, path)) = helper_name(&cfg, key).and_then(|n| helper_path(&n).map(|p| (n, p))) {
+    let path = config_path().map_err(|e| e.to_string())?;
+    save_with(&path, key, login, native_default_helper(), helper_path, || os::set(key, login))
+}
+
+fn save_with(path: &Path, key: &str, login: &Login, native_default: Option<&str>,
+             lookup: impl Fn(&str) -> Option<PathBuf>,
+             fallback: impl FnOnce() -> io::Result<()>) -> Result<String, String> {
+    let cfg = config::read(path).map_err(|e| e.to_string())?;
+    if let Some(helper) = resolve_helper(&cfg, key, native_default, lookup).map_err(|e| e.to_string())? {
+        let name = &helper.name;
         let input = json!({"ServerURL": key, "Username": login.username, "Secret": login.secret}).to_string();
-        run(&path, "store", input.as_bytes()).map_err(|e| format!("docker-credential-{name} couldn't save it: {e}"))?;
-        // The helper is what counts: the CLI asks it whether or not `auths` lists the registry.
-        let _ = edit_auths(|a| {
-            let k = a.keys().find(|k| server_key(k) == key).cloned().unwrap_or_else(|| key.to_owned());
-            a.insert(k, json!({}));
-        });
+        // A failed helper may echo its secret-bearing stdin. Return its error
+        // kind, never arbitrary helper output in a window event or log.
+        run(&helper.path, "store", input.as_bytes())
+            .map_err(|e| format!("docker-credential-{name} couldn't save it ({})", e.kind()))?;
+        config::edit(path, |cfg| {
+            if helper.detected {
+                if contains_auth(cfg) {
+                    return Err(io::Error::other("credential settings changed while signing in; try again"));
+                }
+                // Otherwise the new auths entry would suppress Docker's own
+                // auto-detection, making the saved helper login unreachable.
+                cfg["credsStore"] = name.as_str().into();
+            } else if configured_helper(cfg, key)?.as_deref() != Some(name.as_str()) {
+                return Err(io::Error::other("credential settings changed while signing in; try again"));
+            }
+            let a = config::auths(cfg)?;
+            a.retain(|k, _| server_key(k) != key);
+            a.insert(key.to_owned(), json!({}));
+            Ok(())
+        }).map_err(|e| format!("Saved with docker-credential-{name}, but couldn't update config.json: {e}"))?;
         return Ok(format!("Saved with docker-credential-{name}"));
     }
-    os::set(key, login).map_err(|e| format!("Couldn't save it in {}: {e}", os::NAME))?;
+    fallback().map_err(|e| format!("Couldn't save it in {}: {e}", os::NAME))?;
     Ok(format!("Kept in {}", os::NAME))
+}
+
+#[cfg(any(test, not(any(target_os = "macos", windows))))]
+fn save_inline_at(path: &Path, key: &str, login: &Login) -> io::Result<()> {
+    config::edit(path, |cfg| {
+        // Recheck after taking the file lock; a newly configured helper must
+        // not silently become a plaintext login while this writer waited.
+        if configured_helper(cfg, key)?.is_some() {
+            return Err(io::Error::other("credential helper changed while signing in; try again"));
+        }
+        let a = config::auths(cfg)?;
+        a.retain(|k, _| server_key(k) != key);
+        let entry = if login.username == TOKEN_USER {
+            json!({"identitytoken": login.secret})
+        } else {
+            json!({"auth": b64::encode(format!("{}:{}", login.username, login.secret).as_bytes())})
+        };
+        a.insert(key.to_owned(), entry);
+        Ok(())
+    })
 }
 
 /// `{type: "login", server, error}`.
@@ -772,11 +872,10 @@ mod os {
 #[cfg(not(any(target_os = "macos", windows)))]
 mod os {
     use std::io;
-    use serde_json::json;
 
-    use super::{Login, TOKEN_USER, auths_entry, b64, config_dir, edit_auths, inline, read_config, server_key};
+    use super::{Login, auths_entry, config_path, inline, read_config, save_inline_at};
 
-    pub const NAME: &str = "~/.docker/config.json";
+    pub const NAME: &str = "config.json";
 
     pub fn get(key: &str) -> Option<Login> {
         let cfg = read_config();
@@ -784,26 +883,11 @@ mod os {
     }
 
     pub fn set(key: &str, login: &Login) -> io::Result<()> {
-        edit_auths(|a| {
-            let k = a.keys().find(|k| server_key(k) == key).cloned().unwrap_or_else(|| key.to_owned());
-            let entry = if login.username == TOKEN_USER {
-                json!({"identitytoken": login.secret})
-            } else {
-                let auth = b64::encode(format!("{}:{}", login.username, login.secret).as_bytes());
-                json!({"auth": auth})
-            };
-            a.insert(k, entry);
-        })?;
-        if let Some(path) = config_dir().map(|d| d.join("config.json")) {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-        }
-        Ok(())
+        save_inline_at(&config_path()?, key, login)
     }
 
-    pub fn delete(key: &str) {
-        let _ = edit_auths(|a| a.retain(|k, _| server_key(k) != key));
-    }
+    // logout removes all inline aliases through the shared config edit.
+    pub fn delete(_key: &str) {}
 
     pub fn list() -> Vec<(String, String)> {
         Vec::new()
@@ -813,6 +897,197 @@ mod os {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_config_override_uses_the_home_directory_and_missing_home_never_uses_cwd() {
+        let home = PathBuf::from("user-home");
+        assert_eq!(config_dir_with(Some("".into()), Some(home.clone().into_os_string())),
+                   Some(home.join(".docker")));
+        assert_eq!(config_dir_with(Some("chosen-config".into()), None),
+                   Some(PathBuf::from("chosen-config")));
+        assert_eq!(config_dir_with(None, None), None);
+        assert_eq!(config_dir_with(Some("".into()), Some("".into())), None);
+    }
+
+    struct Directory(PathBuf);
+    impl Directory {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("asagiri-login-save-{}-{}",
+                std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn config(&self) -> PathBuf { self.0.join("config.json") }
+    }
+    impl Drop for Directory {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn linux_file_fallback_preserves_other_settings_and_replaces_passwords_with_tokens() {
+        let dir = Directory::new();
+        let cfg = json!({"currentContext":"asagiri", "plugins":{"example":{"keep":true}},
+                         "credHelpers":{"other.test":"example"},
+                         "auths":{"https://ghcr.io/v1/":{"auth":b64::encode(b"old:fake")},
+                                  "ghcr.io":{"auth":b64::encode(b"duplicate:fake")},
+                                  "other.test":{"identitytoken":"other-test-token"}}});
+        std::fs::write(dir.config(), cfg.to_string()).unwrap();
+        let login = Login { username:"example".into(), secret:"test:only:password".into() };
+        save_with(&dir.config(), "ghcr.io", &login, Some("pass"), |_| None,
+                  || save_inline_at(&dir.config(), "ghcr.io", &login)).unwrap();
+        let saved = config::read(&dir.config()).unwrap();
+        assert_eq!(saved["auths"].as_object().unwrap().len(), 2);
+        assert!(saved["auths"].get("https://ghcr.io/v1/").is_none());
+        assert_eq!(saved["currentContext"], cfg["currentContext"]);
+        assert_eq!(saved["plugins"], cfg["plugins"]);
+        assert_eq!(saved["credHelpers"], cfg["credHelpers"]);
+        assert_eq!(saved["auths"]["other.test"], cfg["auths"]["other.test"]);
+        let actual = auths_entry(&saved, "ghcr.io").and_then(inline).unwrap();
+        assert_eq!((actual.username, actual.secret), (login.username, login.secret));
+        let token = Login { username:TOKEN_USER.into(), secret:"test-only-identity-token".into() };
+        save_inline_at(&dir.config(), "ghcr.io", &token).unwrap();
+        let saved = config::read(&dir.config()).unwrap();
+        assert_eq!(saved["auths"]["ghcr.io"], json!({"identitytoken":token.secret}));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir.config()).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn missing_or_invalid_configured_helpers_never_use_file_fallback() {
+        let dir = Directory::new();
+        let login = Login { username:"example".into(), secret:"test-only-secret".into() };
+        for cfg in [json!({"credsStore":"missing"}), json!({"credsStore":"../invalid"}),
+                    json!({"credsStore":12}), json!({"credHelpers":[]}),
+                    json!({"credHelpers":{"ghcr.io":"missing"}}),
+                    json!({"credHelpers":{"ghcr.io":false}})] {
+            let bytes = cfg.to_string();
+            std::fs::write(dir.config(), &bytes).unwrap();
+            let used = std::cell::Cell::new(false);
+            let error = save_with(&dir.config(), "ghcr.io", &login, Some("pass"), |_| None, || {
+                used.set(true);
+                save_inline_at(&dir.config(), "ghcr.io", &login)
+            }).unwrap_err();
+            assert!(!used.get(), "a configured helper silently fell back to a file");
+            assert!(!error.contains(&login.secret));
+            assert_eq!(std::fs::read_to_string(dir.config()).unwrap(), bytes);
+            assert!(save_inline_at(&dir.config(), "ghcr.io", &login).is_err());
+            assert_eq!(std::fs::read_to_string(dir.config()).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn linux_native_detection_matches_docker_and_preserves_existing_auth_configuration() {
+        let all = |name: &str| Some(PathBuf::from(format!("docker-credential-{name}")));
+        let helper = resolve_helper(&json!({}), HUB, Some("pass"), all).unwrap().unwrap();
+        assert_eq!(helper.name, "pass");
+        assert!(helper.detected);
+        let helper = resolve_helper(&json!({}), HUB, Some("secretservice"), all).unwrap().unwrap();
+        assert_eq!(helper.name, "secretservice");
+        assert!(helper.detected);
+        // With pass installed but its helper absent, Docker uses the file;
+        // an available secretservice helper must not change that decision.
+        assert!(resolve_helper(&json!({}), HUB, Some("pass"),
+            |n| (n == "secretservice").then(|| PathBuf::from(n))).unwrap().is_none());
+        assert!(resolve_helper(&json!({}), HUB, None, all).unwrap().is_none());
+        assert!(resolve_helper(&json!({"auths":{"other.test":{}}}), HUB, Some("pass"), all).unwrap().is_none());
+        assert!(resolve_helper(&json!({"credsStore":"pass","credHelpers":{"ghcr.io":""}}),
+                               "ghcr.io", Some("pass"), all).unwrap().is_none());
+        let helper = resolve_helper(&json!({"credsStore":"pass","credHelpers":{"ghcr.io":"special"}}),
+                                    "ghcr.io", Some("secretservice"), all).unwrap().unwrap();
+        assert_eq!(helper.name, "special");
+        assert!(!helper.detected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_native_store_selection_requires_the_pass_program_not_just_its_helper() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Directory::new();
+        let path = std::env::join_paths([&dir.0]).unwrap();
+        let helper = dir.0.join("docker-credential-pass");
+        std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(linux_helper_on_path(&path), "secretservice");
+        let pass = dir.0.join("pass");
+        std::fs::write(&pass, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(linux_helper_on_path(&path), "secretservice");
+        std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(linux_helper_on_path(&path), "pass");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_protocol_errors_never_echo_secrets_or_downgrade_to_file_credentials() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Directory::new();
+        let helper = dir.0.join("docker-credential-test");
+        std::fs::write(&helper, "#!/bin/sh\ncat\nexit 1\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let cfg = json!({"credsStore":"test","currentContext":"keep"});
+        let bytes = cfg.to_string();
+        std::fs::write(dir.config(), &bytes).unwrap();
+        let login = Login { username:"example".into(), secret:"test-only-secret-with-\"quotes\"".into() };
+        let used = std::cell::Cell::new(false);
+        let error = save_with(&dir.config(), "ghcr.io", &login, Some("pass"), |_| Some(helper.clone()), || {
+            used.set(true);
+            save_inline_at(&dir.config(), "ghcr.io", &login)
+        }).unwrap_err();
+        assert!(!used.get());
+        assert!(!error.contains("test-only-secret"));
+        assert!(!error.contains("Secret"));
+        assert!(error.contains("docker-credential-test couldn't save it"));
+        assert_eq!(std::fs::read_to_string(dir.config()).unwrap(), bytes);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detected_helpers_are_recorded_for_docker_and_never_store_their_secret_in_config() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Directory::new();
+        let helper = dir.0.join("docker-credential-pass");
+        std::fs::write(&helper, "#!/bin/sh\n[ \"$1\" = store ] || exit 2\ncat > /dev/null\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(dir.config(), br#"{"currentContext":"asagiri"}"#).unwrap();
+        let login = Login { username:"example".into(), secret:"test-only-secret".into() };
+        let store = save_with(&dir.config(), "ghcr.io", &login, Some("pass"),
+            |name| (name == "pass").then(|| helper.clone()),
+            || panic!("an available native helper was replaced by file credentials")).unwrap();
+        assert_eq!(store, "Saved with docker-credential-pass");
+        let text = std::fs::read_to_string(dir.config()).unwrap();
+        assert!(!text.contains(&login.secret));
+        assert!(!text.contains(&b64::encode(format!("{}:{}", login.username, login.secret).as_bytes())));
+        let saved = config::read(&dir.config()).unwrap();
+        assert_eq!(saved["credsStore"], "pass");
+        assert_eq!(saved["auths"]["ghcr.io"], json!({}));
+        assert_eq!(saved["currentContext"], "asagiri");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_helper_changes_during_store_preserve_the_new_config_and_report_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Directory::new();
+        let helper = dir.0.join("docker-credential-test");
+        std::fs::write(&helper, concat!(
+            "#!/bin/sh\ncat > /dev/null\n",
+            "printf '%s\\n' '{\"credsStore\":\"changed\",\"currentContext\":\"keep\"}' > \"${0%/*}/config.json\"\n"
+        )).unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(dir.config(), br#"{"credsStore":"test"}"#).unwrap();
+        let login = Login { username:"example".into(), secret:"test-only-secret".into() };
+        let error = save_with(&dir.config(), "ghcr.io", &login, Some("pass"),
+            |_| Some(helper.clone()), || panic!("configured helpers cannot fall back")).unwrap_err();
+        assert!(error.contains("credential settings changed"));
+        assert!(!error.contains(&login.secret));
+        assert_eq!(config::read(&dir.config()).unwrap(),
+                   json!({"credsStore":"changed","currentContext":"keep"}));
+    }
 
     #[test]
     fn keys_registries_as_config_json_does() {
