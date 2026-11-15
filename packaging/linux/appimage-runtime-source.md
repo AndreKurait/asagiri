@@ -5,6 +5,7 @@ commit `dd6cebedcbddde9c82f89b011e8e1d40b6e43868`, with Asagiri's included
 `appimage-runtime.patch` and `appimage-extraction.h`. The patch replaces the
 shared extraction cache with private directories for each invocation, validates
 AppRun before execution, and retains a directory until its own child exits.
+Termination during extraction is deferred until cleanup, before AppRun starts.
 Elevated extraction ignores `TMPDIR` and requires a root-owned sticky `/tmp`.
 Normal no-FUSE execution still needs an executable temporary filesystem.
 

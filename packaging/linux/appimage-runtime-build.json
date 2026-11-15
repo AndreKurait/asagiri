@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "version": "dd6cebed-asagiri-private-v1",
+  "version": "dd6cebed-asagiri-private-v2",
   "compiler_image": "rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c",
-  "patched_runtime_sha256": "f0d36c23b0059d7bb1b8c1130fd969e1fce8c87d3312f17b200447fa42322dd7",
+  "patched_runtime_sha256": "b3c413216cad10fb95b87c2f5689a8ac0671cb166f751365ff6deba3dd4f29f7",
   "inputs": {
-    "appimage-runtime.patch": "3c881d7966e7fe8f8c4ac0d74ddbd21987d34bc90cb0ec2f77efc7ace2293b6d",
+    "appimage-runtime.patch": "e27f602019470a5c1f84858e523b79b7bb4ec8e9282e291f1f62baf3c9d81825",
     "appimage-extraction.h": "2d9dd45b5f2c674f21a8ac0449166a51b93a9066bacea195eb4595ca17668ac5",
     "appimage-runtime-build.sh": "5576c9c414658e055c0ff1ea6ff4a6ff00662c7e2b1a38cd498e5ab5d4aaa403"
   },

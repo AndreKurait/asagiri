@@ -27,6 +27,7 @@ CASES = (
     "concurrent-unprivileged-extraction",
     "failed-child-exit-cleanup",
     "signalled-child-waits-and-cleans",
+    "cancelled-extraction-cleans-before-launch",
     "writable-apprun-rejected",
     "linked-apprun-rejected",
     "writable-tmpdir-ancestor-rejected",
@@ -37,6 +38,7 @@ TOOL_HASHES = {
     "aarch64": "f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158",
 }
 PREEXISTING_DATA = b"Asagiri extraction isolation fixture; non-executable data.\n"
+PADDING_BYTES = 536870912
 FIXTURE = b"""#!/usr/bin/python3
 import json, os, signal, sys, time
 from pathlib import Path
@@ -394,6 +396,50 @@ def signalled(case, fixture):
                        directory_retained_until_child_exit=True, runtime_directories_removed=True)
 
 
+def cancelled_extraction(case, fixture):
+    process, _ = case.spawn([str(fixture), "--version"])
+    deadline = time.monotonic() + 15
+    while True:
+        candidates = [path for path in case.tmp.iterdir()
+                      if re.fullmatch(r"(?:asagiri-appimage-[a-zA-Z0-9]{6}|appimage_extracted_[a-f0-9]{32})",
+                                      path.name) and (path / "padding").is_file()]
+        if candidates:
+            assert len(candidates) == 1
+            appdir = candidates[0]
+            identity = case.own(appdir, 65534, private=False)
+            break
+        assert process.poll() is None and time.monotonic() < deadline, "Extraction was not observed"
+        time.sleep(.001)
+    # Use the existing UID/start-time/pidfd helper; no CAP_KILL or foreign
+    # process is involved. Prove extraction is unfinished while it is stopped.
+    case.send_signal(process, signal.SIGSTOP)
+    deadline = time.monotonic() + 3
+    while True:
+        fields = Path(f"/proc/{process.pid}/stat").read_text().rsplit(")", 1)[1].split()
+        assert fields[19] == case.process_start[process.pid]
+        if fields[0] == "T":
+            break
+        assert process.poll() is None and time.monotonic() < deadline
+        time.sleep(.001)
+    size = (appdir / "padding").stat().st_size
+    assert 0 < size < PADDING_BYTES, "The launcher must be stopped during extraction"
+    assert not (case.home / "ready.json").exists(), "AppRun started before cancellation"
+    case.send_signal(process, signal.SIGTERM)
+    pending = {key: int(value.strip(), 16) for line in Path(f"/proc/{process.pid}/status").read_text().splitlines()
+               for key, value in [line.split(":", 1)] if key in ("SigPnd", "ShdPnd")}
+    assert (pending["SigPnd"] | pending["ShdPnd"]) & (1 << (signal.SIGTERM - 1))
+    case.record.update(signal=signal.SIGTERM, extraction_identity=identity,
+                       stopped_during_extraction=True, launcher_pid=process.pid,
+                       launcher_start=fields[19], launcher_state=fields[0],
+                       extracted_bytes=size, padding_bytes=PADDING_BYTES, pending_signals=pending)
+    case.send_signal(process, signal.SIGCONT)
+    code = process.wait(timeout=30)
+    assert code == -signal.SIGTERM
+    assert not (case.home / "ready.json").exists(), "Cancelled extraction launched AppRun"
+    case.record.update(exit=code, apprun_executed=False, runtime_directories_removed=not appdir.exists())
+    assert case.record["runtime_directories_removed"], "Cancelled extraction left its private directory"
+
+
 def rejected_apprun(case, fixture):
     code, output = case.command([str(fixture), "--version"])
     assert code != 0 and "Failed to extract a private, owned AppRun" in output, output
@@ -439,7 +485,7 @@ def main():
         "source": args.source, "source_tree": args.source_tree, "architecture": os.uname().machine,
         "appimage_sha256": digest(args.appimage), "runtime_prefix_sha256": hashlib.sha256(prefix).hexdigest(),
         "appimagetool_sha256": digest(args.appimagetool), "qualifier_sha256": digest(Path(__file__)),
-        "mode": "single-control" if args.only else "complete", "checks": [],
+        "mode": "single-control" if args.only else "complete", "checks": [], "negative_controls": [],
         "limits": ["private container; no FUSE mount or polkit prompt",
                    "root setup validates a nonexistent account and exits before installation",
                    "lifetime/signal/malformed fixtures use the actual packaged runtime and test AppRun"],
@@ -465,7 +511,7 @@ def main():
             mksquashfs = candidates[0]
             record["mksquashfs_sha256"] = digest(mksquashfs)
             fixtures = {}
-            for kind in ("normal", "writable", "linked"):
+            for kind in ("normal", "writable", "linked", "large"):
                 appdir = scratch / (kind + "-input")
                 appdir.mkdir()
                 (appdir / "payload").write_bytes(FIXTURE)
@@ -475,6 +521,11 @@ def main():
                 else:
                     (appdir / "AppRun").write_bytes(FIXTURE)
                     (appdir / "AppRun").chmod(0o777 if kind == "writable" else 0o755)
+                if kind == "large":
+                    # Sparse input keeps the fixture small on disk; the runtime
+                    # writes it in chunks, allowing a real mid-extraction stop.
+                    with (appdir / "padding").open("wb") as padding:
+                        padding.truncate(PADDING_BYTES)
                 squash = scratch / (kind + ".squashfs")
                 log_path = args.output.with_name(args.output.stem + "-" + kind + "-squashfs.txt")
                 with log_path.open("wb") as log:
@@ -485,6 +536,15 @@ def main():
                 fixture.write_bytes(prefix + squash.read_bytes())
                 fixture.chmod(0o755)
                 fixtures[kind] = fixture
+            # The SHA-pinned packaging tool includes the original upstream
+            # runtime. Exercise its cancellation defect only as the test UID,
+            # with our own fixture; never run a privileged extraction control.
+            upstream_prefix = runtime_prefix(args.appimagetool)
+            record["upstream_runtime_prefix_sha256"] = hashlib.sha256(upstream_prefix).hexdigest()
+            upstream_fixture = scratch / "upstream-large.AppImage"
+            upstream_fixture.write_bytes(upstream_prefix + (scratch / "large.squashfs").read_bytes())
+            upstream_fixture.chmod(0o755)
+            fixtures["upstream-large"] = upstream_fixture
             record["fixtures"] = {kind: digest(path) for kind, path in fixtures.items()}
             record["fixture_apprun_sha256"] = hashlib.sha256(FIXTURE).hexdigest()
             for name in (args.only,) if args.only else CASES:
@@ -499,6 +559,8 @@ def main():
                         child_exit(case, fixtures["normal"])
                     elif name == "signalled-child-waits-and-cleans":
                         signalled(case, fixtures["normal"])
+                    elif name == "cancelled-extraction-cleans-before-launch":
+                        cancelled_extraction(case, fixtures["large"])
                     elif name in ("writable-apprun-rejected", "linked-apprun-rejected"):
                         rejected_apprun(case, fixtures[name.split("-")[0]])
                     else:
@@ -513,9 +575,25 @@ def main():
                         record["checks"].append(case.record)
             assert all(case["status"] == "passed" for case in record["checks"])
             assert len(record["checks"]) == (1 if args.only else len(CASES))
+            if not args.only:
+                name = "upstream-cancelled-extraction-leaks"
+                case = Case(name, scratch / name, args.output)
+                try:
+                    cancelled_extraction(case, upstream_fixture)
+                except AssertionError as error:
+                    assert str(error) == "Cancelled extraction left its private directory", repr(error)
+                    case.record.update(status="expected-failure", error=str(error))
+                else:
+                    raise AssertionError("The upstream cancellation control did not reproduce its leak")
+                finally:
+                    try:
+                        case.cleanup()
+                    finally:
+                        record["negative_controls"].append(case.record)
         finally:
             if all(case["cleanup"].get("processes_reaped") is True
-                   and case["cleanup"].get("descendants_exited") is True for case in record["checks"]):
+                   and case["cleanup"].get("descendants_exited") is True
+                   for case in record["checks"] + record["negative_controls"]):
                 shutil.rmtree(temporary)
             else:
                 # The enclosing owned container is the final cleanup boundary.
@@ -530,8 +608,8 @@ def main():
         # Hash completed qualifier-owned logs only. An outer driver's stdout
         # may still be open here and is authenticated by its own final receipt.
         names = {args.output.stem + "-tool-extract.txt"}
-        names.update(args.output.stem + "-" + kind + "-squashfs.txt" for kind in ("normal", "writable", "linked"))
-        for case in record["checks"]:
+        names.update(args.output.stem + "-" + kind + "-squashfs.txt" for kind in ("normal", "writable", "linked", "large"))
+        for case in record["checks"] + record["negative_controls"]:
             names.update(command["log"] for command in case["commands"])
             names.update(entry["log"] for entry in case.get("signals", []))
         record["evidence"] = {name: digest(args.output.parent / name) for name in sorted(names)

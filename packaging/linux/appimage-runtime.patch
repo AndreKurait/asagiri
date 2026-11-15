@@ -135,7 +135,7 @@
      }
  
      fs_offset = appimage_get_elf_size(appimage_path);
-@@ -1578,40 +1612,28 @@
+@@ -1578,49 +1612,52 @@
      }
  
      if (getenv("APPIMAGE_EXTRACT_AND_RUN") != NULL || (arg && strcmp(arg, "appimage-extract-and-run") == 0)) {
@@ -173,9 +173,21 @@
 -
 -        if (!extract_appimage(appimage_path, prefix, NULL, false, verbose)) {
 -            fprintf(stderr, "Failed to extract AppImage\n");
++        /* Defer termination before creating any files. A cancelled extraction
++         * must clean up before restoring the caller's signal mask. */
++        sigset_t blocked, previous_mask;
++        sigemptyset(&blocked);
++        sigaddset(&blocked, SIGINT);
++        sigaddset(&blocked, SIGTERM);
++        sigaddset(&blocked, SIGHUP);
++        if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
+             exit(EXIT_EXECERROR);
+-        }
++
 +        struct asagiri_extraction extraction;
 +        if (!asagiri_create_extraction(&extraction)) {
 +            fprintf(stderr, "Cannot create private extraction directory: %s\n", strerror(errno));
++            sigprocmask(SIG_SETMASK, &previous_mask, NULL);
 +            exit(EXIT_EXECERROR);
 +        }
 +        char *prefix = extraction.path;
@@ -183,22 +195,23 @@
 +            !asagiri_valid_apprun(&extraction)) {
 +            fprintf(stderr, "Failed to extract a private, owned AppRun\n");
 +            asagiri_cleanup_extraction(&extraction);
++            sigprocmask(SIG_SETMASK, &previous_mask, NULL);
++            exit(EXIT_EXECERROR);
++        }
++
++        sigset_t pending;
++        if (sigpending(&pending) != 0 ||
++            sigismember(&pending, SIGINT) || sigismember(&pending, SIGTERM) ||
++            sigismember(&pending, SIGHUP)) {
++            asagiri_cleanup_extraction(&extraction);
++            sigprocmask(SIG_SETMASK, &previous_mask, NULL);
 +            exit(EXIT_EXECERROR);
 +        }
 +
 +        /* Keep the directory until this invocation's child has really exited,
 +         * including when the launcher receives a signal while waiting. */
-+        sigset_t blocked, previous_mask;
-+        sigemptyset(&blocked);
-+        sigaddset(&blocked, SIGINT);
-+        sigaddset(&blocked, SIGTERM);
-+        sigaddset(&blocked, SIGHUP);
-+        if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0) {
-+            asagiri_cleanup_extraction(&extraction);
-             exit(EXIT_EXECERROR);
-         }
  
-@@ -1619,8 +1641,11 @@
+         int pid;
          if ((pid = fork()) == -1) {
              int error = errno;
              fprintf(stderr, "fork() failed: %s\n", strerror(error));
@@ -210,7 +223,7 @@
              const char apprun_fname[] = "AppRun";
              char* apprun_path = malloc(strlen(prefix) + 1 + strlen(apprun_fname) + 1);
              strcpy(apprun_path, prefix);
-@@ -1628,7 +1653,7 @@
+@@ -1628,7 +1665,7 @@
              strcat(apprun_path, apprun_fname);
  
              // create copy of argument list without the --appimage-extract-and-run parameter
@@ -219,7 +232,7 @@
              int new_argc = 0;
              new_argv[new_argc++] = strdup(apprun_path);
              for (int i = 1; i < argc; ++i) {
-@@ -1654,20 +1679,33 @@
+@@ -1654,20 +1691,33 @@
              exit(EXIT_EXECERROR);
          }
  
