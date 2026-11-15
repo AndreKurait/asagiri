@@ -31,6 +31,19 @@ Containers started with `--init` release inherited sockets, pipes and namespace
 handles before supervision. Stdio, signal forwarding and child reaping remain
 available, including for TTY and nonroot containers.
 
+Image imports preserve FIFOs, character and block device nodes, their
+ownership, permissions, modification times and links. Local PAX time records
+retain nanosecond precision; invalid size, ownership or time overrides fail before
+replacing a node. File, gzip stdin, chunked API, HTTP URL and save/load routes
+are covered by comparisons with Docker.
+
+Unprivileged containers fail before application startup if Linux cannot load
+or attach the cgroup device-access filter. Their identity and writable data
+remain available for retry after correcting the host restriction. Existing
+image and bind-mounted device nodes also need access filtering, so dropping
+the ability to create new nodes is no longer used as a fallback. Both bundled
+guest kernels enable the required BPF/cgroup support.
+
 Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
 HTTP and trusted HTTPS requests through Traefik before and after a restart.
 The test uses a private engine and checks the downloaded CLI, image digests,
