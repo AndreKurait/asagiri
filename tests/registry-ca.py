@@ -120,6 +120,39 @@ def archive_file(data, expected):
         return archive.extractfile(entries[0]).read()
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, "Duplicate JSON key: " + key)
+        result[key] = value
+    return result
+
+
+def decode(raw):
+    return json.loads(raw, object_pairs_hook=unique_object)
+
+
+def pull_error_messages(status, raw, reference, success):
+    require(type(status) is int and type(reference) is bool and type(success) is bool,
+            "Malformed pull status/client/outcome")
+    if status == 500:
+        require(reference and not success, "HTTP 500 is only expected for a rejected reference pull")
+        error = decode(raw)
+        require(isinstance(error, dict) and set(error) == {"message"}
+                and isinstance(error["message"], str) and error["message"].strip(),
+                "Reference HTTP 500 lacks a single nonempty JSON message")
+        return [error["message"]]
+    require(status == 200, "Unexpected pull HTTP status")
+    errors = []
+    for row in (decode(line) for line in raw.splitlines() if line):
+        require(isinstance(row, dict), "Pull stream contains a non-object record")
+        error = row.get("error")
+        require(error is None or isinstance(error, str), "Pull error is not a string")
+        if error:
+            errors.append(error)
+    return errors
+
+
 def assert_pulled_image_identity(inspected, image, tag, reference, architecture, token):
     """Check the exact fixture content and the selected engine's image ID."""
     expected_id = image["config_digest"]
@@ -433,11 +466,11 @@ class Qualifier:
         (self.root / manifest_artifact).write_bytes(image["manifest"])
         name = model.authority + "/" + repository + ":latest"
         certificate_sha256 = model.fingerprints[model.context]
-        _, raw = self.api("POST", "/images/create?fromImage=" + quote(name, safe=""), reference=reference)
+        pull_status, raw = self.api("POST", "/images/create?fromImage=" + quote(name, safe=""),
+                                    expected=None if reference and not success else 200, reference=reference)
         stream_artifact = suffix + "-pull.ndjson"
         (self.root / stream_artifact).write_bytes(raw)
-        rows = [json.loads(row) for row in raw.splitlines() if row]
-        errors = [str(row["error"]) for row in rows if row.get("error")]
+        errors = pull_error_messages(pull_status, raw, reference, success)
         require(bool(errors) != success, f"{suffix}: unexpected pull outcome: {raw[-5000:]!r}")
         inspect_artifact = suffix + "-image-inspect.json"
         if success:
@@ -464,7 +497,7 @@ class Qualifier:
                 "manifest_digest": image["manifest_digest"], "config_digest": image["config_digest"],
                 "diff_id": image["diff_id"], "errors": errors, "http_requests": requests,
                 "stream_artifact": stream_artifact, "inspect_artifact": inspect_artifact,
-                "manifest_artifact": manifest_artifact, "inspect_status": status}
+                "manifest_artifact": manifest_artifact, "pull_status": pull_status, "inspect_status": status}
 
     def build(self, model, suffix, success=True, driver="default", installation_failure=False):
         repository = "registryca/" + suffix
