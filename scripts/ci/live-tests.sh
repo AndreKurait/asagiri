@@ -13,6 +13,9 @@ name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
+# The same read-only fixture runs against the runner's Docker daemon first.
+python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
+
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
@@ -63,6 +66,7 @@ run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
+run distribution
 run image-label-inheritance
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21

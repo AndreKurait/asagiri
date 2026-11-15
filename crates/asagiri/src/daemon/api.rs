@@ -931,7 +931,7 @@ fn client_for(req: &Request) -> Client {
 
 /// `GET /distribution/{name}/json`: what the registry serves for an image
 /// reference now (its digest and platforms), without pulling it. Update
-/// checkers (Watchtower, Arcane) and `docker manifest inspect` ask this (#257).
+/// checkers (Watchtower, Arcane) ask this (#257).
 fn distribution(req: &Request, name: &str) -> Result<Value, Error> {
     let reference = asagiri_image::Reference::parse(name).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
     client_for(req).distribution(&reference).map_err(|e| match e {

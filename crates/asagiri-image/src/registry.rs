@@ -834,6 +834,14 @@ impl Client {
         if by_digest && let Some(hit) = MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Ok(hit);
         }
+        let (bytes, media_type) = self.manifest_uncached(r, reference)?;
+        if by_digest {
+            MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).put(&key, reference, &bytes, &media_type);
+        }
+        Ok((bytes, media_type))
+    }
+
+    fn manifest_uncached(&self, r: &Reference, reference: &str) -> Result<(Vec<u8>, String), Error> {
         let url = format!("{}/v2/{}/manifests/{reference}", self.api_base(r), r.repository);
         let mut resp = self.get(r, &url, Some(ACCEPT))?;
         let media_type = resp
@@ -843,9 +851,6 @@ impl Client {
             .unwrap_or_default()
             .to_owned();
         let bytes = resp.body_mut().with_config().limit(4 << 20).read_to_vec()?;
-        if by_digest {
-            MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).put(&key, reference, &bytes, &media_type);
-        }
         Ok((bytes, media_type))
     }
 
@@ -1106,12 +1111,17 @@ impl Client {
     }
 
     /// What the registry serves for `r` right now, for `GET
-    /// /distribution/{name}/json` (`docker manifest inspect`, and the update
-    /// checks of Watchtower, Arcane, Portainer): the manifest's or index's
+    /// /distribution/{name}/json` (the update checks of Watchtower, Arcane,
+    /// Portainer): the manifest's or index's
     /// descriptor, and the platforms it is for. Nothing is pulled; for a
     /// single-platform manifest its config is read for the platform.
     pub fn distribution(&self, r: &Reference) -> Result<serde_json::Value, Error> {
-        let (bytes, media_type) = self.manifest(r, &r.reference).map_err(|e| not_found(e, r))?;
+        // Inspect the registry even for a previously pulled digest: a deleted
+        // manifest or revoked access must not be hidden by the pull cache.
+        let (bytes, media_type) = self.manifest_uncached(r, &r.reference).map_err(|e| match e {
+            Error::Status { status: 404, .. } => not_found(e, r),
+            e => e,
+        })?;
         if r.is_digest() && sha256_digest(&bytes) != r.reference {
             return Err(Error::Manifest("manifest failed digest check".into()));
         }
@@ -1371,8 +1381,12 @@ fn distribution_json(bytes: &[u8], content_type: &str, manifest: &serde_json::Va
     };
     let platforms: Vec<serde_json::Value> = match manifest["manifests"].as_array() {
         Some(entries) => entries.iter().map(|m| platform(&m["platform"])).collect(),
-        None => config.filter(|c| c["os"].is_string()).map(platform).into_iter().collect(),
+        None => config.filter(|c| {
+            ["os", "architecture"].iter().any(|k| c[k].as_str().is_some_and(|v| !v.is_empty()))
+        }).map(platform).into_iter().collect(),
     };
+    // Docker leaves the nil platform slice as null when no platform is known.
+    let platforms = if platforms.is_empty() { serde_json::Value::Null } else { platforms.into() };
     serde_json::json!({
         "Descriptor": {"mediaType": media_type, "digest": sha256_digest(bytes), "size": bytes.len()},
         "Platforms": platforms,
@@ -1429,7 +1443,7 @@ mod tests {
         let got = distribution_json(&bytes, "", &single, Some(&json!({"architecture": "arm64", "os": "linux", "rootfs": {}})));
         assert_eq!(got["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
         assert_eq!(got["Platforms"], json!([{"architecture": "arm64", "os": "linux"}]));
-        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Platforms"], json!([]));
+        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Platforms"], json!(null));
         assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
         let bare = json!({"schemaVersion": 2, "config": {"digest": "sha256:cfg"}});
         assert_eq!(distribution_json(&serde_json::to_vec(&bare).unwrap(), "application/vnd.oci.image.manifest.v1+json; x=1", &bare, None)["Descriptor"]["mediaType"], "application/vnd.oci.image.manifest.v1+json");
@@ -1437,28 +1451,57 @@ mod tests {
 
     /// A loopback registry that answers by path: `answer` gives the status,
     /// Content-Type and body for each request; every path asked is kept.
-    fn path_server(answer: impl Fn(&str) -> (u16, &'static str, Vec<u8>) + Send + 'static) -> (String, std::sync::Arc<Mutex<Vec<String>>>) {
+    struct PathServer {
+        host: String,
+        asked: std::sync::Arc<Mutex<Vec<String>>>,
+        stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for PathServer {
+        fn drop(&mut self) {
+            self.stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                thread.join().unwrap();
+            }
+        }
+    }
+
+    fn path_server(answer: impl Fn(&str) -> (u16, &'static str, Vec<u8>) + Send + 'static) -> PathServer {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let host = listener.local_addr().unwrap().to_string();
         let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
         let seen = asked.clone();
-        std::thread::spawn(move || {
-            for c in listener.incoming() {
-                let Ok(mut c) = c else { break };
+        let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = stopped.clone();
+        listener.set_nonblocking(true).unwrap();
+        let thread = std::thread::spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let (mut c, _) = match listener.accept() {
+                    Ok(c) => c,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(e) => panic!("registry accept: {e}"),
+                };
+                c.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                c.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
                 let mut head = Vec::new();
                 let mut b = [0u8; 1];
-                while !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
+                while head.len() < 16384 && !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
                     head.push(b[0]);
                 }
                 let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
                 let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
                 seen.lock().unwrap().push(path.clone());
                 let (status, ct, body) = answer(&path);
-                let _ = write!(c, "HTTP/1.1 {status} X\r\nContent-Type: {ct}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let auth = if status == 401 { "WWW-Authenticate: Basic realm=\"distribution-test\"\r\n" } else { "" };
+                let _ = write!(c, "HTTP/1.1 {status} X\r\nContent-Type: {ct}\r\nContent-Length: {}\r\n{auth}Connection: close\r\n\r\n", body.len());
                 let _ = c.write_all(&body);
             }
         });
-        (host, asked)
+        PathServer { host, asked, stopped, thread: Some(thread) }
     }
 
     // The answer stands without the config: a cache missing the blob (or a
@@ -1471,7 +1514,7 @@ mod tests {
         for (case, digest, serve_config) in [("present", cfg_digest.clone(), true), ("missing", cfg_digest.clone(), false), ("malformed", "sha256:../../x?".to_owned(), true)] {
             let manifest = serde_json::to_vec(&serde_json::json!({"schemaVersion": 2, "mediaType": OCI_MANIFEST, "config": {"digest": digest}, "layers": []})).unwrap();
             let (m, c) = (manifest.clone(), config.clone());
-            let (host, asked) = path_server(move |path| {
+            let server = path_server(move |path| {
                 if path.contains("/manifests/") {
                     (200, OCI_MANIFEST, m.clone())
                 } else if path.contains("/blobs/") && serve_config {
@@ -1480,15 +1523,46 @@ mod tests {
                     (404, "application/json", b"{}".to_vec())
                 }
             });
-            let r = Reference::parse(&format!("{host}/app:1")).unwrap();
+            let r = Reference::parse(&format!("{}/app:1", server.host)).unwrap();
             let got = test_client().distribution(&r).unwrap_or_else(|e| panic!("{case}: {e}"));
             assert_eq!(got["Descriptor"]["digest"], sha256_digest(&manifest), "{case}");
             assert_eq!(got["Descriptor"]["mediaType"], OCI_MANIFEST, "{case}");
-            let platforms = if case == "present" { serde_json::json!([{"architecture": "arm64", "os": "linux"}]) } else { serde_json::json!([]) };
+            let platforms = if case == "present" { serde_json::json!([{"architecture": "arm64", "os": "linux"}]) } else { serde_json::json!(null) };
             assert_eq!(got["Platforms"], platforms, "{case}");
-            let blobs = asked.lock().unwrap().iter().filter(|p| p.contains("/blobs/")).count();
+            let blobs = server.asked.lock().unwrap().iter().filter(|p| p.contains("/blobs/")).count();
             assert_eq!(blobs, usize::from(case != "malformed"), "{case}: blob requests");
         }
+    }
+
+    #[test]
+    fn distribution_checks_the_registry_even_after_a_digest_is_cached() {
+        use std::sync::{Arc, atomic::{AtomicU16, Ordering}};
+        let manifest = br#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}"#.to_vec();
+        let digest = sha256_digest(&manifest);
+        let status = Arc::new(AtomicU16::new(200));
+        let current = status.clone();
+        let server = path_server(move |_| (current.load(Ordering::Relaxed), "application/vnd.oci.image.index.v1+json", manifest.clone()));
+        let r = Reference::parse(&format!("{}/app@{digest}", server.host)).unwrap();
+        let client = test_client();
+        client.manifest(&r, &r.reference).unwrap();
+        client.manifest(&r, &r.reference).unwrap();
+        assert_eq!(server.asked.lock().unwrap().len(), 1, "the pull populated the immutable cache");
+        for code in [401, 403, 404] {
+            status.store(code, Ordering::Relaxed);
+            let result = client.distribution(&r);
+            match code {
+                404 => assert!(matches!(result, Err(Error::NotFound(_))), "{result:?}"),
+                _ => assert!(matches!(result, Err(Error::Status { status, .. }) if status == code), "{result:?}"),
+            }
+        }
+        assert_eq!(server.asked.lock().unwrap().len(), 4, "every inspection contacted the registry");
+    }
+
+    #[test]
+    fn distribution_rejects_an_incorrect_manifest_digest() {
+        let server = path_server(|_| (200, "application/vnd.oci.image.index.v1+json", br#"{"schemaVersion":2,"manifests":[]}"#.to_vec()));
+        let r = Reference::parse(&format!("{}/app@sha256:{}", server.host, "a".repeat(64))).unwrap();
+        assert!(matches!(test_client().distribution(&r), Err(Error::Manifest(_))));
     }
 
     #[test]
