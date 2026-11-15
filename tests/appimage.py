@@ -85,10 +85,11 @@ try:
                 assert (bundled / "licenses" / (source["component"] + "-" + Path(license_path).name)).stat().st_size
         record["runtime_source_archives"] = len(manifest["sources"])
         expected_version = run(str(args.binaries.resolve() / "asagiri"), "--version").decode().strip()
-        assert version in expected_version
+        assert expected_version == f"Asagiri {version}"
         env = dict(os.environ, APPIMAGE_EXTRACT_AND_RUN="1")
         record["cli_version"] = run(str(image), "--version", env=env).decode().strip()
         assert record["cli_version"] == expected_version
+        assert run(str(image), "-V", env=env).decode().strip() == expected_version
         assert run(str(app / "usr/bin/asagiri-window"), "--version").decode().strip() == expected_version
         record["window_libraries"] = run("ldd", str(app / "usr/bin/asagiri-window")).decode()
         assert "not found" not in record["window_libraries"]

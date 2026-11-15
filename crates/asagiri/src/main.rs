@@ -122,8 +122,12 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri raw pull <image> | raw images | raw rmi <image>...";
 
 fn main() -> ExitCode {
-    flavor::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() == 1 && matches!(args[0].as_str(), "--version" | "-V") {
+        println!("Asagiri {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+    flavor::init();
     // Stdio belongs entirely to JSON-RPC; do not install diagnostic pipe
     // redirection or run engine-version checks for an MCP client.
     #[cfg(any(unix, windows))]
