@@ -1491,15 +1491,43 @@ fn volumes(req: &Request, engine: &Engine) -> Result<Value, Error> {
     Ok(json!({"Volumes": list, "Warnings": []}))
 }
 
-/// The TCP ports an image declares (EXPOSE) plus `--expose`.
-fn exposed_ports(body: &Value, image_cfg: &Value) -> Vec<u16> {
+/// The image's EXPOSE declarations plus `--expose`, including UDP and SCTP.
+fn exposed_port_keys(body: &Value, image_cfg: &Value) -> Vec<String> {
     let mut keys: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
     if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
         keys.extend(m.keys().cloned());
     }
-    let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp") || !k.contains('/')).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
+    for key in &mut keys {
+        if !key.contains('/') {
+            key.push_str("/tcp");
+        }
+    }
+    keys.sort_unstable();
+    keys.dedup();
+    keys
+}
+
+/// Only TCP declarations are candidates for the HTTP domain router.
+fn exposed_ports(keys: &[String]) -> Vec<u16> {
+    let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp")).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
     ports.sort_unstable();
     ports.dedup();
+    ports
+}
+
+fn inspect_exposed_ports(spec: &Spec) -> serde_json::Map<String, Value> {
+    let mut ports = serde_json::Map::new();
+    for key in &spec.exposed_port_keys {
+        ports.insert(key.clone(), json!({}));
+    }
+    // Preserve declarations from records written before protocol metadata
+    // was retained. Published ports are exposed even without an EXPOSE.
+    for port in &spec.exposed {
+        ports.insert(format!("{port}/tcp"), json!({}));
+    }
+    for binding in &spec.ports {
+        ports.insert(format!("{}/{}", binding.container_port, binding.proto), json!({}));
+    }
     ports
 }
 
@@ -1984,6 +2012,8 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         Some(s) if !s.is_empty() => s.to_owned(),
         _ => fallback.to_owned(),
     };
+    let exposed_port_keys = exposed_port_keys(&body, &image_cfg);
+    let exposed = exposed_ports(&exposed_port_keys);
     let spec = Spec {
         engine_service,
         image: image_name.to_owned(),
@@ -2029,7 +2059,8 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         aliases,
         extra_hosts,
         ports,
-        exposed: exposed_ports(&body, &image_cfg),
+        exposed,
+        exposed_port_keys,
         host_opts,
         mounts: mounts.guest,
         mount_info: mounts.info,
@@ -2388,7 +2419,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
 fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
     let when = |t: Option<std::time::SystemTime>| t.map_or_else(|| time::ZERO.to_owned(), time::rfc3339);
     let argv = c.argv();
-    json!({
+    let mut value = json!({
         "Id": c.id,
         "Created": time::rfc3339(c.created),
         "Path": argv.first().cloned().unwrap_or_default(),
@@ -2464,7 +2495,12 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
         },
         "NetworkSettings": network_settings(c, nets),
         "Mounts": c.spec.mount_info,
-    })
+    });
+    let exposed = inspect_exposed_ports(&c.spec);
+    if !exposed.is_empty() {
+        value["Config"]["ExposedPorts"] = Value::Object(exposed);
+    }
+    value
 }
 
 fn network_settings(c: &Container, nets: &[super::network::Network]) -> Value {
@@ -3327,8 +3363,36 @@ mod tests {
             "443/tcp": [{"HostIp": "", "HostPort": "0"}],
             "5353/udp": [{"HostIp": "", "HostPort": "0"}],
         }));
-        assert_eq!(exposed_ports(&body, &image_cfg), vec![80, 443]);
-        assert_eq!(exposed_ports(&body, &Value::Null), vec![443]);
+        let keys = exposed_port_keys(&body, &image_cfg);
+        assert_eq!(keys, vec!["443/tcp", "5353/udp", "80/tcp"]);
+        assert_eq!(exposed_ports(&keys), vec![80, 443]);
+        assert_eq!(exposed_ports(&exposed_port_keys(&body, &Value::Null)), vec![443]);
+    }
+
+    #[test]
+    fn inspection_preserves_exposed_protocols_and_legacy_records() {
+        use super::super::ports::Binding;
+        let mut spec: Spec = serde_json::from_value(json!({
+            "image": "ports:test", "image_id": "", "entrypoint": [], "cmd": [], "env": [],
+            "cwd": "", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            "exposed": [80],
+        })).unwrap();
+        assert_eq!(json!(inspect_exposed_ports(&spec)), json!({"80/tcp": {}}));
+        let image = json!({"config": {"ExposedPorts": {"80/tcp": {}, "53/udp": {}, "90/sctp": {}}}});
+        let body = json!({"ExposedPorts": {"80": {}, "53/udp": {}, "443/tcp": {}}});
+        spec.exposed_port_keys = exposed_port_keys(&body, &image);
+        spec.exposed = exposed_ports(&spec.exposed_port_keys);
+        spec.ports = vec![Binding {
+            container_port: 53, proto: "tcp".into(), host_ip: "127.0.0.1".into(), host_port: 5353,
+        }];
+        let restored: Spec = serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        assert_eq!(json!(inspect_exposed_ports(&restored)),
+            json!({"53/tcp": {}, "53/udp": {}, "80/tcp": {}, "90/sctp": {}, "443/tcp": {}}));
+        assert_eq!(restored.exposed, vec![80, 443]);
+        spec.exposed.clear();
+        spec.exposed_port_keys.clear();
+        spec.ports.clear();
+        assert!(inspect_exposed_ports(&spec).is_empty());
     }
 
     #[test]
