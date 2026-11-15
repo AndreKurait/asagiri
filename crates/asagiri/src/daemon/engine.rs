@@ -2822,6 +2822,12 @@ impl Engine {
     /// Blocks until the condition holds. Returns the exit code.
     /// `condition`: `not-running` (default), `next-exit` or `removed`.
     pub fn wait(&self, key: &str, condition: &str) -> Result<i32, Error> {
+        self.wait_connected(key, condition, || false).map(|code| code.expect("uncancelled wait"))
+    }
+
+    /// A Docker wait ends when its client disconnects, even if the container
+    /// keeps running. A bounded condvar wait lets that release its API slot.
+    pub fn wait_connected(&self, key: &str, condition: &str, disconnected: impl Fn() -> bool) -> Result<Option<i32>, Error> {
         let mut st = self.lock();
         let id = resolve(&st, key)?;
         let exits_before = st.containers.get(&id).map_or(0, |c| c.exits);
@@ -2829,17 +2835,20 @@ impl Engine {
             match st.containers.get(&id) {
                 None => {
                     let code = st.removed.iter().rev().find(|(r, _)| *r == id).map_or(0, |(_, c)| *c);
-                    return Ok(code);
+                    return Ok(Some(code));
                 }
                 Some(c) => match condition {
                     "removed" => {}
-                    "next-exit" if c.exits > exits_before => return Ok(c.exit_code),
+                    "next-exit" if c.exits > exits_before => return Ok(Some(c.exit_code)),
                     "next-exit" => {}
-                    _ if c.status != Status::Running => return Ok(c.exit_code),
+                    _ if c.status != Status::Running => return Ok(Some(c.exit_code)),
                     _ => {}
                 },
             }
-            st = self.changed.wait(st).unwrap_or_else(|e| e.into_inner());
+            if disconnected() {
+                return Ok(None);
+            }
+            st = self.changed.wait_timeout(st, Duration::from_millis(250)).unwrap_or_else(|e| e.into_inner()).0;
         }
     }
 
