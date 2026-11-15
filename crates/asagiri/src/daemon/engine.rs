@@ -4710,17 +4710,37 @@ mod builder_trust_tests {
             "env":[], "cwd":"/", "user":"", "auto_remove":false, "network_mode":"none", "labels":{},
             "restart":{"name":"no", "max_retries":0}
         })).unwrap();
-        let id = engine.create(Some(super::super::builder::container_name()), spec, &image).unwrap();
+        let name = super::super::builder::container_name();
+        let id = engine.create(Some(name.clone()), spec.clone(), &image).unwrap();
         engine.lock().containers.get_mut(&id).unwrap().status = Status::Running;
         // Exercise the real behavior that made the bug possible, not a fake
         // start callback: start_inner succeeds without touching the guest.
         assert!(engine.start(&id).is_ok());
         let pending = std::sync::atomic::AtomicBool::new(true);
-        assert!(matches!(super::super::builder::start_with_trust(&engine, &id, &pending), Err(Error::Conflict(_))));
-        assert!(pending.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(engine.with(&id, |c| c.status).unwrap(), Status::Running);
+        let mut aliases = vec![id.clone(), format!("/{id}"), name.clone(), format!("/{name}"), id[..12].to_owned()];
+        for length in 1..6 {
+            aliases.push(id[..length].to_owned());
+            aliases.push(format!("/{}", &id[..length]));
+        }
+        for key in &aliases {
+            assert_eq!(engine.resolve(key).unwrap(), id);
+            assert!(matches!(super::super::builder::start_with_trust(&engine, key, &pending), Err(Error::Conflict(_))), "{key}");
+            assert!(pending.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(engine.with(&id, |c| c.status).unwrap(), Status::Running);
+        }
         pending.store(false, std::sync::atomic::Ordering::Release);
-        assert!(super::super::builder::start_with_trust(&engine, &id, &pending).is_ok());
+        for key in &aliases {
+            assert!(super::super::builder::start_with_trust(&engine, key, &pending).is_ok());
+        }
+        // A container name wins over another container's ID prefix. Starting
+        // that unrelated container must not touch the builder's pending trust.
+        let other_name = &id[..6];
+        let other = engine.create(Some(other_name.into()), spec, &image).unwrap();
+        engine.lock().containers.get_mut(&other).unwrap().status = Status::Running;
+        pending.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(engine.resolve(other_name).unwrap(), other);
+        assert!(super::super::builder::start_with_trust(&engine, other_name, &pending).is_ok());
+        assert!(pending.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
         drop(engine);
         std::fs::remove_dir_all(dir).unwrap();

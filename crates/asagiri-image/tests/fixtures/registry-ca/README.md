@@ -1,1 +1,1 @@
-Test-only certificates and server key for loopback TLS tests. These grant no access to any deployed service. The certificate has only the 127.0.0.1 IP SAN; localhost is intentionally invalid.
+Public CA certificates for configuration and archive tests. Their private keys are not retained. Loopback TLS tests generate ephemeral CA and server keys in memory with rcgen; no private key is stored in source or logs. Their server certificates have only the 127.0.0.1 IP SAN, so localhost is intentionally invalid.

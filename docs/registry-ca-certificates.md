@@ -1,6 +1,6 @@
 # Private registry certificate authorities
 
-`daemon.json` accepts `registry-ca-certificates`, an object mapping an exact registry authority to a PEM certificate bundle. For example, `{"registry-ca-certificates":{"registry.example":"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"}}`. Supply actual CA certificates; placeholder text is rejected. Certificates are public trust material, not private keys. Never include private keys.
+`daemon.json` accepts `registry-ca-certificates`, an object mapping an exact registry authority to a PEM certificate bundle. For example, `{"registry-ca-certificates":{"registry.example":"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"}}`. Supply actual CA certificates; placeholder text is rejected. Each BEGIN and END marker must occupy its own unindented line; LF and CRLF line endings are accepted. Accepted bytes are preserved for both the engine and BuildKit. Certificates are public trust material, not private keys. Never include private keys.
 
 The engine selects roots for each actual TLS destination. Only HTTPS connections to that authority use the selected roots. Other engine destinations, including redirects and token services, retain the default public roots unless separately configured. Hostname, chain and expiry verification remain enabled. A missing port means HTTPS port 443; explicit 443 is equivalent. Other ports are distinct. Wildcards, URLs and CIDRs are rejected. A custom-CA authority cannot also be an insecure registry.
 

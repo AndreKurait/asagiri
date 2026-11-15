@@ -238,8 +238,8 @@ pub fn start(engine: &Engine, key: &str) -> Result<(), Error> {
 
 pub(super) fn start_with_trust(engine: &Engine, key: &str, pending: &std::sync::atomic::AtomicBool) -> Result<(), Error> {
     let Some((id, _)) = find(engine) else { return engine.start(key) };
-    let key_match = key.trim_start_matches('/');
-    if !(key_match == container_name() || (key_match.len() >= 6 && id.starts_with(key_match))) {
+    // Use the engine's aliases and name precedence, including short unique IDs.
+    if engine.resolve(key)? != id {
         return engine.start(key);
     }
     let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());

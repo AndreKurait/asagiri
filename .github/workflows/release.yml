@@ -114,6 +114,20 @@ jobs:
           python3 tests/ci-runtime-probes.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Verify registry TLS trust and actual BuildKit admission
+        # Older release sources may predate this probe; package recovery keeps
+        # its original evidence and already skips this entire build job.
+        if: hashFiles('tests/registry-ca.py') != ''
+        run: sh "$RUNNER_TEMP/compatibility-source/scripts/ci/registry-ca.sh" "$RUNNER_TEMP/bin" "$RUNNER_TEMP/registry-ca"
+      - name: Preserve registry TLS and BuildKit evidence
+        if: always() && hashFiles('tests/registry-ca.py') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: registry-ca-${{ matrix.arch }}
+          path: ${{ runner.temp }}/registry-ca
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Restore Java SDK dependencies
         id: maven_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
