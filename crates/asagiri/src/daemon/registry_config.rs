@@ -12,7 +12,7 @@ use asagiri_image::{Mirror, RegistrySettings};
 use serde_json::{Value, json};
 
 const MAX_BYTES: u64 = 64 << 10;
-const KEYS: [&str; 4] = ["registry-mirrors", "insecure-registries", "max-concurrent-downloads", "max-concurrent-uploads"];
+const KEYS: [&str; 5] = ["registry-ca-certificates", "registry-mirrors", "insecure-registries", "max-concurrent-downloads", "max-concurrent-uploads"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
@@ -41,6 +41,12 @@ impl Config {
         };
         let insecure = map.get("insecure-registries").map(|v| strings(v, "insecure-registries", 64)).transpose()?.unwrap_or_default();
         let settings = RegistrySettings::new(&insecure, count("max-concurrent-downloads", 4)?, count("max-concurrent-uploads", 5)?)?;
+        let bundles = match map.get("registry-ca-certificates") {
+            None => Default::default(),
+            Some(value) => serde_json::from_value::<std::collections::BTreeMap<String, String>>(value.clone())
+                .map_err(|_| "registry-ca-certificates must map authorities to PEM certificate strings")?,
+        };
+        let settings = settings.with_ca_certificates(&bundles)?;
         let mirrors = match map.get("registry-mirrors") {
             None => legacy.to_vec(),
             Some(value) => {
@@ -52,11 +58,21 @@ impl Config {
                 mirrors
             }
         };
-        Ok(Self { settings, mirrors })
+        let config = Self { settings, mirrors };
+        encode(&config.report()).map_err(|e| e.to_string())?;
+        Ok(config)
+    }
+
+    pub fn patched(&self, patch: &Value) -> Result<Self, String> {
+        let patch = patch.as_object().ok_or("daemon config must be an object")?;
+        let mut value = self.report();
+        for (key, value_patch) in patch { value[key] = value_patch.clone(); }
+        Self::parse(&value, &[])
     }
 
     pub fn report(&self) -> Value {
         json!({
+            "registry-ca-certificates": self.settings.ca_certificates(),
             "registry-mirrors": self.mirrors.iter().map(Mirror::as_url).collect::<Vec<_>>(),
             "insecure-registries": self.settings.insecure_registries(),
             "max-concurrent-downloads": self.settings.max_downloads(),
@@ -97,10 +113,7 @@ impl Saved {
     }
 
     fn update(&mut self, patch: &Value) -> Result<Value, String> {
-        let patch = patch.as_object().ok_or("daemon config must be an object")?;
-        let mut value = self.config.report();
-        for (key, value_patch) in patch { value[key] = value_patch.clone(); }
-        let config = Config::parse(&value, &[])?;
+        let config = self.config.patched(patch)?;
         if config != self.config {
             persist(&self.path, &config.report()).map_err(|e| format!("saving daemon.json: {e}"))?;
             self.config = config;
@@ -109,8 +122,18 @@ impl Saved {
     }
 }
 
+fn encode(value: &Value) -> io::Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "daemon config exceeds 64 KiB"));
+    }
+    Ok(bytes)
+}
+
 fn persist(path: &Path, value: &Value) -> io::Result<()> {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let bytes = encode(value)?;
     let parent = path.parent().ok_or_else(|| io::Error::other("config has no parent"))?;
     let temporary = parent.join(format!(".daemon.json.{}.{}.tmp", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
     let mut options = OpenOptions::new();
@@ -122,8 +145,7 @@ fn persist(path: &Path, value: &Value) -> io::Result<()> {
     }
     let mut file = options.open(&temporary)?;
     let result = (|| {
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.write_all(b"\n")?;
+        file.write_all(&bytes)?;
         file.sync_all()?;
         std::fs::rename(&temporary, path)?;
         #[cfg(unix)]
@@ -166,6 +188,17 @@ mod tests {
     }
 
     #[test]
+    fn registry_ca_policy_roundtrips_and_rejects_invalid_bundles() {
+        let ca = include_str!("../../../asagiri-image/tests/fixtures/registry-ca/ca.pem");
+        let config = Config::parse(&json!({"registry-ca-certificates":{"registry.example:443":ca}}), &[]).unwrap();
+        assert_eq!(config, Config::parse(&config.report(), &[]).unwrap());
+        for value in [json!([]), json!({"registry.example":42}), json!({"registry.example":"invalid"}), json!({"*.example":ca})] {
+            assert!(Config::parse(&json!({"registry-ca-certificates":value}), &[]).is_err());
+        }
+        assert!(Config::parse(&json!({"registry-ca-certificates":{"registry.example":ca},"insecure-registries":["registry.example:443"]}), &[]).is_err());
+    }
+
+    #[test]
     fn legacy_mirrors_migrate_without_losing_other_settings() {
         let dir = dir();
         std::fs::write(dir.join("registry-mirrors.json"), r#"{"mirrors":["https://mirror.example"]}"#).unwrap();
@@ -197,6 +230,39 @@ mod tests {
             assert_eq!(std::fs::read(&saved.path).unwrap(), original);
             assert_eq!(saved.config.settings.max_downloads(), 2);
         }
+        let ca = include_str!("../../../asagiri-image/tests/fixtures/registry-ca/ca.pem");
+        let mut rejection_checks = Vec::new();
+        for newline in ["\n", "\r\n"] {
+            let patch = |pem: String| json!({"registry-ca-certificates":{"registry.example":pem}});
+            let safe = format!("{ca}{}", newline.repeat(30 * 1024 / newline.len()));
+            saved.update(&patch(safe)).unwrap();
+            let before = saved.config.clone();
+            let bytes = std::fs::read(&saved.path).unwrap();
+            assert!(bytes.len() as u64 <= MAX_BYTES);
+            assert_eq!(Saved::load(&dir).unwrap().config, before);
+
+            // The request fits the API's limit, but escaped PEM newlines plus
+            // the other saved settings would make daemon.json too large.
+            let base_request = serde_json::to_vec(&patch(ca.into())).unwrap().len();
+            let escaped_newline = serde_json::to_vec(newline).unwrap().len() - 2;
+            let pem = format!("{ca}{}", newline.repeat((MAX_BYTES as usize - base_request) / escaped_newline));
+            assert!(pem.len() <= 48 * 1024);
+            let oversized = patch(pem);
+            let request = serde_json::to_vec(&oversized).unwrap();
+            assert!(request.len() as u64 <= MAX_BYTES);
+            let validated = saved.config.patched(&oversized);
+            let updated = saved.update(&oversized);
+            let reloaded = Saved::load(&dir);
+            eprintln!("CA config size: newline={newline:?}, request={}, persisted={}, update_ok={}, reload_error={:?}",
+                request.len(), std::fs::metadata(&saved.path).unwrap().len(), updated.is_ok(),
+                reloaded.as_ref().err().map(ToString::to_string));
+            rejection_checks.push((validated.is_err(), updated.is_err(),
+                std::fs::read(&saved.path).unwrap() == bytes, saved.config == before,
+                reloaded.is_ok_and(|loaded| loaded.config == before)));
+        }
+        assert!(rejection_checks.iter().all(|&(validated, rejected, disk, active, reload)|
+            validated && rejected && disk && active && reload),
+            "reject before builder side effects and preserve disk, active config and restart: {rejection_checks:?}");
         let missing = dir.join("missing").join("daemon.json");
         saved.path = missing;
         assert!(saved.update(&json!({"max-concurrent-downloads":3})).is_err());
