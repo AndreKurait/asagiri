@@ -204,7 +204,9 @@ pub enum Msg<'a> {
     /// `OP\tPATH` line each: OP is `C` (created), `M` (modified), `A`
     /// (attributes changed) or `D` (deleted), PATH the file's path in the VM
     /// (under /mnt/mac). The agent raises the inotify events Linux would for
-    /// a change made in the VM. No reply; an older agent ignores it.
+    /// a change made in the VM. No reply. An older agent replies to an
+    /// unknown kind with Error, so daemon and guest agent must use matching
+    /// protocol versions.
     FsEvents(StrList<'a>),
     /// Success, for requests with nothing else to say.
     Ack,

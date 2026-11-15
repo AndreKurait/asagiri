@@ -7,7 +7,7 @@
 //! event for each, as a change made in the VM would. Nothing is written to
 //! the files, so nothing goes back to the Mac.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::io::Write;
 
 /// Where the Mac's filesystem is mounted in the VM (mod.rs).
@@ -24,13 +24,14 @@ const PER_TURN: usize = 64;
 /// a time, not a thread: the agent must stay single-threaded (it starts
 /// containers with clone3, and a thread breaks setuid in the child).
 #[derive(Default)]
-pub struct Pending(VecDeque<String>, HashSet<String>);
+pub struct Pending(VecDeque<String>);
 
 impl Pending {
-    /// Queues the lines that name a file under the Mac's mount, once each.
+    /// Queues the lines that name a file under the Mac's mount, in order.
+    /// Repeats matter: deduplication loses the final delete in D, C, M, D.
     pub fn add<'a>(&mut self, lines: impl Iterator<Item = &'a str>) {
         for line in valid(lines) {
-            if self.0.len() < MAX_PENDING && self.1.insert(line.clone()) {
+            if self.0.len() < MAX_PENDING {
                 self.0.push_back(line);
             }
         }
@@ -45,13 +46,11 @@ impl Pending {
     pub fn raise_some(&mut self) {
         let Ok(mut f) = std::fs::OpenOptions::new().write(true).open(PROC) else {
             self.0.clear();
-            self.1.clear();
             return;
         };
         // One write per line: the kernel answers each with its own result,
         // and a file gone again by now (ENOENT) must not drop the rest.
         for line in self.0.drain(..PER_TURN.min(self.0.len())) {
-            self.1.remove(&line);
             let _ = f.write_all(line.as_bytes());
         }
     }
@@ -84,11 +83,12 @@ mod tests {
     }
 
     #[test]
-    fn a_change_waiting_is_queued_once() {
+    fn a_repeat_is_kept_so_a_delete_is_not_lost() {
         let mut p = Pending::default();
-        p.add(["M\t/mnt/mac/a", "M\t/mnt/mac/b"].into_iter());
-        p.add(["M\t/mnt/mac/a"].into_iter());
-        assert_eq!(p.0.len(), 2);
+        let changes = ["D\t/mnt/mac/a", "C\t/mnt/mac/a", "M\t/mnt/mac/a", "D\t/mnt/mac/a"];
+        p.add(changes[..3].iter().copied());
+        p.add(changes[3..].iter().copied());
+        assert_eq!(p.0.into_iter().collect::<Vec<_>>(), changes.map(|s| format!("{s}\n")));
     }
 
     #[test]
@@ -97,7 +97,6 @@ mod tests {
         let lines: Vec<_> = (0..super::MAX_PENDING + 100).map(|i| format!("M\t/mnt/mac/{i}")).collect();
         p.add(lines.iter().map(String::as_str));
         assert_eq!(p.0.len(), super::MAX_PENDING);
-        assert_eq!(p.1.len(), super::MAX_PENDING);
         let invalid = ["M\t/mnt/mac/a\0other".to_owned(), format!("M\t/mnt/mac/{}", "a".repeat(4096))];
         assert!(valid(invalid.iter().map(String::as_str)).next().is_none());
     }
