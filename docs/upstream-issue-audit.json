@@ -316,7 +316,7 @@
       "updated_at": "2026-11-09T10:05:22Z",
       "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
       "disposition": "implemented-unverified-platform",
-      "reason": "WSL recovery port retained; native Windows sleep/wake reproduction is still a separate check."
+      "reason": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
     },
     {
       "number": 94,

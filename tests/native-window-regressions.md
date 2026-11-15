@@ -56,6 +56,41 @@ Use a disposable Windows account or VM; do not alter a real user's setup.
 The `incomplete_setup_resumes_from_persisted_state` unit test checks these
 decisions without running WSL. Native WSL recovery remains a separate check.
 
+## Windows: restore the daemon without undoing Stop (#61, #93)
+
+Use a disposable Windows host and Asagiri distribution. These native checks
+remain unverified by the pure state and concurrency tests.
+
+1. Start a container with a restart policy, then terminate only the test
+   distribution with `wsl --terminate <test-distribution>`. Confirm the
+   Docker API comes back and record whether the container recovers.
+2. Press Stop and confirm `/info` reports `AsagiriStopped: true`. Terminate
+   the test distribution again. Confirm the daemon becomes reachable,
+   `AsagiriStopped` stays true, and containers stay stopped until Start.
+3. Repeat step 2 while reopening the window and while starting the app
+   with `--background`. A failed initial `/info` must not turn into wake.
+4. In the disposable host, use Settings to restart WSL while a working
+   bridge disconnects. Confirm one copy/start sequence owns the startup;
+   an overlapping caller checks the restored daemon before starting it.
+5. Delay daemon startup and press Stop while recovery is pending. Record
+   any unavailable-daemon error honestly. If Stop succeeds, recovery must
+   not later clear its persisted stopped mark. The window must remain
+   responsive while the background recovery attempt waits.
+6. After an intentionally failed recovery, restore the test distribution
+   and request Start. Confirm explicit Start wakes the engine and a
+   later successful Stop remains effective.
+7. In the disposable profile, remove its managed `asagiri-build` definition
+   while the engine runs, then reopen the window or use `--background`.
+   Confirm registration returns and the saved Docker/Asagiri build choice
+   is preserved. Repeat while stopped: registration must wait for Start.
+   Record any Buildx or daemon error instead of treating it as success.
+
+The `daemon_start` unit tests cover the process-availability/wake boundary,
+overlapping startup calls, a Stop during recovery, failed attempts, and a
+bounded pending retry. The builder fixture exercises the actual saved-choice
+policy on temporary files for running, stopped and unknown engine states.
+These tests do not run Buildx or boot WSL, or prove native sleep recovery.
+
 ## macOS: first launch and visible errors (#250)
 
 Use a disposable Mac desktop account and record its shell configuration.
