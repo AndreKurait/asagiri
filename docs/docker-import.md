@@ -35,6 +35,13 @@ An export contains the root filesystem. Supply runtime settings such as `CMD`,
 `VOLUME`, and `ONBUILD` are also supported. `docker save` and `docker load`
 preserve the image's existing configuration when moving a complete image.
 
+Replacing an existing tag retains the previous image by its image ID, so
+containers created from it keep their configuration and layers. If it has no
+other tag, it appears as a dangling image. Giving that image a tag removes the
+redundant dangling entry; existing aliases retain their registry provenance.
+This also applies to pulls and local tag moves. It does not reconstruct image
+records already lost before this behavior was available.
+
 ```sh
 gzip -c rootfs.tar | docker --context asagiri import \
   --change 'CMD ["/bin/sh"]' - local/snapshot:compressed
