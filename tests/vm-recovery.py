@@ -122,11 +122,22 @@ def check(path, image):
 
         for cid in eligible:
             cli("stop", "-t", "0", cid)
+        # Stop acknowledges the process exit before the event reader finishes
+        # saving it. Establish the persisted manual-stop precondition before
+        # the crash; the no-recovery observation below remains strict.
+        deadline = time.monotonic() + 45
+        while True:
+            saved = state()
+            if all(saved[cid]["status"] == "exited" and saved[cid]["restart_count"] == 2
+                   and saved[cid]["stopped_by_user"] for cid in eligible):
+                break
+            assert time.monotonic() < deadline, ("manual stops were not persisted", {cid: saved[cid] for cid in eligible})
+            time.sleep(0.05)
         crash_agent()
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             saved = state()
-            assert all(saved[cid]["status"] == "exited" and saved[cid]["restart_count"] == 2 for cid in eligible)
+            assert all(saved[cid]["status"] == "exited" and saved[cid]["restart_count"] == 2 for cid in eligible), {cid: saved[cid] for cid in eligible}
             # Allow the killed child to be reaped; it must never be replaced.
             found = agents()
             assert not found, ("an engine without eligible containers must remain asleep", found)
