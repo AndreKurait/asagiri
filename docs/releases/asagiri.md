@@ -20,6 +20,17 @@ container remains available with its writable data intact. A later removal
 can retry, and the destroy event is published only after cleanup succeeds.
 The cleanup deadline and lifecycle lock remain in place.
 
+Quiet container waits, log followers and output-only attached sessions release
+their API connection when the client disconnects. Clients that only close
+their write half still receive the response. The startup
+`ASAGIRI_MAX_CONNECTIONS` setting accepts 1 to 4096 concurrent connections,
+with a default of 256; operators must budget threads, descriptors and memory
+and leave capacity for control requests.
+
+Containers started with `--init` release inherited sockets, pipes and namespace
+handles before supervision. Stdio, signal forwarding and child reaping remain
+available, including for TTY and nonroot containers.
+
 Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
 HTTP and trusted HTTPS requests through Traefik before and after a restart.
 The test uses a private engine and checks the downloaded CLI, image digests,
