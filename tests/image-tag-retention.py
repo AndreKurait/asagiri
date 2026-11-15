@@ -111,9 +111,9 @@ def verify_identity(probe, state):
     assert image["Id"] == state["old_id"], image
     assert image["RootFS"]["Layers"] == state["layers"], image["RootFS"]
     assert image["Config"]["Labels"] == state["labels"], image["Config"]
-    assert not image.get("RepoDigests"), image.get("RepoDigests")
+    assert sorted(image.get("RepoDigests") or []) == state["repo_digests"], image.get("RepoDigests")
     container = json.loads(probe.cli("inspect", state["container"]).stdout)[0]
-    assert container["Image"] == state["old_id"], container
+    assert container["Image"] == state["container_image"], container
     assert container["Config"]["Labels"] == state["labels"], container["Config"]
     assert probe.cli("start", "-a", state["container"]).stdout.decode() == state["output"]
 
@@ -142,20 +142,30 @@ def check(socket, base_name, receipt=None):
         probe.cli("rm", source)
         probe.containers.remove(source)
         tag, alias = probe.prefix + ":moving", probe.prefix + ":retained"
-        old_id, old_archive, output, layers = image_archive(base, rootfs, tag, probe.prefix, "old")
-        new_id, new_archive, _, _ = image_archive(base, rootfs, tag, probe.prefix, "new")
-        assert old_id != new_id
-        probe.images.extend([old_id, new_id, tag, alias])
+        old_config, old_archive, output, layers = image_archive(base, rootfs, tag, probe.prefix, "old")
+        new_config, new_archive, _, _ = image_archive(base, rootfs, tag, probe.prefix, "new")
+        assert old_config != new_config
+        probe.images.extend([tag, alias])
         probe.cli("load", "--quiet", data=old_archive)
-        assert probe.inspect(tag)["Id"] == old_id
+        # Containerd-backed Docker reports the target descriptor's digest as
+        # Id. Retention must preserve that opaque ID as well as the config
+        # bytes; do not assume the two digests are interchangeable.
+        old_id = probe.inspect(tag)["Id"]
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", old_id)
+        probe.images.append(old_id)
+        print(json.dumps({"config_digest": old_config, "reported_image_id": old_id}), flush=True)
         cid = probe.create(probe.prefix + "-kept", tag)
+        original_container = json.loads(probe.cli("inspect", cid).stdout)[0]
         state = {
             "prefix": probe.prefix, "old_id": old_id, "container": cid,
+            "container_image": original_container["Image"], "config_digest": old_config,
             "layers": layers, "labels": {"fixture.retention": probe.prefix, "revision": "old"},
-            "output": output.decode(), "alias": alias,
+            "output": output.decode(), "alias": alias, "repo_digests": [],
         }
         probe.cli("load", "--quiet", data=new_archive)
-        assert probe.inspect(tag)["Id"] == new_id
+        new_id = probe.inspect(tag)["Id"]
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", new_id) and new_id != old_id
+        probe.images.append(new_id)
         old = probe.inspect(old_id)
         assert not old.get("RepoTags") and not old.get("RepoDigests"), old
         dangling = probe.cli("images", "--filter", "dangling=true", "--no-trunc", "--quiet").stdout.decode().split()
@@ -173,7 +183,7 @@ def check(socket, base_name, receipt=None):
             manifest = json.load(archive.extractfile("manifest.json"))
             assert len(manifest) == 1, manifest
             config = archive.extractfile(manifest[0]["Config"]).read()
-            assert "sha256:" + hashlib.sha256(config).hexdigest() == old_id
+            assert "sha256:" + hashlib.sha256(config).hexdigest() == old_config
         commit_and_run(probe, state, "committed")
         probe.passed("the displaced image can be saved and its original container committed")
 
@@ -181,6 +191,7 @@ def check(socket, base_name, receipt=None):
         dangling = probe.cli("images", "--filter", "dangling=true", "--no-trunc", "--quiet").stdout.decode().split()
         assert old_id not in dangling, dangling
         assert probe.inspect(alias)["Id"] == old_id
+        state["repo_digests"] = sorted(probe.inspect(alias).get("RepoDigests") or [])
         all_ids = probe.cli("images", "--no-trunc", "--quiet").stdout.decode().split()
         assert all_ids.count(old_id) == 1, all_ids
         probe.passed("tagging the retained image removes its redundant dangling record")
@@ -215,6 +226,8 @@ def verify_restart(socket, receipt):
     probe = Probe(socket, state["prefix"])
     assert re.fullmatch(r"[0-9a-f]{64}", state["container"])
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", state["old_id"])
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", state["container_image"])
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", state["config_digest"])
     assert state["alias"] == probe.prefix + ":retained"
     assert state["labels"] == {"fixture.retention": probe.prefix, "revision": "old"}
     assert state["output"] == probe.prefix + " old\n"
