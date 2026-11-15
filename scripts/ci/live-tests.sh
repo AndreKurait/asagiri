@@ -76,6 +76,7 @@ run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
+run run-options alpine:3.21
 run distribution
 run image-label-inheritance
 run many-layers alpine:3.21
