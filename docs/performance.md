@@ -67,6 +67,28 @@ and the number of pairs in which head was faster. These help investigate cases
 where population medians and adjacent paired samples point in different
 directions. All six existing regression thresholds remain in force.
 
+## Measured image-config and upload change
+
+A local comparison on November 15 used baseline `5721ace` and runtime `749c40c`,
+with the v3 harness from `cf6e03e`. Both AArch64 Linux engines ran in one owned
+disposable Docker host with private sockets and no published outer ports.
+Reusing the parsed image config and keeping successful archive connections
+open produced these results:
+
+| Workload | Baseline median | Candidate median | Change | Candidate faster pairs |
+| --- | --- | --- | --- | --- |
+| Create/remove, 70,923-byte image config | 1.096 ms | 0.662 ms | −39.6% | 396/400 |
+| 4 KiB archive upload and pooled ping | 0.641 ms | 0.540 ms | −15.8% | 334/400 |
+
+All six existing gates passed. The [4,000 raw timings](benchmarks/image-config-copy-2026-11-15.json)
+and [independent verification](benchmarks/image-config-copy-2026-11-15-verification.json)
+include source, harness and binary identities. All medians and nearest-rank
+p95 values were recomputed from the samples. The ordinary lifecycle median
+was 2.2% lower, but the candidate was faster in exactly 200/400 pairs; this
+does not establish a consistent startup improvement. CPU model and host kernel
+details were not retained for this local run. It is separate from the GHA
+history and does not measure native Mac VM performance.
+
 ## Durable history
 
 Every completed comparison uploads `record.json`, `results.json`, `sizes.json`

@@ -4,14 +4,14 @@ Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
 The original Apache-2.0 license, copyright notices, and Git history are preserved.
 The rename does not change the authorship of inherited code.
 
-Upstream `main` was fetched on **2026-11-14** at
-`baa2d41c1ce660b7ee255efc4fec156af42a715d`. Its complete history is merged,
-including the GitHub and ECR registry sign-in work after the initial integration.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **155** public PRs
-as of that review: 85 merged, 40 closed without merging, and 30 open. Every
-merged PR is represented in Asagiri's ancestry; unmerged work has an explicit
-port, equivalence, supersession, or hold recorded with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all 75
+Upstream `main` was reviewed on **2026-11-15** at
+`b249eccc2ed708ce10d7feeb82b6c0869b112443`. Its complete history through
+`baa2d41` is merged; later changes have reviewed ports or explicit equivalence.
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **160** public PRs
+as of that review: 93 merged, 40 closed without merging, and 27 open. Every
+PR has an inheritance, port, equivalence, supersession, or hold recorded
+with its reviewed head.
+The [issue verification inventory](docs/issue-verification.md) maps all 76
 reported issues to checks and remaining gaps. Closed upstream issues are not
 automatically considered verified on Asagiri.
 
@@ -150,6 +150,27 @@ closes inherited descriptors and is reaped on exit. A standalone Linux test
 verifies that behavior without a VM or real data disk. The actual macOS sparse
 disk reclamation remains a platform validation gap.
 
+The November 15 scan reviews #240–#244. Image lists expose labels and support
+label filters (#241), including images indexed before labels were cached.
+Successful archive uploads reuse their HTTP connection after the entire framed
+body has been consumed (#243). Path decoding and atomic index recovery are
+already covered; the stricter malformed-input and backup requirements remain.
+Kiri's #244 release notes do not change Asagiri's version or release claims.
+
+New comments on #227/#230 identify OverlayFS metadata-only copy-up and directory
+redirects as another source of incomplete commit layers. Asagiri explicitly
+disables those features and rejects older incomplete upper entries before
+diff/commit succeeds. The index overlap protection, archive-worker completion
+barrier and daemon mount recovery remain in place. The subsequent systemd
+cleanup workaround is covered by Asagiri's own startup recovery; it does not
+require installing an extra unmount script.
+
+Creation now reads and parses the image config once. A private Linux comparison
+of `5721ace` and runtime `749c40c` measured 39.6% faster median create/remove
+with a large image config and 15.8% faster median upload-plus-ping across
+400 pairs. The [performance notes](docs/performance.md) retain the raw samples
+and measurement limits. These workloads also run in the versioned GHA history.
+
 ## Issue follow-up
 
 | Issue | Work and verification scope |
@@ -163,6 +184,7 @@ disk reclamation remains a platform validation gap.
 | #73, #74 | Implemented an explicitly enabled, password-protected loopback browser and a local stdio MCP server with bounded read tools and separate control permission. Real private Linux engine/Chromium checks and official MCP Python SDK 2.3.0 checks pass. Native Mac and Windows named-pipe execution remain unverified. The public website demo continues to use sample data. |
 | #226 | A pinned GHA comparison retains 3,600 raw samples for Asagiri, Docker 29.9.3 and Podman 6.1.3. The per-commit performance workflow tracks timings, memory and syscalls with a public history. Native Mac/Colima VM comparisons remain unmeasured. See [engine comparison](docs/engine-comparison.md). |
 | #230 | Private Linux tests restart the actual daemon in a persistent mount namespace and recover four orphaned mount layers after a crash, preserving writable data. They also verify Stop/Start policy retention and user cancellation across a daemon restart. The reporter's exact CachyOS kernel/systemd combination remains unverified. |
+| #245 | The reported `PG_VERSION` named-volume copy already works. A live regression now checks a volume populated by one container and read by a new container while created and after exit. Native Mac execution of Supabase CLI 3 remains unverified. |
 
 ## Work intentionally held
 

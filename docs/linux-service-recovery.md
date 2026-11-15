@@ -35,6 +35,31 @@ hosts, with private sockets and no published outer ports:
 - The stopped volume/bind archive, ownership and `/proc` symlink checks pass,
   along with the real BuildKit Docker driver, concurrent builds and cancellation.
 
+## Overlay copy-up and commit contents
+
+Overlay mounts explicitly use `metacopy=off,redirect_dir=off`. A chmod or
+directory rename must leave complete file contents in the writable layer that
+`docker commit` exports, even when the host enables these OverlayFS features
+by default. Older upper entries with metadata-only copy-up or redirect
+attributes return an explicit diff/commit error before a partial image is
+published.
+
+The index feature's protection against concurrent mounts of one writable
+layer remains enabled when the host enables it. Copy completion and daemon
+recovery release old mounts instead of allowing overlapping mounts to proceed.
+The upstream systemd cleanup workaround is therefore handled by the engine's
+existing startup recovery.
+
+`tests/overlay-copyup.py` uses a private mount namespace to reproduce incomplete
+upper contents with metadata-only copy-up and redirects enabled, then checks
+complete data with both disabled. Both controls reject an overlapping mount.
+The actual engine test commits and runs an image after chmod and directory
+rename, checks the file hashes, and refuses injected legacy incomplete entries.
+These checks, real BuildKit builds, the five-second archive completion barrier
+and the separate daemon-restart regression pass on runtime source `749c40c`.
+The tests do not change global kernel parameters. The original Arch/CachyOS
+installation remains unverified.
+
 ## Automatic networks and Kubernetes DNS
 
 `tests/kind-network.py` covers plain automatic IPv4 allocation, kind's dual-stack

@@ -71,10 +71,24 @@ Registry-backed Buildx tags resolve the requested platform while locally
 created tags remain available. Private Linux tests exercise real agent crashes,
 restart counts, retained files, and local and cross-platform Buildx builds.
 
-Buildx configuration uploads now advertise closed HTTP connections correctly,
-so pooled Docker clients reconnect before starting the builder. The same fix
-covers image import/load and classic build responses. Regression checks cover
-the upload-to-start sequence and its connection headers.
+Successful archive uploads now consume the complete framed body and keep the
+connection available for the next request. Pooled Docker clients can start
+the builder on that connection. Error responses, image import/load and classic
+build responses still advertise closure when needed. Thirty-three framing
+checks cover the upload-to-start sequence, gzip, chunk trailers, padding,
+large uploads and damaged archives.
+
+Image lists return labels and support label filters, including images indexed
+before labels were cached. Container creation reuses one parsed image config
+for volumes, ports and stop signals. The performance workflow adds metadata
+creation and archive-upload measurements, with 15 metrics and all 4,000 timing
+samples retained per comparison.
+
+Overlay mounts disable metadata-only copy-up and directory redirects so
+committed layers contain complete files after chmod or rename. Older incomplete
+upper entries return an explicit error. Exclusive-upper protection and the
+existing copy-worker and daemon mount cleanup remain in force. Private Linux
+tests verify committed file hashes, overlap rejection and restart recovery.
 
 Container exits are reported before slow filesystem cleanup finishes.
 Restart, removal, and archive operations for that container wait for cleanup;

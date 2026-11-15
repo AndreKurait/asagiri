@@ -1,13 +1,13 @@
 {
-  "reviewed_at": "2026-11-14T21:16:41.043513+00:00",
+  "reviewed_at": "2026-11-15T00:19:56.862528+00:00",
   "upstream_repository": "libracoder/kiri",
-  "upstream_main": "baa2d41c1ce660b7ee255efc4fec156af42a715d",
-  "asagiri_runtime_revision": "44fab19064b0dee6dd9d948dafe2167fd3866540",
+  "upstream_main": "b249eccc2ed708ce10d7feeb82b6c0869b112443",
+  "asagiri_runtime_revision": "749c40cb92d2fba877365a37fe1fadbc7462c3cb",
   "counts": {
-    "total": 155,
-    "merged": 85,
+    "total": 160,
+    "merged": 93,
     "closed_unmerged": 40,
-    "open": 30
+    "open": 27
   },
   "pulls": [
     {
@@ -1972,9 +1972,9 @@
     {
       "number": 231,
       "title": "Mounts: a linked bind folder follows its link again after a restart (Mac)",
-      "state": "open",
+      "state": "merged",
       "head": "63cf422d926536102fa452441411e5f2b5df165a",
-      "merge": null,
+      "merge": "2124a4eeb7e41bcd427643b00e4d36a21d6a1460",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [
@@ -1986,9 +1986,9 @@
     {
       "number": 232,
       "title": "Networks: disconnecting from two networks works, and the address is always given back",
-      "state": "open",
+      "state": "merged",
       "head": "4db4243a3d8e91b6be913ffa7d565ad9af2e3f8d",
-      "merge": null,
+      "merge": "58d8d872d6c3149b907dec6537d1c13cbb3f3342",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
@@ -1998,9 +1998,9 @@
     {
       "number": 233,
       "title": "USB: devices Kiri waits for are listed, can be let go, and are never lost on a quick drop",
-      "state": "open",
+      "state": "merged",
       "head": "dbc1b6f57a86ae03420455425515d0a469838c9c",
-      "merge": null,
+      "merge": "59de5f69a8e7c41ca3002384aa422dd4b51fe6c3",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [
@@ -2012,9 +2012,9 @@
     {
       "number": 234,
       "title": "Engine: Start and Stop no longer race; Stop is parallel; exit codes match Docker",
-      "state": "open",
+      "state": "merged",
       "head": "714ff4093c6fb944e7f071d33c32d8a9b96eb2de",
-      "merge": null,
+      "merge": "ea383a4163ba74cc38452c0c1d14afca7884439d",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [
@@ -2040,9 +2040,9 @@
     {
       "number": 236,
       "title": "UI: First start and Settings — a searchable language list",
-      "state": "open",
+      "state": "merged",
       "head": "9f04a26d4195cc44a63c68d627ffa689f23553a9",
-      "merge": null,
+      "merge": "98790f7ae37237c0dcf0030882e1e6b9995c5db1",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [
@@ -2054,9 +2054,9 @@
     {
       "number": 238,
       "title": "UI: Sidebar — the Linux VM card fits in every language",
-      "state": "open",
+      "state": "merged",
       "head": "a8f7b53a3e4ce1119fcad53c44af6cf5a836e250",
-      "merge": null,
+      "merge": "2f8de03858b66b422a4502718a6f8a89cf4a1c5f",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [
@@ -2064,6 +2064,71 @@
       ],
       "disposition": "ported-and-equivalent",
       "reason": "Replacement for #220/#235. The UI runtime diff is identical to #235 and already ported in 989f8c6, including Asagiri Windows memory safeguards. Ported the only new delta: Intl.Segmenter word boundaries for Thai, Lao, Khmer and Burmese in the VM-card regression, so legitimate word wrapping is accepted. Native platform limits remain unchanged."
+    },
+    {
+      "disposition": "equivalent-with-stricter-validation",
+      "ports": [],
+      "reason": "Asagiri already decodes request paths once, preserves literal plus signs and rejects invalid escapes. Live encoded-api-paths and HTTP parser regressions cover encoded repositories, mixed-case escapes, version prefixes and double-decoding boundaries.",
+      "number": 240,
+      "title": "daemon: percent-decode the request path before routing (#223)",
+      "state": "open",
+      "head": "8e30a99dab6d88798e8ba0a0d99dfd84290e0daa",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false
+    },
+    {
+      "disposition": "ported-and-improved",
+      "ports": [
+        "363b52b6a3636e0a9d06322f1dc5c0aa183555f3",
+        "c76f9245e7937ae5d3199b8caa837ea67b27e24b"
+      ],
+      "reason": "Ported cached labels for pull/load/commit and image lists while retaining full stored-config inspection. Added label presence/value filters and recovery of labels from immutable config blobs for indexes created before this field existed. Linux unit and live image inspect/list/filter regressions pass.",
+      "number": 241,
+      "title": "images: return Config.Labels in image inspect and list (#206)",
+      "state": "open",
+      "head": "72c53510d37a93ec39c64c47c30438715b060908",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false
+    },
+    {
+      "disposition": "equivalent-with-stricter-recovery",
+      "ports": [],
+      "reason": "Asagiri already serializes read/modify/replace across processes, writes unique synced temporary files and recovers a complete typed index with trailing bytes only after preserving its exact original. It retains explicit errors for incomplete records, failed backups and unavailable cross-process locks instead of discarding records or overwriting an unpreserved index. Existing concurrent-write and corruption regressions pass.",
+      "number": 242,
+      "title": "image store: atomic writes, a write lock, and fail-soft index recovery (#224)",
+      "state": "open",
+      "head": "087b52bd8b492735ecc8358012d5e0c8a74c3e1a",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false
+    },
+    {
+      "disposition": "ported-and-equivalent",
+      "ports": [
+        "35d8064c9bb684617793d5946def6fd723e1a5cb"
+      ],
+      "reason": "Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head.",
+      "number": 243,
+      "title": "Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd",
+      "state": "merged",
+      "head": "f7fc8ab8cefb86bd8802f8142aa6c34d93a06592",
+      "merge": "8318b8d7683202bd3d438b1baf788fa8526fa52b",
+      "head_in_history": false,
+      "merge_in_history": false
+    },
+    {
+      "disposition": "upstream-release-documentation",
+      "ports": [],
+      "reason": "Reviewed the Kiri 0.2.1 release notes and confirmed the squash tree exactly matches this head. Product-specific version and release claims are kept in Kiri; Asagiri maintains its own release notes and explicit platform verification limits.",
+      "number": 244,
+      "title": "Release notes for 0.2.1",
+      "state": "merged",
+      "head": "019304807fbd487a1c9273fcfbb1be7f4d285e02",
+      "merge": "b249eccc2ed708ce10d7feeb82b6c0869b112443",
+      "head_in_history": false,
+      "merge_in_history": false
     }
   ]
 }
