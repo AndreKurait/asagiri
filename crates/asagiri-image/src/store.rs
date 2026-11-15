@@ -292,11 +292,22 @@ impl Store {
         Ok(if labels.is_empty() { serde_json::Value::Null } else { labels.into() })
     }
 
-    /// Adds `image`, replacing any image with the same name.
+    /// Adds or replaces a name, retaining a displaced image's config by ID.
     pub fn put_image(&self, image: Image) -> io::Result<()> {
         let _index = self.lock_index()?;
         let mut images = self.read_or_repair_index()?;
-        images.retain(|i| i.name != image.name);
+        let displaced = images.iter().find(|i| i.name == image.name && i.config_digest != image.config_digest).cloned();
+        // A config that gains a name no longer needs its dangling record.
+        images.retain(|i| i.name != image.name && !(i.name == i.config_digest && i.config_digest == image.config_digest));
+        if let Some(old) = displaced
+            && !images.iter().any(|i| i.config_digest == old.config_digest)
+        {
+            // Containers still refer to this config and its layers. Existing
+            // aliases retain their registry provenance; without one, keep an
+            // untagged record. tagged() clears digests belonging to the former
+            // repository instead of attributing them to the hash-only name.
+            images.push(old.tagged(old.config_digest.clone()));
+        }
         images.push(image);
         self.write_index(&images)
     }
@@ -466,6 +477,153 @@ mod tests {
             index_digest: None, local_tag: true, layers: Vec::new(), size: 0, platform: "linux/arm64".into(),
             created: String::new(), pulled_at: 0, config: RunConfig::default(),
         }
+    }
+
+    fn retention_store() -> Store {
+        let root = std::env::temp_dir().join(format!("asagiri-image-retention-{}-{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        Store::open(root).unwrap()
+    }
+
+    fn retention_image(store: &Store, arch: &str) -> Image {
+        let ingest = |bytes: &[u8]| {
+            let mut writer = store.ingest().unwrap();
+            writer.write_all(bytes).unwrap();
+            writer.finish().unwrap()
+        };
+        let config = format!(r#"{{"architecture":"{arch}","os":"linux","config":{{}}}}"#);
+        let (config_digest, _) = ingest(config.as_bytes());
+        let layers: Vec<_> = [b"shared-layer".as_slice(), arch.as_bytes()].into_iter().map(|bytes| {
+            let (digest, size) = ingest(bytes);
+            Layer { digest, size, media_type: "application/vnd.oci.image.layer.v1.tar".into() }
+        }).collect();
+        Image {
+            name: "registry.example/java:17".into(),
+            digest: sha256_digest(format!("manifest-{arch}").as_bytes()),
+            index_digest: Some(sha256_digest(b"multiarch-index")),
+            local_tag: false,
+            config_digest,
+            size: layers.iter().map(|l| l.size).sum(),
+            layers,
+            platform: format!("linux/{arch}"),
+            created: String::new(),
+            pulled_at: 1,
+            config: RunConfig::default(),
+        }
+    }
+
+    #[test]
+    fn retention_tag_move_keeps_old_identity_and_shared_blobs() {
+        let store = retention_store();
+        let old = retention_image(&store, "amd64");
+        let new = retention_image(&store, "arm64");
+        store.put_image(old.clone()).unwrap();
+        store.put_image(new.clone()).unwrap();
+        assert_eq!(store.find(&new.name).unwrap(), Some(new.clone()));
+        let retained = store.find(&old.config_digest).unwrap().expect("a displaced image ID must remain inspectable");
+        assert_eq!(retained.platform, old.platform);
+        assert_eq!(retained.layers, old.layers);
+        assert_eq!(retained.config, old.config);
+        assert_eq!(retained.name, old.config_digest);
+        assert_eq!(retained.repo_digest(), None, "a hash-only name must not invent a repository digest");
+        assert_eq!(retained.digest, old.config_digest);
+        assert_eq!(retained.index_digest, None);
+        assert!(retained.local_tag);
+        let config: serde_json::Value = serde_json::from_slice(&store.read_config(&old.config_digest).unwrap()).unwrap();
+        assert_eq!(config["architecture"], "amd64");
+        store.remove_image(&new.name).unwrap();
+        for layer in &old.layers {
+            assert!(store.has_blob(&layer.digest, layer.size), "retained image layer was removed");
+        }
+        assert!(!store.blob_path(&new.config_digest).unwrap().exists());
+        assert!(!store.blob_path(&new.layers[1].digest).unwrap().exists());
+        store.remove_image(&old.config_digest).unwrap();
+        assert!(store.images().unwrap().is_empty());
+        assert!(!store.blob_path(&old.config_digest).unwrap().exists());
+        for layer in &old.layers {
+            assert!(!store.blob_path(&layer.digest).unwrap().exists());
+        }
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn retention_existing_alias_keeps_its_registry_provenance() {
+        let store = retention_store();
+        let old = retention_image(&store, "amd64");
+        let alias = old.tagged("registry.example/java:retained".into());
+        let new = retention_image(&store, "arm64");
+        store.put_image(old.clone()).unwrap();
+        store.put_image(alias.clone()).unwrap();
+        store.put_image(new.clone()).unwrap();
+        let images = store.images().unwrap();
+        assert_eq!(images.len(), 2, "an existing alias already retains the old config");
+        assert_eq!(store.find(&alias.name).unwrap(), Some(alias.clone()));
+        assert_eq!(alias.repo_digest(), old.repo_digest());
+        assert!(images.iter().all(|i| i.name != i.config_digest));
+        assert_eq!(store.find(&new.name).unwrap(), Some(new));
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn retention_same_config_refresh_does_not_create_dangling_copy() {
+        let store = retention_store();
+        let old = retention_image(&store, "amd64");
+        store.put_image(old.clone()).unwrap();
+        let updated = Image { pulled_at: 2, ..old };
+        store.put_image(updated.clone()).unwrap();
+        assert_eq!(store.images().unwrap(), vec![updated]);
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn retention_moving_tag_back_removes_redundant_dangling_copy() {
+        let store = retention_store();
+        let first = retention_image(&store, "amd64");
+        let second = retention_image(&store, "arm64");
+        store.put_image(first.clone()).unwrap();
+        store.put_image(second.clone()).unwrap();
+        store.put_image(first.clone()).unwrap();
+        store.put_image(first.clone()).unwrap();
+        let images = store.images().unwrap();
+        assert_eq!(images.len(), 2);
+        assert_eq!(images.iter().filter(|i| i.config_digest == first.config_digest).count(), 1);
+        assert_eq!(store.find(&first.name).unwrap(), Some(first.clone()));
+        assert_eq!(store.find(&second.config_digest).unwrap().unwrap().platform, second.platform);
+        assert_eq!(store.find(&first.name).unwrap().unwrap().repo_digest(), first.repo_digest());
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn retention_tagging_an_untagged_image_replaces_its_dangling_record() {
+        let store = retention_store();
+        let named = retention_image(&store, "amd64");
+        store.put_image(named.tagged(named.config_digest.clone())).unwrap();
+        store.put_image(named.clone()).unwrap();
+        assert_eq!(store.images().unwrap(), vec![named]);
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn retention_concurrent_tag_replacement_keeps_every_config() {
+        let store = retention_store();
+        let images: Vec<_> = (0..8).map(|n| retention_image(&store, &format!("platform-{n}"))).collect();
+        let barrier = std::sync::Barrier::new(images.len());
+        std::thread::scope(|scope| {
+            for image in images.iter().cloned() {
+                let (root, barrier) = (store.root(), &barrier);
+                scope.spawn(move || {
+                    let handle = Store::open(root).unwrap();
+                    barrier.wait();
+                    handle.put_image(image).unwrap();
+                });
+            }
+        });
+        let indexed = store.images().unwrap();
+        assert_eq!(indexed.len(), images.len());
+        for image in &images {
+            assert_eq!(indexed.iter().filter(|i| i.config_digest == image.config_digest).count(), 1);
+        }
+        assert_eq!(indexed.iter().filter(|i| i.name == images[0].name).count(), 1);
+        fs::remove_dir_all(store.root()).unwrap();
     }
 
     #[test]
