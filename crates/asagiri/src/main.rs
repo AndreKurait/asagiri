@@ -110,6 +110,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri update [--check]
        asagiri diag logs [-f] [--ui|--engine|--cli] [--errors] [-n N]
        asagiri diag report [--out PATH] [--send]   (a file to send us, tokens taken out)
+       asagiri diag firewall   (Linux: inspect bridge forwarding; no changes)
        asagiri PORT [NAME]           share a local port on the internet (same as asagiri share PORT)
        asagiri share PORT|CONTAINER [--name N] | share login | logout | status
        asagiri k8s start [--use] | stop | status | delete | set [--lan on|off] [--tls-san NAME,…] [--port N]
