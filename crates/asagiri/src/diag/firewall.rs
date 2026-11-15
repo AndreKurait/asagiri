@@ -35,6 +35,18 @@ pub fn run(args: &[String]) -> io::Result<()> {
 /// Drain both pipes without waiting indefinitely for a hung command or an
 /// inherited pipe. A private process group lets timeout cleanup reap helpers.
 fn capture(command: &mut Command, timeout: Duration, limit: usize) -> io::Result<String> {
+    // An inherited ignored SIGCHLD or an automatic/custom reaper can release
+    // a child's PID before our group cleanup. Diagnose that before spawning.
+    // SAFETY: zeroed sigaction storage is valid for this read-only query.
+    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    // SAFETY: read the process disposition without changing it.
+    if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), &mut action) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if action.sa_sigaction != libc::SIG_DFL || action.sa_flags & libc::SA_NOCLDWAIT != 0 {
+        return Err(io::Error::new(io::ErrorKind::Unsupported,
+            "SIGCHLD must retain child exit status for safe diagnostic cleanup"));
+    }
     let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped())
         .stderr(Stdio::piped()).process_group(0).spawn()?;
     let result = (|| {
@@ -64,8 +76,12 @@ fn capture(command: &mut Command, timeout: Duration, limit: usize) -> io::Result
     })();
     // Keep the leader unreaped until after cleanup, even if it exited first:
     // its PID cannot be reused for an unrelated process group in between.
-    // SAFETY: this is the group created for our unreaped child, not our own.
-    unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+    // ECHILD means an external reaper took ownership despite our preflight.
+    // Never signal a numeric group whose leader PID we no longer own.
+    if !matches!(exited(child.id()), Err(ref error) if error.raw_os_error() == Some(libc::ECHILD)) {
+        // SAFETY: this is the group created for our unreaped child, not ours.
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+    }
     let status = child.wait();
     let (out, err) = result?;
     let status = status?;
@@ -334,6 +350,12 @@ mod tests {
 
     #[test]
     fn capture_drains_both_pipes_and_reports_failure() {
+        if std::env::var_os("ASAGIRI_TEST_IGNORED_SIGCHLD").is_some() {
+            let error = capture(&mut Command::new("/asagiri-diagnostic-must-not-spawn"), TIMEOUT, 100).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+            assert!(error.to_string().contains("SIGCHLD"));
+            return;
+        }
         let text = capture(Command::new("sh").args(["-c", "printf output; printf error >&2"]), TIMEOUT, 100).unwrap();
         assert_eq!(text, "output");
         let error = capture(Command::new("sh").args(["-c", "printf denied >&2; exit 4"]), TIMEOUT, 100).unwrap_err();
@@ -355,11 +377,58 @@ mod tests {
     fn capture_limits_output_and_kills_timed_out_helpers() {
         let error = capture(Command::new("sh").args(["-c", "printf 123456"]), TIMEOUT, 5).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
-        for script in ["sleep 30 & wait", "sleep 30 & exit 0"] {
+        use std::os::unix::fs::DirBuilderExt;
+        let dir = std::env::temp_dir().join(format!("asagiri-firewall-helper-{}-{}",
+            std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        let mut killed = Vec::new();
+        for (index, ending) in ["wait", "exit 0"].iter().enumerate() {
+            let path = dir.join(index.to_string());
+            let record = if cfg!(target_os = "linux") {
+                "cat /proc/\"$helper\"/stat"
+            } else {
+                "ps -p \"$helper\" -o pid=,lstart=,stat="
+            };
+            // A one-second helper also lets a deliberately broken leader-only
+            // cleanup control finish naturally, without signaling a reused PID.
+            let script = format!("sleep 1 & helper=$!; {record} > \"$1\"; {ending}");
+            let mut command = Command::new("sh");
+            command.args(["-c", &script, "sh"]).arg(&path);
             let start = Instant::now();
-            let error = capture(Command::new("sh").args(["-c", script]), Duration::from_millis(40), 100).unwrap_err();
+            let error = capture(&mut command, Duration::from_millis(200), 100).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::TimedOut);
             assert!(start.elapsed() < Duration::from_secs(2));
+            let (pid, identity, _) = helper_stat(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let alive = || helper(pid).is_some_and(|(_, current, live)| current == identity && live);
+            killed.push(!alive());
+            // Cleanup is checked before waiting. A leaked test helper exits
+            // by itself; the negative control must not leak it after failing.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while alive() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
+            assert!(!alive(), "test helper did not finish");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(killed, [true, true], "timeout cleanup left a live descendant");
+    }
+
+    fn helper_stat(text: &str) -> Option<(u32, String, bool)> {
+        let pid = text.split_whitespace().next()?.parse().ok()?;
+        if cfg!(target_os = "linux") {
+            let fields: Vec<_> = text.rsplit_once(')')?.1.split_whitespace().collect();
+            Some((pid, fields.get(19)?.to_string(), *fields.first()? != "Z" && *fields.first()? != "X"))
+        } else {
+            let fields: Vec<_> = text.split_whitespace().collect();
+            let state = fields.last()?;
+            Some((pid, fields.get(1..fields.len().checked_sub(1)?)?.join(" "), !state.starts_with('Z') && !state.starts_with('X')))
+        }
+    }
+
+    fn helper(pid: u32) -> Option<(u32, String, bool)> {
+        if cfg!(target_os = "linux") {
+            helper_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+        } else {
+            let output = Command::new("ps").args(["-p", &pid.to_string(), "-o", "pid=,lstart=,stat="]).output().ok()?;
+            helper_stat(std::str::from_utf8(&output.stdout).ok()?)
         }
     }
 }
