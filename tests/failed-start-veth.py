@@ -55,6 +55,7 @@ try:
             pass
     assert len(agents) == 1, agents
     agent = agents[0]
+    host_netns = os.readlink(f"/proc/{agent}/ns/net")
     sysctl = "/proc/sys/net/ipv4/ip_local_port_range"
     calls = {"x86_64": ("open", "openat"), "aarch64": ("openat",)}[platform.machine()]
     command = ["strace", "-f", "-P", sysctl, "-e", "trace=" + ",".join(calls)]
@@ -76,7 +77,7 @@ try:
             try:
                 for pid in (cgroup / "cgroup.procs").read_text().split():
                     path = f"/proc/{int(pid)}/ns/net"
-                    if os.readlink(path) != os.readlink(f"/proc/{agent}/ns/net"):
+                    if os.readlink(path) != host_netns:
                         held = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
                         break
             except (FileNotFoundError, ProcessLookupError):
