@@ -456,16 +456,29 @@ mod tests {
 mod registry_ca_tests {
     use super::*;
     use std::net::TcpListener;
-    use rustls::pki_types::pem::PemObject;
-    const CA: &str = include_str!("../tests/fixtures/registry-ca/ca.pem");
-    const OTHER: &str = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
+    use rcgen::{CertificateParams, CertifiedIssuer, KeyPair};
 
-    fn server() -> (u16, thread::JoinHandle<()>) {
-        let cert = ureq::tls::Certificate::from_pem(include_bytes!("../tests/fixtures/registry-ca/server.pem")).unwrap();
-        let key = rustls::pki_types::PrivateKeyDer::from_pem_slice(include_bytes!("../tests/fixtures/registry-ca/server.key")).unwrap();
+    fn ca() -> CertifiedIssuer<'static, KeyPair> {
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![rcgen::KeyUsagePurpose::KeyCertSign, rcgen::KeyUsagePurpose::CrlSign];
+        CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap()
+    }
+
+    fn server(ca: &CertifiedIssuer<'static, KeyPair>, expired: bool) -> (u16, thread::JoinHandle<()>) {
+        // Keys exist only in this test's memory, never in source or logs.
+        let key = KeyPair::generate().unwrap();
+        let mut params = CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
+        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        if expired {
+            params.not_before = rcgen::date_time_ymd(2000, 1, 1);
+            params.not_after = rcgen::date_time_ymd(2001, 1, 1);
+        }
+        let cert = params.signed_by(&key, ca).unwrap();
+        let key = rustls::pki_types::PrivatePkcs8KeyDer::from(key.serialize_der()).into();
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions().unwrap().with_no_client_auth()
-            .with_single_cert(vec![rustls::pki_types::CertificateDer::from(cert.der().to_vec())], key).unwrap();
+            .with_single_cert(vec![cert.der().clone()], key).unwrap();
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
@@ -478,6 +491,8 @@ mod registry_ca_tests {
                     Err(_) => return,
                 }
             };
+            // BSD accepts inherit the listener's nonblocking mode.
+            stream.set_nonblocking(false).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
             stream.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
             let conn = rustls::ServerConnection::new(Arc::new(config)).unwrap();
@@ -493,29 +508,50 @@ mod registry_ca_tests {
             registry_connector(policy), ureq::unversioned::resolver::DefaultResolver::default())
     }
 
+    fn certificate_error(error: &Error) -> Option<&rustls::CertificateError> {
+        let error = match error {
+            Error::Rustls(error) => error,
+            Error::Io(error) => error.get_ref()?.downcast_ref::<rustls::Error>()?,
+            _ => return None,
+        };
+        match error {
+            rustls::Error::InvalidCertificate(error) => Some(error),
+            _ => None,
+        }
+    }
+
     #[test]
-    fn scoped_ca_requires_correct_chain_name_and_authority() {
-        for case in ["trusted", "default", "wrong-ca", "wrong-name", "wrong-port"] {
-            let (port, worker) = server();
+    fn scoped_ca_requires_correct_chain_name_authority_and_expiry() {
+        let ca = ca();
+        let other = self::ca().pem();
+        for case in ["trusted", "default", "wrong-ca", "wrong-name", "wrong-port", "expired"] {
+            let (port, worker) = server(&ca, case == "expired");
             let hostname = if case == "wrong-name" { "localhost" } else { "127.0.0.1" };
             let selected_port = if case == "wrong-port" { if port == 65535 { 65534 } else { port + 1 } } else { port };
             let mut bundles = std::collections::BTreeMap::new();
-            if case != "default" { bundles.insert(format!("{hostname}:{selected_port}"), if case == "wrong-ca" { OTHER } else { CA }.to_owned()); }
+            if case != "default" { bundles.insert(format!("{hostname}:{selected_port}"), if case == "wrong-ca" { other.clone() } else { ca.pem() }); }
             let policy = crate::RegistrySettings::default().with_ca_certificates(&bundles).unwrap();
             let result = agent(policy).get(format!("https://{hostname}:{port}/v2/")).call();
-            assert_eq!(result.is_ok(), case == "trusted", "{case}: {result:?}");
             worker.join().unwrap();
+            if case == "trusted" {
+                assert!(result.is_ok(), "{case}: {result:?}");
+            } else {
+                let error = result.expect_err(case);
+                assert!(certificate_error(&error).is_some(), "{case} must reject the certificate, not fail unrelated I/O: {error:?}");
+            }
         }
     }
 
     #[test]
     fn trusted_connection_does_not_trust_another_destination_in_same_pool() {
-        let (first, first_worker) = server();
-        let (second, second_worker) = server();
-        let policy = crate::RegistrySettings::default().with_ca_certificates(&[(format!("127.0.0.1:{first}"), CA.to_owned())].into()).unwrap();
+        let ca = ca();
+        let (first, first_worker) = server(&ca, false);
+        let (second, second_worker) = server(&ca, false);
+        let policy = crate::RegistrySettings::default().with_ca_certificates(&[(format!("127.0.0.1:{first}"), ca.pem())].into()).unwrap();
         let client = agent(policy);
         assert!(client.get(format!("https://127.0.0.1:{first}/v2/")).call().is_ok());
-        assert!(client.get(format!("https://127.0.0.1:{second}/v2/")).call().is_err());
+        let error = client.get(format!("https://127.0.0.1:{second}/v2/")).call().expect_err("unlisted destination");
+        assert!(certificate_error(&error).is_some(), "{error:?}");
         first_worker.join().unwrap(); second_worker.join().unwrap();
     }
 }

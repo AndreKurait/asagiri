@@ -14,5 +14,8 @@ tar = "0.4"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
+
 [lints]
 workspace = true

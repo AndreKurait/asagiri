@@ -137,21 +137,39 @@ pub(crate) fn https_authority(input: &str) -> Result<String, String> {
 }
 
 pub(crate) fn ca_roots(pem: &str) -> Result<ureq::tls::RootCerts, String> {
-    // Restrict the bundle grammar, including otherwise ignored PEM sections.
-    let mut rest = pem.trim();
+    // Validate the original bytes, also read by BuildKit's Go PEM parser.
+    // Trimming before a BEGIN marker would admit a root Go silently skips.
+    let mut lines = pem.split_inclusive('\n');
+    let mut offset = 0;
     let mut certs = Vec::new();
     let mut store = rustls::RootCertStore::empty();
-    while !rest.is_empty() {
-        if !rest.starts_with("-----BEGIN CERTIFICATE-----") {
-            return Err("registry CA bundle must contain only PEM certificates".into());
+    while let Some(line) = lines.next() {
+        let start = offset;
+        offset += line.len();
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.bytes().all(|b| matches!(b, b' ' | b'\t')) { continue; }
+        if line != "-----BEGIN CERTIFICATE-----" {
+            return Err("registry CA bundle must contain only PEM certificates with unindented boundary lines".into());
         }
-        let end = rest.find("-----END CERTIFICATE-----").ok_or("unterminated registry CA certificate")?
-            + "-----END CERTIFICATE-----".len();
-        let cert = ureq::tls::Certificate::from_pem(&rest.as_bytes()[..end]).map_err(|e| format!("invalid registry CA PEM: {e}"))?;
+        let mut complete = false;
+        for line in lines.by_ref() {
+            offset += line.len();
+            let line = line.strip_suffix('\n').unwrap_or(line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line == "-----END CERTIFICATE-----" {
+                complete = true;
+                break;
+            }
+            if !line.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/= \t".contains(&b)) {
+                return Err("registry CA certificate must contain base64 and an unindented END line".into());
+            }
+        }
+        if !complete { return Err("unterminated registry CA certificate".into()); }
+        let cert = ureq::tls::Certificate::from_pem(&pem.as_bytes()[start..offset]).map_err(|e| format!("invalid registry CA PEM: {e}"))?;
         store.add(rustls::pki_types::CertificateDer::from(cert.der())).map_err(|e| format!("invalid registry CA certificate: {e}"))?;
         certs.push(cert);
         if certs.len() > 32 { return Err("at most 32 registry CA certificates per authority".into()); }
-        rest = rest[end..].trim();
     }
     if certs.is_empty() { return Err("registry CA bundle is empty".into()); }
     Ok(certs.into())
@@ -169,7 +187,8 @@ mod tests {
         assert_eq!(https_authority("Registry.Example:0443").unwrap(), "registry.example");
         assert_eq!(https_authority("[::1]:443").unwrap(), "[::1]");
         assert_eq!(https_authority("registry.example:05000").unwrap(), "registry.example:5000");
-        for pem in ["", "garbage", "-----BEGIN CERTIFICATE-----\nYmFk\n-----END CERTIFICATE-----", include_str!("../tests/fixtures/registry-ca/server.key")] {
+        let private_key = rcgen::KeyPair::generate().unwrap().serialize_pem();
+        for pem in ["", "garbage", "-----BEGIN CERTIFICATE-----\nYmFk\n-----END CERTIFICATE-----", &private_key] {
             assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem.into())].into()).is_err());
         }
         for host in ["https://registry.example", "*.example", "user@registry.example", "registry.example/path"] {
@@ -180,6 +199,22 @@ mod tests {
         assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), ca.into()), ("registry.example:443".into(), ca.into())].into()).is_err());
         let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
         assert_ne!(policy, RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), other.into())].into()).unwrap());
+    }
+
+    #[test]
+    fn ca_bundles_keep_complete_pem_lines_for_engine_and_buildkit() {
+        let ca = include_str!("../tests/fixtures/registry-ca/ca.pem");
+        let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
+        for pem in [ca.to_owned(), ca.replace('\n', "\r\n"), format!("\n \t\n{other}\n{ca}\n")] {
+            let policy = RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem.clone())].into()).unwrap();
+            assert_eq!(policy.ca_certificates()["registry.example"], pem);
+        }
+        // Go's PEM reader skips an indented BEGIN line. Accepting it here
+        // would give the engine a root that BuildKit never loads.
+        for pem in [format!(" {ca}"), format!("\t{ca}"), format!("{other} \t{ca}"),
+            format!("{}{ca}", other.trim_end()), ca.replace("\n-----END", "\n -----END")] {
+            assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem)].into()).is_err());
+        }
     }
 
     #[test]
