@@ -3,11 +3,17 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 Dense IPv4 and IPv6 networks find free addresses by merging occupied and
 excluded hosts in order. A Verus proof checks the production gap search's
 bounds, lowest-free result, exhaustion and overflow behavior. CI also compares
-the actual allocation methods across 26 paired workloads and retains the
-raw timings. These checks supplement the existing engine performance gates.
+the actual allocation methods across 26 paired workloads, records an
+unchanged-source control with identical executables, and retains the raw
+timings. These checks supplement the existing engine performance gates.
 Automatic pool exhaustion returns Docker's HTTP 500 response on start and
 network connect. Live checks cover dense dual-stack allocation, static and
 auxiliary reservations, range boundaries, failed allocation and retry.
+
+Containers inherit image labels when created, and explicit container labels
+override matching image labels. Inspect and label-filtered discovery retain
+the merged labels across daemon restart. Invalid label values return HTTP
+400 before mount side effects.
 
 Linux CI runs a pinned DDEV PHP/MariaDB project, including real SQL-backed
 HTTP and trusted HTTPS requests through Traefik before and after a restart.
