@@ -126,6 +126,7 @@ try:
         assert peer_address.encode() in lookup, lookup
         record.update(outcome="passed", peer_ping=True, peer_dns=True)
 finally:
+    cleanup_errors = []
     if tracer is not None and tracer.poll() is None:
         tracer.send_signal(signal.SIGINT)
         tracer.wait(timeout=15)
@@ -134,7 +135,13 @@ finally:
     if held is not None:
         os.close(held)
     for cid in reversed(containers):
-        subprocess.run(docker + ["rm", "-f", cid], capture_output=True, timeout=30)
-    subprocess.run(docker + ["network", "rm", network], capture_output=True, timeout=30)
+        result = subprocess.run(docker + ["rm", "-f", cid], capture_output=True, text=True, timeout=30)
+        if result.returncode and "no such container" not in result.stderr.lower():
+            cleanup_errors.append(result.stderr)
+    result = subprocess.run(docker + ["network", "rm", network], capture_output=True, text=True, timeout=30)
+    if result.returncode and "not found" not in result.stderr.lower():
+        cleanup_errors.append(result.stderr)
     scratch.cleanup()
+    record["cleanup_errors"] = cleanup_errors
     print(json.dumps(record), flush=True)
+    assert not cleanup_errors, cleanup_errors
