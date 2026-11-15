@@ -3168,15 +3168,23 @@ fn archive_put(req: &Request, engine: &Engine, id: &str, w: &mut UnixStream, r: 
         },
         Err(e) => Err(Error::Io(e)),
     };
-    // Docker answers 200 with no body.
+    // The guest may have stopped reading before send_chunks reached EOF.
+    // Drain the framed request before allowing a pooled client to send its
+    // next request, including gzip members and trailing tar padding.
     match result {
-        Ok(()) => http::empty_with(w, 200, "Connection: close\r\n")?,
-        Err(e) => error_with(w, e, "Connection: close\r\n")?,
+        Ok(()) if io::copy(&mut archive, &mut io::sink()).is_ok() => {
+            http::empty(w, 200)?;
+            Ok(Next::KeepAlive)
+        }
+        Ok(()) => {
+            error_with(w, Error::BadRequest("the archive could not be read to its end".into()), "Connection: close\r\n")?;
+            Ok(Next::Close)
+        }
+        Err(e) => {
+            error_with(w, e, "Connection: close\r\n")?;
+            Ok(Next::Close)
+        }
     }
-    // Advertise closure even on success: otherwise pooled clients can race
-    // the close with their next request (Buildx copies config then starts).
-    // A refused upload may also leave the request body partly unread.
-    Ok(Next::Close)
 }
 
 /// A signal by name or number for a stop signal Docker has already
