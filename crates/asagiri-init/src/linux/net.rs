@@ -888,6 +888,11 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     if let (Err(_), Some(m)) = (&set, &link) {
         let _ = unplug(m);
     }
+    if set.is_err() && !plug.own_link() {
+        // The veth exists, but the caller never received a successful attach
+        // to record it in Process. It still needs retirement before IP reuse.
+        retire(&[host_ifname.to_owned()]);
+    }
     set.map(|()| link)
 }
 

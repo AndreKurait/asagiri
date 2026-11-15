@@ -20,6 +20,12 @@ container remains available with its writable data intact. A later removal
 can retry, and the destroy event is published only after cleanup succeeds.
 The cleanup deadline and lifecycle lock remain in place.
 
+Explicit removal also runs outside the agent's control loop. A slow unmount
+or directory deletion leaves unrelated exec requests and DNS responsive.
+Queued and active removals reserve their container IDs until the worker exits;
+failed forks and abnormal worker exits retry with a delay. One worker runs at
+a time, so a stuck removal can still delay later removals and shutdown.
+
 Quiet container waits, log followers and output-only attached sessions release
 their API connection when the client disconnects. Clients that only close
 their write half still receive the response. The startup
@@ -37,10 +43,25 @@ retain nanosecond precision; invalid size, ownership or time overrides fail befo
 replacing a node. File, gzip stdin, chunked API, HTTP URL and save/load routes
 are covered by comparisons with Docker.
 
+Replacing an image tag retains the previous image ID, configuration and layers
+for existing containers. An image without another tag remains available as a
+dangling image, and retagging it removes the redundant dangling record.
+Existing aliases retain their registry provenance. Regression checks cover
+concurrent replacements, shared layers, saved images and container commits.
+
+Rejected container starts release their embedded DNS listener, names and
+parent rootfs mount before returning the setup error. This prevents repeated
+failed starts from accumulating sockets and mounts while preserving other
+containers' DNS registrations. Writable data follows the existing removal
+policy: an automatically removed container may discard its data.
+Failed attempts also retire their virtual network links before a later attach
+reuses the address, even if the old network namespace remains alive. The live
+regression also deletes and recreates networks on the same subnet.
+
 Unprivileged containers fail before application startup if Linux cannot load
-or attach the cgroup device-access filter. Their identity and writable data
-remain available for retry after correcting the host restriction. Existing
-image and bind-mounted device nodes also need access filtering, so dropping
+or attach the cgroup device-access filter. Unless automatic removal is enabled,
+their identity and writable data remain available for retry after correcting
+the host restriction. Existing image and bind-mounted device nodes also need access filtering, so dropping
 the ability to create new nodes is no longer used as a fallback. Both bundled
 guest kernels enable the required BPF/cgroup support.
 
