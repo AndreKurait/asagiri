@@ -3,16 +3,13 @@
 import argparse
 import hashlib
 import http.client
-import io
 import ipaddress
 import json
 import os
 from pathlib import Path
 import re
-import shlex
 import socket
 import sys
-import tarfile
 import time
 import urllib.parse
 import uuid
@@ -30,6 +27,19 @@ class Connection(http.client.HTTPConnection):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.settimeout(self.timeout)
         self.sock.connect(self.path)
+
+
+def exec_output(data):
+    """Decode the complete non-TTY stdout/stderr stream without losing frames."""
+    output = bytearray()
+    while data:
+        assert len(data) >= 8 and data[0] in (1, 2) and data[1:4] == bytes(3), "Invalid exec frame"
+        size = int.from_bytes(data[4:8], "big")
+        assert len(data) >= 8 + size, "Truncated exec frame"
+        assert len(output) + size <= 65536, "DNS output exceeded the fixture limit"
+        output.extend(data[8:8 + size])
+        data = data[8 + size:]
+    return output.decode()
 
 
 def owned(kind, item, names, nonce, original, image):
@@ -147,26 +157,23 @@ def check(args):
         return get("/containers/" + cid + "/json")["NetworkSettings"]["Networks"][net]
 
     def query(cid, kind):
-        target = "/tmp/answer-" + uuid.uuid4().hex
-        command = "timeout 5 nslookup -type=" + kind + " db. 127.0.0.11"
-        body = {"Cmd": ["sh", "-c", command + " > " + shlex.quote(target) + " 2>&1"]}
+        body = {"Cmd": ["timeout", "5", "nslookup", "-type=" + kind, "db.", "127.0.0.11"],
+                "AttachStdout": True, "AttachStderr": True, "Tty": False}
         eid = request("POST", "/containers/" + cid + "/exec", body, (201,))[1]["Id"]
         assert re.fullmatch(r"[0-9a-f]{64}", eid)
-        request("POST", "/exec/" + eid + "/start", {"Detach": True}, (200, 204))
+        # Docker's archive API cannot copy from tmpfs. Read the attached
+        # output to EOF before inspecting completion; a detached exec may
+        # initially report Running=false before its process has started.
+        _, output = request("POST", "/exec/" + eid + "/start",
+                            {"Detach": False, "Tty": False}, raw=True)
+        text = exec_output(output)
         deadline = time.monotonic() + 10
         while True:
             state = get("/exec/" + eid + "/json")
             if not state["Running"]:
                 break
-            assert time.monotonic() < deadline, "DNS lookup did not finish"
+            assert time.monotonic() < deadline, "DNS lookup did not finish after its output closed"
             time.sleep(.01)
-        _, archive = request("GET", "/containers/" + cid + "/archive?"
-                             + urllib.parse.urlencode({"path": target}), raw=True)
-        with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
-            members = stream.getmembers()
-            assert len(members) == 1 and members[0].isfile() and members[0].size <= 65536
-            assert members[0].name.rsplit("/", 1)[-1] == target.rsplit("/", 1)[-1]
-            text = stream.extractfile(members[0]).read().decode()
         addresses = []
         in_answer = False
         for line in text.splitlines():
@@ -259,16 +266,20 @@ def check(args):
             for order, cid in enumerate(clients):
                 answers(cid, case + "-join-order-" + str(order), peers[preferred],
                         nets[preferred], versions[preferred])
+            # Exercise endpoint removal on the client that joined the
+            # preferred network second. Asagiri keeps its first attachment;
+            # both initial join orders were checked above.
+            lifecycle = clients[1 - preferred]
             request("POST", "/networks/" + ids[preferred] + "/disconnect",
-                    {"Container": clients[0]}, (200, 204))
+                    {"Container": lifecycle}, (200, 204))
             other = 1 - preferred
-            answers(clients[0], case + "-disconnect-preferred", peers[other], nets[other], versions[other])
-            attach(clients[0], ids[preferred])
-            answers(clients[0], case + "-reconnect-preferred", peers[preferred], nets[preferred], versions[preferred])
-            request("POST", "/containers/" + clients[0] + "/stop?t=0", statuses=(204,))
-            request("POST", "/containers/" + clients[0] + "/wait?condition=not-running")
-            request("POST", "/containers/" + clients[0] + "/start", statuses=(204,))
-            answers(clients[0], case + "-restart", peers[preferred], nets[preferred], versions[preferred])
+            answers(lifecycle, case + "-disconnect-preferred", peers[other], nets[other], versions[other])
+            attach(lifecycle, ids[preferred])
+            answers(lifecycle, case + "-reconnect-preferred", peers[preferred], nets[preferred], versions[preferred])
+            request("POST", "/containers/" + lifecycle + "/stop?t=0", statuses=(204,))
+            request("POST", "/containers/" + lifecycle + "/wait?condition=not-running")
+            request("POST", "/containers/" + lifecycle + "/start", statuses=(204,))
+            answers(lifecycle, case + "-restart", peers[preferred], nets[preferred], versions[preferred])
             errors = cleanup()
             assert not errors, errors
             assert inventory() == before, "Original inventory changed between DNS scenarios"

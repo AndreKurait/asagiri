@@ -546,7 +546,7 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
 }
 
 pub(super) fn image_tags(image: &asagiri_image::Image) -> Vec<&str> {
-    if image.name == image.config_digest { Vec::new() } else { vec![&image.name] }
+    image.repo_tag().into_iter().collect()
 }
 
 fn image_inspect(engine: &Engine, name: &str) -> Result<Value, Error> {
@@ -3354,6 +3354,25 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn digest_named_images_keep_provenance_out_of_repo_tags() {
+        let config_digest = format!("sha256:{}", "1".repeat(64));
+        let registry_digest = format!("sha256:{}", "2".repeat(64));
+        let config = json!({"os": "linux", "architecture": "arm64", "config": {}});
+        for name in [config_digest.clone(), format!("localhost:5000/demo@{registry_digest}")] {
+            let mut image = asagiri_image::archive::from_config(name.clone(), &config_digest, &config, vec![]);
+            if name != config_digest {
+                image.digest = registry_digest.clone();
+            }
+            let inspected = image_inspect_value(&image, &config);
+            assert_eq!(inspected["RepoTags"], json!([]));
+            assert_eq!(inspected["RepoDigests"], if name == config_digest { json!([]) }
+                else { json!([format!("localhost:5000/demo@{registry_digest}")]) });
+            assert_eq!(image_tags(&image.tagged("localhost:5000/demo:kept".into())),
+                ["localhost:5000/demo:kept"]);
+        }
+    }
 
     #[test]
     fn image_labels_are_inherited_and_explicit_values_override() {

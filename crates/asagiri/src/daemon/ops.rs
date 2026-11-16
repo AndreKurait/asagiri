@@ -499,8 +499,8 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
             json!({
                 "Id": i.config_digest,
                 "ParentId": "",
-                "RepoTags": [i.name],
-                "RepoDigests": [],
+                "RepoTags": super::api::image_tags(i),
+                "RepoDigests": i.repo_digest().into_iter().collect::<Vec<_>>(),
                 "Created": time::parse_unix(&i.created),
                 "Size": size,
                 "SharedSize": shared,

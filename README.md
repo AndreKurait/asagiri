@@ -57,6 +57,12 @@ or general application-speed claim.
 
 An optional comparison runs two revisions on the same machine in
 baseline/candidate/candidate/baseline order, retaining **24,000 samples**.
+The [verified cgroup fix comparison](docs/engine-comparison.md#verified-cgroup-fix-comparison)
+reduced lifecycle samples above 240 ms from **40/800 to 0/800**. Its median
+was nearly unchanged, 4.524 to 4.577 ms; p95 fell from 8.512 to 5.849 ms.
+This measured improvement in long delays applies to those tested revisions
+and that host. The raw samples, executable hashes and cleanup evidence are retained.
+
 Separate compatibility tests cover volume metadata and removal, package
 reinstallation and activation, and guest filesystem notifications and
 loop-device persistence. These small API workloads do not measure database

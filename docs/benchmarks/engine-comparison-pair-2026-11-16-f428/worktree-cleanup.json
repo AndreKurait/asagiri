@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "sources": {
+    "baseline": "ed482bd6e03354441e0396172d42bd175ab271e8",
+    "candidate": "f42868bfa959de9c2d2b131c871aa5f508cffab0"
+  },
+  "context": {
+    "repository": "AndreKurait/asagiri",
+    "run_id": "43894416036",
+    "run_attempt": "1",
+    "event": "workflow_dispatch"
+  },
+  "baseline_directory_removed": true,
+  "baseline_worktree_unregistered": true,
+  "temporary_directory_removed": true,
+  "candidate_checkout_clean": true
+}

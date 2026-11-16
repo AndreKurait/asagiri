@@ -71,8 +71,52 @@ untouched. The first local candidate build incorrectly reused the baseline
 test executable; that result was discarded. A separate cache and checked
 executable hashes established that the corrected candidate was actually
 compiled before its 15 cgroup tests passed on Linux 6.18.58/aarch64.
-This is a targeted correctness result; a full-engine comparison is needed
-to measure its effect on the slow lifecycle samples.
+The following comparison measured the complete lifecycle after that fix.
+
+## Verified cgroup fix comparison
+
+[GHA run 43894416036](https://github.com/AndreKurait/asagiri/actions/runs/43894416036)
+completed successfully with baseline `ed482bd6e03354441e0396172d42bd175ab271e8`
+and candidate `f42868bfa959de9c2d2b131c871aa5f508cffab0`. Both ran on the same
+four-CPU Intel Xeon 6975P-C host, Linux `7.0.0-1014-aws`, in
+baseline/candidate/candidate/baseline order. The independent reader recalculated
+all **24,000 samples**, rehashed both versions' engine and init executables,
+and checked fixture cleanup, temporary-directory removal and worktree removal.
+
+Each lifecycle result combines **800 samples**:
+
+| Engine | Baseline median / p95 (ms) | Candidate median / p95 (ms) | Baseline / candidate samples above 240 ms |
+| --- | ---: | ---: | ---: |
+| Asagiri | 4.524 / 8.512 | 4.577 / 5.849 | 40 / 0 |
+| Docker 29.9.3 | 75.233 / 81.874 | 75.605 / 83.090 | 0 / 0 |
+| Podman 6.1.3 | 22.666 / 24.945 | 22.758 / 25.603 | 0 / 0 |
+
+Asagiri's median increased about 1.2%; the benefit was eliminating the
+observed long cleanup delays in this comparison. Exactly 5% of baseline
+samples exceeded 240 ms, so its nearest-rank p95 alone hides those delays.
+The [verification record](benchmarks/engine-comparison-pair-2026-11-16-f428/verification.json),
+[combined report](benchmarks/engine-comparison-pair-2026-11-16-f428/comparison-pair.json),
+and all four raw records
+([baseline 1](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-1-baseline/comparison.json),
+[candidate 1](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-2-candidate/comparison.json),
+[candidate 2](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-3-candidate/comparison.json),
+[baseline 2](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-4-baseline/comparison.json))
+remain in this repository. Executable bytes are retained in the Actions artifact.
+
+A separate [ordinary run 43897004170](https://github.com/AndreKurait/asagiri/actions/runs/43897004170)
+at head `07609658b0ee8bcb64bb23382fa6a50f10eb9742` retained one 311.656 ms
+sample among 400 Asagiri lifecycles. The corresponding logged create-to-destroy
+interval was 7 ms, including 1 ms from exit to destruction. The remaining
+delay was outside those logged events; its cause was not established.
+That outlier remains part of the result. The paired result establishes
+neither a universal latency ceiling nor performance on other machines.
+
+The DNS ordering regression runs 25 cases per engine, including both initial
+join orders, duplicate aliases, additional-network disconnect/reconnect,
+restart and IPv6. Asagiri currently rejects disconnecting a container's
+first network; these DNS lifecycle cases remove an additional attachment.
+Digest-pulled image regressions also check list/inspect/disk-usage metadata,
+saved configuration and layer bytes, and mixed tag/digest/ID exports.
 
 ## Compare revisions on the same machine
 

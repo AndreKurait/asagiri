@@ -87,6 +87,12 @@ dangling image, and retagging it removes the redundant dangling record.
 Existing aliases retain their registry provenance. Regression checks cover
 concurrent replacements, shared layers, saved images and container commits.
 
+Images pulled by registry digest keep that reference in `RepoDigests`.
+List, inspect, disk usage and saved archives exclude digest references and
+image IDs from `RepoTags`, so Docker can load digest-only exports. Saving
+several references to one image retains its real tags once and preserves
+the configuration and layer contents.
+
 Rejected container starts release their embedded DNS listener, names and
 parent rootfs mount before returning the setup error. This prevents repeated
 failed starts from accumulating sockets and mounts while preserving other
