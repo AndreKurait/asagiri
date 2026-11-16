@@ -210,6 +210,8 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test
         run: cargo test --locked -p asagiri-win
+      - name: Check WSL prerequisite command and restart handling
+        run: ./tests/windows-wsl-setup.ps1
       - name: Build
         run: |
           cargo build --release --locked -p asagiri-win

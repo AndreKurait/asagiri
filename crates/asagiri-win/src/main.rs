@@ -49,6 +49,8 @@ mod win;
 mod usb;
 #[cfg(windows)]
 mod setup;
+#[cfg(any(windows, test))]
+mod wsl_text;
 // The built-in terminal's shells, on ConPTY.
 #[cfg(windows)]
 mod term;
