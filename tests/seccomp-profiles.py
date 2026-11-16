@@ -177,6 +177,24 @@ def check(path, image):
                                  "touch /f; chmod 600 /f; echo chmod=$?")
             assert status == 0 and "chmod=1" in output and "Permission denied" in output, output
 
+        # Thousands of disjoint equalities fit when adjacent values share
+        # an action. Keep a hole and an action change inside the ranges.
+        dense = [
+            {"names": [name], "action": "SCMP_ACT_ERRNO", "errnoRet": 13 if mode < 0o1000 else 95,
+             "args": [{"index": argument, "op": "SCMP_CMP_EQ", "value": mode}]}
+            for name, argument in (("chmod", 1), ("fchmodat", 2), ("fchmodat2", 2))
+            for mode in range(1000) if mode != 0o600
+        ]
+        status, output = run([profile(*dense)],
+                             "touch /f; chmod 600 /f; echo hole=$?; stat -c 'hole-mode=%a' /f; "
+                             "chmod 601 /f; echo first=$?; chmod 1000 /f; echo second=$?; "
+                             "chmod 1777 /f; echo outside=$?; stat -c 'outside-mode=%a' /f")
+        assert status == 0 and all(value in output.splitlines() for value in (
+            "hole=0", "hole-mode=600", "first=1", "second=1", "outside=0", "outside-mode=1777"
+        )), output
+        assert "Permission denied" in output and "not supported" in output.lower(), output
+        print("PASS 2997 equality rules preserve holes, actions and outside values", flush=True)
+
         # An argument is 64 bits wide and compared as a whole: the length
         # ftruncate is given, on both sides of 2^32.
         lengths = (0xffffffff, 0x100000004, 0x100000005, 0x100000016, 0x200000005, 0x200000006)
