@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Exercise the desktop migration module between two disposable Linux engines."""
 import argparse
+import gzip
 import hashlib
 import http.client
+import io
 import json
 import os
 from pathlib import Path
 import platform
 import socket
 import subprocess
+import tarfile
 import tempfile
 import time
 import urllib.parse
@@ -16,6 +19,79 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "dev.asagiri.import-test"
+
+
+def archive_identity(data):
+    """Hash the saved configuration and actual uncompressed layer contents."""
+    maximum = 256 * 1024 * 1024
+    assert len(data) <= maximum, "fixture image archive exceeds the inspection budget"
+
+    def name(value):
+        assert isinstance(value, str) and value and not value.startswith("/"), value
+        parts = value.split("/")
+        assert ".." not in parts and "\0" not in value, value
+        return "/".join(part for part in parts if part and part != ".")
+
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+        files = {}
+        for member in archive:
+            path = name(member.name)
+            if member.isdir():
+                continue
+            assert member.isfile(), "fixture archive has a non-regular member: " + path
+            assert path and path not in files, "duplicate fixture archive member: " + path
+            assert 0 <= member.size <= maximum, "fixture archive member exceeds the inspection budget"
+            files[path] = member
+            assert len(files) <= 4096, "fixture archive contains too many files"
+
+        def read(path, limit):
+            path = name(path)
+            assert path in files, "missing fixture archive member: " + path
+            assert files[path].size <= limit, "fixture archive metadata exceeds the inspection budget"
+            stream = archive.extractfile(files[path])
+            assert stream is not None
+            with stream:
+                return stream.read()
+
+        manifest = json.loads(read("manifest.json", 4 * 1024 * 1024))
+        assert isinstance(manifest, list) and len(manifest) == 1, "save exactly one fixture image"
+        entry = manifest[0]
+        raw_config = read(entry["Config"], 4 * 1024 * 1024)
+        config = json.loads(raw_config)
+        diff_ids = config["rootfs"]["diff_ids"]
+        assert config["rootfs"]["type"] == "layers"
+        assert isinstance(diff_ids, list) and len(diff_ids) == len(entry["Layers"])
+        layers = []
+        total = 0
+        for path, expected in zip(entry["Layers"], diff_ids):
+            raw = read(path, maximum)
+            stream = gzip.GzipFile(fileobj=io.BytesIO(raw)) if raw.startswith(b"\x1f\x8b") else io.BytesIO(raw)
+            digest = hashlib.sha256()
+            length = 0
+            with stream:
+                while chunk := stream.read(1024 * 1024):
+                    total += len(chunk)
+                    length += len(chunk)
+                    assert total <= maximum, "fixture layers exceed the expanded inspection budget"
+                    digest.update(chunk)
+            actual = "sha256:" + digest.hexdigest()
+            assert actual == expected, f"fixture layer {path}: contents {actual} differ from {expected}"
+            layers.append({"path": name(path), "blob_sha256": hashlib.sha256(raw).hexdigest(),
+                           "blob_bytes": len(raw), "diff_id": actual, "uncompressed_bytes": length})
+    return {
+        "archive_sha256": hashlib.sha256(data).hexdigest(),
+        "config_sha256": hashlib.sha256(raw_config).hexdigest(),
+        "platform": {key: config.get(key, "") for key in ("os", "architecture", "variant")},
+        "diff_ids": diff_ids, "layers": layers,
+    }
+
+
+def same_image_content(expected, observed):
+    for key in ("config_sha256", "platform", "diff_ids"):
+        assert expected[key] == observed[key], f"imported image changed {key}: {expected[key]!r} != {observed[key]!r}"
+    assert [layer["uncompressed_bytes"] for layer in expected["layers"]] == [
+        layer["uncompressed_bytes"] for layer in observed["layers"]
+    ], "imported image changed the unpacked layer lengths"
 
 
 def command(*args, check=True, **kwargs):
@@ -77,7 +153,7 @@ def main():
     nonce = uuid.uuid4().hex
     names = {key: "asagiri-import-" + nonce + "-" + key for key in ("source", "destination")}
     record = {
-        "schema": "asagiri.engine-import.v2", "status": "running", "source": head,
+        "schema": "asagiri.engine-import.v3", "status": "running", "source": head,
         "client_uid": os.geteuid(),
         "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "binaries": hashes, "fixture_sha256": checksum(Path(__file__)),
@@ -242,8 +318,14 @@ def main():
                 # Reuse the CI runner's existing seed bytes. The helper alias is
                 # fixture-local; it does not change any tag on the runner.
                 seed = command("docker", "image", "inspect", "alpine:3.21").stdout
-                record["seed"] = json.loads(seed)[0]["Id"]
+                seed_info = json.loads(seed)[0]
+                record["seed"] = seed_info["Id"]
+                record["image_inspections"] = {"seed": seed_info}
                 archive = command("docker", "image", "save", "alpine:3.21").stdout
+                seed_archive = output / "seed-image.tar"
+                seed_archive.write_bytes(archive)
+                seed_archive.chmod(0o644)
+                record["image_archives"] = {"seed": archive_identity(archive)}
                 docker("source", "load", input=archive)
                 image = "asagiri-import-fixture:" + nonce
                 for tag in ("alpine:latest", image):
@@ -322,9 +404,29 @@ def main():
                 escaped = urllib.parse.quote(image, safe="")
                 original = get("source", "/images/" + escaped + "/json")
                 copied = get("destination", "/images/" + escaped + "/json")
-                assert original["Id"] == copied["Id"] == record["seed"]
-                assert original["RootFS"]["Layers"] == copied["RootFS"]["Layers"]
-                case("image-id-and-layer-content-preserved", image_id=copied["Id"])
+                record["image_inspections"].update(source=original, destination=copied)
+                save()
+                # Docker's containerd store reports its manifest/index digest as
+                # Id; the classic store and Asagiri report the config digest.
+                # Compare the actual saved config and unpacked layer bytes.
+                for engine in ("source", "destination"):
+                    archive = docker(engine, "image", "save", image).stdout
+                    saved_archive = output / (engine + "-image.tar")
+                    saved_archive.write_bytes(archive)
+                    saved_archive.chmod(0o644)
+                    record["image_archives"][engine] = archive_identity(archive)
+                    save()
+                    same_image_content(record["image_archives"]["seed"], record["image_archives"][engine])
+                expected = record["image_archives"]["seed"]
+                assert copied["Id"] == "sha256:" + expected["config_sha256"], copied
+                for inspected in (seed_info, original, copied):
+                    assert inspected["RootFS"]["Layers"] == expected["diff_ids"], inspected
+                    assert inspected["Os"] == expected["platform"]["os"], inspected
+                    assert inspected["Architecture"] == expected["platform"]["architecture"], inspected
+                case("image-configuration-and-layer-content-preserved",
+                     config_sha256=expected["config_sha256"],
+                     api_image_ids={key: value["Id"] for key, value in record["image_inspections"].items()})
+                del archive
                 imported("volume", volume)
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"

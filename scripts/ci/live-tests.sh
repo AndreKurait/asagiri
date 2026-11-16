@@ -9,6 +9,7 @@
 set -u
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
+python3 "$src/tests/ci-engine-import.py" || exit 1
 # Run the same archive cases on the runner's Docker engine for comparison.
 python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
 # Establish Docker's allowed serialization behavior before testing the private
