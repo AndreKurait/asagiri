@@ -1,0 +1,27 @@
+{
+  "status": "diagnosed_and_cleanup_verified",
+  "at": "2026-11-16T09:33:10.824387+00:00",
+  "run": 43837787781,
+  "attempt": 1,
+  "head": "2c7e3d68fa8316eccb4c4bb4039a3b8415e49b03",
+  "source": "42a1089d7ae22fa2de0c1a11a0081ace56dad372",
+  "artifact": 14212751748,
+  "zip_sha256": "b5ab0400456839702ba8ad0060b9575836ab06a806393252b4f381c8ff08710f",
+  "reason": "CI guard incorrectly called unsupported bare Linux asagiri import; the docker command router excludes import and accepts image. The correct Docker rootfs path is asagiri image import. No production migration command was exercised before failure.",
+  "cases_executed": 0,
+  "import_commands_executed": 0,
+  "hosts_removed_and_api_404": 2,
+  "stores_removed_and_api_404": 3,
+  "fixture_sources_verified": true,
+  "actual_engine_contexts_verified": true,
+  "correction": "Check unsupported bare asagiri import separately, exercise asagiri image import --help for Docker rootfs import, and check the CI-only desktop importer help. Every completed command is recorded before assertion. Independent live checks continue after a migration-fixture failure, and the final job still fails.",
+  "native_docker_cli_help_only": "Native packaged Docker image import --help confirms change/message options; this is a CLI help check, not migration or Linux runtime qualification.",
+  "schema": "asagiri.engine-import-dispatch.v1",
+  "qualification": "Corrected Linux command dispatch and actual migration remain pending fresh CI. No production Rust behavior changed in this correction.",
+  "source_files": {
+    "crates/asagiri/src/main.rs": "a66154213ec2c5c87df6471c459993583475be5612ca17bec9fd69b7b9da8409",
+    "crates/asagiri/src/docker.rs": "7b87dc7ca49f6b25b25c1c6a5e4358275a539e5c1838fa994e5486d4981a0bb4",
+    "crates/asagiri/src/import.rs": "d176d1025db305eb82db4d6eda8ac60f577285f32cdd8e1f286c0e54d892a405",
+    "crates/asagiri/src/client.rs": "9505a78064062fc75cab04452b056850e139ff6fb5650da717e83a099e7f133a"
+  }
+}

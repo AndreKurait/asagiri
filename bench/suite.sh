@@ -8,12 +8,13 @@
 #
 # Env: CLI (default docker), RUNS (default 30), OUT (default bench/results).
 set -u
+bench_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 label=$1; CLI=${CLI:-docker}; RUNS=${RUNS:-30}; OUT=${OUT:-$(dirname "$0")/results}
 mkdir -p "$OUT"; J="$OUT/$label"; rm -f "$J".*.json
 hf() { hyperfine -N --warmup 3 --runs "$RUNS" --export-json "$J.$1.json" "${@:2}" >/dev/null 2>&1 || echo "  $1: failed"; }
 hfs() { hyperfine --warmup 1 --runs "${RUNS_IO:-5}" --export-json "$J.$1.json" "${@:2}" >/dev/null 2>&1 || echo "  $1: failed"; }
 $CLI pull -q alpine >/dev/null 2>&1; $CLI pull -q networkstatic/iperf3 >/dev/null 2>&1
-for i in 1 2 3; do $CLI run --rm alpine true >/dev/null 2>&1; done
+for _warmup_round in 1 2 3; do $CLI run --rm alpine true >/dev/null 2>&1; done
 name=bench-$$; $CLI run -d --name "$name" alpine sleep 3600 >/dev/null 2>&1
 hf run  "$CLI run --rm alpine true"
 hf exec "$CLI exec $name true"
@@ -32,8 +33,8 @@ hfs build "$CLI build --no-cache -q -t bench-build $ctx >/dev/null"
 $CLI rmi -f bench-build >/dev/null 2>&1; rm -rf "$ctx"
 hfs pull "$CLI rmi -f alpine >/dev/null 2>&1; $CLI pull -q alpine"
 $CLI rm -f "$name" >/dev/null 2>&1
-med() { [ -f "$J.$1.json" ] && jq -r ".results[0].median * 1000 | round" "$J.$1.json" || echo -; }
-mbs() { [ -f "$J.$1.json" ] && jq -r ".results[0].median as \$s | ($2 / \$s) | round" "$J.$1.json" || echo -; }
+med() { [ -f "$J.$1.json" ] && jq -L "$bench_dir" -r 'include "hyperfine"; hyperfine_wall_clock | .median * 1000 | round' "$J.$1.json" || echo -; }
+mbs() { [ -f "$J.$1.json" ] && jq -L "$bench_dir" --argjson bytes "$2" -r 'include "hyperfine"; hyperfine_wall_clock | $bytes / (1000000 * .median) | round' "$J.$1.json" || echo -; }
 printf '%-14s run %4s ms  exec %4s ms  stdout %4s MB/s  stdin %4s MB/s  bind-write %4s MB/s  bind-read %4s MB/s  net %s Gbit/s  build %5s ms  pull %5s ms\n' \
-  "$label" "$(med run)" "$(med exec)" "$(mbs stdout 200)" "$(mbs stdin 200)" "$(mbs bind-write 1024)" "$(mbs bind-read 1024)" "${net:-0}" "$(med build)" "$(med pull)" | tee -a "$OUT/summary.txt"
+  "$label" "$(med run)" "$(med exec)" "$(mbs stdout 200000000)" "$(mbs stdin 200000000)" "$(mbs bind-write 1073741824)" "$(mbs bind-read 1073741824)" "${net:-0}" "$(med build)" "$(med pull)" | tee -a "$OUT/summary.txt"
 echo "{\"label\":\"$label\",\"net_gbps\":${net:-0}}" > "$J.net.json"

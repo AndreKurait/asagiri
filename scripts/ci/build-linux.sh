@@ -30,7 +30,7 @@ if [ "$mode" = tests ]; then
   mkdir -p "$fixtures" "$cgroup_fixtures"
   set -- "$@" --privileged -v "$fixtures:/fixtures" -v "$cgroup_fixtures:/cgroup-startup"
 fi
-# The inner shell expands its variables inside the build container.
+# The quoted program expands its variables inside the build container.
 # shellcheck disable=SC2016
 "$@" -v "$PWD:/src:ro" -v "$output:/out" -v "$target:/t" \
   -v "$registry:/usr/local/cargo/registry" -w /src -e CARGO_TARGET_DIR=/t \
@@ -78,7 +78,16 @@ fi
         "crates/$engine-proto/Cargo.toml" crates/"$engine-proto"/src/*.rs > /cgroup-startup/SOURCES.sha256
       rustc --version > /cgroup-startup/RUSTC_VERSION
       rustc --edition=2024 -C opt-level=1 -C panic=abort tests/wsl-daemon-fixture.rs -o /fixtures/asagiri-daemon-fixture
-      (cd /fixtures && sha256sum asagiri-daemon-fixture > SHA256SUMS)
+      # Desktop migration is a separate module: Linux asagiri image import
+      # forwards to the Docker rootfs importer. Compile the migration module as a
+      # test-only entrypoint without changing the installed Linux command.
+      cargo build --locked -p "$engine" --example import-fixture
+      cp /t/debug/examples/import-fixture /fixtures/asagiri-import-fixture
+      sha256sum "crates/$engine/examples/import-fixture.rs" \
+        "crates/$engine/src/import.rs" "crates/$engine/src/client.rs" \
+        "crates/$engine/src/client/health.rs" "crates/$engine/src/client/health_response.rs" \
+        "crates/$engine/src/flavor.rs" "crates/$engine/src/diag/ops.rs" > /fixtures/IMPORT_SOURCES_SHA256SUMS
+      (cd /fixtures && sha256sum asagiri-daemon-fixture asagiri-import-fixture > SHA256SUMS)
     fi
     cargo build --release --locked -p "$engine" -p "$engine-init"
     cp "/t/release/$engine" "/t/release/$engine-init" /out/

@@ -505,9 +505,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Resize { id, rows, cols }) => {
-                    if let Some(fd) = procs.values().find(|p| p.run.id == id && p.run.tty).and_then(|p| p.run.stdout.as_ref()) {
-                        sys::resize_pty(fd.as_raw_fd(), rows, cols);
-                    }
+                    resize(&procs, id, rows, cols);
                     continue;
                 }
                 Ok(Msg::Kill { id, signal }) => {
@@ -811,6 +809,13 @@ fn running_cgroup<'a>(procs: &'a Procs, id: &str) -> Option<(libc::pid_t, &'a st
     Some((pid, container::cgroup(&procs.get(id)?.run)?))
 }
 
+/// A reaped entry may retain its terminal while output and cleanup drain.
+fn resize(procs: &Procs, id: &str, rows: u16, cols: u16) {
+    if let Some(fd) = procs.values().find(|p| p.run.id == id && p.exited.is_none() && p.run.tty).and_then(|p| p.run.stdout.as_ref()) {
+        sys::resize_pty(fd.as_raw_fd(), rows, cols);
+    }
+}
+
 fn running_pid(procs: &Procs, id: &str) -> Option<libc::pid_t> {
     procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none()).map(|p| p.run.pid)
 }
@@ -1090,6 +1095,49 @@ fn record_exit(procs: &mut Procs, pid: libc::pid_t, code: i32) -> bool {
 #[cfg(test)]
 mod cleanup_tests {
     use super::*;
+
+    #[test]
+    fn resize_ignores_reaped_processes_and_preserves_live_terminals() {
+        fn size(fd: &OwnedFd) -> (u16, u16) {
+            let mut value = libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
+            // SAFETY: a valid output structure and a PTY descriptor owned by this test.
+            assert_eq!(unsafe { libc::ioctl(fd.as_raw_fd(), libc::TIOCGWINSZ as libc::Ioctl, &mut value) }, 0);
+            (value.ws_row, value.ws_col)
+        }
+        let (old_master, old_slave) = sys::open_pty().unwrap();
+        let (live_master, live_slave) = sys::open_pty().unwrap();
+        sys::resize_pty(old_master.as_raw_fd(), 25, 81);
+        sys::resize_pty(live_master.as_raw_fd(), 26, 82);
+        let mut old = Process::test_process("old", 42);
+        old.tty = true;
+        old.stdout = Some(old_master);
+        let mut live = Process::test_process("live", 42);
+        live.tty = true;
+        live.stdout = Some(live_master);
+        let mut procs = Procs::new();
+        procs.insert("old".into(), new_proc(old, 0, 0));
+        assert!(record_exit(&mut procs, 42, 0));
+        // Stable IDs retain the old output descriptor even when a new entry
+        // has the same numeric PID. Neither entry owns an actual PID here.
+        procs.insert("live".into(), new_proc(live, 0, 0));
+        resize(&procs, "old", 40, 100);
+        assert_eq!(size(&old_slave), (25, 81), "resized an exited process's retained terminal");
+        assert_eq!(size(&live_slave), (26, 82));
+        resize(&procs, "live", 44, 120);
+        assert_eq!(size(&live_slave), (44, 120));
+        assert_eq!(size(&old_slave), (25, 81));
+        resize(&procs, "missing", 50, 140);
+        assert_eq!(size(&live_slave), (44, 120));
+        procs.get_mut("live").unwrap().run.tty = false;
+        resize(&procs, "live", 50, 140);
+        assert_eq!(size(&live_slave), (44, 120), "resized a non-TTY process");
+        procs.get_mut("live").unwrap().run.tty = true;
+        let _held_master = procs.get_mut("live").unwrap().run.stdout.take().unwrap();
+        resize(&procs, "live", 50, 140);
+        assert_eq!(size(&live_slave), (44, 120));
+        assert!(procs["old"].exited.is_some() && procs["live"].exited.is_none());
+        eprintln!("resize PTY checks: exited unchanged, live changed, numeric PID alias isolated, missing/non-TTY/no-output unchanged");
+    }
 
     #[test]
     fn reused_pid_cannot_replace_cleanup_or_receive_its_exit() {

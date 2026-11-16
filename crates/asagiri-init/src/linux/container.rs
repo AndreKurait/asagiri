@@ -1644,8 +1644,8 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
         profile();
     }
     let (uid, gid) = resolve_user(&p.user).unwrap_or_else(|e| fail("user", e));
-    // The user's /etc/group memberships and --group-add, as Docker gives them.
-    let groups = super::hostopts::supplementary_groups(&p.user, uid, &p.host.groups).unwrap_or_else(|e| fail("groups", e));
+    // The user's group, /etc/group memberships and --group-add, as Docker gives them.
+    let groups = super::hostopts::supplementary_groups(&p.user, uid, gid, &p.host.groups).unwrap_or_else(|e| fail("groups", e));
     give_stdio([0, 1, 2], uid).unwrap_or_else(|e| fail("stdio", e));
     // SAFETY: plain id-setting syscalls; `groups` outlives setgroups.
     unsafe {

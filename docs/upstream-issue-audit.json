@@ -1,11 +1,11 @@
 {
-  "reviewed_at": "2026-11-16T07:45:40.214923+00:00",
-  "snapshot_started_at": "2026-11-16T04:47:45Z",
+  "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
+  "snapshot_started_at": "2026-11-16T07:55:46Z",
   "repository": "libracoder/kiri",
-  "asagiri_runtime_revision": "5f56e5ed9dea31da43cfb49cb3a2aa6f6af57f51",
-  "native_verified_release": "v0.1.6-dev.99",
-  "candidate_revision": "4debf1d0b331e19040cbc3a46a2528e16a7ce4a8",
-  "count": 126,
+  "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+  "native_verified_release": "v0.1.6-dev.100",
+  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "count": 141,
   "issues": [
     {
       "number": 10,
@@ -18,7 +18,7 @@
     },
     {
       "number": 13,
-      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
       "state": "closed",
       "updated_at": "2026-11-06T11:14:54Z",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
@@ -128,7 +128,7 @@
       "number": 48,
       "title": "Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
       "state": "open",
-      "updated_at": "2026-11-15T23:36:56Z",
+      "updated_at": "2026-11-16T07:05:57Z",
       "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
       "disposition": "partially-covered",
       "reason": "Builder repair, bind notifications, seccomp and lifecycle improvements retained; native Mac updater and VM behavior are not claimed reproduced."
@@ -155,7 +155,7 @@
       "number": 57,
       "title": "Builds for a foreign platform use the local image of the same tag and ignore --platform (Invalid ELF image for this architecture)",
       "state": "open",
-      "updated_at": "2026-11-10T04:10:14Z",
+      "updated_at": "2026-11-16T06:01:50Z",
       "body_sha256": "35403523d083446b793a505b5020efc61adc928330805b53b9e3f4ebe376ed93",
       "disposition": "covered",
       "reason": "Registry platform resolution and local-tag provenance fixed; cross-platform OCI ELF validation is in Buildx tests."
@@ -279,7 +279,7 @@
     },
     {
       "number": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
       "state": "open",
       "updated_at": "2026-11-12T02:37:32Z",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
@@ -288,7 +288,7 @@
     },
     {
       "number": 90,
-      "title": "【GUI】 图形界面能不能支持中文",
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
       "state": "closed",
       "updated_at": "2026-11-10T00:00:18Z",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
@@ -306,7 +306,7 @@
     },
     {
       "number": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
@@ -342,7 +342,7 @@
     },
     {
       "number": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
       "state": "closed",
       "updated_at": "2026-11-10T16:58:28Z",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
@@ -434,10 +434,10 @@
       "number": 130,
       "title": "Container security: custom seccomp profiles without weakening Kiri host isolation",
       "state": "open",
-      "updated_at": "2026-11-10T13:57:14Z",
+      "updated_at": "2026-11-16T07:05:39Z",
       "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
-      "disposition": "covered",
-      "reason": "Custom seccomp profiles preserve the host boundary; tests/seccomp-profiles.py validates actual behavior."
+      "disposition": "partial",
+      "reason": "Existing custom-profile and host-boundary regressions pass. Public #357 adds broader Docker/libseccomp rule-tree semantics that still require review against Asagiri's compiler. Its selected default personality/syscall restrictions have actual native process checks; a complete Docker default allowlist and seccomp formal proof are not claimed."
     },
     {
       "number": 134,
@@ -459,7 +459,7 @@
     },
     {
       "number": 170,
-      "title": "请看提交的报告",
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
@@ -570,7 +570,7 @@
       "number": 210,
       "title": "macOS: containers report hundreds of GB of block reads while the guest has no page cache",
       "state": "open",
-      "updated_at": "2026-11-15T13:02:46Z",
+      "updated_at": "2026-11-16T06:55:09Z",
       "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
       "disposition": "partial",
       "reason": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified."
@@ -645,11 +645,11 @@
       "updated_at": "2026-11-14T19:08:24Z",
       "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
       "disposition": "partial",
-      "reason": "The refreshed source-bound Linux comparison at c610a21 passed run 43823750794. All 6000 timings and 15 median/p95 pairs, image/payload identity and recorded cleanup were independently checked. The candidate workflow adds comparisons for engine/build-input PRs and every main push; its merge and release remain pending. Native Mac/Colima/WSL and full application performance remain unmeasured."
+      "reason": "Dev.100 main comparison 43827712984 and final PR50 comparison 43831181768 each passed 6000 independently verified samples and 15 median/p95 results. Main publication now requires its exact-commit comparison automatically. The runs used different hosts; their timing difference is not a controlled code regression result. Native Mac/Colima/WSL and general application throughput remain unmeasured."
     },
     {
       "number": 227,
-      "title": "Linux: every `docker build` fails — Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
+      "title": "Linux: every `docker build` fails \u2014 Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
       "state": "closed",
       "updated_at": "2026-11-15T22:10:30Z",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
@@ -662,12 +662,12 @@
       "state": "open",
       "updated_at": "2026-11-14T19:45:30Z",
       "body_sha256": "3967ca2b74e1ef7408073e7a5b9bd48f55bd52162c855e0c78f8ecd140ae0783",
-      "disposition": "runtime-regression-covered",
-      "reason": "Automatic IPv4 and kind dual-stack creation pass with distinct free subnets. A real kind v0.27.0/Kubernetes v1.32.2 cluster boots on ce0eb4f. The reported pool exhaustion was not reproduced on this private Linux host."
+      "disposition": "partial",
+      "reason": "Existing automatic IPv4/dual-stack and actual kind/Kubernetes cluster checks pass. The new #351 route adaptation excludes off-link gateways while preserving custom pools; twenty network tests and an old-code negative control pass. The reporter's exact CachyOS/VPN host and gateway-only LAN conflict still need native qualification."
     },
     {
       "number": 229,
-      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver — DNS inside the node times out",
+      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver \u2014 DNS inside the node times out",
       "state": "open",
       "updated_at": "2026-11-14T19:46:03Z",
       "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
@@ -676,7 +676,7 @@
     },
     {
       "number": 230,
-      "title": "Linux: container overlay mounts leak across a daemon restart — nothing can start until manually unmounted",
+      "title": "Linux: container overlay mounts leak across a daemon restart \u2014 nothing can start until manually unmounted",
       "state": "open",
       "updated_at": "2026-11-15T16:41:27Z",
       "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
@@ -726,12 +726,12 @@
     },
     {
       "number": 248,
-      "disposition": "fix-and-regression-with-limits",
+      "disposition": "partial",
       "title": "Removing a network leaks its DNS listener: next network on the same subnet fails with 'dns bind: Address in use'",
       "state": "open",
       "updated_at": "2026-11-15T11:49:07Z",
       "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
-      "reason": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount under the existing removal policy. It also retires its veths before address reuse; holding the old namespace open reproduced a stale host-side link, and the corrected replacement retained peer ping and DNS with that link removed. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+      "reason": "Owned failed-start DNS/link cleanup, unaffected peers, subnet reuse and actual init descriptor/stdin/EOF tests pass. Public #363's extra descriptor-close proposal is already covered by Asagiri's checked pre-filter close_range and bounded fallback. The reporter's exact kernel 7.3 gateway-address failure remains unverified."
     },
     {
       "number": 250,
@@ -762,12 +762,12 @@
     },
     {
       "number": 253,
-      "title": "Images with 60 or more layers fail to start: \"mount …/rootfs: No such file or directory\"",
+      "title": "Images with 60 or more layers fail to start: \"mount \u2026/rootfs: No such file or directory\"",
       "state": "open",
       "updated_at": "2026-11-15T17:32:45Z",
       "body_sha256": "bd3fb68de8a7b50b9b32fe5b2b9d5160d91ef0ee1213680108c1fb8b267f2ef6",
       "disposition": "automated",
-      "reason": "A 120-layer fixture passed the exact-topic Platform run and the old installed engine reproduced the failure. The fix is in the combined candidate, pending its CI and release."
+      "reason": "Final PR50 Platform 43831181720 passed the 120-layer image start, complete contents, precedence, stopped archive and restart fixture. The old installed version reproduced the failure. The fix is merged in current main; its next published release remains pending."
     },
     {
       "number": 254,
@@ -785,7 +785,7 @@
       "updated_at": "2026-11-15T18:36:00Z",
       "body_sha256": "d06a3209d7bafcf4921115f37fc1dc41ee0204fc506dc2a9724c98037d39c205",
       "disposition": "partial",
-      "reason": "The distribution topic passes live registry metadata/authentication and Docker-reference checks. Its Basic-auth error distinction is retained. The combined release and actual Watchtower/Arcane applications remain unverified."
+      "reason": "Final PR50 passed required live registry metadata/authentication and Docker-reference checks, retaining the Basic-auth error distinction. Actual Watchtower and Arcane applications remain unverified."
     },
     {
       "number": 258,
@@ -809,7 +809,7 @@
       "number": 261,
       "title": "Linux: bridge containers can't reach Tailscale/VPN networks (NAT only on default-route NIC, bridges in no firewalld zone)",
       "state": "open",
-      "updated_at": "2026-11-15T10:29:26Z",
+      "updated_at": "2026-11-16T05:21:24Z",
       "body_sha256": "5bbeba06b8dab95a06b066b344cd849f42f1702618fba72ad87face5edcb4059",
       "disposition": "platform-gap",
       "reason": "Existing 33-case private iptables-nft checks cover default/custom bridges and FORWARD DROP coexistence. They do not test Tailscale routes, non-default uplinks or firewalld zone integration. No host VPN/firewall changes were made."
@@ -845,7 +845,7 @@
       "number": 269,
       "title": "Windows: expose the engine socket to other WSL distros (WSL integration)",
       "state": "open",
-      "updated_at": "2026-11-15T13:48:45Z",
+      "updated_at": "2026-11-16T05:23:42Z",
       "body_sha256": "f4fada6a51b45368f1e13a977995523c43571e872daf83772bf925aafcadf68a",
       "disposition": "deferred-feature",
       "reason": "Opt-in socket integration with other WSL distros is not implemented. It needs explicit distro/group ownership, persistent restart behavior, scoped bind-path semantics and native WSL tests; the API is not exposed over unauthenticated TCP."
@@ -861,7 +861,7 @@
     },
     {
       "number": 277,
-      "title": "Windows: containers fail on a stock WSL2 — Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
+      "title": "Windows: containers fail on a stock WSL2 \u2014 Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
       "state": "open",
       "updated_at": "2026-11-15T15:00:53Z",
       "body_sha256": "eb90dd744b528d59cb3e95be97828a538390c3fc20f1d578100e22f39521ced1",
@@ -924,12 +924,12 @@
     },
     {
       "number": 289,
-      "title": "UI: search and filter containers by port number in search bar (⌘K)",
+      "title": "UI: search and filter containers by port number in search bar (\u2318K)",
       "state": "open",
       "updated_at": "2026-11-15T15:41:30Z",
       "body_sha256": "ba05d01fc67a0414e4b9201b0ff03db4059fd543ff5e61ce795991bee78deba6",
       "disposition": "automated",
-      "reason": "The new real-page regression fails on the old implementation and passes with published/private port matching, null/missing port lists, state tabs and existing name/image search. All 65 local UI test files pass. Candidate release is pending."
+      "reason": "The old real page fails the port-search regression; published/private port matching, null/missing lists, tabs and existing name/image search pass. All 65 local UI test files and final PR50 UI CI pass. The fix is merged in current main, pending its next release."
     },
     {
       "number": 293,
@@ -956,7 +956,7 @@
       "updated_at": "2026-11-15T16:16:27Z",
       "body_sha256": "c2857b84d28885e72d0f4a005f742de3ec95360edcd16affacc8a2846e1b2e65",
       "disposition": "automated",
-      "reason": "The tmpfs ownership topic passed its actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population are documented as different behaviors. Combined CI/release remains required."
+      "reason": "Final PR50 passed actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population remain documented differences. The fix is merged in current main, pending its next release."
     },
     {
       "number": 297,
@@ -974,7 +974,7 @@
       "updated_at": "2026-11-15T17:54:59Z",
       "body_sha256": "572e902e6b219be6ba24c82f44741c8c1aae7b335e3a075b028dd98ca93cd93d",
       "disposition": "automated",
-      "reason": "The independently implemented archive-root hard-link fix passed topic Platform and local regressions; the old installed version reproduced the metadata failure. Combined qualification and release are pending."
+      "reason": "Final PR50 passed all eight archive-root hard-link Docker API cases and local layer regressions after the old installed version reproduced the failure. The independently implemented fix is merged in current main, pending its next release."
     },
     {
       "number": 303,
@@ -992,7 +992,7 @@
       "updated_at": "2026-11-15T23:36:55Z",
       "body_sha256": "fabaeba536ed2fb772497533d25249e39613bd197213a32f86e3af1d00ddf7a1",
       "disposition": "partial",
-      "reason": "The filewatch topic passed Platform and independently checked actual two-architecture fsnotify/kernel tests. It is in the combined candidate; packaged native Mac save-to-inotify/hot-reload remains required after release."
+      "reason": "Final PR50 Platform and independently checked ARM64/x86_64 QEMU fsnotify/loop tests passed. Packaged native Mac save-to-inotify/hot-reload remains required after release."
     },
     {
       "number": 311,
@@ -1001,7 +1001,7 @@
       "updated_at": "2026-11-15T18:38:47Z",
       "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba",
       "disposition": "partial",
-      "reason": "Released dev.99 passed three fresh 128 MiB named volumes on the native Mac guest, with immediate explicit and inherited non-root image-user execs, an unknown-user negative control and eight independently removed owned resources. The new paired Docker/Asagiri Linux fixture is required in CI; its first hosted result and the exact reporter's Ubuntu ARM host remain unverified. Existing 20-exec/100-tmpfs readiness checks remain."
+      "reason": "Native dev.99 and both Docker/private Asagiri in final PR50 Platform passed three fresh 128 MiB volumes, six immediate explicit/inherited image-user execs, a missing-user control and eight owned removals per engine. Existing 20-exec/100-tmpfs readiness checks remain. The reporter's exact Ubuntu ARM host remains unverified."
     },
     {
       "number": 315,
@@ -1043,7 +1043,7 @@
       "number": 323,
       "title": "Install through homebrew",
       "state": "open",
-      "updated_at": "2026-11-15T23:13:20Z",
+      "updated_at": "2026-11-16T06:14:52Z",
       "body_sha256": "01af70790cd655eb64787ce72e6cd9c9c0d408d758c85f775be3bfc75eade40e",
       "disposition": "partial",
       "reason": "Asagiri documents its separate Homebrew tap/cask and package-manager update path. Pages advertises stable v0.1.5 and preview dev.99 with verified assets. Installing/upgrading a fresh Homebrew cask during this review was not repeated because the dogfood app intentionally uses the newer preview."
@@ -1052,7 +1052,7 @@
       "number": 324,
       "title": "Linux: a signal can reach a reused process ID after a container exits",
       "state": "open",
-      "updated_at": "2026-11-15T23:24:32Z",
+      "updated_at": "2026-11-16T04:49:14Z",
       "body_sha256": "3641767ef87bcfeb9665dafac3e7cc2660a46771b39d3c5b8d63d2c3076b7513",
       "disposition": "partial",
       "reason": "Kill/shutdown lookups already exclude exited processes. Resize lookup and the cgroup.procs signaling fallback on kernels without cgroup.kill still need targeted review and regression tests. No claim of complete pidfd-based signaling is made."
@@ -1061,7 +1061,7 @@
       "number": 325,
       "title": "Linux: a failed start leaves the container's name in the embedded DNS",
       "state": "open",
-      "updated_at": "2026-11-15T23:44:56Z",
+      "updated_at": "2026-11-16T04:49:16Z",
       "body_sha256": "713ab322e75192d5c3750bf4b6c38ce7a64320887a8801be75bbf93bd504a2bd",
       "disposition": "automated",
       "reason": "Released failed-start cleanup removes owned DNS registrations and links while preserving writable data and unrelated peers. Required regressions cover repeated invalid starts, alias absence and subnet/IP reuse."
@@ -1079,10 +1079,10 @@
       "number": 327,
       "title": "Default seccomp filter denies read-only adjtimex (modes=0)",
       "state": "open",
-      "updated_at": "2026-11-16T01:29:12Z",
+      "updated_at": "2026-11-16T07:05:41Z",
       "body_sha256": "df8b93d3491e3248dc9d7fee2fbf24f6b2dd9f5637ae1f69dd58c4d07de1dbe2",
       "disposition": "automated",
-      "reason": "The read-only clock-state topic passed actual syscall/process and Platform checks, without changing host clocks. It remains pending the combined release."
+      "reason": "Final PR50 passed read-only clock-state syscall/process and Platform checks without changing host clocks. The behavior is merged in current main; the next release is pending."
     },
     {
       "number": 329,
@@ -1097,10 +1097,10 @@
       "number": 330,
       "title": "Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused",
       "state": "open",
-      "updated_at": "2026-11-16T01:16:01Z",
+      "updated_at": "2026-11-16T07:08:21Z",
       "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456",
       "disposition": "partial",
-      "reason": "Default-bridge DNS and digest-aware BuildKit paths have required integration coverage. The exact Bun/Compose shop, bun install ConnectionRefused and shared-network alias ordering are not reproduced by those checks and remain outstanding."
+      "reason": "Default-bridge DNS and digest-aware BuildKit have required integration coverage. Public #361 documentation now separates single-platform loading, docker-container OCI export and cached local tags from registry platform metadata. The exact Bun/Compose shop, bun install connection failure and shared-network alias ordering remain unverified."
     },
     {
       "number": 333,
@@ -1154,7 +1154,142 @@
       "updated_at": "2026-11-16T04:40:18Z",
       "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397",
       "disposition": "partial",
-      "reason": "The desktop candidate adds the native Mac Edit menu and shortcut actions with translated labels. Local UI/platform compilation passes; actual packaged AppKit clipboard shortcuts remain unverified."
+      "reason": "Current main has the translated native Mac Edit menu. The new public #352 followup also removes duplicate page-side Mac copying; nine headless cases across three platform modes pass. Actual packaged AppKit clipboard shortcuts remain unverified."
+    },
+    {
+      "number": 342,
+      "title": "Manage compose yamls in Kiri dashboard",
+      "state": "open",
+      "updated_at": "2026-11-16T04:56:35Z",
+      "body_sha256": "92fc5069504a0352215da756ff7f80d63509a5b35243f80da17e106fc58ebbda",
+      "disposition": "deferred-feature",
+      "reason": "A dashboard that creates/imports and stores Compose projects is a feature proposal. The existing Compose client/runtime and new health fixture do not implement project-file management."
+    },
+    {
+      "number": 344,
+      "title": "macOS 14 (Apple silicon): every linux/amd64 container aborts with Rosetta \"Failed to find vdso DT_HASH\"",
+      "state": "open",
+      "updated_at": "2026-11-16T05:26:07Z",
+      "body_sha256": "31c8d214b105b4713c46583655be0852e73104bf15dcefbb0eeb6793bf64c5a5",
+      "disposition": "platform-gap",
+      "reason": "The report concerns macOS 14 Rosetta requiring the ARM vDSO DT_HASH table, distinct from the earlier auxiliary-vector fix. The proposed dual hash-table kernel change has not been implemented or tested on that OS/Rosetta version; current cross-architecture checks do not prove it."
+    },
+    {
+      "number": 345,
+      "title": "kiri import copies a volume while a running container is writing to it, and reports done",
+      "state": "open",
+      "updated_at": "2026-11-16T05:28:31Z",
+      "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814",
+      "disposition": "partial",
+      "reason": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because bare Linux `asagiri import` is unsupported; rootfs import is `asagiri image import`. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout."
+    },
+    {
+      "number": 346,
+      "title": "`/info` returns an empty `SystemTime`, which breaks attached `docker compose up` and `docker compose logs -f` on Compose 5.7+",
+      "state": "open",
+      "updated_at": "2026-11-16T05:43:07Z",
+      "body_sha256": "64fc0a9039392af2e56c2dc1bbf2adfa74c1e279ce0e253cc719cb128b65922f",
+      "disposition": "partial",
+      "reason": "The published followup returns RFC3339Nano SystemTime from the same daemon clock used for events, without waking the VM. The old native empty field was reproduced; real time/events tests are wired into CI. Compose 5.7.1 config parsing passes and build/wait runtime qualification is underway, but actual attached compose up and logs -f event subscription still need a dedicated positive check."
+    },
+    {
+      "number": 347,
+      "title": "Engine: `--pid container:NAME` and `--pid host` are dropped without an error",
+      "state": "open",
+      "updated_at": "2026-11-16T05:45:57Z",
+      "body_sha256": "32d6e9e5d2f2f1ce7ed29bbf5f724235bdb22e9aad7910181be90304996de633",
+      "disposition": "automated",
+      "reason": "The #265 adaptation rejects host/container PID modes with a visible create error before volume side effects. Final PR50 Linux CI passed its run-options HTTP/log/cleanup fixture. This fixes silent acceptance; shared PID namespaces remain unsupported."
+    },
+    {
+      "number": 348,
+      "title": "API: `docker top` ignores the ps arguments (`ps_args`)",
+      "state": "open",
+      "updated_at": "2026-11-16T05:45:58Z",
+      "body_sha256": "d3ae1ca73da7ed93a66593295713ce381e5472dcc0d561125b7303cdf01be8f1",
+      "disposition": "partial",
+      "reason": "Published 38393ab76ed4 accepts default, empty and -ef arguments and returns HTTP 400 for unsupported ps_args. A nine-case paired fixture is wired into CI. Installed dev.100 reproduced all four silently accepted custom/invalid queries while default, missing and stopped controls passed; its owned container was removed and original data preserved. Local compilation passes; the corrected engine's paired runtime result is pending. Arbitrary columns, including RSS, remain unsupported."
+    },
+    {
+      "number": 349,
+      "title": "Setup fails with \"no account named <user>\" for directory (non-/etc/passwd) users",
+      "state": "open",
+      "updated_at": "2026-11-16T05:59:59Z",
+      "body_sha256": "7d1f245edc8a7df8c6a9596bcf5393897c258082b2951f78f41c66eb6d938c01",
+      "disposition": "platform-gap",
+      "reason": "Static musl account lookup cannot use the reported Fedora/Himmelblau NSS directory account. Setup and ongoing Gate admission/revocation both need a bounded trusted identity lookup and real NSS-module coverage. No SUDO_UID/PKEXEC_UID authorization shortcut, passwd/PAM edit or desktop-engine reinstall was used."
+    },
+    {
+      "number": 350,
+      "title": "macOS: while the VM runs, host traffic loses the DF bit (pf 'scrub ... no-df' on the primary NIC), breaking large TLS 1.3 ClientHellos on some networks",
+      "state": "open",
+      "updated_at": "2026-11-16T06:02:07Z",
+      "body_sha256": "3a0d2860b2b5cdaef2c6506573a58dc94b4347cfa66381e38f58e26848b23d21",
+      "disposition": "platform-gap",
+      "reason": "The reported macOS InternetSharing no-df effect and large TLS 1.3 ClientHello loss on the corporate path remain unverified. Container network tests do not cover host-wide PF normalization. No PF, MTU, TLS-security or network-control bypass was applied."
+    },
+    {
+      "number": 354,
+      "title": "UI: squircle corners, rounded font and flat neutral palette (proposal)",
+      "state": "open",
+      "updated_at": "2026-11-16T06:28:58Z",
+      "body_sha256": "970d546009070e65d4da18c8ef9bea0dc9777b3e863ec192d464d2eb67d746a9",
+      "disposition": "partial",
+      "reason": "The palette/font/squircle redesign is a proposal. Its narrow update-card button clipping and diagnostics-log column squeezing are separate usability defects still needing reproduction and responsive fixes; headless logic tests do not prove native layout."
+    },
+    {
+      "number": 355,
+      "title": "Settings \u2192 Storage: choose where Kiri keeps images, containers and volumes (for example an external drive)",
+      "state": "open",
+      "updated_at": "2026-11-16T06:43:30Z",
+      "body_sha256": "9d6207b7b5edf8bd04f6a9c65dd6350d99e2cef8bec911d389e9ffadd399b871",
+      "disposition": "deferred-feature",
+      "reason": "Storage relocation UI, sparse cross-volume migration, rollback, missing-drive behavior, shared-data locking and platform-specific WSL/Linux storage movement are not implemented by this review. User data was preserved in place; no USB or external-drive experiment was performed."
+    },
+    {
+      "number": 356,
+      "title": "macOS on Apple silicon: `--gpus all` as a private channel to a GPU server on the Mac",
+      "state": "open",
+      "updated_at": "2026-11-16T06:55:08Z",
+      "body_sha256": "b431f454aeffdca32a80feef9a2a5cba451a50f271dfe8e42fa5e55b0eb75db8",
+      "disposition": "deferred-feature",
+      "reason": "The proposed Apple GPU/MLX relay is not implemented or benchmarked here. Current GPU requests remain visibly unsupported. A per-container host-socket relay needs its own authorization, isolation, lifecycle and cross-platform design and tests."
+    },
+    {
+      "number": 358,
+      "title": "e2e has no checks for healthchecks, Compose depends_on conditions, up --wait or up --build",
+      "state": "open",
+      "updated_at": "2026-11-16T07:12:19Z",
+      "body_sha256": "b6031bb86c60491291b7e7a88f1aa4b3973d5dc9846e90db331f6122fe66dd6c",
+      "disposition": "partial",
+      "reason": "Seven actual native health probe/status/filter cases passed, including retry failure, one-second timeout and 250ms start interval, with four owned containers removed. A checksum-pinned Compose 5.7.1 fixture adds eight paired build/wait/dependency/bind-volume/init/capability/read-only cases. Actual config parsing passed; full Docker/private-Asagiri runtime and CLI health-flag parsing still need verified results."
+    },
+    {
+      "number": 359,
+      "title": "\u6709\u65b0\u7248\u672c\u63a8\u9001\uff080.2.1\uff09\uff0c\u6211\u4e0b\u8f7d\u4e4b\u540e\u6211\u9009\u62e9\u4e86\u7acb\u5373\u91cd\u542f\uff0c\u4f46\u662f\u7acb\u5373\u91cd\u542f\u4e4b\u540e\u4e00\u81f4\u5faa\u73af\u4e00\u4e0b\u7684\u9875\u9762",
+      "state": "open",
+      "updated_at": "2026-11-16T07:12:21Z",
+      "body_sha256": "4f431da151cb0471d16bca9223b6a4c3ebb3814143abb3ab504cee5944f9e8ae",
+      "disposition": "platform-gap",
+      "reason": "Verified Mac dev.100 manual activation and native inventory preservation do not reproduce the reported Windows update/restart popup loop. Native Windows GUI updater diagnosis and an actual old-to-new installation remain required."
+    },
+    {
+      "number": 362,
+      "title": "Workload numbers on Apple silicon (Kiri 0.2.1 vs OrbStack), and the three \"target\" rows",
+      "state": "open",
+      "updated_at": "2026-11-16T07:13:51Z",
+      "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d",
+      "disposition": "partial",
+      "reason": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified."
+    },
+    {
+      "number": 364,
+      "title": "Image list order differs from Docker Engine: older images appear first",
+      "state": "open",
+      "updated_at": "2026-11-16T07:31:35Z",
+      "body_sha256": "b3db6688d51e64f3e62de5f3251fce551c55363493efc4a75af228ac1ff5b51c",
+      "disposition": "partial",
+      "reason": "Published image ordering now sorts integer Created seconds descending, matching both reviewed Moby image stores. The old native engine failed four of five isolated list queries; all three owned images were removed and original inventory preserved. The fixed paired Docker/private-Asagiri runtime result is still pending."
     }
   ],
   "additional_verification": [
@@ -1164,5 +1299,8 @@
       "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597",
       "evidence": "docs/verification/native-readiness-2026-11-16.json"
     }
-  ]
+  ],
+  "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b",
+  "qualification_note": "Released/native dev.100, newly merged PR50 main and the later published followup candidate are distinct. PR50's exact-source combined checks passed; its next release and the followup candidate's final combined qualification remain pending. Every public entry has a disposition; full compiler review for #357 and stated platform/application/feature gaps remain open.",
+  "followup_updated_at": "2026-11-16T09:12:21.282561+00:00"
 }

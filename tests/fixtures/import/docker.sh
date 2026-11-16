@@ -1,0 +1,58 @@
+#!/bin/sh
+# A subprocess fixture for import.rs. It never contacts any engine or reads
+# outside its per-test directory; the production CLI factory is unchanged.
+set -eu
+fixture=$ASAGIRI_IMPORT_FIXTURE
+scenario=$(cat "$fixture/case")
+printf '%s\n' "$*" >> "$fixture/trace"
+[ "$1" = --context ] || exit 90
+context=$2
+shift 2
+case "$1 $2" in
+  "volume inspect")
+    [ "$context" = orbstack ] || exit 91
+    [ "$*" = 'volume inspect --format {{json .}} -- fixture-volume' ] || exit 92
+    if [ "$scenario" = inspect-error ] || { [ "$scenario" = late-inspect-error ] && [ -f "$fixture/copied" ]; }; then
+      echo "source volume unavailable" >&2
+      exit 42
+    fi
+    if [ "$scenario" = wrong-volume ]; then
+      echo '{"Name":"another-volume"}'
+    else
+      echo '{"Name":"fixture-volume"}'
+    fi
+    ;;
+  "ps --all")
+    [ "$context" = orbstack ] || exit 91
+    [ "$*" = 'ps --all --filter volume=fixture-volume --filter status=running --filter status=paused --filter status=restarting --format {{json .}}' ] || exit 92
+    case "$scenario" in
+      list-error) echo "source list unavailable" >&2; exit 42 ;;
+      invalid-json) echo 'not JSON' ;;
+      unknown-state) echo '{"Names":"fixture-writer","State":"unknown"}' ;;
+      running|paused|restarting)
+        printf '{"Names":"fixture-writer","State":"%s"}\n' "$scenario"
+        ;;
+      late-writer)
+        if [ -f "$fixture/copied" ]; then echo '{"Names":"fixture-writer","State":"running"}'; fi
+        ;;
+    esac
+    ;;
+  "image inspect")
+    # Both contexts already have the same harmless helper image.
+    ;;
+  "volume create")
+    [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
+    if [ "$scenario" = create-error ]; then echo "destination volume unavailable" >&2; exit 42; fi
+    ;;
+  "run --rm")
+    if [ "$context" = orbstack ]; then
+      if [ "$scenario" = source-error ]; then echo "source tar failed" >&2; exit 42; fi
+      printf '\000volume fixture\377\n'
+    else
+      [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
+      cat > "$fixture/copied"
+      if [ "$scenario" = write-error ]; then echo "destination tar failed" >&2; exit 42; fi
+    fi
+    ;;
+  *) echo "unexpected fixture command" >&2; exit 93 ;;
+esac

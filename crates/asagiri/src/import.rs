@@ -99,10 +99,13 @@ pub fn inventory(source: &str) -> io::Result<Value> {
 
 /// `docker --context src save IMAGE | docker --context asagiri load`.
 pub fn image(source: &str, name: &str) -> io::Result<()> {
-    let ctx = known(source)?;
-    let mut save = cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    image_with_cli(known(source)?, name, &cli)
+}
+
+fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+    let mut save = make_cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let out = save.stdout.take().ok_or_else(|| io::Error::other("no output from docker save"))?;
-    let load = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let load = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
     let saved = save.wait_with_output()?;
     if !saved.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&saved.stderr).trim())));
@@ -114,12 +117,12 @@ pub fn image(source: &str, name: &str) -> io::Result<()> {
 }
 
 /// An image with `tar` that both engines have, for the volume helpers.
-fn helper_image(ctx: &str) -> io::Result<&'static str> {
-    let has = |c: &str, img: &str| cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
+fn helper_image(ctx: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<&'static str> {
+    let has = |c: &str, img: &str| make_cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
     for img in ["alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"] {
         if has(ctx, img) == Some(true) {
             if has(crate::flavor::CONTEXT.get(), img) != Some(true) {
-                image(ctx, img)?;
+                image_with_cli(ctx, img, make_cli)?;
             }
             return Ok(img);
         }
@@ -128,20 +131,64 @@ fn helper_image(ctx: &str) -> io::Result<&'static str> {
 }
 
 /// A volume's files, owners kept: tar in a read-only helper on the source,
-/// untar in a helper on Asagiri. Both helpers remove themselves.
+/// untar in a helper on Asagiri. Both helpers remove themselves. The source's
+/// users must stay stopped throughout: these checks are not an atomic snapshot.
 pub fn volume(source: &str, name: &str) -> io::Result<()> {
-    let ctx = known(source)?;
-    let img = helper_image(ctx)?;
-    let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    volume_with_cli(known(source)?, name, &cli)
+}
+
+fn source_volume_idle(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+    let inspect = |args: &[&str]| -> io::Result<Vec<u8>> {
+        let output = make_cli()?.args(["--context", ctx]).args(args).output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!("{ctx}: could not check volume {name}: {}", String::from_utf8_lossy(&output.stderr).trim())));
+        }
+        Ok(output.stdout)
+    };
+    // A missing source must not be created implicitly by the read helper.
+    let volume: Value = serde_json::from_slice(&inspect(&["volume", "inspect", "--format", "{{json .}}", "--", name])?)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume inspection: {e}")))?;
+    if volume["Name"].as_str() != Some(name) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: volume inspection did not identify {name}")));
+    }
+    let filter = format!("volume={name}");
+    let bytes = inspect(&["ps", "--all", "--filter", &filter, "--filter", "status=running",
+        "--filter", "status=paused", "--filter", "status=restarting", "--format", "{{json .}}"])?;
+    let text = std::str::from_utf8(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let mut users = Vec::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let row: Value = serde_json::from_str(line)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume users: {e}")))?;
+        let user = row["Names"].as_str().filter(|name| !name.is_empty() && !name.chars().any(char::is_control));
+        if !matches!(row["State"].as_str(), Some("running" | "paused" | "restarting")) || user.is_none() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: could not identify an active user of volume {name}")));
+        }
+        users.push(user.unwrap().to_owned());
+    }
+    if !users.is_empty() {
+        users.sort_unstable();
+        users.dedup();
+        return Err(io::Error::other(format!("{ctx}: volume {name} is used by active containers {}; stop them before importing and keep them stopped until the import finishes", users.join(", "))));
+    }
+    Ok(())
+}
+
+fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+    source_volume_idle(ctx, name, make_cli)?;
+    let img = helper_image(ctx, make_cli)?;
+    let created = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).output()?;
+    if !created.status.success() {
+        return Err(io::Error::other(format!("asagiri: could not create volume {name}: {}", String::from_utf8_lossy(&created.stderr).trim())));
+    }
     let src_mount = format!("{name}:/from:ro");
     let dst_mount = format!("{name}:/to");
-    let mut read = cli()?
+    let mut read = make_cli()?
         .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
     let out = read.stdout.take().ok_or_else(|| io::Error::other("no output from the source helper"))?;
-    let write = cli()?
+    let write = make_cli()?
         .args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"])
         .stdin(out)
         .stdout(Stdio::null())
@@ -154,7 +201,8 @@ pub fn volume(source: &str, name: &str) -> io::Result<()> {
     if !write.status.success() {
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&write.stderr).trim())));
     }
-    Ok(())
+    source_volume_idle(ctx, name, make_cli).map_err(|e| io::Error::other(format!(
+        "volume {name} was copied, but the source is no longer confirmed idle: {e}; stop the source users and inspect the destination before retrying")))
 }
 
 /// The container, made again in Asagiri from the source's `inspect`, stopped:
@@ -325,6 +373,93 @@ pub fn run(args: &[String]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    struct VolumeFixture(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl VolumeFixture {
+        fn new(case: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!("asagiri-import-{}-{}",
+                std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::write(root.join("case"), case).unwrap();
+            std::fs::write(root.join("docker.sh"), include_str!("../../../tests/fixtures/import/docker.sh")).unwrap();
+            Self(root)
+        }
+
+        fn run(&self) -> std::io::Result<()> {
+            super::volume_with_cli("orbstack", "fixture-volume", &|| {
+                let mut command = std::process::Command::new("/bin/sh");
+                command.arg(self.0.join("docker.sh")).env("ASAGIRI_IMPORT_FIXTURE", &self.0)
+                    .env("ASAGIRI_IMPORT_DESTINATION", crate::flavor::CONTEXT.get());
+                Ok(command)
+            })
+        }
+
+        fn trace(&self) -> String {
+            std::fs::read_to_string(self.0.join("trace")).unwrap()
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for VolumeFixture {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_rejects_active_sources_before_any_helpers() {
+        for state in ["running", "paused", "restarting"] {
+            let fixture = VolumeFixture::new(state);
+            let error = fixture.run().expect_err("an active source volume was copied").to_string();
+            assert!(error.contains("fixture-writer") && error.contains("stop"), "{state}: {error}");
+            let trace = fixture.trace();
+            assert!(!trace.contains(" image ") && !trace.contains(" volume create ") && !trace.contains(" run "), "{trace}");
+            assert!(!fixture.0.join("copied").exists());
+            eprintln!("verified active {state}: no helper, destination or copy");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_preflight_failures_never_start_a_copy() {
+        for case in ["inspect-error", "wrong-volume", "list-error", "invalid-json", "unknown-state"] {
+            let fixture = VolumeFixture::new(case);
+            assert!(fixture.run().is_err(), "{case} was treated as an idle source");
+            let trace = fixture.trace();
+            assert!(!trace.contains(" image ") && !trace.contains(" volume create ") && !trace.contains(" run "), "{trace}");
+            assert!(!fixture.0.join("copied").exists());
+            eprintln!("verified {case}: no destination or copy");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_checks_creation_and_rechecks_the_source() {
+        let idle = VolumeFixture::new("idle");
+        idle.run().unwrap();
+        assert_eq!(std::fs::read(idle.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
+        assert_eq!(idle.trace().matches(" ps --all ").count(), 2);
+        assert!(idle.trace().contains("fixture-volume:/from:ro"));
+        for case in ["create-error", "source-error", "write-error", "late-writer", "late-inspect-error"] {
+            let fixture = VolumeFixture::new(case);
+            assert!(fixture.run().is_err(), "{case} was reported as a completed import");
+            if case == "create-error" {
+                assert!(!fixture.trace().contains(" run "));
+                assert!(!fixture.0.join("copied").exists());
+            }
+            if case.starts_with("late-") {
+                assert_eq!(std::fs::read(fixture.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
+            }
+            eprintln!("verified {case}: import did not report success");
+        }
+    }
+
     #[test]
     fn anonymous_volumes() {
         assert!(super::anonymous(&"a1".repeat(32)));
