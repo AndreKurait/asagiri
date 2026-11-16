@@ -1,5 +1,33 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.6 changes include:
+
+- Bounded cgroup shutdown with pinned process handles, nested and threaded
+  group handling, and cleanup that recognizes an already removed group
+  without targeting a replacement at the same path.
+- Custom seccomp argument corrections and compact compilation of adjacent
+  equality rules. Dense profile tests retain holes, action changes and
+  out-of-range values within the existing profile-size limit.
+- Docker-compatible DNS selection when an alias appears on multiple
+  attached networks, preserving routing and gateway-family precedence
+  before network-name order.
+- Creation of a container's working directory before the user switch and
+  read-only root setup. Existing directory metadata is preserved; an exec
+  with a missing working directory fails without creating it.
+- Native Linux packages that resolve directory accounts through GNU NSS,
+  with separate portable musl engine artifacts.
+- Preservation of implicit volume labels and driver options, anonymous
+  volume lifetime, and existing volume metadata.
+- Armenian language support, bringing the interface and setup to 39
+  languages, plus source-linked benchmark results in the README.
+
+The ordinary Docker/Podman/Asagiri comparison retains 6,000 samples across
+five API workloads. An optional baseline/candidate/candidate/baseline run
+retains 24,000 samples on one host, including p95 and slow lifecycle counts.
+These measurements cover the specified small API operations; they do not
+establish general application throughput. Verus verification remains scoped
+to the production IPAM gap-search function described below.
+
 On macOS, unavailable shell profiles no longer interrupt the app's first
 setup. Existing profile contents are preserved when they cannot be read.
 Fatal setup errors identify the failing operation, and opening the app
@@ -140,7 +168,7 @@ This release includes the Asagiri identity and artwork, the container app,
 Docker import, registry mirrors, and the reviewed upstream changes recorded
 in `UPSTREAM.md`.
 
-The UI now includes 38 languages, a searchable language picker, and custom
+The UI now includes 39 languages, a searchable language picker, and custom
 container address pools with overlap checks. USB devices can reconnect after
 returning to the bus; stopping the engine cancels pending reconnects and
 container restarts. The guest kernel includes the macOS 15 Rosetta fix.

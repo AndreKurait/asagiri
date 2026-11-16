@@ -2,18 +2,18 @@
   "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
   "snapshot_started_at": "2026-11-16T07:55:46Z",
   "upstream_repository": "libracoder/kiri",
-  "upstream_main": "260cf66b9b56963a0170857c2b4306c38814e108",
+  "upstream_main": "7846fe05c9b79c00cbc2f5a18d87bb1f74bf9191",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
-  "ancestry_target": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "candidate_revision": "8064a1867fed8d31c71ddee90cbc6f29cf85d419",
+  "ancestry_target": "8064a1867fed8d31c71ddee90cbc6f29cf85d419",
   "counts": {
-    "total": 214,
-    "merged": 105,
-    "closed_unmerged": 60,
-    "open": 49
+    "total": 221,
+    "merged": 106,
+    "closed_unmerged": 61,
+    "open": 54
   },
-  "qualification_note": "Released/native dev.100, newly merged PR50 main and the later published followup candidate are distinct. PR50's exact-source combined checks passed; its next release and the followup candidate's final combined qualification remain pending. Every public entry has a disposition; full compiler review for #357 and stated platform/application/feature gaps remain open.",
+  "qualification_note": "Public review through the frozen 2026-11-16T13:52:12Z snapshot: 161 issues and 221 PRs. Runtime integration source 8064a186 includes the cgroup, seccomp, DNS, working-directory, GNU NSS and Armenian changes. The cgroup candidate passed 15 real guest tests after two baseline failures; the integrated source passed 17 DNS and 4 working-directory tests, and the locale passed 54 browser checks plus five language and one assembly test. Final platform/API, same-host performance and release qualification remain pending. Main last observed at 14:44 UTC is aa6c803; installed/published preview is dev.100 and stable is v0.1.5. These are dated evidence records, not complete feature or formal-verification claims.",
   "pulls": [
     {
       "number": 1,
@@ -171,7 +171,7 @@
     },
     {
       "number": 15,
-      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -311,7 +311,7 @@
     },
     {
       "number": 31,
-      "title": "UI: window \u2014 built-in terminal panel",
+      "title": "UI: window — built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -870,7 +870,7 @@
     },
     {
       "number": 95,
-      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -1096,7 +1096,7 @@
     },
     {
       "number": 115,
-      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
+      "title": "UI: Settings → Domains — choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -1876,7 +1876,7 @@
     },
     {
       "number": 179,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1890,7 +1890,7 @@
     },
     {
       "number": 180,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1918,7 +1918,7 @@
     },
     {
       "number": 182,
-      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
+      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -2042,7 +2042,7 @@
           "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
         }
       ],
-      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
+      "title": "UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page",
       "state": "merged",
       "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
       "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
@@ -2101,7 +2101,7 @@
     },
     {
       "number": 197,
-      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
+      "title": "UI: Linux VM card — show the engine's real state after any Start or Stop",
       "state": "merged",
       "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
       "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
@@ -2117,23 +2117,24 @@
     },
     {
       "number": 198,
-      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
+      "title": "Engine: close the connection when the client sends `Connection: close`",
       "state": "open",
       "head": "50fe52d430932fb06eb9c7a137b18d990c35cdc0",
       "merge": null,
       "ports": [
         "48f97e4dccd8149073085ba53b7219ac6ff0715e"
       ],
-      "disposition": "ported-with-reviewed-new-head",
-      "reason": "The updated public head and #353 have byte-identical HTTP Connection: close patches. The existing attributed port retains stronger repeated-header/token handling and Docker empty-Cmd defaults. Required client-command compatibility checks pass; no duplicate port is needed.",
+      "disposition": "equivalent",
+      "reason": "The head is unchanged. Connection-close behavior is already in Asagiri with HTTP and Windows pipe regression evidence; new comments do not supply a new source delta.",
       "head_in_history": false,
       "merge_in_history": false,
       "followups_in_released_main": {},
-      "followups_in_current_main": {}
+      "followups_in_current_main": {},
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 200,
-      "title": "UI: Settings \u2192 Appearance \u2014 21 more languages, 37 in all",
+      "title": "UI: Settings → Appearance — 21 more languages, 37 in all",
       "state": "merged",
       "head": "8f2507f1d6367928251d766358d159f9305addb9",
       "merge": "def2b5be30b4ea3849298d0ffa5f016483d47ff5",
@@ -2150,7 +2151,7 @@
     },
     {
       "number": 205,
-      "title": "UI: Settings \u2192 Appearance \u2014 Amharic, Kiri's first Ethiopian language",
+      "title": "UI: Settings → Appearance — Amharic, Kiri's first Ethiopian language",
       "state": "merged",
       "head": "9cd28afe685747ec2286a6c1780b52d6abe5442b",
       "merge": "99b63c07fc003d3dcd8e03c76891ba747b5c984f",
@@ -2236,7 +2237,7 @@
     },
     {
       "number": 217,
-      "title": "Settings \u203a Network: Container addresses",
+      "title": "Settings › Network: Container addresses",
       "state": "open",
       "head": "9fa8ca02a719c02d2cf8e006b74f0f362a59e00a",
       "merge": null,
@@ -2255,7 +2256,7 @@
     },
     {
       "number": 219,
-      "title": "UI: First start \u2014 a searchable language list instead of the tile wall",
+      "title": "UI: First start — a searchable language list instead of the tile wall",
       "state": "closed",
       "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
       "merge": null,
@@ -2272,7 +2273,7 @@
     },
     {
       "number": 220,
-      "title": "UI: Sidebar \u2014 Linux VM stays short in seven languages",
+      "title": "UI: Sidebar — Linux VM stays short in seven languages",
       "state": "closed",
       "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
       "merge": null,
@@ -2364,7 +2365,7 @@
     },
     {
       "number": 235,
-      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
+      "title": "UI: Sidebar — the Linux VM card fits in every language",
       "state": "closed",
       "head": "95022ff7564ed8a5269f20e27476cf5daa08aeeb",
       "merge": null,
@@ -2380,7 +2381,7 @@
     },
     {
       "number": 236,
-      "title": "UI: First start and Settings \u2014 a searchable language list",
+      "title": "UI: First start and Settings — a searchable language list",
       "state": "merged",
       "head": "9f04a26d4195cc44a63c68d627ffa689f23553a9",
       "merge": "98790f7ae37237c0dcf0030882e1e6b9995c5db1",
@@ -2396,7 +2397,7 @@
     },
     {
       "number": 238,
-      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
+      "title": "UI: Sidebar — the Linux VM card fits in every language",
       "state": "merged",
       "head": "a8f7b53a3e4ce1119fcad53c44af6cf5a836e250",
       "merge": "2f8de03858b66b422a4502718a6f8a89cf4a1c5f",
@@ -2475,7 +2476,7 @@
       ],
       "reason": "Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head.",
       "number": 243,
-      "title": "Engine: Testcontainers works \u2014 Docker engine version, kept-alive copies, the image's command for an empty Cmd",
+      "title": "Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd",
       "state": "merged",
       "head": "f7fc8ab8cefb86bd8802f8142aa6c34d93a06592",
       "merge": "8318b8d7683202bd3d438b1baf788fa8526fa52b",
@@ -2558,13 +2559,13 @@
       "number": 259,
       "title": "Windows: real WSL distro for xtask builds, cancellable pull reads, honor Connection: close (#225)",
       "state": "open",
-      "head": "99a341254a85cb6b9f6c0f1e3c6f755a471632a2",
+      "head": "1cea83273e27ff655780e92018e605c4b28c6b68",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-combined-qualified",
-      "reason": "The reviewed head contains Windows registry cancellation only; WSL build-distro work is tracked under #314 and the removed HTTP close hunk is already covered. Bounded cancellable reads preserve the full request budget and restore socket mode. Final PR50 Platform 43831181720 passed Windows image tests, macOS and Linux after fixture-only PEM/Darwin corrections. This is merged in current main; release membership is recorded separately.",
+      "disposition": "equivalent-to-existing-attributed-port",
+      "reason": "All three changed source blobs at the new head are byte-identical to the preceding reviewed head; no repeated port or CI run is needed for this head-only change.",
       "asagiri_followups": [
         "74a46d150774f06cecb2807a3491696698b6fa24"
       ],
@@ -2573,7 +2574,8 @@
       },
       "followups_in_current_main": {
         "74a46d150774f06cecb2807a3491696698b6fa24": true
-      }
+      },
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 263,
@@ -2667,7 +2669,7 @@
     },
     {
       "number": 270,
-      "title": "Windows: Settings \u2192 Import brings images, volumes and containers over from Docker Desktop",
+      "title": "Windows: Settings → Import brings images, volumes and containers over from Docker Desktop",
       "state": "merged",
       "head": "f09658aaa7723ec99f0e966203d78bb2334f11be",
       "merge": "4df9bfb2fdfbc5110a0532b5201d75c8ea727e59",
@@ -2709,7 +2711,7 @@
     },
     {
       "number": 272,
-      "title": "UI: Persian \u2014 more natural wording, one term per concept, correct half-spaces",
+      "title": "UI: Persian — more natural wording, one term per concept, correct half-spaces",
       "state": "open",
       "head": "5f4b8daae9bfedf3b9845e8fa00cbea5cdffff5b",
       "merge": null,
@@ -2919,7 +2921,7 @@
     },
     {
       "number": 291,
-      "title": "UI: apply theme attribute on root element so theme switching works on\u2026",
+      "title": "UI: apply theme attribute on root element so theme switching works on…",
       "state": "open",
       "head": "fc7d383140bad8107079fec56e50c77cdcff931d",
       "merge": null,
@@ -3242,13 +3244,13 @@
       "number": 314,
       "title": "xtask windows-dev: pick a real WSL distro on Windows",
       "state": "open",
-      "head": "d0d373ec1cb7cada5bcccee51b6ef19c8d2ddb12",
+      "head": "2007a34fe90c512191f95225b8ed9c1155c84677",
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-with-platform-checks",
-      "reason": "The original author's WSL build-distro selection handles UTF-8/UTF-16, Unicode distro names, explicit overrides and build-command scoping. Portable tests, Windows GNU compile and the topic Platform run pass; native Windows setup/reboot remains separate.",
+      "disposition": "equivalent-to-existing-attributed-port",
+      "reason": "The changed xtask source blob at the new head is byte-identical to the previous reviewed head and already covered by the attributed Windows build fix.",
       "asagiri_followups": [
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9"
       ],
@@ -3257,7 +3259,8 @@
       },
       "followups_in_current_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true
-      }
+      },
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 318,
@@ -3448,16 +3451,17 @@
     {
       "number": 341,
       "title": "Engine: signals only reach running processes, and a failed start leaves no DNS name",
-      "state": "open",
+      "state": "merged",
       "head": "6864aafba7c399dba65873dd06c47d4492c0d836",
-      "merge": null,
+      "merge": "7846fe05c9b79c00cbc2f5a18d87bb1f74bf9191",
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "partial-equivalence-with-open-process-gaps",
-      "reason": "Asagiri already uses stable process IDs, excludes exited entries from kill/shutdown/exec, and rolls back owned failed-start DNS state with live regressions. Replacing those paths wholesale would lose stronger behavior. Resize still needs an exited-entry guard; raw-PID cgroup.procs signaling on kernels without cgroup.kill needs identity-safe handling and targeted tests. The full public process-lifetime request is not marked fixed.",
+      "disposition": "ported-with-open-qualification",
+      "reason": "Upstream merged the same reviewed 6864aaf head and closed #324/#325. Its attributed fixes and stronger owned-cgroup controls are in PR55; fresh combined qualification remains pending.",
       "followups_in_released_main": {},
-      "followups_in_current_main": {}
+      "followups_in_current_main": {},
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 343,
@@ -3503,12 +3507,12 @@
         "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299": false
       },
       "followups_in_current_main": {
-        "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299": false
+        "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299": true
       }
     },
     {
       "number": 352,
-      "title": "Mac: \u2318C, \u2318V, \u2318X, \u2318A and \u2318Z work in the window's text fields (#340)",
+      "title": "Mac: ⌘C, ⌘V, ⌘X, ⌘A and ⌘Z work in the window's text fields (#340)",
       "state": "open",
       "head": "d629da8bc64a85833feae3ae7e2c4e0d3f759fe7",
       "merge": null,
@@ -3523,14 +3527,15 @@
       "asagiri_followups": [
         "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0"
       ],
-      "disposition": "adapted-with-native-appkit-gap",
-      "reason": "The existing translated native Edit menu supplies Mac shortcuts. Adapted the remaining page copy handler so Mac selection copy reaches AppKit once while Windows/Linux keep their Ctrl-C handler. The old duplicate-copy behavior fails the regression; nine three-platform headless cases and page assembly pass. Actual packaged AppKit interaction remains unverified.",
+      "disposition": "covered-pending-native-appkit-check",
+      "reason": "The head is unchanged. The new comment adds container-terminal clipboard behavior; exact AppKit and terminal clipboard checks remain unverified and Apple product work is constrained.",
       "followups_in_released_main": {
         "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0": false
       },
       "followups_in_current_main": {
-        "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0": false
-      }
+        "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0": true
+      },
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 353,
@@ -3556,7 +3561,7 @@
     {
       "number": 357,
       "title": "Security: seccomp profiles are applied, and the default filter matches Docker's",
-      "state": "open",
+      "state": "closed",
       "head": "3aef1a74ff71d387ba2de3e9fb1b7d6efe80ddad",
       "merge": null,
       "head_in_history": false,
@@ -3570,14 +3575,15 @@
       "asagiri_followups": [
         "15f209e21f6183446e770d6da6b99909bcae1c9c"
       ],
-      "disposition": "partial-port-full-compiler-review-open",
-      "reason": "Adapted the public default-filter personality restrictions and privileged syscall gates while preserving Asagiri's existing custom-profile compiler, late no-new-privileges handling and always-on host boundary. An owned native process reproduced the old ASLR-disable allowance; the production filter then rejected it, allowed the query and passed six ARM BPF tests. ARM/x86 executables compile. This is a compact denylist, not Docker's complete default allowlist. The public daemon compiler, rule-tree/profile semantics and protocol changes still need full review; there is no seccomp formal-proof claim.",
+      "disposition": "superseded",
+      "reason": "Closed upstream in favor of #371; preserve prior review and independent follow-up evidence rather than importing a second compiler implementation.",
       "followups_in_released_main": {
         "15f209e21f6183446e770d6da6b99909bcae1c9c": false
       },
       "followups_in_current_main": {
-        "15f209e21f6183446e770d6da6b99909bcae1c9c": false
-      }
+        "15f209e21f6183446e770d6da6b99909bcae1c9c": true
+      },
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
       "number": 360,
@@ -3602,7 +3608,7 @@
         "2ca36e7920f57c3ab951ff7143d59312b55a7796": false
       },
       "followups_in_current_main": {
-        "2ca36e7920f57c3ab951ff7143d59312b55a7796": false
+        "2ca36e7920f57c3ab951ff7143d59312b55a7796": true
       }
     },
     {
@@ -3628,7 +3634,7 @@
         "d14d5a18a0511fd74a9f83ababfb87051103ffb3": false
       },
       "followups_in_current_main": {
-        "d14d5a18a0511fd74a9f83ababfb87051103ffb3": false
+        "d14d5a18a0511fd74a9f83ababfb87051103ffb3": true
       }
     },
     {
@@ -3644,6 +3650,210 @@
       "reason": "Asagiri already closes inherited init descriptors before limits and seccomp, checks close_range errors and has a bounded ENOSYS fallback. Required actual init-descriptor, stdin/EOF, signal and DNS-reuse regressions cover these paths. The public unchecked close_range after setup would weaken the existing implementation and is not substituted.",
       "followups_in_released_main": {},
       "followups_in_current_main": {}
+    },
+    {
+      "number": 366,
+      "ports": [
+        {
+          "upstream": "670ac56d2d39d1a8e131146506f061151cd95d29",
+          "asagiri": "f5be1bfce13fa18b3bc9988a142b4ae7644ca4e4"
+        }
+      ],
+      "title": "DNS: search a container's networks by Docker network name, as Docker does (#294)",
+      "state": "open",
+      "head": "670ac56d2d39d1a8e131146506f061151cd95d29",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "ported-with-verification-gaps",
+      "reason": "Adapted the public DNS ordering fix and retained routed/internal/gateway-family precedence per container. All 17 actual DNS unit tests, including six new regressions, passed on the integrated aarch64 guest; x86_64 also compiled. The 25-case Docker/Asagiri API fixture is checked in and awaits final CI qualification. Explicit gateway priority, Swarm and complete application-level coverage remain outside these tests.",
+      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00",
+      "followups_in_current_main": {
+        "f5be1bfce13fa18b3bc9988a142b4ae7644ca4e4": false,
+        "960bf01d89b5ddd3f9a26386aedc053459cb5964": false
+      },
+      "followups_in_released_main": {
+        "f5be1bfce13fa18b3bc9988a142b4ae7644ca4e4": false,
+        "960bf01d89b5ddd3f9a26386aedc053459cb5964": false
+      },
+      "asagiri_followups": [
+        "960bf01d89b5ddd3f9a26386aedc053459cb5964"
+      ],
+      "followups_in_candidate": {
+        "f5be1bfce13fa18b3bc9988a142b4ae7644ca4e4": true,
+        "960bf01d89b5ddd3f9a26386aedc053459cb5964": true
+      }
+    },
+    {
+      "number": 371,
+      "ports": [],
+      "title": "Security: seccomp profiles are applied, and the default filter matches Docker's",
+      "state": "open",
+      "head": "db69d51c00ead9f60606c9972f93011f6094580f",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "independent-implementation-partially-qualified",
+      "reason": "This replaces #357. The experimental imported decision-tree implementation is excluded from production; independently implemented zero-mask/equality work is in PR55 with retained runc/kernel evidence. Full libseccomp/default-allowlist equivalence and formal proof are not claimed.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "followups_in_current_main": {},
+      "followups_in_released_main": {}
+    },
+    {
+      "number": 372,
+      "ports": [],
+      "title": "/info reports the daemon's time, so Compose 5.7 attaches (#346)",
+      "state": "open",
+      "head": "53d91bc742c04ca05267a91472e1cbc2fcd5eba9",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "equivalent-with-open-application-check",
+      "reason": "SystemTime from the daemon clock is already implemented and covered by time/events fixtures. Exact attached compose up and compose logs -f subscription still require dedicated runtime checks.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "followups_in_current_main": {},
+      "followups_in_released_main": {}
+    },
+    {
+      "number": 380,
+      "ports": [],
+      "title": "Stop tracking Python bytecode caches",
+      "state": "open",
+      "head": "877079dbc1cdca1af99ae84a172e123123f65ff4",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "partly-equivalent-and-open-cleanup",
+      "reason": "Current Asagiri tracks no Python bytecode and ignores __pycache__ and *.pyc. The additional *.pyo/*.pyd/.pytest_cache patterns are a small pending cleanup; no original tracked source file is removed.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "followups_in_current_main": {},
+      "followups_in_released_main": {}
+    },
+    {
+      "number": 386,
+      "ports": [
+        {
+          "upstream": "3b06ca525354220668cb4417b9688caee5f85842",
+          "asagiri": "c27eab474b4ad07406556ef1bc2929c416e1fdc9"
+        },
+        {
+          "upstream": "f38ddd629ea482b1ee4d8a9075551613f57fd116",
+          "asagiri": "ee90202f130f79b612e34337379b21963320bda6"
+        },
+        {
+          "upstream": "3b0f24209264a3f16595922f6a12105a450cf519",
+          "asagiri": "263b7810695f85a50357e89b970965ec138f82b8"
+        },
+        {
+          "upstream": "9971d84603868268fcef6609778087afdb765443",
+          "asagiri": "b5b715c8bb263c85172116c1a2c77ee199778bb3"
+        },
+        {
+          "upstream": "a601d81860d2a64ab1e9fbc9e552c1899cbe3dce",
+          "asagiri": "a0bbd0e7cdd1bffba5d40a943bde80f6f2348052"
+        },
+        {
+          "upstream": "31efbdcc7aaf36e8bc5f34f240e7c52c30a779ab",
+          "asagiri": "76013835186b4cf43950d509a1aa8b8e91c65084"
+        },
+        {
+          "upstream": "ab4e9c857e9d7bfda3b25a4511592ca36594947d",
+          "asagiri": "53a1d424859a665f1e2a2bb0ed15286358578de3"
+        },
+        {
+          "upstream": "1e8e28abeb6a6fdc1663b616af0e63eada39480a",
+          "asagiri": "6899d56f6986b17f75d59345cb45b2c48187cc0f"
+        },
+        {
+          "upstream": "091b031434b968a75503017682283f1dff7aa55a",
+          "asagiri": "c510b88b2953cefe4923f8ee0075697f31d89da8"
+        },
+        {
+          "upstream": "6d4525f9b36ed8a7c3062611d3abb77573625241",
+          "asagiri": "79321c7c0be51c0f92d3cb4c28a823f0575695f3"
+        }
+      ],
+      "title": "UI/armenian",
+      "state": "open",
+      "head": "6d4525f9b36ed8a7c3062611d3abb77573625241",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "ported-and-locally-verified",
+      "reason": "Ten attributed, signed public commits and one Asagiri translation adaptation are integrated. The 1702-key inventory is complete across 39 languages including English; 54 named browser checks, five native Rust language tests and the page-assembly/size test passed. Final platform qualification and native-language quality review remain separate.",
+      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00",
+      "followups_in_current_main": {
+        "c27eab474b4ad07406556ef1bc2929c416e1fdc9": false,
+        "ee90202f130f79b612e34337379b21963320bda6": false,
+        "263b7810695f85a50357e89b970965ec138f82b8": false,
+        "b5b715c8bb263c85172116c1a2c77ee199778bb3": false,
+        "a0bbd0e7cdd1bffba5d40a943bde80f6f2348052": false,
+        "76013835186b4cf43950d509a1aa8b8e91c65084": false,
+        "53a1d424859a665f1e2a2bb0ed15286358578de3": false,
+        "6899d56f6986b17f75d59345cb45b2c48187cc0f": false,
+        "c510b88b2953cefe4923f8ee0075697f31d89da8": false,
+        "79321c7c0be51c0f92d3cb4c28a823f0575695f3": false,
+        "989345613193a4a8c02d61de977ca3a4d6c4fc9b": false
+      },
+      "followups_in_released_main": {
+        "c27eab474b4ad07406556ef1bc2929c416e1fdc9": false,
+        "ee90202f130f79b612e34337379b21963320bda6": false,
+        "263b7810695f85a50357e89b970965ec138f82b8": false,
+        "b5b715c8bb263c85172116c1a2c77ee199778bb3": false,
+        "a0bbd0e7cdd1bffba5d40a943bde80f6f2348052": false,
+        "76013835186b4cf43950d509a1aa8b8e91c65084": false,
+        "53a1d424859a665f1e2a2bb0ed15286358578de3": false,
+        "6899d56f6986b17f75d59345cb45b2c48187cc0f": false,
+        "c510b88b2953cefe4923f8ee0075697f31d89da8": false,
+        "79321c7c0be51c0f92d3cb4c28a823f0575695f3": false,
+        "989345613193a4a8c02d61de977ca3a4d6c4fc9b": false
+      },
+      "asagiri_followups": [
+        "989345613193a4a8c02d61de977ca3a4d6c4fc9b"
+      ],
+      "followups_in_candidate": {
+        "c27eab474b4ad07406556ef1bc2929c416e1fdc9": true,
+        "ee90202f130f79b612e34337379b21963320bda6": true,
+        "263b7810695f85a50357e89b970965ec138f82b8": true,
+        "b5b715c8bb263c85172116c1a2c77ee199778bb3": true,
+        "a0bbd0e7cdd1bffba5d40a943bde80f6f2348052": true,
+        "76013835186b4cf43950d509a1aa8b8e91c65084": true,
+        "53a1d424859a665f1e2a2bb0ed15286358578de3": true,
+        "6899d56f6986b17f75d59345cb45b2c48187cc0f": true,
+        "c510b88b2953cefe4923f8ee0075697f31d89da8": true,
+        "79321c7c0be51c0f92d3cb4c28a823f0575695f3": true,
+        "989345613193a4a8c02d61de977ca3a4d6c4fc9b": true
+      }
+    },
+    {
+      "number": 390,
+      "ports": [],
+      "title": "Testcontainers' Mongo, and other exec-based containers, start on Kiri",
+      "state": "open",
+      "head": "78311c1f4d2377ab7ce6add254c1a635acb9cf28",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "equivalent-with-open-application-check",
+      "reason": "The current raw-stream response already implements the relevant 200/101 distinction. Exact MongoDB and Valkey application qualification remains unfinished.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "followups_in_current_main": {},
+      "followups_in_released_main": {}
+    },
+    {
+      "number": 392,
+      "ports": [],
+      "title": "Engine: the name filter is a regular expression, as in Docker, so k3d finds its nodes",
+      "state": "open",
+      "head": "74fdf57161613cb139b0e6f799539f6e5c4fac74",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "disposition": "equivalent-and-expanded",
+      "reason": "Current regex filtering already preserves literal-first/invalid-pattern behavior and confines optional slash aliases to container names. No duplicate port is needed; exact k3d startup remains unverified.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "followups_in_current_main": {},
+      "followups_in_released_main": {}
     }
   ],
   "followup_review": {
@@ -3657,6 +3867,15 @@
       357
     ]
   },
-  "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b",
-  "followup_updated_at": "2026-11-16T09:12:21.284179+00:00"
+  "current_main_revision": "aa6c803072dd29fbeb06ed301e850a9a1ddb52ca",
+  "followup_updated_at": "2026-11-16T14:49:19.872501+00:00",
+  "incremental_public_review": {
+    "snapshot_started_at": "2026-11-16T13:52:08.525378+00:00",
+    "snapshot_finished_at": "2026-11-16T13:52:12.676734+00:00",
+    "delta_sha256": "97df69cb250fe92f4f70e8f9d2b62c79aafcbecb51b7657acc5d21a2c2bb5ec0",
+    "updated_comments_sha256": "2ddbf1d06e9b516620bdd39859a45b79b5a5af3e395dd28a5a2622f75a8e5b4e",
+    "issues_reviewed": 33,
+    "pulls_reviewed": 13,
+    "documentation_status": "prepared_not_committed_or_published"
+  }
 }
