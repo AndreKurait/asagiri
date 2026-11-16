@@ -613,6 +613,74 @@ impl Client {
         self.pull_from(store, reference, &targets, platform, progress, cancel)
     }
 
+    /// Remote manifest metadata for Docker's distribution inspect API. This
+    /// does not pull layers or register an image in the local store.
+    pub fn distribution_inspect(&self, reference: &Reference) -> Result<serde_json::Value, Error> {
+        let mut last = None;
+        for target in self.targets(reference) {
+            let anonymous = (target.registry != reference.registry).then(|| self.anonymous());
+            let client = anonymous.as_ref().unwrap_or(self);
+            match client.distribution_from(&target) {
+                Ok(value) => return Ok(value),
+                Err(error) => last = Some(error),
+            }
+        }
+        Err(match last.unwrap_or_else(|| Error::Manifest("no registry to inspect".into())) {
+            Error::Status { status: 404, .. } => Error::NotFound(format!("no such manifest: {}", reference.short())),
+            error => error,
+        })
+    }
+
+    fn distribution_from(&self, r: &Reference) -> Result<serde_json::Value, Error> {
+        self.warm_up(r, "pull")?;
+        // Unlike a pull's immutable content cache, inspection checks current
+        // registry existence and authorization even for a digest reference.
+        let url = format!("{}/v2/{}/manifests/{}", self.api_base(r), r.repository, r.reference);
+        let mut response = self.get(r, &url, Some(ACCEPT))?;
+        let media_type = response.headers().get("content-type").and_then(|v| v.to_str().ok())
+            .unwrap_or_default().split(';').next().unwrap_or_default().trim().to_owned();
+        let bytes = response.body_mut().with_config().limit(4 << 20).read_to_vec()?;
+        let digest = sha256_digest(&bytes);
+        if r.is_digest() && digest != r.reference {
+            return Err(Error::Manifest("manifest failed digest check".into()));
+        }
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| Error::Manifest(e.to_string()))?;
+        if manifest["schemaVersion"].as_u64() != Some(2) {
+            return Err(Error::Manifest("unsupported manifest schema".into()));
+        }
+        // Payload media type takes precedence over an inaccurate registry header.
+        let media_type = manifest["mediaType"].as_str().filter(|s| !s.is_empty()).unwrap_or(&media_type).to_owned();
+        let platforms = match media_type.as_str() {
+            "application/vnd.oci.image.index.v1+json" | "application/vnd.docker.distribution.manifest.list.v2+json" => {
+                let entries = manifest["manifests"].as_array().ok_or_else(|| Error::Manifest("index has no manifests".into()))?;
+                entries.iter().filter_map(|entry| entry.get("platform")).map(distribution_platform).collect::<Result<Vec<_>, _>>()?
+            }
+            "application/vnd.oci.image.manifest.v1+json" | "application/vnd.docker.distribution.manifest.v2+json" => {
+                // Docker treats platform discovery as best-effort: a readable
+                // manifest remains inspectable when its config is unavailable.
+                let platform = || -> Result<Vec<serde_json::Value>, Error> {
+                    let descriptor: Descriptor = serde_json::from_value(manifest["config"].clone()).map_err(|e| Error::Manifest(e.to_string()))?;
+                    if !descriptor.digest.strip_prefix("sha256:").is_some_and(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit())) {
+                        return Err(Error::Manifest("invalid config digest".into()));
+                    }
+                    let url = format!("{}/v2/{}/blobs/{}", self.api_base(r), r.repository, descriptor.digest);
+                    let config = self.get(r, &url, None)?.body_mut().with_config().limit(4 << 20).read_to_vec()?;
+                    if config.len() as u64 != descriptor.size || sha256_digest(&config) != descriptor.digest {
+                        return Err(Error::Manifest("config failed digest or size check".into()));
+                    }
+                    let config: serde_json::Value = serde_json::from_slice(&config).map_err(|e| Error::Manifest(e.to_string()))?;
+                    if config["os"].as_str().unwrap_or_default().is_empty() && config["architecture"].as_str().unwrap_or_default().is_empty() {
+                        return Ok(Vec::new());
+                    }
+                    Ok(vec![distribution_platform(&config)?])
+                };
+                platform().unwrap_or_default()
+            }
+            _ => return Err(Error::Manifest(format!("unsupported media type: {media_type}"))),
+        };
+        Ok(serde_json::json!({"Descriptor": {"mediaType": media_type, "digest": digest, "size": bytes.len()}, "Platforms": platforms}))
+    }
+
     /// [`Client::pull_with`] over an explicit list of references: the first
     /// that resolves the image is where its layers come from. `name` is the
     /// reference the image is recorded as.
@@ -1256,6 +1324,26 @@ struct Token {
     token: Option<String>,
     access_token: Option<String>,
     expires_in: Option<u64>,
+}
+
+/// OCI platform fields, without leaking arbitrary image configuration fields.
+fn distribution_platform(value: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    let mut platform = serde_json::Map::new();
+    for name in ["architecture", "os"] {
+        let field = value.get(name).map(|v| v.as_str().ok_or_else(|| Error::Manifest(format!("invalid platform {name}")))).transpose()?.unwrap_or_default();
+        platform.insert(name.into(), field.into());
+    }
+    for name in ["variant", "os.version"] {
+        if let Some(field) = value.get(name) {
+            let field = field.as_str().ok_or_else(|| Error::Manifest(format!("invalid platform {name}")))?;
+            if !field.is_empty() { platform.insert(name.into(), field.into()); }
+        }
+    }
+    if let Some(features) = value.get("os.features") {
+        let features = features.as_array().filter(|a| a.iter().all(|v| v.is_string())).ok_or_else(|| Error::Manifest("invalid platform os.features".into()))?;
+        if !features.is_empty() { platform.insert("os.features".into(), features.clone().into()); }
+    }
+    Ok(platform.into())
 }
 
 /// A manifest resolved for one platform, and the registry that answered:

@@ -237,6 +237,9 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         ("POST", "/volumes/prune") => return reply(w, volume_prune(req, engine), 200),
         _ => {}
     }
+    if m == "GET" && let Some(name) = p.strip_prefix("/distribution/").and_then(|rest| rest.strip_suffix("/json")) {
+        return reply(w, distribution_inspect(req, name), 200);
+    }
     if let Some(rest) = p.strip_prefix("/images/") {
         if let Some(name) = rest.strip_suffix("/json") {
             if m == "GET" {
@@ -922,6 +925,16 @@ fn set_env(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
 /// A registry client with the credentials the CLI sent, if any.
 fn client_for(req: &Request) -> Client {
     Client::new().with_credentials(req.header("x-registry-auth").and_then(asagiri_image::Credentials::from_header))
+}
+
+/// Distribution metadata is remote registry state, not a local image lookup.
+fn distribution_inspect(req: &Request, name: &str) -> Result<Value, Error> {
+    let reference = Reference::parse(name).map_err(|e| Error::BadRequest(e.to_string()))?;
+    client_for(req).distribution_inspect(&reference).map_err(|e| match e {
+        asagiri_image::registry::Error::NotFound(message) => Error::NotFound(message),
+        asagiri_image::registry::Error::Status { status: 401 | 403, body, .. } => Error::Unauthorized(body),
+        other => Error::BadRequest(other.to_string()),
+    })
 }
 
 /// `docker login`: the CLI asks the daemon to check the password, then
