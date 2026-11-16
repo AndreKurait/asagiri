@@ -1,19 +1,19 @@
 {
-  "reviewed_at": "2026-11-16T07:45:40.214923+00:00",
-  "snapshot_started_at": "2026-11-16T04:47:45Z",
+  "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
+  "snapshot_started_at": "2026-11-16T07:55:46Z",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "260cf66b9b56963a0170857c2b4306c38814e108",
-  "asagiri_runtime_revision": "5f56e5ed9dea31da43cfb49cb3a2aa6f6af57f51",
-  "native_verified_release": "v0.1.6-dev.99",
-  "candidate_revision": "4debf1d0b331e19040cbc3a46a2528e16a7ce4a8",
-  "ancestry_target": "4debf1d0b331e19040cbc3a46a2528e16a7ce4a8",
+  "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+  "native_verified_release": "v0.1.6-dev.100",
+  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "ancestry_target": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
   "counts": {
-    "total": 205,
+    "total": 214,
     "merged": 105,
-    "closed_unmerged": 59,
-    "open": 41
+    "closed_unmerged": 60,
+    "open": 49
   },
-  "qualification_note": "The runtime/main and native release are separate from the published combined candidate. Individual topic results and local checks do not replace final combined CI or native platform validation. Followup membership in released main is explicit.",
+  "qualification_note": "Released/native dev.100, newly merged PR50 main and the later published followup candidate are distinct. PR50's exact-source combined checks passed; its next release and the followup candidate's final combined qualification remain pending. Every public entry has a disposition; full compiler review for #357 and stated platform/application/feature gaps remain open.",
   "pulls": [
     {
       "number": 1,
@@ -26,7 +26,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Apache-2.0, NOTICE and the reorganized documentation are inherited from current main; the old release branch is not reintroduced.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 2,
@@ -39,7 +40,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 76ccc11b8d7d is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 3,
@@ -52,7 +54,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 325a3b756c0e is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 4,
@@ -65,7 +68,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 47a577b48815 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 5,
@@ -78,7 +82,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 5f666ad873ad is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 6,
@@ -91,7 +96,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 028124b0c0c2 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 7,
@@ -104,7 +110,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 98ce1be845b2 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 8,
@@ -117,7 +124,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 77c2911a2682 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 9,
@@ -130,7 +138,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit c8252d104090 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 11,
@@ -143,7 +152,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit de47ac0d91e7 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 12,
@@ -156,11 +166,12 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit c1da681b2cf1 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 15,
-      "title": "UI: Settings › Resources — panes beside the tabs, same sliders on every system, no needless restart on Windows",
+      "title": "UI: Settings \u203a Resources \u2014 panes beside the tabs, same sliders on every system, no needless restart on Windows",
       "state": "merged",
       "head": "c2ff5a95361f37743b191481764885874c0d1aac",
       "merge": "e155900dddc31f355b8079a036feb2b91ecdd1b5",
@@ -169,7 +180,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit e155900dddc3 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 16,
@@ -182,7 +194,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 17,
@@ -195,7 +208,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit d314d6b3c203 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 19,
@@ -208,7 +222,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 4c3aaefdd502 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 20,
@@ -221,7 +236,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 5fb10d6b05ba is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 21,
@@ -234,7 +250,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit f1237085bfd5 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 22,
@@ -247,7 +264,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 37c5cd53f15a is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 23,
@@ -260,7 +278,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Replaced by merged #28: private device nodes avoid sharing host devtmpfs; merely skipping ptmx writes was insufficient.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 24,
@@ -273,7 +292,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 7a7a4cc44f9f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 28,
@@ -286,11 +306,12 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit ffe980f0c817 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 31,
-      "title": "UI: window — built-in terminal panel",
+      "title": "UI: window \u2014 built-in terminal panel",
       "state": "merged",
       "head": "1bfbfb43ac33f5aaf8b46b3b36feeda0bd9504b9",
       "merge": "07e78baad37167610931dad78bc5861aca296a69",
@@ -299,7 +320,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 07e78baad371 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 32,
@@ -312,7 +334,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit d01c3edb2325 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 33,
@@ -325,7 +348,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Superseded by merged #35 release notes; historical Kiri notes remain distinct from Asagiri releases.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 34,
@@ -338,7 +362,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 41abfd20daf6 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 35,
@@ -351,7 +376,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 39a36ddec248 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 36,
@@ -364,7 +390,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit f7d2cff89b5d is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 37,
@@ -377,7 +404,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 82e13b560b8c is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 39,
@@ -390,7 +418,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 4e32e842b04f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 43,
@@ -403,7 +432,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 67c5584f215c is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 46,
@@ -416,7 +446,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 98616431e78f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 47,
@@ -429,7 +460,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 8685472df856 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 51,
@@ -442,7 +474,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 64474185fb48 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 52,
@@ -455,7 +488,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit f973293e5122 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 53,
@@ -481,7 +515,8 @@
       ],
       "disposition": "ported",
       "reason": "All console-retention commits ported; Asagiri also keeps secret redaction latched across read boundaries and truncated lines.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 54,
@@ -558,6 +593,10 @@
       "followups_in_released_main": {
         "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true,
         "6f003adfc179ed9bc7489d7c313c4080fc609578": true
+      },
+      "followups_in_current_main": {
+        "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true,
+        "6f003adfc179ed9bc7489d7c313c4080fc609578": true
       }
     },
     {
@@ -571,7 +610,8 @@
       "ports": [],
       "disposition": "partly-equivalent-and-held",
       "reason": "Image inspect already preserves ExposedPorts, Labels, Healthcheck and StopSignal. Hold the UI prototype: it guesses the exposed port, forces a dialog on every run, uses colliding default names and predates localization. Existing rename/port editors and Docker create options remain available.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 56,
@@ -584,7 +624,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 3fa32335cc68 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 58,
@@ -597,7 +638,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Multilingual UI is inherited through merged #95; do not restore the earlier two-language prototype.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 60,
@@ -610,7 +652,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Initial branch inherited. Its 6454f419 atomic create/delete/rebuild fallback is also present in replace_table, including IPv4/IPv6 tests and bridge isolation. Refreshed rebased head: git range-diff confirms its patch is unchanged from the previously reviewed head.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 61,
@@ -633,7 +676,8 @@
         ],
         "native_wsl_verified": false
       },
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 62,
@@ -646,7 +690,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 41ecc592d1b3 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 63,
@@ -659,7 +704,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit d4e361b5bac3 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 65,
@@ -672,7 +718,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 8295c185edd2 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 67,
@@ -685,7 +732,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 5981b2be32d3 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 69,
@@ -703,7 +751,8 @@
       ],
       "disposition": "partly-superseded-and-ported",
       "reason": "Languages are covered by #95, Images column sizing by #56, and mirrors by #119. The remaining daemon.json, explicit HTTP/self-signed registry policy and bounded transfer workers are implemented with atomic updates, credential/redirect boundaries, CLI controls and real pull/push/BuildKit coverage. Linux source 2fa4f56 passes the private registry suite; hostname authorities and literal-IP CIDRs have documented scope.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 70,
@@ -716,7 +765,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 2af64d88689b is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 71,
@@ -729,7 +779,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 108dac0748f0 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 75,
@@ -742,7 +793,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 6327712d3cbd is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 76,
@@ -755,7 +807,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 2005cd59deb4 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 84,
@@ -768,7 +821,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit b6b3044437e1 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 86,
@@ -781,7 +835,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "English/Chinese prototype superseded by merged #95 multilingual UI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 87,
@@ -794,7 +849,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit a705eb16a643 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 89,
@@ -809,11 +865,12 @@
       ],
       "disposition": "superseded-by-implementation",
       "reason": "Superseded by Asagiri's bounded HTTP/2 BuildKit bridge: Docker-driver control/session RPCs, streamed local image loading, context/secret forwarding, explicit outputs, cache, concurrent Bake, host-gateway and cancellation pass against a private Linux engine. Existing docker-container builders and cache remain supported. Native Mac VM and Windows WSL execution remain unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 95,
-      "title": "UI: Settings → Appearance — Language, in 15 languages, chosen on first start",
+      "title": "UI: Settings \u2192 Appearance \u2014 Language, in 15 languages, chosen on first start",
       "state": "merged",
       "head": "94b229d08316d30e63eed2c8ab4348df3b87b3ff",
       "merge": "0b518b898cbc8bdefa7a42e32195b05743440ceb",
@@ -822,7 +879,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 0b518b898cbc is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 96,
@@ -835,7 +893,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit f28d227d709f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 100,
@@ -850,7 +909,8 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "The two rebased translation commits are byte-identical in their three documentation files to the earlier inherited head. Ported the new signed c49e680 follow-up: language/Arabic guidance, real Portuguese UI labels, and existing kernel patch descriptions. Preserved Asagiri branding and accurate release limitations.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 101,
@@ -863,7 +923,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit a7499c205879 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 102,
@@ -876,7 +937,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 6f8908478b34 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 103,
@@ -889,7 +951,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 9bd6b8c62b2e is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 104,
@@ -902,7 +965,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 9c8c260355f9 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 105,
@@ -915,7 +979,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Replaced by #116; the newer emulation implementation is ported with a read-only emulator share and a Linux-arm64-only platform exception.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 106,
@@ -928,7 +993,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 4418009e3f9f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 107,
@@ -941,7 +1007,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit ae9b81b8c8e1 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 108,
@@ -954,7 +1021,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit f0ada7a193c2 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 109,
@@ -967,7 +1035,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit b94a40bff6c6 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 110,
@@ -980,7 +1049,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 73969cb70bfd is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 111,
@@ -993,7 +1063,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 3274468d9750 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 113,
@@ -1006,7 +1077,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 8e400bf111bd is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 114,
@@ -1019,11 +1091,12 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 89e6fc91cb6f is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 115,
-      "title": "UI: Settings → Domains — choose the ports container names answer on",
+      "title": "UI: Settings \u2192 Domains \u2014 choose the ports container names answer on",
       "state": "merged",
       "head": "a850ed59c11c247a29d189c3c0d21761ca5d50c8",
       "merge": "7d8d0b4c12484bd42bb5da7ec88003e3fdb17218",
@@ -1032,7 +1105,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 7d8d0b4c1248 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 116,
@@ -1054,7 +1128,8 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Both source commits ported. 3b3f0f2 adds registry-owned remote tags; b6bf9ac records local tag provenance so local same-repository tags remain usable. Cross-platform OCI export checks the BusyBox ELF, and local FROM is built and run. Intel release packaging now builds QEMU 11.0.5 from source and requires the corresponding source and dependency licenses; the full source build and ARM64 execution probe passed in hosted run 43633676310, and all build products and source/license entries were independently verified. Native Intel Mac VM execution remains unverified. Refreshed head 27b7086 is patch-equivalent to previously ported ba7fd94 (git range-diff identical); preserve the improved local-tag tests.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 117,
@@ -1067,7 +1142,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit c21387373730 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 119,
@@ -1101,7 +1177,8 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Mirror/settings/setup commits ported. fc739e4 credential isolation is already enforced with complete manifest/config/layer header tests; active Buildx execs survive mirror settings changes. Refreshed head only merges main, including #194; its registry changes have no additional delta.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 120,
@@ -1114,7 +1191,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit a86f903cbe2e is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 122,
@@ -1130,7 +1208,8 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "The rebased fe16c20 trim implementation matches the inherited 676c46d source. Ported 944e72a: trim runs in a separate process, closes inherited descriptors, and leaves the cloning agent single-threaded. Added a standalone Linux regression for process isolation and clean exit without a VM or real data disk; native Mac allocated-block reclamation remains unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 124,
@@ -1143,7 +1222,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 126,
@@ -1156,7 +1236,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 131,
@@ -1169,7 +1250,8 @@
       "ports": [],
       "disposition": "inherited-and-improved",
       "reason": "Current head inherited, with source 11f698a also ported so container changes to /.dockerenv remain visible in diff/commit.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 132,
@@ -1182,7 +1264,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 133,
@@ -1195,7 +1278,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 135,
@@ -1208,7 +1292,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 136,
@@ -1221,7 +1306,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 137,
@@ -1234,7 +1320,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Initial branch inherited. Both newer commits 781b8fdc2ddf and 4a038f2eb183 produce empty normalized patches; archive path and /proc regression coverage is present.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 138,
@@ -1247,7 +1334,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 139,
@@ -1260,7 +1348,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 140,
@@ -1273,7 +1362,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 141,
@@ -1286,7 +1376,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 142,
@@ -1299,7 +1390,8 @@
       "ports": [],
       "disposition": "inherited-and-equivalent",
       "reason": "The signed merged source is in the public ancestry. Reviewed its stop/sleep changes against Asagiri's stronger per-run lifecycle locking, generation accounting, restart cancellation and VM recovery; retained the equivalent complete behavior.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 143,
@@ -1312,7 +1404,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 144,
@@ -1325,7 +1418,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 1b639b01e498 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 145,
@@ -1338,7 +1432,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Superseded by merged #147 notes for Kiri 0.2.0.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 146,
@@ -1351,7 +1446,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 5a01049f90c3 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 147,
@@ -1364,7 +1460,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit c6c404ecdf1e is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 148,
@@ -1377,7 +1474,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit d7d282e499e5 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 149,
@@ -1390,7 +1488,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 150,
@@ -1403,7 +1502,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 151,
@@ -1416,7 +1516,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 152,
@@ -1429,7 +1530,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 153,
@@ -1442,7 +1544,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 154,
@@ -1455,7 +1558,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 155,
@@ -1468,7 +1572,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit dfe3ffa5f5a4 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 156,
@@ -1481,7 +1586,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit a5aeb7de06dc is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 157,
@@ -1494,7 +1600,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 158,
@@ -1507,7 +1614,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 159,
@@ -1520,7 +1628,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Earlier work inherited; 94c7c6f7a72d socket selection is present as ASAGIRI_SOCKET/KIRI_SOCKET selection in the performance runner.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 160,
@@ -1533,7 +1642,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 161,
@@ -1546,7 +1656,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 32eaa0a963d4 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 162,
@@ -1559,7 +1670,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 163,
@@ -1572,7 +1684,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Earlier branch inherited. e087e2b6bc19/ec6afd954707 behavior and live tests are present, retaining later DNS, MTU, macvlan, ipvlan, interface and route-failover fixes.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 164,
@@ -1585,7 +1698,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 165,
@@ -1598,7 +1712,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 166,
@@ -1611,7 +1726,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 167,
@@ -1624,7 +1740,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit a649319b5338 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 169,
@@ -1637,7 +1754,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 171,
@@ -1650,7 +1768,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 172,
@@ -1663,7 +1782,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Reviewed public head is an ancestor of Asagiri; related live or platform checks remain in CI.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 173,
@@ -1676,7 +1796,8 @@
       "ports": [],
       "disposition": "inherited-and-superseded",
       "reason": "Public head inherited; final Stop/Start lifecycle also arrives through merged #181.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 174,
@@ -1689,7 +1810,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 5ce108bf1025 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 175,
@@ -1702,7 +1824,8 @@
       "ports": [],
       "disposition": "inherited-and-superseded",
       "reason": "Public head inherited; final macOS linked-mount resolution also arrives through merged #178.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 176,
@@ -1715,7 +1838,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 80a185d8d4cd is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 177,
@@ -1733,7 +1857,8 @@
       ],
       "disposition": "inherited-and-equivalent",
       "reason": "The signed merged source is in the public ancestry; log selection and keyboard copy are already present from the previously reviewed ports.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 178,
@@ -1746,11 +1871,12 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit acfae6e11bb8 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 179,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "aa6b5d63039f0654c5d3355534542528775592e7",
       "merge": null,
@@ -1759,11 +1885,12 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Replaced by #180 then merged #182, which includes the later sanitization and UI test fixes.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 180,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "closed",
       "head": "e98c21cb3e89638043b0fc5f7526ad7b21f493ec",
       "merge": null,
@@ -1772,7 +1899,8 @@
       "ports": [],
       "disposition": "superseded",
       "reason": "Replaced by merged #182; keep the final Arabic/RTL implementation and fixes.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 181,
@@ -1785,11 +1913,12 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 544b5ad91f1a is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 182,
-      "title": "UI: Settings → Appearance — Arabic, the window's first right-to-left language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Arabic, the window's first right-to-left language",
       "state": "merged",
       "head": "52a81e2706db71961eefed5600d080619df0c81c",
       "merge": "ab43ec6fe1f71a4c055870362278c65099d0bc93",
@@ -1798,7 +1927,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit ab43ec6fe1f7 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 183,
@@ -1811,7 +1941,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 41744d4dabe9 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 184,
@@ -1824,7 +1955,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 63ddbf25de8a is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 185,
@@ -1837,7 +1969,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit d15c8c7849fe is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 186,
@@ -1850,7 +1983,8 @@
       "ports": [],
       "disposition": "inherited",
       "reason": "Merged upstream commit 4645536f68d4 is an ancestor of Asagiri.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 192,
@@ -1876,7 +2010,8 @@
       ],
       "disposition": "ported",
       "reason": "6d60e28b145a ported as a833170: component-aware /opt and /usr/local Mac mounts and best-effort 1 MiB virtiofs read-ahead. Follow-ups d26ad2b22a5b and d97296654125 ported as 1fa2dda and a600f4f: original benchmark helper, Kiri/Colima results, and corrected nearest-rank percentiles. Upstream Mac throughput figures have not been remeasured here.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 193,
@@ -1894,6 +2029,9 @@
       ],
       "followups_in_released_main": {
         "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true
+      },
+      "followups_in_current_main": {
+        "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true
       }
     },
     {
@@ -1904,7 +2042,7 @@
           "asagiri": "a7aefb9dfed331ed1dbea62cf2dccac53168d90c"
         }
       ],
-      "title": "UI: Pull image — GitHub and Amazon ECR, signing in through each registry's own page",
+      "title": "UI: Pull image \u2014 GitHub and Amazon ECR, signing in through each registry's own page",
       "state": "merged",
       "head": "e0f5f17c48f816bb336ce156576606c7ea4fcf7a",
       "merge": "ec91e723efe0c8e23f4e5fd12f2f0d7fb5d08449",
@@ -1912,7 +2050,8 @@
       "merge_in_history": true,
       "disposition": "ported-and-reviewed",
       "reason": "GitHub and ECR tag listing, device/browser sign-in via installed CLIs, and shared tag ordering. Preserved Asagiri URL restrictions and existing mirrors. Native UI and image unit tests pass; native Windows and live external sign-ins remain separate hosted/manual checks.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 195,
@@ -1939,6 +2078,9 @@
       ],
       "followups_in_released_main": {
         "cdbd4be99bee05071c42b930c9ec017a0faee750": false
+      },
+      "followups_in_current_main": {
+        "cdbd4be99bee05071c42b930c9ec017a0faee750": true
       }
     },
     {
@@ -1954,11 +2096,12 @@
       "reason": "Ported process-session isolation with checked setsid failures and release-suite group-signal regression coverage.",
       "head_in_history": false,
       "merge_in_history": true,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 197,
-      "title": "UI: Linux VM card — show the engine's real state after any Start or Stop",
+      "title": "UI: Linux VM card \u2014 show the engine's real state after any Start or Stop",
       "state": "merged",
       "head": "35dfad896140d521acbf765b9fe4125ae9bcdd71",
       "merge": "b37ed29a824894d11648cc0acf3ff1045f611aae",
@@ -1969,26 +2112,28 @@
       "reason": "Ported real engine-state UI across all start/stop controls; retained Asagiri branding and cross-platform UI checks.",
       "head_in_history": false,
       "merge_in_history": true,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 198,
-      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an…",
+      "title": "Engine: close on `Connection: close`, and take the image's Cmd for an\u2026",
       "state": "open",
-      "head": "d2bc825e00c661662cad0c44f70486ce98f31193",
+      "head": "50fe52d430932fb06eb9c7a137b18d990c35cdc0",
       "merge": null,
       "ports": [
         "48f97e4dccd8149073085ba53b7219ac6ff0715e"
       ],
-      "disposition": "ported",
-      "reason": "Ported HTTP Connection: close and Docker command-default rules; extended repeated-header handling and live SDK checks.",
+      "disposition": "ported-with-reviewed-new-head",
+      "reason": "The updated public head and #353 have byte-identical HTTP Connection: close patches. The existing attributed port retains stronger repeated-header/token handling and Docker empty-Cmd defaults. Required client-command compatibility checks pass; no duplicate port is needed.",
       "head_in_history": false,
       "merge_in_history": false,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 200,
-      "title": "UI: Settings → Appearance — 21 more languages, 37 in all",
+      "title": "UI: Settings \u2192 Appearance \u2014 21 more languages, 37 in all",
       "state": "merged",
       "head": "8f2507f1d6367928251d766358d159f9305addb9",
       "merge": "def2b5be30b4ea3849298d0ffa5f016483d47ff5",
@@ -2000,11 +2145,12 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "Ported 21 new language files and the language inventory. Preserved Asagiri branding, product-specific settings and translations, with explicit English fallback for the new fork-specific strings.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 205,
-      "title": "UI: Settings → Appearance — Amharic, Kiri's first Ethiopian language",
+      "title": "UI: Settings \u2192 Appearance \u2014 Amharic, Kiri's first Ethiopian language",
       "state": "merged",
       "head": "9cd28afe685747ec2286a6c1780b52d6abe5442b",
       "merge": "99b63c07fc003d3dcd8e03c76891ba747b5c984f",
@@ -2016,7 +2162,8 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "Ported Amharic, bringing the UI to 38 languages including English; all locale keys and the searchable language picker are verified by the translation and browser suites.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 207,
@@ -2034,7 +2181,8 @@
       ],
       "disposition": "ported-with-existing-ci",
       "reason": "Ported all three runtime commits: poison-tolerant share locks, private traffic files, non-local target warning, bounded engine connections and idle requests, and the agent panic hook. Follow-ups protect existing temporary files and symlinks and release connection slots after failed thread creation. The remaining three cargo-deny/CI commits are covered by Asagiri's existing pinned, all-feature checks and policies.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 208,
@@ -2049,7 +2197,8 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "Ported the fifth guest-kernel patch for macOS 15 Rosetta auxiliary-vector handling, including kernel-build and corresponding-source packaging. A real macOS 15 guest run remains unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 212,
@@ -2065,7 +2214,8 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "Ported automatic USB reattachment after a device returns. Asagiri additionally uses a monotonic reconnect token, atomically cancels queued and active sessions, and never wakes a stopped VM for a retry. Token cancellation has a unit regression; physical USB sleep/unplug/replug behavior remains unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 216,
@@ -2081,11 +2231,12 @@
       ],
       "disposition": "inherited-and-ported",
       "reason": "Ported cancellation of pending container restarts while retaining Asagiri's separate VM-recovery path and lifecycle generation guards. A canceled queued daemon restart cannot boot a replacement VM; synthetic tests never boot a VM.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 217,
-      "title": "Settings › Network: Container addresses",
+      "title": "Settings \u203a Network: Container addresses",
       "state": "open",
       "head": "9fa8ca02a719c02d2cf8e006b74f0f362a59e00a",
       "merge": null,
@@ -2099,11 +2250,12 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Ported address-pool allocation, overlap detection, host route discovery and Settings UI. Serialized concurrent settings writes and required successful Windows adapter reads. Browser/demo and private-engine tests cover validation, concurrent saves, allocation from custom pools, reset, and unchanged existing networks.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 219,
-      "title": "UI: First start — a searchable language list instead of the tile wall",
+      "title": "UI: First start \u2014 a searchable language list instead of the tile wall",
       "state": "closed",
       "head": "35d70e3559108e2fe5d0ecd9aa761c3873a3aa94",
       "merge": null,
@@ -2115,11 +2267,12 @@
       ],
       "disposition": "ported",
       "reason": "Ported the searchable first-start language picker and integrated all 38 languages with Asagiri branding, keyboard behavior and browser tests. Upstream closed this PR in favor of #236; its integrated changes remain in Asagiri history.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 220,
-      "title": "UI: Sidebar — Linux VM stays short in seven languages",
+      "title": "UI: Sidebar \u2014 Linux VM stays short in seven languages",
       "state": "closed",
       "head": "9f8d8562392d500eae905e8df1a5cfc065283da6",
       "merge": null,
@@ -2130,7 +2283,8 @@
       ],
       "disposition": "ported",
       "reason": "Ported short Linux VM sidebar labels in seven languages, retaining full labels in the corresponding translated settings. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 221,
@@ -2143,7 +2297,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Reviewed the closed build-from-source README change. Asagiri already documents its correct renamed package, Rust prerequisites, platform dependencies and build commands in README.md and CONTRIBUTING.md; upstream Kiri commands are not reintroduced.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 231,
@@ -2158,7 +2313,8 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Re-resolves symlinked Mac bind sources on each start while retaining original inspect metadata and Asagiri lifecycle generation locks. The pure Mac filesystem regression passes on 44fab19; an actual Mac VM bind restart remains unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 232,
@@ -2171,7 +2327,8 @@
       "ports": [],
       "disposition": "equivalent",
       "reason": "Existing take_ifnum/drop_ifnum reserves an interface before attach and retains it until detach completes, releases IPv4/IPv6 on errors, and handles concurrent joins/leaves. All seven existing live scenarios pass on both Alpine and BusyBox with integrated source 44fab19; the narrower sequential upstream fix is equivalent.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 233,
@@ -2186,7 +2343,8 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Waiting USB devices remain visible in API, CLI and UI, can be released, and survive an immediate drop after attachment. Integrated with Asagiri reconnect cancellation generations and atomic session removal. Eight Mac USB state tests pass on 44fab19. Physical USB reset/idle and Mac sleep/wake remain unverified; intent is not persisted across daemon restarts.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 234,
@@ -2201,11 +2359,12 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Serializes held restarts with engine power transitions, stops containers in parallel, preserves held policies and user cancellations, and distinguishes requested stops from crashes. Run/exec return Docker-compatible 126/127/255 errors; --init handles scripts without shebangs. Asagiri lifecycle generation checks and crash recovery remain intact. Nine two-second stops take 2.095s versus 18.115s before this port; all 12 executable cases, three real agent crashes and stopped-daemon restart/cancellation checks pass on 44fab19.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 235,
-      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
       "state": "closed",
       "head": "95022ff7564ed8a5269f20e27476cf5daa08aeeb",
       "merge": null,
@@ -2216,11 +2375,12 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "VM cards fit all 38 languages and update state text after language changes. Memory values wrap between values without splitting number/unit pairs, retaining Asagiri unknown Windows memory reporting. Actual browser checks cover 152 language/state combinations, four fonts and existing platform memory semantics. Upstream closed this PR in favor of #238; its integrated changes remain in Asagiri history.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 236,
-      "title": "UI: First start and Settings — a searchable language list",
+      "title": "UI: First start and Settings \u2014 a searchable language list",
       "state": "merged",
       "head": "9f04a26d4195cc44a63c68d627ffa689f23553a9",
       "merge": "98790f7ae37237c0dcf0030882e1e6b9995c5db1",
@@ -2231,11 +2391,12 @@
       ],
       "disposition": "ported-and-improved",
       "reason": "Shares the first-start language step with Windows setup and adds a searchable Settings popover with keyboard, IME and accessibility behavior. All prior Asagiri translations and isolated browser profiles are retained. Corrected dialog height also passes compact-window checks at 125% text scaling; native WebView interaction remains unverified.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 238,
-      "title": "UI: Sidebar — the Linux VM card fits in every language",
+      "title": "UI: Sidebar \u2014 the Linux VM card fits in every language",
       "state": "merged",
       "head": "a8f7b53a3e4ce1119fcad53c44af6cf5a836e250",
       "merge": "2f8de03858b66b422a4502718a6f8a89cf4a1c5f",
@@ -2246,7 +2407,8 @@
       ],
       "disposition": "ported-and-equivalent",
       "reason": "Replacement for #220/#235. The UI runtime diff is identical to #235 and already ported in 989f8c6, including Asagiri Windows memory safeguards. Ported the only new delta: Intl.Segmenter word boundaries for Thai, Lao, Khmer and Burmese in the VM-card regression, so legitimate word wrapping is accepted. Native platform limits remain unchanged.",
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "disposition": "equivalent-with-stricter-validation",
@@ -2259,7 +2421,8 @@
       "merge": "1e50ad4d5a46eea48b254032780c2008dad3e624",
       "head_in_history": false,
       "merge_in_history": false,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "disposition": "equivalent-with-existing-cache",
@@ -2284,6 +2447,11 @@
         "363b52b6a3636e0a9d06322f1dc5c0aa183555f3": true,
         "c76f9245e7937ae5d3199b8caa837ea67b27e24b": true,
         "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": false
+      },
+      "followups_in_current_main": {
+        "363b52b6a3636e0a9d06322f1dc5c0aa183555f3": true,
+        "c76f9245e7937ae5d3199b8caa837ea67b27e24b": true,
+        "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": true
       }
     },
     {
@@ -2297,7 +2465,8 @@
       "merge": null,
       "head_in_history": false,
       "merge_in_history": false,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "disposition": "ported-and-equivalent",
@@ -2306,13 +2475,14 @@
       ],
       "reason": "Version/product identity, command defaults and explicit closing error responses were already covered. Ported successful archive keep-alive and verified 33 live framing cases including gzip, chunk trailers, padding, 8 MiB uploads and same-socket start. Existing real BuildKit tests pass; Java Testcontainers remains a CI regression. The upstream squash tree exactly matches the reviewed head.",
       "number": 243,
-      "title": "Engine: Testcontainers works — Docker engine version, kept-alive copies, the image's command for an empty Cmd",
+      "title": "Engine: Testcontainers works \u2014 Docker engine version, kept-alive copies, the image's command for an empty Cmd",
       "state": "merged",
       "head": "f7fc8ab8cefb86bd8802f8142aa6c34d93a06592",
       "merge": "8318b8d7683202bd3d438b1baf788fa8526fa52b",
       "head_in_history": false,
       "merge_in_history": false,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "disposition": "upstream-release-documentation",
@@ -2325,7 +2495,8 @@
       "merge": "b249eccc2ed708ce10d7feeb82b6c0869b112443",
       "head_in_history": false,
       "merge_in_history": false,
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "disposition": "ported-with-platform-limits",
@@ -2344,7 +2515,8 @@
         "tests/appimage.py",
         "scripts/ci/appimage.sh"
       ],
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 255,
@@ -2362,6 +2534,9 @@
       ],
       "followups_in_released_main": {
         "369de8d9f18b8464bab6b9a0a8711d67f58c42fc": true
+      },
+      "followups_in_current_main": {
+        "369de8d9f18b8464bab6b9a0a8711d67f58c42fc": true
       }
     },
     {
@@ -2376,7 +2551,8 @@
       "disposition": "upstream-release-metadata",
       "reason": "Kiri's 0.2.1 release notes and version identity are specific to Kiri. Asagiri retains its own version tags, release notes, manifests and Actions qualification; no runtime fix is omitted by leaving this release-number change upstream.",
       "asagiri_followups": [],
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     },
     {
       "number": 259,
@@ -2387,13 +2563,16 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-pending-combined-qualification",
-      "reason": "The reviewed head contains Windows registry cancellation only; its former WSL build-distro work is tracked under #314 and its Connection: close hunk was removed upstream. Adapted bounded cancellable reads without shortening the overall request budget, restoring socket mode on every exit. All 79 image tests pass on macOS; the Windows Platform job now runs the image crate. The combined Windows result remains required.",
+      "disposition": "adapted-combined-qualified",
+      "reason": "The reviewed head contains Windows registry cancellation only; WSL build-distro work is tracked under #314 and the removed HTTP close hunk is already covered. Bounded cancellable reads preserve the full request budget and restore socket mode. Final PR50 Platform 43831181720 passed Windows image tests, macOS and Linux after fixture-only PEM/Darwin corrections. This is merged in current main; release membership is recorded separately.",
       "asagiri_followups": [
         "74a46d150774f06cecb2807a3491696698b6fa24"
       ],
       "followups_in_released_main": {
         "74a46d150774f06cecb2807a3491696698b6fa24": false
+      },
+      "followups_in_current_main": {
+        "74a46d150774f06cecb2807a3491696698b6fa24": true
       }
     },
     {
@@ -2412,6 +2591,9 @@
       ],
       "followups_in_released_main": {
         "a5a948a0683374deed7960209e318b7f88a58866": false
+      },
+      "followups_in_current_main": {
+        "a5a948a0683374deed7960209e318b7f88a58866": true
       }
     },
     {
@@ -2424,11 +2606,14 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "equivalent-with-activation-checks",
-      "reason": "Existing Asagiri update/install paths preserve package ownership and verify activation with bounded health probes. Linux GTK package updates remain explicit; Mac preview identity and archive checks have a separate release follow-up. Controlled native dev.98-to-dev.99 replacement preserved images/volumes, but it is not proof of the complete in-app updater or native Windows upgrade path.",
+      "reason": "Existing update/install paths preserve package ownership and verify activation with bounded health probes. Dev.100's full Mac preview metadata and both archive identities are verified. Controlled native dev.99-to-dev.100 replacement preserved the two existing images and volumes with old app, settings and stopped disk backups. The complete in-app updater and native Windows upgrade path remain unverified.",
       "asagiri_followups": [
         "ad9c31eed0344c7b53677d2018d377ed8b9719b1"
       ],
       "followups_in_released_main": {
+        "ad9c31eed0344c7b53677d2018d377ed8b9719b1": true
+      },
+      "followups_in_current_main": {
         "ad9c31eed0344c7b53677d2018d377ed8b9719b1": true
       }
     },
@@ -2441,13 +2626,16 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-pending-combined-qualification",
-      "reason": "Reject unsupported namespace/runtime/storage/volumes-from modes before volume side effects; retain valid client defaults. Warn on ten resource controls the engine actually ignores, on both create and update, while preserving implemented swap/reservation/cpuset/Buildx-parent limits. The dev.99 failure was reproduced and cleaned up. All 721 local workspace tests pass; the new required live HTTP/log/cleanup positive awaits combined CI.",
+      "disposition": "adapted-combined-qualified",
+      "reason": "Reject unsupported namespace/runtime/storage/volumes-from modes before volume side effects and retain valid defaults. Warn on ten actually ignored resource controls on create/update while preserving implemented limits. Final PR50 Linux run-options HTTP/log/cleanup regressions and all three Platform jobs passed; the changes are merged in current main. Implicit volume labels without DriverConfig remain a separate open gap.",
       "asagiri_followups": [
         "34adcde6d52ec3c34bd8f8fe0e0d3ef27348c9b2"
       ],
       "followups_in_released_main": {
         "34adcde6d52ec3c34bd8f8fe0e0d3ef27348c9b2": false
+      },
+      "followups_in_current_main": {
+        "34adcde6d52ec3c34bd8f8fe0e0d3ef27348c9b2": true
       }
     },
     {
@@ -2470,11 +2658,16 @@
         "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true,
         "6f003adfc179ed9bc7489d7c313c4080fc609578": true,
         "69fac2f16834e2df5934625165ed7a2717c91b82": false
+      },
+      "followups_in_current_main": {
+        "43d8cf4951fb81bd77546c623f455d6f5f643ba8": true,
+        "6f003adfc179ed9bc7489d7c313c4080fc609578": true,
+        "69fac2f16834e2df5934625165ed7a2717c91b82": true
       }
     },
     {
       "number": 270,
-      "title": "Windows: Settings → Import brings images, volumes and containers over from Docker Desktop",
+      "title": "Windows: Settings \u2192 Import brings images, volumes and containers over from Docker Desktop",
       "state": "merged",
       "head": "f09658aaa7723ec99f0e966203d78bb2334f11be",
       "merge": "4df9bfb2fdfbc5110a0532b5201d75c8ea727e59",
@@ -2488,6 +2681,9 @@
       ],
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true
       }
     },
     {
@@ -2506,11 +2702,14 @@
       ],
       "followups_in_released_main": {
         "ae1224b27d62508fd56a6100ac4ce04c8f44b305": false
+      },
+      "followups_in_current_main": {
+        "ae1224b27d62508fd56a6100ac4ce04c8f44b305": true
       }
     },
     {
       "number": 272,
-      "title": "UI: Persian — more natural wording, one term per concept, correct half-spaces",
+      "title": "UI: Persian \u2014 more natural wording, one term per concept, correct half-spaces",
       "state": "open",
       "head": "5f4b8daae9bfedf3b9845e8fa00cbea5cdffff5b",
       "merge": null,
@@ -2524,6 +2723,9 @@
       ],
       "followups_in_released_main": {
         "bdc4fd000cb0dfbd3f268db05df973d084075c9d": false
+      },
+      "followups_in_current_main": {
+        "bdc4fd000cb0dfbd3f268db05df973d084075c9d": true
       }
     },
     {
@@ -2542,6 +2744,9 @@
       ],
       "followups_in_released_main": {
         "c5fa7ca0b30a7f0fd92b8dd3ab8d1f44534fcfa9": true
+      },
+      "followups_in_current_main": {
+        "c5fa7ca0b30a7f0fd92b8dd3ab8d1f44534fcfa9": true
       }
     },
     {
@@ -2554,12 +2759,15 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "adapted-pending-native-macos-check",
-      "reason": "The reviewed filewatch branch includes the final #320 delta and preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Topic Platform and independent two-architecture fsnotify/kernel checks pass. The combined source still needs CI and a packaged native Mac save-to-inotify/hot-reload check.",
+      "reason": "The filewatch implementation preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Final PR50 Platform 43831181720 and independently checked ARM64/x86_64 QEMU fsnotify/loop run 43831181733 passed. A packaged native Mac save-to-inotify/hot-reload check remains required after release.",
       "asagiri_followups": [
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd"
       ],
       "followups_in_released_main": {
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": false
+      },
+      "followups_in_current_main": {
+        "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": true
       }
     },
     {
@@ -2577,6 +2785,9 @@
         "7b46d079c1e22124a707fed17c024e2e0ca71ba9"
       ],
       "followups_in_released_main": {
+        "7b46d079c1e22124a707fed17c024e2e0ca71ba9": true
+      },
+      "followups_in_current_main": {
         "7b46d079c1e22124a707fed17c024e2e0ca71ba9": true
       }
     },
@@ -2596,6 +2807,9 @@
       ],
       "followups_in_released_main": {
         "4379ab3e9f1797896566e89d4b861e6ad2ee687e": false
+      },
+      "followups_in_current_main": {
+        "4379ab3e9f1797896566e89d4b861e6ad2ee687e": true
       }
     },
     {
@@ -2614,6 +2828,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2632,6 +2849,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2650,6 +2870,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2668,6 +2891,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2686,11 +2912,14 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
       "number": 291,
-      "title": "UI: apply theme attribute on root element so theme switching works on…",
+      "title": "UI: apply theme attribute on root element so theme switching works on\u2026",
       "state": "open",
       "head": "fc7d383140bad8107079fec56e50c77cdcff931d",
       "merge": null,
@@ -2704,6 +2933,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2722,6 +2954,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -2740,6 +2975,9 @@
       ],
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true
       }
     },
     {
@@ -2758,6 +2996,9 @@
       ],
       "followups_in_released_main": {
         "1bccd29f7184c7e0a78a0a70a83f250513f38452": false
+      },
+      "followups_in_current_main": {
+        "1bccd29f7184c7e0a78a0a70a83f250513f38452": true
       }
     },
     {
@@ -2778,6 +3019,10 @@
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false,
         "69fac2f16834e2df5934625165ed7a2717c91b82": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true,
+        "69fac2f16834e2df5934625165ed7a2717c91b82": true
       }
     },
     {
@@ -2796,6 +3041,9 @@
       ],
       "followups_in_released_main": {
         "1bccd29f7184c7e0a78a0a70a83f250513f38452": false
+      },
+      "followups_in_current_main": {
+        "1bccd29f7184c7e0a78a0a70a83f250513f38452": true
       }
     },
     {
@@ -2814,6 +3062,9 @@
       ],
       "followups_in_released_main": {
         "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": false
+      },
+      "followups_in_current_main": {
+        "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": true
       }
     },
     {
@@ -2826,12 +3077,15 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "adapted-pending-native-macos-check",
-      "reason": "The reviewed filewatch branch includes the final #320 delta and preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Topic Platform and independent two-architecture fsnotify/kernel checks pass. The combined source still needs CI and a packaged native Mac save-to-inotify/hot-reload check.",
+      "reason": "The filewatch implementation preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Final PR50 Platform 43831181720 and independently checked ARM64/x86_64 QEMU fsnotify/loop run 43831181733 passed. A packaged native Mac save-to-inotify/hot-reload check remains required after release.",
       "asagiri_followups": [
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd"
       ],
       "followups_in_released_main": {
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": false
+      },
+      "followups_in_current_main": {
+        "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": true
       }
     },
     {
@@ -2850,6 +3104,9 @@
       ],
       "followups_in_released_main": {
         "4379ab3e9f1797896566e89d4b861e6ad2ee687e": false
+      },
+      "followups_in_current_main": {
+        "4379ab3e9f1797896566e89d4b861e6ad2ee687e": true
       }
     },
     {
@@ -2868,6 +3125,9 @@
       ],
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true
       }
     },
     {
@@ -2888,6 +3148,10 @@
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false,
         "69fac2f16834e2df5934625165ed7a2717c91b82": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true,
+        "69fac2f16834e2df5934625165ed7a2717c91b82": true
       }
     },
     {
@@ -2906,6 +3170,9 @@
       ],
       "followups_in_released_main": {
         "1bccd29f7184c7e0a78a0a70a83f250513f38452": false
+      },
+      "followups_in_current_main": {
+        "1bccd29f7184c7e0a78a0a70a83f250513f38452": true
       }
     },
     {
@@ -2924,6 +3191,9 @@
       ],
       "followups_in_released_main": {
         "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": false
+      },
+      "followups_in_current_main": {
+        "43fb07b3bf4ae468511e8ccbd4d84ff6b1da2766": true
       }
     },
     {
@@ -2942,6 +3212,9 @@
       ],
       "followups_in_released_main": {
         "1bccd29f7184c7e0a78a0a70a83f250513f38452": false
+      },
+      "followups_in_current_main": {
+        "1bccd29f7184c7e0a78a0a70a83f250513f38452": true
       }
     },
     {
@@ -2953,13 +3226,16 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-pending-combined-qualification",
-      "reason": "Optional console capture/path failures warn and allow boot, setup --use identifies operations, and removal asks an already awake VM to clean copied created/crash-stopped layers. Cleanup failure retains retryable state and a lost link does not boot the VM. Import parsing is covered by #314's integration. The extended real crash/recovery positive requires combined CI.",
+      "disposition": "adapted-combined-qualified",
+      "reason": "Optional console capture/path failures warn and allow boot, setup --use identifies operations, and removal asks an already awake VM to clean copied created/crash-stopped layers. Cleanup failure retains retryable state; a lost link does not boot the VM. Final PR50 Linux CI passed the extended three-crash recovery fixture. Import parsing is retained; live volume-import safety has a separate followup for issue #345.",
       "asagiri_followups": [
         "69fac2f16834e2df5934625165ed7a2717c91b82"
       ],
       "followups_in_released_main": {
         "69fac2f16834e2df5934625165ed7a2717c91b82": false
+      },
+      "followups_in_current_main": {
+        "69fac2f16834e2df5934625165ed7a2717c91b82": true
       }
     },
     {
@@ -2978,6 +3254,9 @@
       ],
       "followups_in_released_main": {
         "7e77ac56c8521fd108fae0877d216f498f3c2ec9": false
+      },
+      "followups_in_current_main": {
+        "7e77ac56c8521fd108fae0877d216f498f3c2ec9": true
       }
     },
     {
@@ -2996,6 +3275,9 @@
       ],
       "followups_in_released_main": {
         "4379ab3e9f1797896566e89d4b861e6ad2ee687e": false
+      },
+      "followups_in_current_main": {
+        "4379ab3e9f1797896566e89d4b861e6ad2ee687e": true
       }
     },
     {
@@ -3008,12 +3290,15 @@
       "merge_in_history": false,
       "ports": [],
       "disposition": "adapted-pending-native-macos-check",
-      "reason": "The reviewed filewatch branch includes the final #320 delta and preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Topic Platform and independent two-architecture fsnotify/kernel checks pass. The combined source still needs CI and a packaged native Mac save-to-inotify/hot-reload check.",
+      "reason": "The filewatch implementation preserves kernel FSNOTIFY, a bounded event queue, directory-only watches and scoped host-path translation. Final PR50 Platform 43831181720 and independently checked ARM64/x86_64 QEMU fsnotify/loop run 43831181733 passed. A packaged native Mac save-to-inotify/hot-reload check remains required after release.",
       "asagiri_followups": [
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd"
       ],
       "followups_in_released_main": {
         "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": false
+      },
+      "followups_in_current_main": {
+        "a0f5a91b7a0d872cc0d0b25e89ca5f050f8d8dfd": true
       }
     },
     {
@@ -3025,13 +3310,16 @@
       "head_in_history": false,
       "merge_in_history": false,
       "ports": [],
-      "disposition": "adapted-and-improved",
-      "reason": "One owned overlay root is shared through counted leases; worker reap and namespace release bound ACK/EOF and removal. Follow-ups fix fresh/empty /changes JSON and strengthen the explicit removal-delay fixture. Eight real process cases, three actual API cases and the controlled 15-second removal fault passed exact-topic Linux CI. Combined qualification remains required.",
+      "disposition": "adapted-and-combined-qualified",
+      "reason": "Counted leases share each owned overlay root; worker reap and namespace release bound ACK/EOF and removal. Final PR50 passed eight actual process cases, three API cases and controlled removal-delay qualification while unrelated work stayed responsive. Native Windows behavior remains separate; release membership is explicit.",
       "asagiri_followups": [
         "1bccd29f7184c7e0a78a0a70a83f250513f38452"
       ],
       "followups_in_released_main": {
         "1bccd29f7184c7e0a78a0a70a83f250513f38452": false
+      },
+      "followups_in_current_main": {
+        "1bccd29f7184c7e0a78a0a70a83f250513f38452": true
       }
     },
     {
@@ -3050,6 +3338,9 @@
       ],
       "followups_in_released_main": {
         "6bb01d30e9fd933ccafe77002ede204cc73ced03": false
+      },
+      "followups_in_current_main": {
+        "6bb01d30e9fd933ccafe77002ede204cc73ced03": true
       }
     },
     {
@@ -3070,6 +3361,10 @@
       "followups_in_released_main": {
         "34aead337952257fe66cd191a18b447c35ecac8d": true,
         "749c40cb92d2fba877365a37fe1fadbc7462c3cb": true
+      },
+      "followups_in_current_main": {
+        "34aead337952257fe66cd191a18b447c35ecac8d": true,
+        "749c40cb92d2fba877365a37fe1fadbc7462c3cb": true
       }
     },
     {
@@ -3088,6 +3383,9 @@
       ],
       "followups_in_released_main": {
         "809f492ba1040807ca4a08e1188822f73e1e1e23": false
+      },
+      "followups_in_current_main": {
+        "809f492ba1040807ca4a08e1188822f73e1e1e23": true
       }
     },
     {
@@ -3106,6 +3404,9 @@
       ],
       "followups_in_released_main": {
         "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": false
+      },
+      "followups_in_current_main": {
+        "5a9559bf11b9b2f85f8be8014b423ae5845b53bd": true
       }
     },
     {
@@ -3124,6 +3425,9 @@
       ],
       "followups_in_released_main": {
         "5519bd3c1a1d5057a40b3a6f5b833d825257a18e": true
+      },
+      "followups_in_current_main": {
+        "5519bd3c1a1d5057a40b3a6f5b833d825257a18e": true
       }
     },
     {
@@ -3138,17 +3442,221 @@
       "disposition": "deferred-feature",
       "reason": "Reviewed the flake/module proposal, which disables doCheck and has no successful full package build or booted service evidence. It is not ported as a supported Nix distribution. A dedicated pinned Nix build, enabled applicable tests and isolated service/permissions fixture remain required.",
       "asagiri_followups": [],
-      "followups_in_released_main": {}
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
+    },
+    {
+      "number": 341,
+      "title": "Engine: signals only reach running processes, and a failed start leaves no DNS name",
+      "state": "open",
+      "head": "6864aafba7c399dba65873dd06c47d4492c0d836",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "disposition": "partial-equivalence-with-open-process-gaps",
+      "reason": "Asagiri already uses stable process IDs, excludes exited entries from kill/shutdown/exec, and rolls back owned failed-start DNS state with live regressions. Replacing those paths wholesale would lose stronger behavior. Resize still needs an exited-entry guard; raw-PID cgroup.procs signaling on kernels without cgroup.kill needs identity-safe handling and targeted tests. The full public process-lifetime request is not marked fixed.",
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
+    },
+    {
+      "number": 343,
+      "title": "Containers: exec straight after start finds the image's users (#311)",
+      "state": "open",
+      "head": "82a0a76b52b8575824be59f4d880976ec52de38a",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "asagiri_followups": [
+        "712d092ed3dfcccf03d4d303adfeef20df104544"
+      ],
+      "disposition": "independent-equivalent-qualified",
+      "reason": "The existing child readiness barrier waits through image-root setup. The stronger three-round 128 MiB volume/six immediate explicit and inherited image-user exec fixture passed native dev.99 and both Docker and private Asagiri in final PR50 Platform 43831181720, including the missing-user control and eight owned-resource removals per engine. The reporter's Ubuntu ARM host remains unverified.",
+      "followups_in_released_main": {
+        "712d092ed3dfcccf03d4d303adfeef20df104544": false
+      },
+      "followups_in_current_main": {
+        "712d092ed3dfcccf03d4d303adfeef20df104544": true
+      }
+    },
+    {
+      "number": 351,
+      "title": "Networks: the address pool skips only on-link routes, as Docker does (#228)",
+      "state": "open",
+      "head": "4b4df15aad6880965f93a8a2bf8fe21b92678b8c",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        {
+          "upstream": "4b4df15aad6880965f93a8a2bf8fe21b92678b8c",
+          "asagiri": "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299"
+        }
+      ],
+      "asagiri_followups": [
+        "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299"
+      ],
+      "disposition": "adapted-pending-final-followup-qualification",
+      "reason": "Skip gateway, blackhole/no-interface and zero-destination routes when selecting automatic IPv4 subnets, preserving Asagiri's custom address pools and on-link exclusions. Twenty network tests pass and the old route behavior fails the regression. Actual VPN hosts and IPv6 routing are outside this fixture; the new followup batch still requires final CI and release.",
+      "followups_in_released_main": {
+        "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299": false
+      },
+      "followups_in_current_main": {
+        "67fb0297bd5cd5ae9de56e617b0cded8c4ff3299": false
+      }
+    },
+    {
+      "number": 352,
+      "title": "Mac: \u2318C, \u2318V, \u2318X, \u2318A and \u2318Z work in the window's text fields (#340)",
+      "state": "open",
+      "head": "d629da8bc64a85833feae3ae7e2c4e0d3f759fe7",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        {
+          "upstream": "d629da8bc64a85833feae3ae7e2c4e0d3f759fe7",
+          "asagiri": "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0"
+        }
+      ],
+      "asagiri_followups": [
+        "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0"
+      ],
+      "disposition": "adapted-with-native-appkit-gap",
+      "reason": "The existing translated native Edit menu supplies Mac shortcuts. Adapted the remaining page copy handler so Mac selection copy reaches AppKit once while Windows/Linux keep their Ctrl-C handler. The old duplicate-copy behavior fails the regression; nine three-platform headless cases and page assembly pass. Actual packaged AppKit interaction remains unverified.",
+      "followups_in_released_main": {
+        "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0": false
+      },
+      "followups_in_current_main": {
+        "ec7bf4a3fd6c1e0b380f49e3bcb6e0d41846d3a0": false
+      }
+    },
+    {
+      "number": 353,
+      "title": "Engine: close the connection when the client sends `Connection: close`",
+      "state": "closed",
+      "head": "1799ac88493340e7acfdfce564ccbb2e86e1d02b",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "asagiri_followups": [
+        "48f97e4dccd8149073085ba53b7219ac6ff0715e"
+      ],
+      "disposition": "equivalent-to-existing-attributed-port",
+      "reason": "This head's HTTP close patch is byte-identical to the reviewed #198 update. The existing #198 port already closes tokenized/repeated Connection headers and tests bodyless responses and empty Cmd defaults. This equivalent proposal is recorded without changing earlier authorship.",
+      "followups_in_released_main": {
+        "48f97e4dccd8149073085ba53b7219ac6ff0715e": true
+      },
+      "followups_in_current_main": {
+        "48f97e4dccd8149073085ba53b7219ac6ff0715e": true
+      }
+    },
+    {
+      "number": 357,
+      "title": "Security: seccomp profiles are applied, and the default filter matches Docker's",
+      "state": "open",
+      "head": "3aef1a74ff71d387ba2de3e9fb1b7d6efe80ddad",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        {
+          "upstream": "3aef1a74ff71d387ba2de3e9fb1b7d6efe80ddad",
+          "asagiri": "15f209e21f6183446e770d6da6b99909bcae1c9c"
+        }
+      ],
+      "asagiri_followups": [
+        "15f209e21f6183446e770d6da6b99909bcae1c9c"
+      ],
+      "disposition": "partial-port-full-compiler-review-open",
+      "reason": "Adapted the public default-filter personality restrictions and privileged syscall gates while preserving Asagiri's existing custom-profile compiler, late no-new-privileges handling and always-on host boundary. An owned native process reproduced the old ASLR-disable allowance; the production filter then rejected it, allowed the query and passed six ARM BPF tests. ARM/x86 executables compile. This is a compact denylist, not Docker's complete default allowlist. The public daemon compiler, rule-tree/profile semantics and protocol changes still need full review; there is no seccomp formal-proof claim.",
+      "followups_in_released_main": {
+        "15f209e21f6183446e770d6da6b99909bcae1c9c": false
+      },
+      "followups_in_current_main": {
+        "15f209e21f6183446e770d6da6b99909bcae1c9c": false
+      }
+    },
+    {
+      "number": 360,
+      "title": "A user's own group is one of its supplementary groups, as with Docker",
+      "state": "open",
+      "head": "996fbc5cd4ae9fccc868770c168ee336b104f2ac",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        {
+          "upstream": "996fbc5cd4ae9fccc868770c168ee336b104f2ac",
+          "asagiri": "2ca36e7920f57c3ab951ff7143d59312b55a7796"
+        }
+      ],
+      "asagiri_followups": [
+        "2ca36e7920f57c3ab951ff7143d59312b55a7796"
+      ],
+      "disposition": "adapted-pending-final-followup-qualification",
+      "reason": "Seed supplementary groups with the resolved primary GID for run and exec, then sort and deduplicate image memberships and group-add values. Preserve Asagiri's Docker-compatible unknown numeric UID default GID 0. The native old-engine failure was reproduced and cleaned up; two actual compiled helper tests pass. The required full-engine user-form matrix is wired into CI and still needs the final followup result.",
+      "followups_in_released_main": {
+        "2ca36e7920f57c3ab951ff7143d59312b55a7796": false
+      },
+      "followups_in_current_main": {
+        "2ca36e7920f57c3ab951ff7143d59312b55a7796": false
+      }
+    },
+    {
+      "number": 361,
+      "title": "features: healthchecks, Compose build and conditions, bind volumes; two build known issues",
+      "state": "open",
+      "head": "184c594bde99bd30e6653f268982427cc05313bb",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [
+        {
+          "upstream": "184c594bde99bd30e6653f268982427cc05313bb",
+          "asagiri": "d14d5a18a0511fd74a9f83ababfb87051103ffb3"
+        }
+      ],
+      "asagiri_followups": [
+        "d14d5a18a0511fd74a9f83ababfb87051103ffb3"
+      ],
+      "disposition": "adapted-documentation-with-explicit-qualification",
+      "reason": "Documented healthchecks, Compose build/wait/dependency conditions and local bind volumes, retaining the stronger built-in BuildKit documentation. Verified pinned Buildx driver capabilities, the archive loader and mirror implementation: image loading is single-platform, OCI export needs docker-container, and an OCI-only archive without manifest.json cannot load. Seven native health cases and actual Compose 5.7.1 configuration parsing pass; full paired Compose runtime and reporter-specific registry behavior remain separate qualification.",
+      "followups_in_released_main": {
+        "d14d5a18a0511fd74a9f83ababfb87051103ffb3": false
+      },
+      "followups_in_current_main": {
+        "d14d5a18a0511fd74a9f83ababfb87051103ffb3": false
+      }
+    },
+    {
+      "number": 363,
+      "title": "Engine: an --init container's PID 1 keeps none of the agent's descriptors (#248)",
+      "state": "open",
+      "head": "1ad66cc41c2f463f6e569e8a29216387db342388",
+      "merge": null,
+      "head_in_history": false,
+      "merge_in_history": false,
+      "ports": [],
+      "disposition": "independent-stronger-equivalent",
+      "reason": "Asagiri already closes inherited init descriptors before limits and seccomp, checks close_range errors and has a bounded ENOSYS fallback. Required actual init-descriptor, stdin/EOF, signal and DNS-reuse regressions cover these paths. The public unchecked close_range after setup would weaken the existing implementation and is not substituted.",
+      "followups_in_released_main": {},
+      "followups_in_current_main": {}
     }
   ],
   "followup_review": {
-    "previous_reviewed_at": "2026-11-15T03:57:02.734689+00:00",
-    "new_public_prs": 44,
+    "previous_reviewed_at": "2026-11-16T07:45:40.214923+00:00",
+    "new_public_prs": 9,
     "changed_existing_heads": [
-      193,
-      195,
-      241
+      198
     ],
-    "private_refs_reviewed": false
-  }
+    "private_refs_reviewed": false,
+    "full_compiler_review_open": [
+      357
+    ]
+  },
+  "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b",
+  "followup_updated_at": "2026-11-16T09:12:21.284179+00:00"
 }

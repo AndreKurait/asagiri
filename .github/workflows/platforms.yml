@@ -65,6 +65,7 @@ jobs:
       - name: Test and build
         run: |
           python3 tests/ci-runtime-probes.py
+          python3 tests/ci-hyperfine.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
       - name: Verify WSL daemon startup and bridge recovery
@@ -120,6 +121,22 @@ jobs:
         # in tests/ against it: containers, archives, attach, networks,
         # limits and seccomp, on busybox and alpine.
         run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Preserve Docker-to-Asagiri import evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: engine-import-${{ runner.arch }}
+          path: ${{ runner.temp }}/bin-engine-import
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Preserve health and Compose reference evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: health-compose-${{ runner.arch }}
+          path: ${{ runner.temp }}/bin-health-compose/*.json
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Restart the daemon with orphaned container mounts
         run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Verify registry TLS trust and actual BuildKit admission

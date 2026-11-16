@@ -1,0 +1,95 @@
+{
+  "schema": "asagiri.public-followup-local.v1",
+  "recorded_at": "2026-11-16T09:12:21.280642+00:00",
+  "candidate": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "qualification": "Local checks and a native negative control; combined hosted CI remains pending.",
+  "top_348": {
+    "fix_commit": "38393ab76ed4317b480a4619873602265dbd9c02",
+    "native_negative_control": {
+      "status": "passed",
+      "kind": "negative baseline reproduced",
+      "verified_at": "2026-11-16T09:03:38.940009+00:00",
+      "runtime_version": "0.1.6-dev.100",
+      "fixture_sha256": "37afc79c6e3ade83a8a6533ecbe30e406e652016d4cb47dde9ef648c953de47e",
+      "default_missing_stopped_controls_passed": true,
+      "unsupported_queries_silently_accepted": 4,
+      "owned_container_removed": true,
+      "original_inventory_preserved": true,
+      "images_preserved": 2,
+      "volumes_preserved": 2,
+      "scope": "Installed dev.100 negative control; corrected engine runtime remains pending."
+    }
+  },
+  "hyperfine_362": {
+    "fix_commit": "837d994bca94a4f18a4637e77cd05bb54f64d045",
+    "baseline": {
+      "status": "passed",
+      "kind": "actual Hyperfine 2.0 JSON reproduces legacy report failure",
+      "at": "2026-11-16T09:05:40.566963+00:00",
+      "asset": "hyperfine-v2.0.0-aarch64-apple-darwin.tar.gz",
+      "asset_sha256": "590b839cfea386b384ce0b42d16daf2910277cf30950656194bb3a5f20dea81e",
+      "binary_sha256": "dc9f035feaa4f5e25985c0d36a9c1b60985ebd159652908f0ba65a31645ac8dc",
+      "actual_json_sha256": "12d2b3d025da3d01d7cb1e7aa9eaa56ff4e1a395b7d3092399d9e8001069a33c",
+      "schema_version": 2,
+      "measurements": 3,
+      "time_unit": "second",
+      "blank_timing_fields": 8,
+      "scope": "Parser fixture for /bin/sleep; no container-engine benchmark was executed."
+    },
+    "parser_report_tests_passed": 7,
+    "primary_sources": {
+      "ref": "v2.0.0",
+      "tree": "b33755fe1fca8bcc1f182c773ca3ab040bfe517d",
+      "sources": [
+        {
+          "path": "src/export/json.rs",
+          "blob": "52cd5636952a172ab9e51fbbd3a793483da28805",
+          "sha256": "e6b30d8c5f0083d386b953a7a7e2ceef0b755e58f2820bc279b6426afcbc2469"
+        },
+        {
+          "path": "src/quantity/statistics.rs",
+          "blob": "6bef3a0cc6dc60e3a8eff06a70173c287c5a680f",
+          "sha256": "dc825db028039aa64583ef934b6c39694279fa8c2d8ab1175d0e573b75608e1b"
+        },
+        {
+          "path": "tests/snapshots/integration_tests__json_export_basic.snap",
+          "blob": "aeb249d8c46f0d1442ed0a4aeb5e2350809ade74",
+          "sha256": "28367485d200aa55a7fe4032440142290e45cde76a91ef2ed210f5c9bcde2792"
+        }
+      ]
+    },
+    "fixture": "tests/fixtures/hyperfine/provenance.json"
+  },
+  "import_345": {
+    "fixture_commit": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+    "local_source_sha256": {
+      "scripts/ci/build-linux.sh": "b7825f5f92701fd06e3602067e939ebf5653d63f5afdd0b1306ddff125b7dd1e",
+      "scripts/ci/live-tests.sh": "644b660781b66cca4f219c37ed21bf67ffa8828fd46d97df79861202e242c7cd",
+      "scripts/ci/engine-import.py": "4ff91635990f54435e352669d3e7d8820c0e8f51eb40e793494faeaba2309126",
+      "crates/asagiri/examples/import-fixture.rs": "a163f958010837fdae4eaae7672001093f4cbed5bd32960daad1f862e7919463",
+      "crates/asagiri/src/client.rs": "9505a78064062fc75cab04452b056850e139ff6fb5650da717e83a099e7f133a"
+    },
+    "linux_compilation": [
+      {
+        "architecture": "x86_64",
+        "binary_sha256": "499b9b55bbe47201839b12315864a3adfb138cc6512eceea4012362208414832"
+      },
+      {
+        "architecture": "aarch64",
+        "binary_sha256": "f3fd1f48707a640dcc757dcad80fac153f5d833cffb1c34478d4277b76178ca1"
+      }
+    ],
+    "mac_all_targets_check": "passed",
+    "previous_hosted_run": {
+      "run": 43834922117,
+      "source": "e406935d3f13e51f1cb1843c6e1a2add5af876fa",
+      "status": "failed",
+      "completed_import_cases": 0,
+      "owned_hosts_and_stores_removed": true,
+      "artifact": 14211625780,
+      "artifact_sha256": "7351f6f2fd8885206cd33c53f4711e701d9c705c3ab2b2ccda2201802dad8ffb"
+    },
+    "scope": "The source/hash-bound entrypoint uses production import/client code. Desktop dispatch, diagnostics and full real-engine imports are not established by local compilation."
+  },
+  "formal_scope": "Existing production-bound IPAM Verus checks and six rejected mutants; no whole-program verification claim."
+}

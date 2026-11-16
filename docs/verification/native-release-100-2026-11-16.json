@@ -1,0 +1,119 @@
+{
+  "schema": "asagiri.native-release-qualification.v1",
+  "version": "v0.1.6-dev.100",
+  "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+  "release_verification": {
+    "verified_at": "2026-11-16T08:44:11.583207+00:00",
+    "tag": "v0.1.6-dev.100",
+    "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+    "workflow_source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+    "release": "https://github.com/AndreKurait/asagiri/releases/tag/v0.1.6-dev.100",
+    "workflow": "https://github.com/AndreKurait/asagiri/actions/runs/43827713077",
+    "workflow_attempt": 1,
+    "workflow_invocation": "https://github.com/AndreKurait/asagiri/actions/runs/43827713077/attempts/1",
+    "assets_downloaded_and_verified": 29,
+    "attested_subjects_verified": 28,
+    "source_declared_primary_assets": [
+      "Asagiri-0.1.6-dev.100-aarch64.AppImage",
+      "Asagiri-0.1.6-dev.100-arm64.dmg",
+      "Asagiri-0.1.6-dev.100-arm64.msi",
+      "Asagiri-0.1.6-dev.100-arm64.tar.gz",
+      "Asagiri-0.1.6-dev.100-windows-arm64.zip",
+      "Asagiri-0.1.6-dev.100-windows-x86_64.zip",
+      "Asagiri-0.1.6-dev.100-x86_64.AppImage",
+      "Asagiri-0.1.6-dev.100-x86_64.dmg",
+      "Asagiri-0.1.6-dev.100-x86_64.msi",
+      "Asagiri-0.1.6-dev.100-x86_64.tar.gz",
+      "asagiri-0.1.6-dev.100-linux-aarch64.tar.gz",
+      "asagiri-0.1.6-dev.100-linux-x86_64.tar.gz",
+      "asagiri-0.1.6.dev.100-1.aarch64.rpm",
+      "asagiri-0.1.6.dev.100-1.x86_64.rpm",
+      "asagiri-kernel-source.tar.xz",
+      "asagiri-lite-0.1.6.dev.100-1.aarch64.rpm",
+      "asagiri-lite-0.1.6.dev.100-1.x86_64.rpm",
+      "asagiri-lite_0.1.6.dev.100_amd64.deb",
+      "asagiri-lite_0.1.6.dev.100_arm64.deb",
+      "asagiri-qemu-source.tar.xz",
+      "asagiri_0.1.6.dev.100_amd64.deb",
+      "asagiri_0.1.6.dev.100_arm64.deb",
+      "latest-mac-arm64.json",
+      "latest-mac-x86_64.json",
+      "latest-windows-arm64.json",
+      "latest-windows-x86_64.json"
+    ],
+    "prerelease": true
+  },
+  "mac_archive_verification": {
+    "status": "passed",
+    "at": "2026-11-16T08:44:13.962668+00:00",
+    "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+    "version": "0.1.6-dev.100",
+    "archives": [
+      {
+        "archive": "Asagiri-0.1.6-dev.100-arm64.tar.gz",
+        "sha256": "1cb69c5f8f838527d287ca5182ae5583d4422b76d7a5fdc90b13184f2beadfd2",
+        "members": 21,
+        "identity_files": {
+          "Asagiri.app/Contents/Info.plist": "b9a79922eb7db0da821109ce58f6c4a124f7c30cc626c40b0bca067b522bb612",
+          "Asagiri.app/Contents/MacOS/asagiri": "2b0b4fa2b7ee82a696e56d326faab58fea1119bab9b7db1b6fe2c7b32ec3c905"
+        },
+        "archive_path_check": "passed",
+        "architecture": "arm64",
+        "metadata_version": "0.1.6-dev.100"
+      },
+      {
+        "archive": "Asagiri-0.1.6-dev.100-x86_64.tar.gz",
+        "sha256": "ecf499c38705047842d72d72754a8d41edf8d049453949b125b662a93e045f10",
+        "members": 58,
+        "identity_files": {
+          "Asagiri.app/Contents/Info.plist": "b9a79922eb7db0da821109ce58f6c4a124f7c30cc626c40b0bca067b522bb612",
+          "Asagiri.app/Contents/MacOS/asagiri": "ea2238ccbf4310f5cb2edde385f6c74ea59790632746dd4d85276e9eea78c90e"
+        },
+        "archive_path_check": "passed",
+        "architecture": "x86_64",
+        "metadata_version": "0.1.6-dev.100"
+      }
+    ],
+    "validator_sha256": "3661dbf3519170da6e0b1f7e65d20412090b5754deca4090396ca26363812e1d",
+    "scope": "Both signed Mac archives pass published production path checks, full preview metadata and Mach-O architecture checks; native execution is separate."
+  },
+  "pages_verification": {
+    "status": "passed",
+    "verified_at": "2026-11-16T08:47:21.144704+00:00",
+    "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+    "site_run": 43833571952,
+    "site_attempt": 1,
+    "preview": "v0.1.6-dev.100",
+    "stable": "v0.1.5",
+    "latest_alias": "stable",
+    "mac_preview_downloads_match_verified_release": true,
+    "preview_rpm_original_digests_match_verified_release": true,
+    "published_source_page_verifier_sha256": "a50526d5ff4590a0b07f8051e1f9f58b08a448a685cdb6f914295722bcbaaf09",
+    "release_verification_sha256": "eb369e17847b3e7d2fd00c7e0d675ecde2962debd23e610baad8e7ba804278fb",
+    "inputs": {
+      "deployment.json": "53bb7d5dc75f3261ae70ae530cf47408b89dfa502d1262131ae1d597ae48ef72",
+      "live-verifier.log": "3b43800c1ed877907e4bcf764afedf08b4705dec78dc90c7011051945930c8b3",
+      "downloads_preview_macos-x86_64.txt": "74499b805febf3394e194e203de36b3e7e8bae9d2d25138e69d3cac674490cb9",
+      "rpm_preview_x86_64_provenance.json": "2036a7dbd7f7bd5dcd2bdb8bcfc9be83b66ad464f86d68f60c15967e8fb5ad3c",
+      "downloads_preview_macos-arm64.txt": "933620056e017b43aafca0637d4a401dfe3866aaa3b262c6b2e99cb9bccfaae0",
+      "website-run.json": "e573b07f69f4c7911ec969d113382ed6ec4977c0bfa713d9a901aefac634c65d",
+      "releases.json": "de3f857054e12931524b5d0f14768cb46d384631eae5c6a6f76262d4bf6c4ee6",
+      "rpm_preview_aarch64_provenance.json": "c2b41a27f970fe85a376cede69a1fa879e66fa3babf50bd1ad3d242cba1501d4"
+    },
+    "scope": "Live pages, referenced assets, channel metadata and release digests; no new package installation."
+  },
+  "installation": {
+    "status": "passed",
+    "version": "0.1.6-dev.100",
+    "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+    "old_executable_sha256": "e153da0baba80393c76365e3143a759d6fc7b8ab4cd4d3320858044e4a7a37ee",
+    "new_executable_sha256": "2b0b4fa2b7ee82a696e56d326faab58fea1119bab9b7db1b6fe2c7b32ec3c905",
+    "native_engine_version": "0.1.6-dev.100",
+    "containers": 0,
+    "preserved_images": 2,
+    "preserved_volumes": 2,
+    "finished_at": "2026-11-16T08:44:38.963481+00:00"
+  },
+  "backup_scope": "Old app, settings and a stopped 64 GiB APFS VM-disk clone retained locally.",
+  "scope": "Verified manual Mac replacement and API inventory, not complete in-app updater, native Windows upgrade, arbitrary volume-byte hashes or GUI interaction. Private paths and existing image/volume names are omitted."
+}
