@@ -58,7 +58,7 @@ const ARCHES: &[(&str, bool)] = &[
     ("PPC64LE", false), ("RISCV64", false), ("S390", true), ("S390X", true),
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Op {
     Ne,
     Lt,
@@ -71,7 +71,7 @@ enum Op {
 
 /// A condition on one syscall argument. For `MaskedEq`, `value` is the mask
 /// and `two` what the masked argument has to equal.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Cond {
     index: u32,
     op: Op,
@@ -240,17 +240,15 @@ fn selected(rule: &Value, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<b
     Ok(keep)
 }
 
-/// One syscall rule's argument conditions.
-fn conditions(rule: &Value) -> io::Result<Vec<Cond>> {
+/// Parse every argument field and operator, including those of ignored rules.
+/// runc checks positions only when adding a rule for a known, active syscall.
+fn conditions(rule: &Value, active: bool) -> io::Result<Vec<Cond>> {
     let mut conds = Vec::new();
     for a in array(field(rule, "args")?, "args")? {
         if !a.is_object() {
             return Err(bad("a syscall argument must be an object"));
         }
         let index = number(field(a, "index")?, "index")?.unwrap_or(0);
-        if index > 5 {
-            return Err(bad(format!("syscalls only have up to 6 arguments ({index} given)")));
-        }
         let op = match string(field(a, "op")?, "op")? {
             "SCMP_CMP_NE" => Op::Ne,
             "SCMP_CMP_LT" => Op::Lt,
@@ -263,9 +261,14 @@ fn conditions(rule: &Value) -> io::Result<Vec<Cond>> {
         };
         let value = number(field(a, "value")?, "value")?.unwrap_or(0);
         let two = number(field(a, "valueTwo")?, "valueTwo")?.unwrap_or(0);
-        // Only the masked comparison has a second value, and under Docker
-        // the mask applies to it as well.
-        conds.push(Cond { index: index as u32, op, value, two: if op == Op::MaskedEq { two & value } else { 0 } });
+        if active {
+            if index > 5 {
+                return Err(bad(format!("syscalls only have up to 6 arguments ({index} given)")));
+            }
+            // Only the masked comparison has a second value, and under Docker
+            // the mask applies to it as well.
+            conds.push(Cond { index: index as u32, op, value, two: if op == Op::MaskedEq { two & value } else { 0 } });
+        }
     }
     Ok(conds)
 }
@@ -378,6 +381,49 @@ fn checks(rule: &Rule) -> Vec<libc::sock_filter> {
     out
 }
 
+/// Equalities on one argument are disjoint. Adjacent values with the same
+/// action can share an inclusive range; gaps and action changes stay separate.
+/// The usual condition emitter then tests the range as an AND of its bounds.
+fn compact_equalities(rules: &[Rule]) -> Option<Vec<Rule>> {
+    if rules.len() < 3 {
+        return None;
+    }
+    let [first] = rules.first()?.conds.as_slice() else { return None };
+    if first.op != Op::Eq || rules.iter().any(|rule| {
+        !matches!(rule.conds.as_slice(), [condition] if condition.op == Op::Eq && condition.index == first.index)
+    }) {
+        return None;
+    }
+    let mut values = BTreeMap::new();
+    for rule in rules {
+        // The parser already refuses conflicting equivalent conditions.
+        // Keep first-match behavior for raw rules made directly by tests too.
+        values.entry(rule.conds[0].value).or_insert(rule.action);
+    }
+    let mut ranges: Vec<(u64, u64, u32)> = Vec::new();
+    for (value, action) in values {
+        if let Some((_, last, previous)) = ranges.last_mut()
+            && *previous == action && last.checked_add(1) == Some(value)
+        {
+            *last = value;
+            continue;
+        }
+        ranges.push((value, value, action));
+    }
+    Some(ranges.into_iter().map(|(low, high, action)| {
+        let condition = |op, value| Cond { index: first.index, op, value, two: 0 };
+        let conds = if low == high {
+            vec![condition(Op::Eq, low)]
+        } else {
+            let mut bounds = Vec::new();
+            if low != 0 { bounds.push(condition(Op::Ge, low)); }
+            if high != u64::MAX { bounds.push(condition(Op::Le, high)); }
+            bounds
+        };
+        Rule { conds, action }
+    }).collect())
+}
+
 /// Adjacent syscall numbers that end the same way.
 struct Span {
     first: u32,
@@ -417,7 +463,10 @@ fn program(arch: u32, x32: bool, default: u32, newest: Option<u32>, table: &BTre
             _ => {
                 let body = match always {
                     Some(action) => vec![ret(action)],
-                    None => rules.iter().flat_map(checks).chain([ret(default)]).collect(),
+                    None => {
+                        let compact = compact_equalities(rules);
+                        compact.as_deref().unwrap_or(rules).iter().flat_map(checks).chain([ret(default)]).collect()
+                    }
                 };
                 spans.push(Span { first: nr, last: nr, always, body });
             }
@@ -444,16 +493,30 @@ fn program(arch: u32, x32: bool, default: u32, newest: Option<u32>, table: &BTre
 /// rule without conditions decides its syscall alone, the first such in the
 /// profile, and the same conditions cannot lead to two actions. The rest
 /// apply in the profile's order. False for such a clash.
-fn add(rules: &mut Vec<Rule>, new: Rule) -> bool {
+fn add(rules: &mut Vec<Rule>, indexes: &mut BTreeMap<u32, BTreeMap<Vec<Cond>, u32>>, nr: u32, new: Rule) -> bool {
     if rules.first().is_some_and(|first| first.conds.is_empty()) {
         return true;
     }
     if new.conds.is_empty() {
         rules.clear();
+        indexes.remove(&nr);
     }
-    match rules.iter().find(|rule| rule.conds == new.conds) {
-        Some(same) => same.action == new.action,
-        None => {
+    // Most syscalls have one rule. Keep that path allocation-free, and
+    // build a condition index only when the bounded linear scan grows.
+    if rules.len() < 64 {
+        return match rules.iter().find(|rule| rule.conds == new.conds) {
+            Some(same) => same.action == new.action,
+            None => {
+                rules.push(new);
+                true
+            }
+        };
+    }
+    let seen = indexes.entry(nr).or_insert_with(|| rules.iter().map(|rule| (rule.conds.clone(), rule.action)).collect());
+    match seen.entry(new.conds.clone()) {
+        std::collections::btree_map::Entry::Occupied(same) => *same.get() == new.action,
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(new.action);
             rules.push(new);
             true
         }
@@ -500,6 +563,7 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
     }
 
     let mut table: BTreeMap<u32, Vec<Rule>> = BTreeMap::new();
+    let mut seen: BTreeMap<u32, BTreeMap<Vec<Cond>, u32>> = BTreeMap::new();
     let mut newest: Option<u32> = None;
     let mut count = 0;
     for rule in rules {
@@ -507,7 +571,6 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
             return Err(bad("a syscall rule must be an object"));
         }
         let act = action(string(field(rule, "action")?, "action")?, number(field(rule, "errnoRet")?, "errnoRet")?)?;
-        let mut conds = conditions(rule)?;
         let mut names = strings(field(rule, "names")?, "names")?;
         let name = string(field(rule, "name")?, "name")?;
         if !name.is_empty() {
@@ -516,6 +579,8 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
             }
             names.push(name);
         }
+        let active = act != default && names.iter().any(|name| syscall_table::number(name).is_some());
+        let mut conds = conditions(rule, active)?;
         if !selected(rule, caps, kernel)? {
             continue;
         }
@@ -524,7 +589,13 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
         // any of them may match.
         let repeated = (0..6).any(|i| conds.iter().filter(|c| c.index == i).count() > 1);
         conds.sort_by_key(|c| c.index);
-        let groups: Vec<Vec<Cond>> = if repeated { conds.iter().map(|c| vec![*c]).collect() } else { vec![conds] };
+        let mut groups: Vec<Vec<Cond>> = if repeated { conds.iter().map(|c| vec![*c]).collect() } else { vec![conds] };
+        // A zero mask always matches. Remove it after the OR split so that
+        // an always-matching branch has unconditional-rule precedence and
+        // equivalent conditions still reach the conflict check.
+        for group in &mut groups {
+            group.retain(|c| c.op != Op::MaskedEq || c.value != 0);
+        }
         for name in names {
             if name.is_empty() {
                 return Err(bad("empty string is not a valid syscall"));
@@ -540,15 +611,14 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
             for conds in &groups {
                 let listed = table.entry(nr).or_default();
                 count -= listed.len();
-                if !add(listed, Rule { conds: conds.clone(), action: act }) {
+                if !add(listed, &mut seen, nr, Rule { conds: conds.clone(), action: act }) {
                     return Err(bad(format!("error adding seccomp rule for syscall {name}: the same conditions already have another action")));
                 }
                 count += listed.len();
-                // Every rule is at least one instruction, and all but one
-                // per syscall are five or more. Past this the program cannot
-                // fit, so it is not worth building to find out by how much.
+                // Bound the retained rules even when later compaction can
+                // make their program small. Duplicate rules do not count.
                 if count > MAX_INSNS {
-                    return Err(bad(format!("compiles to more than {MAX_INSNS} instructions; the kernel takes up to {MAX_INSNS}")));
+                    return Err(bad(format!("contains more than {MAX_INSNS} distinct rules before compaction")));
                 }
             }
         }
@@ -656,8 +726,9 @@ mod tests {
     /// default of ALLOW, on an ABI of this test's own.
     fn built(rules: Vec<(u32, Vec<Cond>, u32)>, newest: Option<u32>, x32: bool) -> Vec<libc::sock_filter> {
         let mut table: BTreeMap<u32, Vec<Rule>> = BTreeMap::new();
+        let mut seen: BTreeMap<u32, BTreeMap<Vec<Cond>, u32>> = BTreeMap::new();
         for (nr, conds, action) in rules {
-            assert!(add(table.entry(nr).or_default(), Rule { conds, action }));
+            assert!(add(table.entry(nr).or_default(), &mut seen, nr, Rule { conds, action }));
         }
         program(7, x32, RET_ALLOW, newest, &table)
     }
@@ -1026,9 +1097,95 @@ mod tests {
     }
 
     #[test]
+    fn compact_equalities_preserve_64_bit_boundaries_gaps_and_actions() {
+        for index in 0..6 {
+            for first in [0, 0xffff_fffd, u64::MAX - 5] {
+                let points = [(0, 13), (1, 13), (2, 95), (4, 95), (5, 95)];
+                // Shuffled input and a duplicate still describe the same set.
+                let make = |offset, errno| (9, vec![cond(index, Op::Eq, first + offset, 0)], RET_ERRNO | errno);
+                let rules = vec![make(5, 95), make(1, 13), make(4, 95), make(0, 13), make(2, 95), make(1, 13)];
+                let p = built(rules, None, false);
+                let mut values = vec![0, 1, 0xffff_ffff, 0x1_0000_0000, u64::MAX];
+                for offset in 0..=5 {
+                    let value = first + offset;
+                    values.push(value);
+                    values.extend(value.checked_sub(1));
+                    values.extend(value.checked_add(1));
+                }
+                for background in [0, u64::MAX] {
+                    for value in &values {
+                        let expected = points.iter().find(|(offset, _)| first + offset == *value)
+                            .map_or(RET_ALLOW, |(_, errno)| RET_ERRNO | errno);
+                        let mut args = [background; 6];
+                        args[index as usize] = *value;
+                        assert_eq!(verdict(&p, 7, 9, args), expected, "arg {index}, start {first:#x}, value {value:#x}");
+                        assert_eq!(verdict(&p, 7, 8, args), RET_ALLOW);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_thousand_adjacent_equalities_fit_and_are_enforced() {
+        let rules: Vec<Value> = (0..1000).map(|value| json!({
+            "names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13,
+            "args": [{"index": 0, "op": "SCMP_CMP_EQ", "value": value}]
+        })).collect();
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules})).unwrap().unwrap();
+        assert!(filter.insns.len() < 40, "adjacent values should form one range: {}", filter.insns.len());
+        assert!(enforced(&filter, || {
+            for value in [0u64, 1, 999] {
+                if errno_of(unsafe { libc::syscall(libc::SYS_getppid, value, 0u64, 0u64, 0u64, 0u64, 0u64) }) != libc::EACCES {
+                    return false;
+                }
+            }
+            for value in [1000u64, 0x1_0000_0000, u64::MAX] {
+                if unsafe { libc::syscall(libc::SYS_getppid, value, 0u64, 0u64, 0u64, 0u64, 0u64) } <= 0 {
+                    return false;
+                }
+            }
+            true
+        }));
+    }
+
+    #[test]
+    fn indexed_conditions_preserve_duplicates_conflicts_and_unconditional_precedence() {
+        let conditional = |value, errno| json!({
+            "names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": errno,
+            "args": [{"index": 0, "op": "SCMP_CMP_EQ", "value": value, "valueTwo": 99}]
+        });
+        let plain = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95});
+        let nr = syscall_table::number("getppid").unwrap();
+        let repeated: Vec<Value> = (0..5000).map(|_| conditional(7, 13)).collect();
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": repeated})).unwrap().unwrap();
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [7, 0, 0, 0, 0, 0]), RET_ERRNO | 13);
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [8, 0, 0, 0, 0, 0]), RET_ALLOW);
+        let prefix: Vec<Value> = (0..80).map(|value| conditional(value, 13)).collect();
+        let mut duplicate = prefix.clone();
+        duplicate.push(conditional(7, 13));
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": duplicate})).unwrap().unwrap();
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [7, 0, 0, 0, 0, 0]), RET_ERRNO | 13);
+        let mut conflicting = prefix.clone();
+        conflicting.push(conditional(7, 95));
+        let conflict = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": conflicting}))
+            .err().expect("equivalent conditions with different actions still conflict");
+        assert!(conflict.to_string().contains("same conditions already have another action"));
+        let mut cleared = prefix;
+        cleared.extend([plain, conditional(7, 22), conditional(8, 22)]);
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": cleared})).unwrap().unwrap();
+        for value in [0, 7, 8, u64::MAX] {
+            assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [value, 0, 0, 0, 0, 0]), RET_ERRNO | 95);
+        }
+    }
+
+    #[test]
     fn a_program_too_long_for_the_kernel_is_refused() {
         let rules = |count: u64| -> Vec<Value> {
-            let rule = |i: u64| json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "args": [{"index": 0, "op": "SCMP_CMP_EQ", "value": i}]});
+            // Keep a real instruction-limit test after adjacent equalities
+            // become compact: neither the gaps nor these actions coalesce.
+            let rule = |i: u64| json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": i % 4095,
+                "args": [{"index": 0, "op": "SCMP_CMP_EQ", "value": i * 2}]});
             (0..count).map(rule).collect()
         };
         let fits = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules(800)})).unwrap().unwrap();
@@ -1036,10 +1193,10 @@ mod tests {
         assert!(enforced(&fits, || unsafe { libc::getpid() } > 0), "the kernel takes a program of {} instructions", fits.insns.len());
         let error = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules(900)})).err().expect("too long");
         assert!(error.to_string().contains("instructions; the kernel takes up to 4096"), "{error}");
-        // Far more rules than can fit are refused before the program is built.
+        // The retained-rule limit remains even for values that could coalesce.
         let conds: Vec<Value> = (0..5000).map(|i| json!({"index": 0, "op": "SCMP_CMP_EQ", "value": i})).collect();
         let error = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [{"names": ["getppid", "getpid"], "action": "SCMP_ACT_ERRNO", "args": conds}]})).err().expect("too many");
-        assert!(error.to_string().contains("more than 4096 instructions"), "{error}");
+        assert!(error.to_string().contains("more than 4096 distinct rules"), "{error}");
     }
 
     #[test]
@@ -1068,5 +1225,114 @@ mod tests {
             {"index": 0, "op": "SCMP_CMP_EQ", "value": 0}, {"index": 0, "op": "SCMP_CMP_EQ", "value": 1}, {"index": 1, "op": "SCMP_CMP_EQ", "value": 9},
         ]});
         assert_eq!(verdicts(profile(json!([either]))), [ERRNO; 2]);
+    }
+
+    #[test]
+    fn zero_masks_preserve_the_first_unconditional_action() {
+        let zero = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13,
+            "args": [{"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99}]});
+        let plain = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95});
+        let nr = syscall_table::number("getppid").unwrap();
+        for (rules, expected) in [(json!([zero, plain]), RET_ERRNO | 13), (json!([plain, zero]), RET_ERRNO | 95)] {
+            let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules})).unwrap().unwrap();
+            for arg in [0, 1, 0x1_0000_0000, u64::MAX] {
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [arg; 6]), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_masks_do_not_change_and_or_grouping() {
+        let zero = json!({"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99});
+        let first = json!({"index": 0, "op": "SCMP_CMP_EQ", "value": 1});
+        let second = json!({"index": 1, "op": "SCMP_CMP_EQ", "value": 2});
+        let on = |args: Value| json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13, "args": args});
+        let plain = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95});
+        let nr = syscall_table::number("getppid").unwrap();
+        // Different indexes are ANDed: the real condition must still hold.
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [on(json!([zero, second]))]})).unwrap().unwrap();
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0; 6]), RET_ALLOW);
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0, 2, 0, 0, 0, 0]), RET_ERRNO | 13);
+        // Repeated indexes split every condition into an OR branch before
+        // a zero mask is removed, including conditions on other indexes.
+        for args in [json!([zero, first]), json!([zero, first, second])] {
+            let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [on(args), plain]})).unwrap().unwrap();
+            for arg in [0, 1, 2, u64::MAX] {
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [arg; 6]), RET_ERRNO | 13);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_masks_reveal_conflicting_equivalent_rules() {
+        let zero = json!({"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99});
+        let second = json!({"index": 1, "op": "SCMP_CMP_EQ", "value": 2});
+        let first_rule = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13, "args": [zero, second]});
+        let second_rule = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95, "args": [second]});
+        for rules in [json!([first_rule, second_rule]), json!([second_rule, first_rule])] {
+            let error = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules})).err().expect("conflicting rules");
+            assert!(error.to_string().contains("same conditions already have another action"), "{error}");
+        }
+    }
+
+    #[test]
+    fn zero_masks_are_enforced_with_the_first_action() {
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+            {"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13,
+                "args": [{"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99}]},
+            {"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95},
+        ]})).unwrap().unwrap();
+        assert!(enforced(&filter, || {
+            // SAFETY: getppid only reads this child's parent process ID.
+            errno_of(unsafe { libc::syscall(libc::SYS_getppid) }) == libc::EACCES
+        }));
+    }
+
+    #[test]
+    fn ignored_rules_do_not_require_a_valid_argument_position() {
+        let nr = syscall_table::number("getppid").unwrap();
+        for (name, action) in [("getppid", "SCMP_ACT_ALLOW"), ("asagiri_no_such_syscall", "SCMP_ACT_ERRNO")] {
+            for index in [6, 7, u64::from(u32::MAX) + 1, u64::MAX] {
+                let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                    {"names": [name], "action": action, "errnoRet": 13,
+                        "args": [{"index": index, "op": "SCMP_CMP_EQ", "value": 0}]},
+                ]})).unwrap().unwrap();
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0; 6]), RET_ALLOW);
+            }
+        }
+    }
+
+    #[test]
+    fn ignored_rules_still_validate_operators_and_typed_fields() {
+        for (name, action) in [("getppid", "SCMP_ACT_ALLOW"), ("asagiri_no_such_syscall", "SCMP_ACT_ERRNO")] {
+            let profile = |arg: Value| json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                {"names": [name], "action": action, "errnoRet": 13, "args": [arg]},
+            ]});
+            let error = compiled(profile(json!({"index": 7, "op": "SCMP_CMP_BOGUS", "value": 0})))
+                .err().expect("invalid operator");
+            assert!(error.to_string().contains("not a valid operator for seccomp"), "{error}");
+            for (field, value) in [
+                ("index", json!(-1)), ("index", json!(true)), ("index", json!(1.5)),
+                ("value", json!(true)), ("valueTwo", json!("invalid")),
+            ] {
+                let mut arg = json!({"index": 7, "op": "SCMP_CMP_EQ", "value": 0, "valueTwo": 0});
+                arg[field] = value;
+                assert!(compiled(profile(arg)).is_err(), "ignored rule must validate {field}");
+            }
+        }
+    }
+
+    #[test]
+    fn active_rules_validate_positions_before_zero_mask_removal() {
+        for op in ["SCMP_CMP_EQ", "SCMP_CMP_MASKED_EQ"] {
+            for index in [6, 7, u64::from(u32::MAX) + 1, u64::MAX] {
+                let profile = json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                    {"names": ["asagiri_no_such_syscall", "getppid"], "action": "SCMP_ACT_ERRNO",
+                        "args": [{"index": index, "op": op, "value": 0, "valueTwo": 99}]},
+                ]});
+                let error = compiled(profile).err().expect("invalid position in active rule");
+                assert!(error.to_string().contains("up to 6 arguments"), "{error}");
+            }
+        }
     }
 }

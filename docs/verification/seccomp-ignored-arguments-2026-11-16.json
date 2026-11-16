@@ -1,0 +1,109 @@
+{
+  "schema": "asagiri.seccomp-ignored-arguments.v1",
+  "status": "local_native_verified_hosted_qualification_pending",
+  "verified_at": "2026-11-16T12:13:22.570643+00:00",
+  "code_commit": "739b5691e57dd102952ae6fad315d7685c49ad49",
+  "code_tree": "323cfac4c56197639f055167743aa401c4464a7f",
+  "source_sha256": {
+    "crates/asagiri-init/src/linux/custom_seccomp.rs": "f193636c77a7c8d8e04341de57484df4b1a77b870d11de2d39ba86d7dce2bd46",
+    "tests/seccomp-profiles.py": "d6dd04df48814c8e1feb2c2f0f310e593e31f52c20afd369f3b9f68fb8ffc424"
+  },
+  "change": "Validate every argument operator and typed field, but require positions 0 through 5 only for a known syscall with a nondefault action. Ignored argument positions never become compiled conditions. Preserve active-rule validation, the case-insensitive parser, zero-mask normalization and the host boundary.",
+  "public_reference": {
+    "repository": "opencontainers/runc",
+    "tag": "v1.5.3",
+    "commit": "46365c62967c76a765a5e347f48f0c7b3b571fe9",
+    "tree": "511bc31cc4e162f25c74dbe9e71a8d9f05fe8cf2",
+    "source": "https://github.com/opencontainers/runc/blob/46365c62967c76a765a5e347f48f0c7b3b571fe9/libcontainer/seccomp/seccomp_linux.go",
+    "entrypoints": [
+      "specconv.SetupSeccomp",
+      "seccomp.InitSeccomp"
+    ],
+    "libseccomp": "2.6.1",
+    "library_sha256": "415067112c137ac7ee4917954f878d5ba992d3dc530a403c84078ce0de7206a8",
+    "unchanged_original_runc_files": 1231,
+    "binary_sha256": "8d7f4e42d4a8544ff162550da7d87572ef9462e4c0a1f518f3ed3e2a56793a26",
+    "thread_setup": "LockOSThread, as in runc init; observe /proc/thread-self/status and unchanged thread ID across installation and queries."
+  },
+  "baseline_kernel": {
+    "candidate_commit": "e241e910341a8e4b20b3fd936014825433e58d1a",
+    "profiles": 24,
+    "controls_passed": 12,
+    "installed_child_filters": 33,
+    "syscall_queries": 1320,
+    "different_profiles": [
+      "higher-argument-precedence",
+      "longer-before-shorter",
+      "redundant-default-invalid-index-valid-operator",
+      "unknown-name-invalid-index-valid-operator"
+    ],
+    "receipt_sha256": "82ae43d84a97ce6a94f2ec8aa58ae2b4146e9f08121c4c258bcadea9b52d05ec"
+  },
+  "corrected_kernel": {
+    "profiles": 24,
+    "controls_passed": 12,
+    "installed_child_filters": 35,
+    "syscall_queries": 1400,
+    "remaining_differences": [
+      "higher-argument-precedence",
+      "longer-before-shorter"
+    ],
+    "fixed_profiles": [
+      "redundant-default-invalid-index-valid-operator",
+      "unknown-name-invalid-index-valid-operator"
+    ],
+    "invalid_operator_profiles_still_rejected": true,
+    "all_zero_mask_cases_agree": true,
+    "input_sha256": "26122ce4be28ff53301f1d0beaaf722a73c8049cd333c9a75c9ee325fed25ad2",
+    "candidate_binary_sha256": "5ab2bfd1ff4bc7ac8024475e1c502c182abd49fba51733c14b6f6a3ab952d9a1",
+    "reference_binary_reused_unchanged": true,
+    "receipt_sha256": "0e6e8b5906d573f75fec29079334b6b28f94932d75c2bd291fd6b81b72bfbd0c",
+    "raw_results_sha256": "c86449fa071ef9110a22c9a1ce314532bf59ca24ea313898b81ade2478a65c61",
+    "parent_filter_state_unchanged": true,
+    "every_accepted_child_filter_count_increased_by_one": true
+  },
+  "actual_unit_tests": {
+    "target": "aarch64-unknown-linux-musl",
+    "passed": 22,
+    "failed": 0,
+    "ignored": 0,
+    "new_regressions": 3,
+    "source_manifest_sha256": "8078d809741fe5a6d047d945925bef612912d932d131c37e0d0480570a204308",
+    "executable_sha256": "6ad26c723f7932033093e204d7fc2f194b7328b8ece876bc2b2bf3353f4dc55c",
+    "receipt_sha256": "bfd043a942fe742c73acb37cd05a695b866f2913bc942eef9ffa15534660df4b",
+    "scope": "Actual Cargo init test executable, including existing kernel-enforcement regressions. New tests also cover ignored uint64 index boundaries, invalid operators/typed fields and invalid active positions before zero-mask removal."
+  },
+  "other_architecture": {
+    "target": "x86_64-unknown-linux-musl",
+    "status": "actual_init_unit_executable_compiled_not_executed",
+    "executable_sha256": "847b0bc60acf9aaae2cd556ab687816d3c21c7ffa158a011ec903d99770f1b2b",
+    "receipt_sha256": "068e4494d29c4c2173da6f72e1e4f42866dff4e36615f31d5a9d6fe017b5fcf1"
+  },
+  "native_environment": {
+    "app_version": "0.1.6-dev.100",
+    "capabilities": 0,
+    "no_new_privileges": true,
+    "network": "none",
+    "owned_containers_removed": true,
+    "original_images_volumes_metadata_containers_and_app_preserved": true
+  },
+  "hosted_api_tests": {
+    "file": "tests/seccomp-profiles.py",
+    "additional_ignored_rule_acceptance_cases": 2,
+    "additional_invalid_operator_refusal_cases": 2,
+    "status": "syntax checked; execution pending before merge"
+  },
+  "earlier_reference_assessment": {
+    "document": "seccomp-reference-validation-2026-11-16.json",
+    "sha256": "9b849a1ada011943533fcc2175db4b349d01a941490947f60e672b0c04b8c2d6",
+    "update": "The earlier index-only controls covered conversion alone. This follow-up invokes the actual loader and verifies kernel outcomes; both ignored-index differences are now corrected. The earlier invalid-operator exclusion remains valid."
+  },
+  "limitations": [
+    "Two conditional-rule ordering differences remain unresolved.",
+    "The bounded kernel comparison allows all syscalls by default and only restricts getppid; the default-deny control is excluded.",
+    "This does not execute runc containers, Docker or Podman, prove whole-compiler equivalence, or add a formal proof.",
+    "The first kernel probe read the process leader rather than the exact Go OS thread; its strict counter check failed and it remains excluded. The corrected probe locks and observes the exact thread.",
+    "The first reference build lacked a public syscall-header include path; the first Rust caller link used the host linker. Both failures are retained; no original reference/runtime source was changed to bypass them.",
+    "Hosted candidate qualification, public publication and release installation are pending."
+  ]
+}
