@@ -45,8 +45,14 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     assert platform.system() == "Linux", "Use disposable Linux CI engines"
+    # Both daemon sockets enforce Linux peer credentials. The test client and
+    # its private runtime directories must have the daemon owner's identity.
+    assert os.geteuid() == 0, "Run this private-engine fixture as root"
     bins, output = args.binaries.resolve(), args.out.resolve()
-    output.mkdir(mode=0o700)
+    output.mkdir(mode=0o755)
+    # This folder contains only generated CI evidence. Socket directories and
+    # context files remain private; Actions uploads these results as its user.
+    output.chmod(0o755)
     hashes = dict(line.split()[::-1] for line in (bins / "SHA256SUMS").read_text().splitlines())
     assert set(hashes) == {"asagiri", "asagiri-init"}
     assert all(checksum(bins / name) == digest for name, digest in hashes.items())
@@ -58,6 +64,7 @@ def main():
     names = {key: "asagiri-import-" + nonce + "-" + key for key in ("source", "destination")}
     record = {
         "schema": "asagiri.engine-import.v1", "status": "running", "source": head,
+        "client_uid": os.geteuid(),
         "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "binaries": hashes, "fixture_sha256": checksum(Path(__file__)),
         "images_sha256": checksum(ROOT / "scripts/ci/reference-images.json"),
@@ -68,6 +75,7 @@ def main():
     def save():
         temporary = output / "verification.tmp"
         temporary.write_text(json.dumps(record, indent=2) + "\n")
+        temporary.chmod(0o644)
         temporary.replace(output / "verification.json")
 
     def request(engine, method, path):
@@ -110,6 +118,7 @@ def main():
             work = Path(temporary)
             for key in names:
                 (work / key).mkdir(mode=0o700)
+                assert (work / key).stat().st_uid == 0 and not (work / key).is_symlink()
                 sockets[key] = work / key / "docker.sock"
             try:
                 common = ["--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/tmp",
@@ -139,19 +148,22 @@ def main():
                         "id": info["Id"], "image": info["Config"]["Image"],
                         "image_id": info["Image"], "published_ports": False,
                         "store_volumes": [m["Name"] for m in info["Mounts"] if m["Type"] == "volume"],
+                        "socket_directory_uid": (work / engine).stat().st_uid,
                     }
                     deadline = time.monotonic() + 120
                     path = "/sockets/docker.sock" if engine == "source" else "/run/asagiri/docker.sock"
                     while time.monotonic() < deadline:
                         if sockets[engine].exists():
-                            command("docker", "exec", "--user", "0", ids[engine], "chown",
-                                    f"{os.getuid()}:{os.getgid()}", path)
+                            assert sockets[engine].is_socket() and sockets[engine].stat().st_uid == 0
                             command("docker", "exec", "--user", "0", ids[engine], "chmod", "600", path)
                             try:
                                 version = get(engine, "/version")
                                 break
                             except (OSError, AssertionError):
                                 pass
+                        state = json.loads(command("docker", "inspect", "--format", "{{json .State}}", ids[engine]).stdout)
+                        if not state["Running"]:
+                            raise RuntimeError(engine + " exited before becoming ready: " + json.dumps(state))
                         time.sleep(.25)
                     else:
                         raise RuntimeError(engine + " did not become ready")
@@ -309,7 +321,9 @@ def main():
                         errors.append(engine + ": refuse to remove another run's host")
                         continue
                     logs = command("docker", "logs", info["Id"], check=False)
-                    (output / (engine + "-host.log")).write_bytes(logs.stdout + logs.stderr)
+                    log_path = output / (engine + "-host.log")
+                    log_path.write_bytes(logs.stdout + logs.stderr)
+                    log_path.chmod(0o644)
                     removed = command("docker", "rm", "-fv", info["Id"], check=False)
                     absent = request("runner", "GET", "/containers/" + info["Id"] + "/json")[0] == 404
                     stores = [m["Name"] for m in info["Mounts"] if m["Type"] == "volume"]
