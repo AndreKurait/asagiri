@@ -775,6 +775,9 @@ mod tests {
         if hardlink {
             let mut h = header(0, 0o644);
             h.set_entry_type(tar::EntryType::Link);
+            h.set_uid(u64::from(unsafe { libc::geteuid() }));
+            h.set_gid(u64::from(unsafe { libc::getegid() }));
+            h.set_mtime(1_710_000_000);
             b.append_link(&mut h, "alias", path).unwrap();
         }
         b.into_inner().unwrap()
@@ -783,17 +786,23 @@ mod tests {
     #[test]
     fn special_fifo_preserves_type_metadata_and_hardlinks() {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let dest = scratch("special-fifo");
-        let bytes = special_layer(tar::EntryType::Fifo, "nested/pipe", true);
-        assert_eq!(untar(&bytes[..], &dest).unwrap(), 0);
-        let m = fs::symlink_metadata(dest.join("nested/pipe")).unwrap();
-        assert!(m.file_type().is_fifo(), "FIFO layer entry became a regular file");
-        assert_eq!(m.mode() & 0o7777, 0o2640);
-        assert_eq!(m.mtime(), 1_700_000_000);
-        assert_eq!(m.uid(), unsafe { libc::geteuid() });
-        assert_eq!(m.gid(), unsafe { libc::getegid() });
-        assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
-        fs::remove_dir_all(dest).unwrap();
+        for hardlink in [false, true] {
+            let dest = scratch("special-fifo");
+            let bytes = special_layer(tar::EntryType::Fifo, "nested/pipe", hardlink);
+            assert_eq!(untar(&bytes[..], &dest).unwrap(), 0);
+            let m = fs::symlink_metadata(dest.join("nested/pipe")).unwrap();
+            assert!(m.file_type().is_fifo(), "FIFO layer entry became a regular file");
+            // A later link header updates the shared inode, as Docker does.
+            assert_eq!(m.mode() & 0o7777, if hardlink { 0o644 } else { 0o2640 });
+            assert_eq!(m.mtime(), if hardlink { 1_710_000_000 } else { 1_700_000_000 });
+            assert_eq!(m.uid(), unsafe { libc::geteuid() });
+            assert_eq!(m.gid(), unsafe { libc::getegid() });
+            if hardlink {
+                assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+                assert_eq!(m.nlink(), 2);
+            }
+            fs::remove_dir_all(dest).unwrap();
+        }
     }
 
     #[test]
@@ -831,18 +840,25 @@ mod tests {
             return;
         }
         for (name, kind) in [("char", tar::EntryType::Char), ("block", tar::EntryType::Block)] {
-            let dest = scratch(&format!("special-{name}"));
-            let bytes = special_layer(kind, "node", true);
-            untar(&bytes[..], &dest).unwrap();
-            let m = fs::symlink_metadata(dest.join("node")).unwrap();
-            assert_eq!(m.file_type().is_char_device(), kind.is_character_special());
-            assert_eq!(m.file_type().is_block_device(), kind.is_block_special());
-            assert_eq!(libc::major(m.rdev()), 1);
-            assert_eq!(libc::minor(m.rdev()), 7);
-            assert_eq!(m.mode() & 0o7777, 0o2640);
-            assert_eq!(m.mtime(), 1_700_000_000);
-            assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
-            fs::remove_dir_all(dest).unwrap();
+            for hardlink in [false, true] {
+                let dest = scratch(&format!("special-{name}"));
+                let bytes = special_layer(kind, "node", hardlink);
+                untar(&bytes[..], &dest).unwrap();
+                let m = fs::symlink_metadata(dest.join("node")).unwrap();
+                assert_eq!(m.file_type().is_char_device(), kind.is_character_special());
+                assert_eq!(m.file_type().is_block_device(), kind.is_block_special());
+                assert_eq!(libc::major(m.rdev()), 1);
+                assert_eq!(libc::minor(m.rdev()), 7);
+                assert_eq!(m.mode() & 0o7777, if hardlink { 0o644 } else { 0o2640 });
+                assert_eq!(m.mtime(), if hardlink { 1_710_000_000 } else { 1_700_000_000 });
+                assert_eq!(m.uid(), unsafe { libc::geteuid() });
+                assert_eq!(m.gid(), unsafe { libc::getegid() });
+                if hardlink {
+                    assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+                    assert_eq!(m.nlink(), 2);
+                }
+                fs::remove_dir_all(dest).unwrap();
+            }
         }
     }
 
