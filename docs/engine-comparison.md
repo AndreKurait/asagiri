@@ -29,6 +29,40 @@ GitHub artifact for 90 days. Asagiri changes also have the separate
 [performance comparison against the previous commit](performance.md), with
 regression gates and permanent raw history.
 
+## Measured Linux result (workload v2)
+
+[GHA run 43816520898](https://github.com/AndreKurait/asagiri/actions/runs/43816520898)
+completed on November 16, 2026, with 400 samples per workload and engine.
+Asagiri was built from `2214570049b2370f2f41761e827d5690ecc4cb7c`; its engine
+sources and build settings match main `6e4e2ca7029f2769972b936708df3986c38990ae`.
+This CI build reports product version `0.0.0`, so the commit identifies it.
+The runner reported four CPUs, an AMD EPYC 9V74 and Linux
+`7.0.0-1017-azure` (`ubuntu24`, image `20261111.370.1`).
+
+Every cell below is **median / p95 in milliseconds**:
+
+| Workload | Asagiri `2214570` | Docker 29.9.3 | Podman 6.1.3 |
+| --- | ---: | ---: | ---: |
+| Ping | 0.163 / 0.203 | 0.349 / 0.404 | 0.345 / 0.394 |
+| Empty filtered list | 0.134 / 0.172 | 0.249 / 0.297 | 0.338 / 0.392 |
+| Create/start/wait/remove | 6.730 / 9.089 | 98.022 / 264.104 | 34.900 / 83.282 |
+| Exec, output and exit check | 1.704 / 1.856 | 32.008 / 33.218 | 55.407 / 160.464 |
+| 64 KiB named-volume file round trip | 1.202 / 1.300 | 3.372 / 3.867 | 159.786 / 164.787 |
+
+The [raw record](benchmarks/engine-comparison-2026-11-16-v2.json) retains all
+6,000 samples. Its
+[independent verification](benchmarks/engine-comparison-2026-11-16-v2-verification.json)
+checks the GitHub artifact digest, exact source and harness identities,
+recalculates all 15 medians and p95s, and checks the identical image layers,
+file payload hash and recorded fixture cleanup.
+
+All engines reported four CPUs and the same available memory. Docker used
+its containerd overlay snapshotter; Podman used kernel overlay with native
+overlay diff disabled; Asagiri used overlayfs. The raw record keeps those
+storage differences. These are observations from one hosted runner. Different
+runner hardware and the changed workload prevent treating differences from
+the historical v1 table as an Asagiri performance regression or improvement.
+
 ## Historical Linux result (workload v1)
 
 [GHA run 43632761522](https://github.com/AndreKurait/asagiri/actions/runs/43632761522)
