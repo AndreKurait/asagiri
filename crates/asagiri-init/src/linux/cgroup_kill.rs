@@ -6,7 +6,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -67,7 +67,18 @@ impl Group {
     }
 
     fn removed(&self) -> bool {
-        self.0.metadata().is_ok_and(|metadata| metadata.nlink() == 0)
+        // kernfs recomputes a directory's link count as subdirectories + 2,
+        // even through an open descriptor after rmdir. Every live v2 cgroup
+        // instead has cgroup.procs. Resolve it relative to our pinned directory,
+        // so a replacement at the old pathname cannot become our target.
+        // O_PATH neither opens an overmounted FIFO for I/O nor follows an
+        // overmounted symlink. Only a missing entry establishes removal.
+        // SAFETY: a fixed name relative to our owned cgroup directory.
+        let fd = unsafe { libc::openat(self.0.as_raw_fd(), c"cgroup.procs".as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        if fd < 0 { return io::Error::last_os_error().kind() == io::ErrorKind::NotFound; }
+        // SAFETY: openat returned a new descriptor owned only by this probe.
+        drop(unsafe { OwnedFd::from_raw_fd(fd) });
+        false
     }
 
     fn event(&self, key: &str) -> io::Result<bool> {

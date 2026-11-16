@@ -228,6 +228,40 @@ mod live {
     use super::*;
 
     #[test]
+    fn removed_group_descriptors_finish_cleanup_without_spurious_errors() {
+        let Some(f) = Cgroups::new() else { return };
+        let path = f.group("removed");
+        let group = Group::open(&path).unwrap();
+        assert!(!group.removed());
+        fs::remove_dir(&path).unwrap();
+        assert!(group.removed(), "an open kernfs directory need not report zero links after rmdir");
+        for force_pidfds in [false, true] {
+            kill_open(&group, force_pidfds, Instant::now() + WAIT).unwrap();
+        }
+        wait(&group, "populated", false, Instant::now() + WAIT).unwrap();
+        f.finish();
+    }
+
+    #[test]
+    fn removed_descriptor_cannot_target_a_replacement_at_the_same_path() {
+        let Some(mut f) = Cgroups::new() else { return };
+        let path = f.group("reused");
+        let old = Group::open(&path).unwrap();
+        fs::remove_dir(&path).unwrap();
+        let replacement = f.group("reused");
+        let victim = f.spawn(&replacement);
+        let current = Group::open(&replacement).unwrap();
+        assert!(old.removed());
+        assert!(!current.removed());
+        for force_pidfds in [false, true] {
+            kill_open(&old, force_pidfds, Instant::now() + WAIT).unwrap();
+            f.children[victim].alive();
+        }
+        assert!(current.processes().unwrap().contains(&f.children[victim].pid()));
+        f.finish();
+    }
+
+    #[test]
     fn overmounted_regular_and_fifo_controls_are_refused_without_signals_or_writes() {
         let Some(mut f) = Cgroups::new() else { return };
         let scratch = Scratch::new();
@@ -249,6 +283,8 @@ mod live {
                 fs::write(&source, &contents).unwrap();
             }
             let mounted = Overmount::new(&source, &path.join(control));
+            assert!(!Group::open(&path).unwrap().removed(),
+                "an overmounted control must not make a live cgroup appear removed");
             assert_eq!(kill_mode(&path, force_pidfds).unwrap_err().kind(), io::ErrorKind::InvalidInput);
             f.children[victim].alive();
             f.children[outside].alive();

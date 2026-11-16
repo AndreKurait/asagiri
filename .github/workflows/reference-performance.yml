@@ -16,8 +16,10 @@ on:
       - '.github/actions/container-cache/**'
       - scripts/reference-bench.py
       - scripts/ci/reference-run.py
+      - scripts/ci/reference-pair.py
       - scripts/ci/reference-images.json
       - tests/ci-reference-performance.py
+      - tests/ci-reference-pair.py
       - tests/ci-hyperfine.py
       - tests/fixtures/hyperfine/**
       - bench/hyperfine.jq
@@ -30,6 +32,11 @@ on:
   schedule:
     - cron: '17 8 * * 1'
   workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Optional full ancestor commit SHA for a comparison on the same machine'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -44,6 +51,7 @@ concurrency:
 jobs:
   compare:
     name: Docker, Podman and Asagiri
+    if: github.event_name != 'workflow_dispatch' || inputs.baseline == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -53,6 +61,7 @@ jobs:
       - name: Check measurement and cleanup boundaries
         run: |
           python3 tests/ci-reference-performance.py
+          python3 tests/ci-reference-pair.py
           python3 tests/ci-hyperfine.py
       - name: Restore Linux dependencies
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -83,5 +92,48 @@ jobs:
         with:
           name: engine-comparison-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/reference-performance/*
+          if-no-files-found: ignore
+          retention-days: 90
+
+  paired-compare:
+    name: Baseline and candidate on the same machine
+    if: github.event_name == 'workflow_dispatch' && inputs.baseline != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check pairing, raw samples and cleanup boundaries
+        run: |
+          python3 tests/ci-reference-performance.py
+          python3 tests/ci-reference-pair.py
+      - name: Restore Linux dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml', 'scripts/ci/images.json', 'scripts/ci/build-linux.sh') }}
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] cache action from the measured checkout
+      - name: Compile both sources and measure baseline, candidate, candidate, baseline
+        env:
+          BASELINE_COMMIT: ${{ inputs.baseline }}
+        run: |
+          python3 scripts/ci/reference-pair.py --baseline "$BASELINE_COMMIT" \
+            --out "$RUNNER_TEMP/reference-pair" --target "$RUNNER_TEMP/cargo-target" \
+            --registry "$RUNNER_TEMP/cargo-registry"
+      - name: Summarize the paired measurements
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/reference-pair/report.md" ]; then
+            cat "$RUNNER_TEMP/reference-pair/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: engine-comparison-pair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reference-pair/**
           if-no-files-found: ignore
           retention-days: 90
