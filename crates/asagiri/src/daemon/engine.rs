@@ -1685,14 +1685,17 @@ impl Engine {
                 };
                 let mut anon = Vec::new();
                 let mut removed_log = None;
+                let mut removed_blobs = Vec::new();
                 if remove {
                     if let Some(c) = st.containers.remove(id) {
+                        removed_blobs = std::iter::once(c.spec.image_id.clone()).chain(c.layers).collect();
                         anon = c.spec.anon_volumes;
                         removed_log = Some(c.log);
                     }
                     note_removed(&mut st, id, code);
                 }
                 drop(st);
+                self.release_image_blobs(&removed_blobs);
                 if let Some((image, attrs)) = actor {
                     self.emit_container_with("die", id, &image, attrs.clone(), &[("exitCode", code.to_string())]);
                     if remove {
@@ -1938,6 +1941,21 @@ impl Engine {
         Ok(image_named(self.store.images()?, name))
     }
 
+    /// A forced image removal must not discard data its containers still own.
+    pub(super) fn image_blob_users(&self) -> Vec<String> {
+        self.each(|c| Some(std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>()))
+            .into_iter().flatten().collect()
+    }
+
+    fn release_image_blobs(&self, candidates: &[String]) {
+        if candidates.is_empty() {
+            return;
+        }
+        if let Err(error) = self.store.release_blobs(candidates, &self.image_blob_users()) {
+            crate::diag::warn!("kept unused image blobs after container removal", error = error);
+        }
+    }
+
     /// Sends the guest every layer of these (digest, media type) it doesn't
     /// have unpacked, from the blob store.
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
@@ -1976,8 +1994,8 @@ impl Engine {
     /// guest deletes an unpacked layer at boot when it isn't whole (an unpack
     /// cut short, or one from before layers were marked whole), and a
     /// container created before that would otherwise fail to start with
-    /// "layer ... is not unpacked". The media type comes from any image with
-    /// the layer; a layer no image has any more can't be sent again.
+    /// "layer ... is not unpacked". After forced image deletion its container
+    /// still owns the compressed blob, whose format supplies the media type.
     fn restore_layers(&self, vm: &VmLink, layers: &[String]) -> Result<(), Error> {
         let mut missing = Vec::new();
         for digest in layers {
@@ -1992,10 +2010,11 @@ impl Engine {
         let images = self.store.images()?;
         let mut wanted = Vec::with_capacity(missing.len());
         for digest in missing {
-            let Some(l) = images.iter().flat_map(|i| &i.layers).find(|l| &l.digest == digest) else {
-                return Err(Error::Conflict(format!("layer {digest} is gone from the engine and no image has it any more: remove this container and create it again")));
+            let media_type = match images.iter().flat_map(|i| &i.layers).find(|l| &l.digest == digest) {
+                Some(layer) => layer.media_type.as_str(),
+                None => asagiri_image::archive::media_type_of(&self.store.blob_path(digest)?)?,
             };
-            wanted.push((l.digest.as_str(), l.media_type.as_str()));
+            wanted.push((digest.as_str(), media_type));
         }
         Ok(self.ensure_layers(vm, wanted.into_iter(), &|| false)?)
     }
@@ -2646,6 +2665,7 @@ impl Engine {
         drop(st);
         self.changed.notify_all();
         if let Some(c) = removed {
+            self.release_image_blobs(&std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>());
             if let Some(vm) = self.awake() {
                 let _ = vm.remove(id);
             }
@@ -3518,6 +3538,7 @@ impl Engine {
         let anon = removed.as_ref().map(|c| c.spec.anon_volumes.clone()).unwrap_or_default();
         if let Some(c) = &removed {
             lock_log(&c.log).remove();
+            self.release_image_blobs(&std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>());
         }
         if removed.as_ref().is_some_and(|c| !c.spec.auto_remove) {
             self.save();
@@ -4788,6 +4809,44 @@ mod vm_end_tests {
         assert_eq!(vm_end(true, false), VmEnd::Slept);
         assert_eq!(vm_end(true, true), VmEnd::Slept);
         assert_eq!(vm_end(false, false), VmEnd::Crashed);
+    }
+}
+
+#[cfg(test)]
+mod image_blob_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn forced_image_deletion_keeps_persisted_containers_data_until_last_removal() {
+        let root = std::env::temp_dir().join(format!("asagiri-image-blob-{}", random_hex(16)));
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        let config = serde_json::json!({"os": "linux", "architecture": "amd64", "config": {}});
+        let mut writer = engine.store.ingest().unwrap();
+        writer.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        let image = asagiri_image::archive::from_config("owned:latest".into(), &digest, &config, vec![]);
+        engine.store.put_image(image.clone()).unwrap();
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": image.name, "image_id": digest, "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+        })).unwrap();
+        // Empty layers keep this a host test; no guest or other runtime boots.
+        let first = engine.create(None, spec.clone(), &image).unwrap();
+        let second = engine.create(None, spec, &image).unwrap();
+        engine.store.remove_image_references_retaining(&digest, None, false, &engine.image_blob_users()).unwrap();
+        let blob = engine.store.blob_path(&digest).unwrap();
+        assert!(engine.store.images().unwrap().is_empty() && blob.exists());
+        drop(engine);
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.each(|c| Some(c.spec.image_id.clone())), [digest.clone(), digest]);
+        restored.remove(&first, false, false).unwrap();
+        assert!(blob.exists(), "the second container still owns the deleted image config");
+        restored.remove(&second, false, false).unwrap();
+        assert!(!blob.exists(), "the last container removal reclaims the retained data");
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

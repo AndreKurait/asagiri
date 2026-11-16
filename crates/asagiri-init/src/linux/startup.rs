@@ -109,6 +109,19 @@ mod tests {
     #[test]
     fn readiness_retires_the_private_descriptor_before_the_program() {
         use std::os::fd::IntoRawFd;
+        const CHILD: &str = "ASAGIRI_STARTUP_READY_TEST";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            // Other tests fork without exec and can inherit an open writer.
+            // Open this pipe only in the selected test's separate process.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "linux::startup::tests::readiness_retires_the_private_descriptor_before_the_program",
+                    "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1").output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success() && stdout.contains("running 1 test") && stdout.contains("1 passed"),
+                    "isolated readiness test did not pass\n{}\n{}", stdout, String::from_utf8_lossy(&output.stderr));
+            return;
+        }
         let (read, write) = super::super::sys::pipe().unwrap();
         let fd = write.into_raw_fd();
         let child = Child::new(Some(fd));

@@ -190,7 +190,7 @@ fn tagged(name: &str) -> String {
 }
 
 /// What kind of tar a layer file is, from its first bytes.
-fn media_type_of(path: &std::path::Path) -> io::Result<&'static str> {
+pub fn media_type_of(path: &std::path::Path) -> io::Result<&'static str> {
     let mut magic = [0u8; 4];
     let n = std::fs::File::open(path)?.read(&mut magic)?;
     Ok(match &magic[..n] {

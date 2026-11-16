@@ -343,7 +343,7 @@ impl Store {
         let Some(pos) = images.iter().position(|i| i.name == name) else { return Ok(None) };
         let removed = images.remove(pos);
         self.write_index(&images)?;
-        self.delete_unused_image_blobs(std::slice::from_ref(&removed), &images);
+        self.delete_unused_image_blobs(std::slice::from_ref(&removed), &images, &[]);
         Ok(Some(removed))
     }
 
@@ -351,19 +351,30 @@ impl Store {
     /// A named removal also checks the config, so a concurrently moved tag
     /// cannot cause an unrelated image to be removed.
     pub fn remove_image_references(&self, config_digest: &str, name: Option<&str>) -> io::Result<Vec<Image>> {
+        self.remove_image_references_retaining(config_digest, name, false, &[])
+    }
+
+    /// Containers keep their blobs after a forced image deletion. Untagging
+    /// the last reference of a running container also keeps a dangling image.
+    /// Reference removal and that replacement share one index transaction.
+    pub fn remove_image_references_retaining(&self, config_digest: &str, name: Option<&str>, keep_image: bool, retained_blobs: &[String]) -> io::Result<Vec<Image>> {
         let _index = self.lock_index()?;
-        let (removed, images): (Vec<_>, Vec<_>) = self.read_or_repair_index()?.into_iter()
+        let (removed, mut images): (Vec<_>, Vec<_>) = self.read_or_repair_index()?.into_iter()
             .partition(|i| i.config_digest == config_digest && name.is_none_or(|name| i.name == name));
         if !removed.is_empty() {
+            if keep_image && !images.iter().any(|i| i.config_digest == config_digest) {
+                images.push(removed[0].tagged(config_digest.to_owned()));
+            }
             self.write_index(&images)?;
-            self.delete_unused_image_blobs(&removed, &images);
+            self.delete_unused_image_blobs(&removed, &images, retained_blobs);
         }
         Ok(removed)
     }
 
     /// The image-index lock remains held until shared blobs are accounted for.
-    fn delete_unused_image_blobs(&self, removed: &[Image], images: &[Image]) {
-        let in_use = |d: &str| images.iter().any(|i| i.config_digest == d || i.layers.iter().any(|l| l.digest == d));
+    fn delete_unused_image_blobs(&self, removed: &[Image], images: &[Image], retained_blobs: &[String]) {
+        let in_use = |d: &str| retained_blobs.iter().any(|used| used == d)
+            || images.iter().any(|i| i.config_digest == d || i.layers.iter().any(|l| l.digest == d));
         for image in removed {
             for d in std::iter::once(&image.config_digest).chain(image.layers.iter().map(|l| &l.digest)) {
                 if !in_use(d)
@@ -373,6 +384,22 @@ impl Store {
                 }
             }
         }
+    }
+
+    /// Reclaims the supplied blobs after their last container has gone.
+    /// Concurrent image writers share the lock; unrelated blobs are untouched.
+    pub fn release_blobs(&self, candidates: &[String], retained_blobs: &[String]) -> io::Result<()> {
+        let _index = self.lock_index()?;
+        let images = self.read_or_repair_index()?;
+        for digest in candidates {
+            if !retained_blobs.contains(digest)
+                && !images.iter().any(|i| i.config_digest == *digest || i.layers.iter().any(|l| l.digest == *digest))
+                && let Ok(path) = self.blob_path(digest)
+            {
+                let _ = fs::remove_file(path);
+            }
+        }
+        Ok(())
     }
 
     // Called only while the image-index lock is held. Readers see either the
@@ -625,6 +652,43 @@ mod tests {
         assert_eq!(store.images().unwrap(), before);
         assert_eq!(store.find(&new.name).unwrap(), Some(new));
         assert!(store.blob_path(&old.config_digest).unwrap().exists());
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn removal_retains_container_data_until_the_last_owner_releases_it() {
+        let store = retention_store();
+        let image = retention_image(&store, "amd64");
+        store.put_image(image.clone()).unwrap();
+        let blobs: Vec<_> = std::iter::once(image.config_digest.clone()).chain(image.layers.iter().map(|l| l.digest.clone())).collect();
+        let removed = store.remove_image_references_retaining(&image.config_digest, None, false, &blobs).unwrap();
+        assert_eq!(removed, [image]);
+        assert!(store.images().unwrap().is_empty());
+        store.release_blobs(&blobs, &blobs).unwrap();
+        for digest in &blobs {
+            assert!(store.blob_path(digest).unwrap().exists(), "another container still owns this blob");
+        }
+        store.release_blobs(&blobs, &[]).unwrap();
+        for digest in &blobs {
+            assert!(!store.blob_path(digest).unwrap().exists());
+        }
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn removal_of_the_last_tag_can_retain_a_dangling_running_image() {
+        let store = retention_store();
+        let image = retention_image(&store, "amd64");
+        store.put_image(image.clone()).unwrap();
+        let removed = store.remove_image_references_retaining(&image.config_digest, Some(&image.name), true, &[]).unwrap();
+        assert_eq!(removed.as_slice(), std::slice::from_ref(&image));
+        let remaining = store.images().unwrap();
+        assert_eq!(remaining, [image.tagged(image.config_digest.clone())]);
+        assert!(remaining[0].repo_tag().is_none() && remaining[0].repo_digest().is_none());
+        assert!(store.blob_path(&image.config_digest).unwrap().exists());
+        for layer in &image.layers {
+            assert!(store.has_blob(&layer.digest, layer.size));
+        }
         fs::remove_dir_all(store.root()).unwrap();
     }
 

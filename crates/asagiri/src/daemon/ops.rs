@@ -422,7 +422,7 @@ fn image_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {
         if used.contains(&i.config_digest) || (dangling_only && !i.name.starts_with("sha256:")) {
             continue;
         }
-        if engine.store.remove_image(&i.name)?.is_some() {
+        if !engine.store.remove_image_references_retaining(&i.config_digest, Some(&i.name), false, &engine.image_blob_users())?.is_empty() {
             reclaimed += i.size;
             deleted.push(json!({"Untagged": i.name}));
             engine.emit_image("untag", &i.config_digest, &i.name);
@@ -696,6 +696,68 @@ fn events(req: &Request, engine: &Engine, w: &mut UnixStream) -> io::Result<Next
     }
     http::end(w)?;
     Ok(Next::KeepAlive)
+}
+
+#[cfg(test)]
+mod image_prune_tests {
+    use super::*;
+    use asagiri_image::{Layer, Store};
+    use std::io::{BufReader, Write};
+
+    #[test]
+    fn pruning_an_unused_image_preserves_a_deleted_images_stopped_container_layer() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("asagiri-image-prune-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let store = Store::open(&root).unwrap();
+        let mut layer = store.ingest().unwrap();
+        layer.write_all(&[0u8; 1024]).unwrap();
+        let (shared, size) = layer.finish().unwrap();
+        let images = ["used:latest", "unused:latest"].map(|name| {
+            let config = json!({"os": "linux", "architecture": "amd64", "config": {"Labels": {"owned": name}}});
+            let mut writer = store.ingest().unwrap();
+            writer.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+            let (digest, _) = writer.finish().unwrap();
+            let image = asagiri_image::archive::from_config(name.into(), &digest, &config, vec![
+                Layer { digest: shared.clone(), size, media_type: "application/vnd.oci.image.layer.v1.tar".into() },
+            ]);
+            store.put_image(image.clone()).unwrap();
+            image
+        });
+        let [used, unused] = images;
+        let id = "a".repeat(64);
+        // Load a stopped container with a real shared blob, without starting a guest.
+        let saved = json!([{
+            "id": id, "name": "owned-stopped",
+            "spec": {
+                "image": used.name, "image_id": used.config_digest, "entrypoint": [], "cmd": ["true"],
+                "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            },
+            "layers": [shared], "created_ns": 0, "status": "exited", "started_ns": null,
+            "finished_ns": null, "exit_code": 0, "stopped_by_user": true, "restart_count": 0,
+        }]);
+        std::fs::write(root.join("containers.json"), serde_json::to_vec(&saved).unwrap()).unwrap();
+        let engine = Engine::boot(store).unwrap();
+        assert_eq!(engine.each(|c| Some((c.id.clone(), c.status))), [(id.clone(), Status::Exited)]);
+        engine.store.remove_image_references_retaining(&used.config_digest, None, false, &engine.image_blob_users()).unwrap();
+        assert_eq!(engine.store.images().unwrap().as_slice(), std::slice::from_ref(&unused));
+        let (mut writer, reader) = UnixStream::pair().unwrap();
+        writer.write_all(b"POST /images/prune?filters=%7B%22dangling%22%3A%5B%22false%22%5D%7D HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n").unwrap();
+        drop(writer);
+        let req = http::read_request(&mut BufReader::new(reader), |_, _| false).unwrap().unwrap();
+        let result = image_prune(&req, &engine).unwrap();
+        assert_eq!(result["ImagesDeleted"], json!([{"Untagged": unused.name}, {"Deleted": unused.config_digest}]));
+        assert!(engine.store.images().unwrap().is_empty());
+        assert!(!engine.store.blob_path(&unused.config_digest).unwrap().exists());
+        assert!(engine.store.blob_path(&used.config_digest).unwrap().exists());
+        assert!(engine.store.has_blob(&shared, size), "prune must retain the deleted image's layer for its stopped container");
+        engine.remove(&id, false, false).unwrap();
+        assert!(!engine.store.blob_path(&shared).unwrap().exists(), "removing the last container releases the shared layer");
+        assert!(!engine.store.blob_path(&used.config_digest).unwrap().exists());
+        assert!(!engine.is_awake());
+        drop(engine);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(test)]
