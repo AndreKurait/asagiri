@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check immediate non-root exec after copying a large image directory to a fresh volume."""
+"""Check immediate non-root exec, image volume data and working-directory setup."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -49,7 +49,8 @@ def main():
         "started_at": datetime.now(timezone.utc).isoformat(),
         "fixture_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "reference_docker": args.reference_docker, "native_asagiri": args.native_asagiri,
-        "payload_bytes": 128 * 1024**2, "cases": [], "cleanup": [], "owned": owned,
+        "payload_bytes": 128 * 1024**2, "cases": [], "working_directory_cases": [],
+        "cleanup": [], "owned": owned,
     }
     digest = hashlib.sha256()
     for _ in range(128):
@@ -89,7 +90,7 @@ def main():
         owned[kind].append(name)
         persist()
 
-    def create(name, image, command, user, mounts=()):
+    def create(name, image, command, user, mounts=(), *, workdir=None, readonly=False, tmpfs=None):
         register("container", name)
         body = {
             "Image": image, "Entrypoint": [], "Cmd": command,
@@ -97,6 +98,12 @@ def main():
         }
         if user is not None:
             body["User"] = user
+        if workdir is not None:
+            body["WorkingDir"] = workdir
+        if readonly:
+            body["HostConfig"]["ReadonlyRootfs"] = True
+        if tmpfs:
+            body["HostConfig"]["Tmpfs"] = tmpfs
         return value("POST", "/containers/create?" + urlencode({"name": name}), body, (201,))["Id"]
 
     def unframe(payload):
@@ -111,6 +118,8 @@ def main():
 
     def execute(cid, explicit_user):
         command = 'id; test "$(id -u)" = 1000; test "$(id -un)" = dev; ' \
+                  'test "$(pwd)" = /image/default/work; ' \
+                  'test "$(stat -c %u:%g:%a .)" = 0:0:755; ' \
                   'test "$(stat -c %s /payload/blob)" = 134217728; ' \
                   f'test "$(sha256sum /payload/blob)" = "{payload_sha}  /payload/blob"; ' \
                   'printf "READY_IMAGE_USER\\n"'
@@ -131,6 +140,76 @@ def main():
         assert "uid=1000(dev)" in text, text
         return {"explicit_user": explicit_user, "exit_code": 0, "output": text,
                 "exec_started_ns": started, "exec_finished_ns": time.monotonic_ns()}
+
+    def run_exec(cid, command, *, workdir=None):
+        body = {"Cmd": ["sh", "-ec", command], "User": "0",
+                "AttachStdout": True, "AttachStderr": True}
+        if workdir is not None:
+            body["WorkingDir"] = workdir
+        eid = value("POST", "/containers/" + cid + "/exec", body, (201,))["Id"]
+        status, raw = request("POST", "/exec/" + eid + "/start",
+                              {"Detach": False, "Tty": False}, expected=(200, 400, 500))
+        text = unframe(raw) if status == 200 else raw.decode()
+        deadline = time.monotonic() + 5
+        while True:
+            state = value("GET", "/exec/" + eid + "/json")
+            if not state["Running"]:
+                return status, state, text
+            assert time.monotonic() < deadline, "working-directory exec did not finish"
+            time.sleep(.01)
+
+    def workdirs(committed, base_id):
+        cases = [
+            ("numeric-user", base_id, "1000:1000", False, None),
+            ("image-user", committed, None, False, None),
+            ("image-user-readonly", committed, None, True, None),
+            ("root-readonly", base_id, "0", True, None),
+            ("image-user-tmpfs", committed, None, True, {"/workspace": "rw,nosuid,nodev,size=1m"}),
+        ]
+        for name, image_id, user, readonly, tmpfs in cases:
+            directory = "/workspace/nested/work" if tmpfs else "/var/working-dir/" + name + "/nested"
+            uid = 0 if user == "0" else 1000
+            command = 'test "$(id -u)" = ' + str(uid) + '; test "$(pwd)" = ' + directory + '; ' \
+                      'test "$(stat -c %u:%g:%a .)" = 0:0:755; printf "WORKDIR_READY\\n"; exec sleep 120'
+            container_name = token + "-cwd-" + name
+            cid = create(container_name, image_id, ["sh", "-ec", command], user,
+                         workdir=directory, readonly=readonly, tmpfs=tmpfs)
+            request("POST", "/containers/" + cid + "/start", expected=(204,))
+            # The acknowledgement alone does not establish that the command
+            # survived its user switch. The command must print its marker.
+            deadline = time.monotonic() + 5
+            while True:
+                text = unframe(request("GET", "/containers/" + cid + "/logs?stdout=1&stderr=1")[1])
+                state = value("GET", "/containers/" + cid + "/json")["State"]
+                if "WORKDIR_READY\n" in text:
+                    assert state["Running"], (name, state, text)
+                    break
+                assert state["Running"] and time.monotonic() < deadline, (name, state, text)
+                time.sleep(.01)
+            record["working_directory_cases"].append({
+                "name": name, "status": "passed", "container": cid,
+                "working_directory": directory, "uid": uid, "directory_owner_mode": "0:0:755",
+                "readonly_rootfs": readonly, "tmpfs": bool(tmpfs), "output": text,
+            })
+            if name == "image-user":
+                missing = "/exec-must-not-create-" + uuid.uuid4().hex
+                status, state, text = run_exec(cid, "printf SHOULD_NOT_RUN", workdir=missing)
+                assert status != 200 or state["ExitCode"] not in (None, 0), (status, state, text)
+                assert "SHOULD_NOT_RUN" not in text, text
+                assert missing in text or "working directory" in text or "cwd" in text, text
+                record["working_directory_cases"].append({
+                    "name": "missing-exec-workdir-rejected", "status": "passed",
+                    "http_status": status, "exit_code": state["ExitCode"], "output": text,
+                })
+                status, state, text = run_exec(cid, "test ! -e " + missing + "; pwd", workdir="/tmp")
+                assert status == 200 and state["ExitCode"] == 0 and text == "/tmp\n", (status, state, text)
+                record["working_directory_cases"].append({
+                    "name": "existing-exec-workdir-and-no-created-path", "status": "passed",
+                    "http_status": status, "exit_code": state["ExitCode"], "output": text,
+                })
+            persist()
+            remove("container", container_name)
+        assert len(record["working_directory_cases"]) == 7
 
     def remove(kind, name):
         status, raw = request("GET", inspect_path(kind, name), expected=(200, 404))
@@ -164,10 +243,12 @@ def main():
         register("image", tag)
         committed = value("POST", "/commit?" + urlencode({"container": seed, "repo": token, "tag": "latest"}), {
             "User": "dev", "Labels": labels, "Cmd": ["sleep", "120"], "Entrypoint": [],
+            "WorkingDir": "/image/default/work",
         }, (201,))["Id"]
         assert committed != base_id
         image = value("GET", inspect_path("image", tag))
         assert image["Id"] == committed and image["Config"]["User"] == "dev"
+        assert image["Config"]["WorkingDir"] == "/image/default/work"
         assert image["Config"]["Labels"] == labels
         record["fixture_image"] = {key: image.get(key) for key in ("Id", "Architecture", "Os", "RootFS")}
         remove("container", seed_name)
@@ -215,6 +296,7 @@ def main():
                 }
             remove("container", name)
             remove("volume", volume)
+        workdirs(committed, base_id)
         remove("image", tag)
         request("GET", inspect_path("image", committed), expected=(404,))
         assert value("GET", inspect_path("image", args.image))["Id"] == base_id

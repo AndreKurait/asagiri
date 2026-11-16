@@ -15,6 +15,8 @@ case "$mode" in tests|build) ;; *) exit 2 ;; esac
 mkdir -p "$output" "$target" "$registry"
 output=$(cd "$output" && pwd -P)
 fixtures="${output}-fixtures"
+cgroup_fixtures="${output}-cgroup-startup"
+source_commit=$(git rev-parse HEAD)
 target=$(cd "$target" && pwd -P)
 registry=$(cd "$registry" && pwd -P)
 free_kib=$(df -Pk "$target" | awk 'END { print $4 }')
@@ -25,14 +27,15 @@ fi
 export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 set -- docker run --rm --tmpfs /tmp
 if [ "$mode" = tests ]; then
-  mkdir -p "$fixtures"
-  set -- "$@" --privileged -v "$fixtures:/fixtures"
+  mkdir -p "$fixtures" "$cgroup_fixtures"
+  set -- "$@" --privileged -v "$fixtures:/fixtures" -v "$cgroup_fixtures:/cgroup-startup"
 fi
 # The quoted program expands its variables inside the build container.
 # shellcheck disable=SC2016
 "$@" -v "$PWD:/src:ro" -v "$output:/out" -v "$target:/t" \
   -v "$registry:/usr/local/cargo/registry" -w /src -e CARGO_TARGET_DIR=/t \
   -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=cc \
+  -e "ASAGIRI_CGROUP_STARTUP_COMMIT=$source_commit" \
   -e CARGO_INCREMENTAL -e CARGO_PROFILE_DEV_DEBUG -e CARGO_PROFILE_TEST_DEBUG \
   "${ASAGIRI_CI_RUST_IMAGE:-rust:1.99.1-alpine}" sh -ec '
     apk add --no-cache -q build-base
@@ -56,7 +59,25 @@ fi
       export ASAGIRI_REQUIRE_MOUNTED_FILE_VIEW_TEST=1
       export ASAGIRI_REQUIRE_MANY_LAYER_TEST=1
       export ASAGIRI_REQUIRE_VOLUME_OWNER_TEST=1
+      export ASAGIRI_REQUIRE_CGROUP_KILL_TEST=1
       cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
+      # This standalone test needs to be PID 1 in a fresh cgroup namespace,
+      # so Cargo compiles it and the separate runtime step executes it.
+      cgroup_test=
+      for candidate in /t/debug/deps/cgroup_startup-*; do
+        if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+          [ -z "$cgroup_test" ]
+          cgroup_test=$candidate
+        fi
+      done
+      [ -n "$cgroup_test" ]
+      cp "$cgroup_test" /cgroup-startup/cgroup-startup
+      (cd /cgroup-startup && sha256sum cgroup-startup > SHA256SUMS)
+      sha256sum Cargo.toml Cargo.lock "crates/$engine-init/Cargo.toml" \
+        "crates/$engine-init/src/main.rs" "crates/$engine-init/src/layer_tar.rs" \
+        crates/"$engine-init"/src/linux/*.rs "crates/$engine-init/tests/cgroup-startup.rs" \
+        "crates/$engine-proto/Cargo.toml" crates/"$engine-proto"/src/*.rs > /cgroup-startup/SOURCES.sha256
+      rustc --version > /cgroup-startup/RUSTC_VERSION
       rustc --edition=2024 -C opt-level=1 -C panic=abort tests/wsl-daemon-fixture.rs -o /fixtures/asagiri-daemon-fixture
       # Desktop migration is a separate module: Linux asagiri image import
       # forwards to the Docker rootfs importer. Compile the migration module as a
@@ -75,8 +96,12 @@ fi
     cd /out
     sha256sum "$engine" "$engine-init" > SHA256SUMS
   ' asagiri-ci "$mode"
-git rev-parse HEAD > "$output/SOURCE_COMMIT"
-if [ "$mode" = tests ]; then git rev-parse HEAD > "$fixtures/SOURCE_COMMIT"; fi
+test "$(git rev-parse HEAD)" = "$source_commit"
+printf '%s\n' "$source_commit" > "$output/SOURCE_COMMIT"
+if [ "$mode" = tests ]; then
+  printf '%s\n' "$source_commit" > "$fixtures/SOURCE_COMMIT"
+  printf '%s\n' "$source_commit" > "$cgroup_fixtures/SOURCE_COMMIT"
+fi
 # The cache action runs as the runner user, while the compiler runs as root.
 if [ "$(uname -s)" = Linux ]; then
   sudo chown -R "$(id -u):$(id -g)" "$target" "$registry"

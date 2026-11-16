@@ -17,10 +17,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep only the newest automatic main build. Stable tags and explicit
-  # recovery/manual runs have their own groups and are never superseded.
+  # Finish the active build and publication before the newest pending main
+  # build starts. A merge must not discard packages already being published.
+  # Stable tags and explicit recovery/manual runs have their own groups.
   group: release-${{ github.ref }}-${{ inputs.recover_run || (github.event_name == 'workflow_dispatch' && github.run_id) || 'current' }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.1
@@ -191,20 +192,30 @@ jobs:
         with:
           path: ${{ runner.temp }}/maven
           key: ${{ steps.maven_cache.outputs.cache-primary-key }}
-      - name: Build and install-test the Linux packages
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq rpm
-          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs"
-      - name: Restore AppImage compiler dependencies and pinned downloads
+      - name: Restore GNU compiler dependencies and pinned AppImage downloads
         id: appimage_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/appimage-cache
-          key: appimage-v1-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'packaging/linux/appimage-build.json') }}
+          key: appimage-native-v2-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'packaging/linux/appimage-build.json', 'packaging/linux/native-build.json') }}
+      - name: Build the native GNU engine and verify real NSS admission
+        run: bash scripts/ci/build-linux-native.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/native-bin" "$RUNNER_TEMP/appimage-cache" tests
+      - name: Preserve native GNU binaries and NSS evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-native-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-bin
+          if-no-files-found: error
+          retention-days: 90
+      - name: Build and install-test the Linux packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm
+          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs" "$RUNNER_TEMP/native-bin"
       - name: Build and inspect the native AppImage
         run: |
-          bash scripts/ci/appimage.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/appimage" "$RUNNER_TEMP/appimage-cache"
+          bash scripts/ci/appimage.sh "$RUNNER_TEMP/native-bin" "$RUNNER_TEMP/appimage" "$RUNNER_TEMP/appimage-cache"
           cp "$RUNNER_TEMP/appimage/"*.AppImage "$RUNNER_TEMP/packages/"
       - name: Preserve AppImage packaging diagnostics
         if: always()

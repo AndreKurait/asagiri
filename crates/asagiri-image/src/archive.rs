@@ -141,9 +141,14 @@ pub fn save(store: &Store, images: &[Image], out: impl Write) -> io::Result<()> 
     // Images that share a config are one entry with several tags.
     let mut by_config: Vec<(&Image, Vec<String>)> = Vec::new();
     for i in images {
+        let tag = i.repo_tag().map(tagged);
         match by_config.iter_mut().find(|(first, _)| first.config_digest == i.config_digest) {
-            Some((_, tags)) => tags.push(i.name.clone()),
-            None => by_config.push((i, if i.name.starts_with("sha256:") { vec![] } else { vec![i.name.clone()] })),
+            Some((_, tags)) => {
+                if let Some(tag) = tag && !tags.contains(&tag) {
+                    tags.push(tag);
+                }
+            }
+            None => by_config.push((i, tag.into_iter().collect())),
         }
     }
     for (image, tags) in &by_config {
@@ -164,7 +169,7 @@ pub fn save(store: &Store, images: &[Image], out: impl Write) -> io::Result<()> 
         }
         manifest.push(json!({
             "Config": blob(&image.config_digest),
-            "RepoTags": tags.iter().map(|t| tagged(t)).collect::<Vec<_>>(),
+            "RepoTags": tags,
             "Layers": image.layers.iter().map(|l| blob(&l.digest)).collect::<Vec<_>>(),
         }));
     }
@@ -181,11 +186,11 @@ pub fn save(store: &Store, images: &[Image], out: impl Write) -> io::Result<()> 
 /// `alpine` → `alpine:latest`, as RepoTags spell it.
 fn tagged(name: &str) -> String {
     let last = name.rsplit('/').next().unwrap_or(name);
-    if last.contains(':') || name.contains('@') { name.to_owned() } else { format!("{name}:latest") }
+    if last.contains(':') { name.to_owned() } else { format!("{name}:latest") }
 }
 
 /// What kind of tar a layer file is, from its first bytes.
-fn media_type_of(path: &std::path::Path) -> io::Result<&'static str> {
+pub fn media_type_of(path: &std::path::Path) -> io::Result<&'static str> {
     let mut magic = [0u8; 4];
     let n = std::fs::File::open(path)?.read(&mut magic)?;
     Ok(match &magic[..n] {
@@ -257,6 +262,60 @@ mod tests {
         header.set_mtime(0);
         tar.append_data(&mut header, "hello", b"hello".as_slice()).unwrap();
         tar.into_inner().unwrap()
+    }
+
+    fn saved_manifest(store: &Store, images: &[Image]) -> Value {
+        let mut bytes = Vec::new();
+        save(store, images, &mut bytes).unwrap();
+        let mut tar = tar::Archive::new(bytes.as_slice());
+        for entry in tar.entries().unwrap() {
+            let entry = entry.unwrap();
+            if entry.path().unwrap() == std::path::Path::new("manifest.json") {
+                return serde_json::from_reader(entry).unwrap();
+            }
+        }
+        panic!("saved archive has no manifest");
+    }
+
+    #[test]
+    fn saved_digest_references_are_untagged() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let image = import(&store, Some("demo:1".into()), json!({}), rootfs().as_slice()).unwrap();
+        for name in [image.config_digest.clone(), format!("demo@sha256:{}", "a".repeat(64)),
+            format!("localhost:5000/team/demo:1@sha256:{}", "b".repeat(64))] {
+            let selected = Image { name, ..image.clone() };
+            let manifest = saved_manifest(&store, std::slice::from_ref(&selected));
+            assert_eq!(manifest[0]["RepoTags"], json!([]));
+            let mut archive = Vec::new();
+            save(&store, &[selected], &mut archive).unwrap();
+            let loaded = load(&store, archive.as_slice()).unwrap();
+            assert_eq!(loaded[0].name, image.config_digest);
+            assert_eq!(loaded[0].config_digest, image.config_digest);
+            assert_eq!(loaded[0].layers[0].digest, image.layers[0].digest);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saved_alias_groups_exclude_digest_references_and_ids_in_any_order() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let image = import(&store, Some("demo:1".into()), json!({}), rootfs().as_slice()).unwrap();
+        let mut selected: Vec<Image> = [
+            image.config_digest.clone(), format!("demo@sha256:{}", "a".repeat(64)),
+            "demo:1".into(), "localhost:5000/team/demo".into(), "demo:1".into(),
+        ].into_iter().map(|name| Image { name, ..image.clone() }).collect();
+        for _ in 0..selected.len() {
+            let manifest = saved_manifest(&store, &selected);
+            assert_eq!(manifest.as_array().unwrap().len(), 1);
+            let mut tags: Vec<&str> = manifest[0]["RepoTags"].as_array().unwrap()
+                .iter().map(|tag| tag.as_str().unwrap()).collect();
+            tags.sort_unstable();
+            assert_eq!(tags, ["demo:1", "localhost:5000/team/demo:latest"]);
+            selected.rotate_left(1);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -1,0 +1,225 @@
+{
+  "schema": "asagiri.seccomp-reference-validation.v1",
+  "status": "actual_spec_conversion_verified",
+  "verified_at": "2026-11-16T12:04:04.439059+00:00",
+  "public_reference": {
+    "repository": "opencontainers/runc",
+    "tag": "v1.5.3",
+    "commit": "46365c62967c76a765a5e347f48f0c7b3b571fe9",
+    "tree": "511bc31cc4e162f25c74dbe9e71a8d9f05fe8cf2",
+    "source": "https://github.com/opencontainers/runc/blob/46365c62967c76a765a5e347f48f0c7b3b571fe9/libcontainer/specconv/spec_linux.go",
+    "source_archive_sha256": "5d04c5b0cd90a2a7a27cccdab3526b8880c1a4b72810aa90609e6b9bfa11ef78",
+    "original_files_verified_unchanged": 1231,
+    "specconv_sha256": "e8c3f786bc28cc7f043049f57cb47a5e465e94c094c78a809ce2ce607202327d",
+    "operator_conversion_sha256": "4cd5d8c3bd20bdae90074e62758f9be9e63c291ff854aaf265ba2f48c1d7ca0b",
+    "git_tree_objects_independently_reconstructed": 158
+  },
+  "execution": {
+    "go": "1.26.3",
+    "target": "linux/arm64",
+    "cgo_enabled": true,
+    "static_binary_sha256": "4d7aed56e1a16654016eef77b61eeab09b5272cc2c4a23f803b0dc4bb9358453",
+    "no_interpreter": true,
+    "actual_entrypoint": "specconv.SetupSeccomp",
+    "seccomp_runtime_enabled": false,
+    "explicit_empty_flags": true,
+    "effective_capabilities": 0,
+    "no_new_privileges": true,
+    "host_app_version": "0.1.6-dev.100",
+    "owned_container_removed": true,
+    "original_inventory_and_app_preserved": true,
+    "compilation_record_sha256": "ce3df3bf7f441b0fa07a7c26ce4c7684b7c6b4ef081552d392c168b0454b77d3",
+    "native_record_sha256": "dc9725974aeb0ea7746828ff593ffed4a3da187a4758c6f684206d290696a757",
+    "result_sha256": "b65732c32a131cacd72c54e84d7052946cdc4013e46523974b99dd84cc8b47a7",
+    "cleanup_recovery_record_sha256": "71d42dde3ef4699af1ac32a1160ebff718a27a9d555c70550ac2a2fed08ceb66",
+    "program_execution_count": 1
+  },
+  "results": [
+    {
+      "input": {
+        "name": "canonical-deny",
+        "profile": {
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "defaultErrnoRet": 1,
+          "syscalls": [
+            {
+              "names": [
+                "getppid"
+              ],
+              "action": "SCMP_ACT_ERRNO",
+              "errnoRet": 13,
+              "args": []
+            }
+          ],
+          "flags": []
+        }
+      },
+      "accepted": true,
+      "error": "",
+      "converted_calls": 1
+    },
+    {
+      "input": {
+        "name": "redundant-default-invalid-condition",
+        "profile": {
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "defaultErrnoRet": 1,
+          "syscalls": [
+            {
+              "names": [
+                "getppid"
+              ],
+              "action": "SCMP_ACT_ALLOW",
+              "errnoRet": 13,
+              "args": [
+                {
+                  "index": 7,
+                  "op": "SCMP_CMP_BOGUS",
+                  "value": 0,
+                  "valueTwo": 0
+                }
+              ]
+            }
+          ],
+          "flags": []
+        }
+      },
+      "accepted": false,
+      "error": "string SCMP_CMP_BOGUS is not a valid operator for seccomp",
+      "converted_calls": 0
+    },
+    {
+      "input": {
+        "name": "redundant-default-invalid-index-valid-operator",
+        "profile": {
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "defaultErrnoRet": 1,
+          "syscalls": [
+            {
+              "names": [
+                "getppid"
+              ],
+              "action": "SCMP_ACT_ALLOW",
+              "errnoRet": 13,
+              "args": [
+                {
+                  "index": 7,
+                  "op": "SCMP_CMP_EQ",
+                  "value": 0,
+                  "valueTwo": 0
+                }
+              ]
+            }
+          ],
+          "flags": []
+        }
+      },
+      "accepted": true,
+      "error": "",
+      "converted_calls": 1
+    },
+    {
+      "input": {
+        "name": "unknown-name-invalid-condition",
+        "profile": {
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "defaultErrnoRet": 1,
+          "syscalls": [
+            {
+              "names": [
+                "asagiri_no_such_syscall"
+              ],
+              "action": "SCMP_ACT_ERRNO",
+              "errnoRet": 13,
+              "args": [
+                {
+                  "index": 7,
+                  "op": "SCMP_CMP_BOGUS",
+                  "value": 0,
+                  "valueTwo": 0
+                }
+              ]
+            }
+          ],
+          "flags": []
+        }
+      },
+      "accepted": false,
+      "error": "string SCMP_CMP_BOGUS is not a valid operator for seccomp",
+      "converted_calls": 0
+    },
+    {
+      "input": {
+        "name": "unknown-name-invalid-index-valid-operator",
+        "profile": {
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "defaultErrnoRet": 1,
+          "syscalls": [
+            {
+              "names": [
+                "asagiri_no_such_syscall"
+              ],
+              "action": "SCMP_ACT_ERRNO",
+              "errnoRet": 13,
+              "args": [
+                {
+                  "index": 7,
+                  "op": "SCMP_CMP_EQ",
+                  "value": 0,
+                  "valueTwo": 0
+                }
+              ]
+            }
+          ],
+          "flags": []
+        }
+      },
+      "accepted": true,
+      "error": "",
+      "converted_calls": 1
+    },
+    {
+      "input": {
+        "name": "active-invalid-operator",
+        "profile": {
+          "flags": [],
+          "defaultAction": "SCMP_ACT_ALLOW",
+          "syscalls": [
+            {
+              "names": [
+                "getppid"
+              ],
+              "action": "SCMP_ACT_ERRNO",
+              "errnoRet": 13,
+              "args": [
+                {
+                  "index": 0,
+                  "op": "SCMP_CMP_BOGUS",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "accepted": false,
+      "error": "string SCMP_CMP_BOGUS is not a valid operator for seccomp",
+      "converted_calls": 0
+    }
+  ],
+  "assessment": {
+    "earlier_adapter_validation_gaps": [
+      "redundant-default-invalid-condition",
+      "unknown-name-invalid-condition"
+    ],
+    "reason": "The real conversion rejects SCMP_CMP_BOGUS before matchCall. The earlier narrow adapter skipped that conversion, so its acceptance of those invalid profiles was not the runtime reference. Do not change Asagiri to accept those invalid operators.",
+    "rule_ordering_differences_still_under_review": [
+      "higher-argument-precedence",
+      "longer-before-shorter"
+    ],
+    "new_index_only_controls": "Two inactive-rule profiles with index 7 and a valid equality operator pass spec conversion. Later rule handling and end-to-end runtime acceptance have not been verified by this conversion-only probe.",
+    "zero_mask_correction": "The previously demonstrated three zero-mask discrepancies and four native Rust regressions are unaffected by this reference-validation correction.",
+    "parser_compatibility": "Preserve the existing case-insensitive profile parser; the separate public #371 parser review still records 16 variants that produced weaker filters."
+  },
+  "scope": "This executes actual public spec conversion with its unchanged vendored dependencies. It does not install seccomp filters, execute runc containers or Docker/Podman workloads, establish complete compiler equivalence, or provide a formal proof."
+}

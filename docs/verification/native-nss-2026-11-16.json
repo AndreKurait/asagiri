@@ -1,0 +1,199 @@
+{
+  "schema": "asagiri.native-nss-development.v1",
+  "date": "2026-11-16",
+  "status": "local_gnu_backend_runtime_passed_hosted_qualification_pending",
+  "public_issue": "https://github.com/libracoder/kiri/issues/349",
+  "problem": "The static portable Linux executable does not load GNU NSS modules, so an existing directory account can be reported as absent by host-access. Lookup failures were also collapsed into absence.",
+  "implementation": [
+    "Use a GNU headless engine for native DEB, RPM and AppImage; retain the static init, portable archive and Windows/WSL inputs.",
+    "Propagate account and group lookup failures instead of creating a group during a directory outage.",
+    "Bound the native engine ELF imports to glibc 2.34 and standard GNU runtime libraries, and declare package dependencies.",
+    "Run an actual NSS module in a disposable compiler container, restore its NSS configuration and preserve account-file hashes.",
+    "Measure native and portable engine builds separately against pinned Docker and Podman on the same Platform runner.",
+    "Represent missing groups separately from lookup errors; GNU ENOENT or ESRCH from an NSS backend is an error, while the existing non-GNU fallback stays unchanged.",
+    "Qualify ARM native GNU/NSS, AppImage and package lifecycle checks in Platform builds before merge, as well as the x86_64 checks."
+  ],
+  "local_evidence": {
+    "released_negative_control": {
+      "release": "v0.1.6-dev.100",
+      "source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+      "cases_passed": 9,
+      "receipt_sha256": "119f51874a7b7bd301d5c1fd813a06cae1cea963d73e41b6ecb5f29c060462a6",
+      "scope": "One owned unprivileged GNU container on native Asagiri reproduced rejection of a genuine NSS account by the published static executable. The helper and its image were removed, and the original engine inventory was preserved."
+    },
+    "source_checks": {
+      "reference_contracts_passed": 10,
+      "release_contracts_passed": 30,
+      "runtime_contracts_passed": 8,
+      "shellcheck": "passed",
+      "actionlint": "passed",
+      "receipt_sha256": "6e970df6700364f65887e9e07955fc835168b8b32a072ab86050d135f180af80"
+    },
+    "access_compile_only": {
+      "receipt_sha256": "255e1ac8e0afa7c3a5999fc413f9709f5aa160ce307aea1a34d6d14b41f79178",
+      "scope": "ARM64 and x86_64 metadata-only compilation of the actual access module and NSS test bodies using musl targets and diagnostic adapters. This is not GNU linking or NSS runtime qualification."
+    },
+    "provider_cross_compilation": {
+      "receipt_sha256": "09b349140b74aa33b73324c6da9a397ed5e046088aab0255066ff3cda5588380",
+      "compiler": "Zig 0.15.2, GNU 2.34 target",
+      "architectures": [
+        "aarch64",
+        "x86_64"
+      ],
+      "source_sha256": "d46ce4cb48b6821c62fe5660dd0e6f238874f75666ae752867d450f8dbd91b15",
+      "runtime": "aarch64 real GNU fixture passed; x86_64 hosted runtime pending"
+    },
+    "gnu_compilation": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "9104385b774aa3fb95f304462c58bd32eb1689f37fdb319b7ffd11de31a3c283",
+      "first_linker_failure_receipt_sha256": "57caf47291c67be39ad8f1cc0b63eab84428d2f27d19a14e0f871d43964a0f3d",
+      "limit": "The local Zig adapter omits an unsupported Cortex-A53 linker erratum option for this Apple ARM VM probe. No hosted compiler flags change, and this build does not qualify Cortex-A53 hardware.",
+      "initial_success_receipt_sha256": "6efa4688afeb5ac88946b1bb6dc754ce990b51dd93d0524ffcde6b81a53978f0"
+    },
+    "portable_control_compilation": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "263587ac8313138e03de916ee89d183446800c9032eaa3dc47f3e3a2ab5cec8d",
+      "first_linker_failure_receipt_sha256": "8fd5cc11ff794834e40c3418a3da65028140a170ceccfe218b0a6e8bb50e8956",
+      "limit": "The local C adapter disables Zig implicit UBSan instrumentation because the direct Rust musl linker lacks that runtime. No sanitizer failure was suppressed and no hosted flags change.",
+      "initial_success_receipt_sha256": "368ee1a2c0f269b936f9a6c35ad927f6719d8d8eda9ee43aacadbbe529020bc1"
+    },
+    "independent_elf_inspection": {
+      "status": "passed",
+      "receipt_sha256": "8d5d5675f46aa7d080104d722657bcab625dd2ccb1c0d52177755b7fd50e7271",
+      "controls": 8,
+      "maximum_observed_glibc": "2.34",
+      "scope": "Actual local GNU engine and unit binary plus a published static control; rejects swapped roles, foreign architecture, a newer GLIBC version and a foreign runtime library."
+    },
+    "missing_backend_regression": {
+      "status": "reproduced_before_followup",
+      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
+      "receipt_sha256": "b1fb8266f1274d341a2cf5a7807b47bb767fa0fcf384cd52d9362345e22f024b",
+      "raw_lookup_results": {
+        "missing_group": 0,
+        "missing_provider_backend": 2
+      },
+      "old_cli_reached_groupadd_guard_for_both": true,
+      "scope": "Actual libc getgrnam_r distinguishes zero/null absence from ENOENT when the provider backend file is missing. The old GNU executable incorrectly reached the guarded group creation path for both. No account files changed; owned container and image were removed and original inventory preserved.",
+      "followup_runtime": "passed",
+      "followup_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "followup_receipt_sha256": "39ac6a7a8b8826c291b74e478bd80d459342566229a0c3f79efbc28bc2dc3c62"
+    },
+    "initial_gnu_runtime": {
+      "status": "passed",
+      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
+      "scenarios_passed": 16,
+      "access_unit_tests_passed": 11,
+      "access_unit_tests_ignored": 2,
+      "receipt_sha256": "69f2253268645e678a4da39dfd2f0eea0b7d9c08596ad792b19c5f0638c9023a",
+      "controller_receipt_sha256": "43ec0e7bf7f87d3ba63e708fc6dd0ade44045a43915ba2865ab5fad7dfe55971",
+      "scope": "Actual GNU engine and Cargo test executable plus same-source static control in one owned network-none container, with only SETUID/SETGID and no-new-privileges. The container and image were removed; native images, volumes, volume metadata and installed app binary were preserved."
+    },
+    "actual_gnu_runtime": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "scenarios_passed": 19,
+      "access_unit_tests_passed": 12,
+      "access_unit_tests_ignored": 2,
+      "receipt_sha256": "39ac6a7a8b8826c291b74e478bd80d459342566229a0c3f79efbc28bc2dc3c62",
+      "controller_receipt_sha256": "c0b1a623f3f5aa77236bfea55c0e5a684e1b87558999d1ebea9a92a54a5b37bb",
+      "engine_sha256": "8fe0c42f646b94f65bf46c9e17db3224c827a7036bb78d2e99be34f97e2b2eb8",
+      "unit_binary_sha256": "1369baf7a390b046381dafaeac0980a77388fa22fc02f81cb49ecbbc70fd60bd",
+      "portable_control_sha256": "92acbcb58de0b1c794ec3b48f7d1a0c70f70c2105a03ed11a39f50c9a2327147",
+      "scope": "Actual GNU engine and Cargo test executable plus same-source static control in one owned network-none container, with only SETUID/SETGID and no-new-privileges. The container and image were removed; native images, volumes, volume metadata and installed app binary were preserved."
+    },
+    "backend_followup_elf": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "43c1d1e5daccd828e2034e467134737d620567320fcd9377efdbc094514143c8",
+      "actual_binaries_inspected": 3,
+      "maximum_observed_glibc": "2.34",
+      "scope": "Both new GNU executables use the host GNU loader and bounded runtime imports; the same-source portable control remains static."
+    },
+    "backend_followup_source_checks": {
+      "status": "passed",
+      "receipt_sha256": "16d77c92e6285fe9912dbc5acd39d3626f18e983f8cd747511977756b16ad91b",
+      "scope": "Final backend-error controller syntax and all three changed workflows passed Python parsing, actionlint and whitespace checks."
+    },
+    "evidence_reader_controls": {
+      "status": "passed",
+      "receipt_sha256": "8150d0ee1b2706708af09bd6b779e52554c04f7c1d80f2a3fa433bb48d7b5411",
+      "controls": 8,
+      "scope": "Accepted the actual 19-scenario local result and rejected seven malformed or mismatched evidence controls. Hosted artifact verification is still pending."
+    }
+  },
+  "required_hosted_evidence": {
+    "native_nss_cases": 19,
+    "nss_coverage": [
+      "Provider name and UID resolution",
+      "Missing and invalid accounts",
+      "Named and primary group membership",
+      "Actual Unix peer credentials and socket ACL admission",
+      "Temporary and unavailable provider errors",
+      "Provider recovery",
+      "Live revocation, closed connection and ACL removal",
+      "Deleted account and group",
+      "Full CLI resolution with blocked account-changing commands",
+      "Portable executable negative control",
+      "Missing provider backend must remain an error for account/group lookup and admission, while established connections remain open"
+    ],
+    "engine_comparisons": {
+      "builds": [
+        "musl-portable",
+        "gnu-native"
+      ],
+      "engines": [
+        "Asagiri",
+        "Docker",
+        "Podman"
+      ],
+      "workloads": [
+        "ping",
+        "list",
+        "run",
+        "exec",
+        "copy"
+      ],
+      "samples_per_workload_per_engine_per_build": 400,
+      "status": "pending"
+    },
+    "native_packages_and_appimage": "pending on both Linux architectures before merge",
+    "platform_jobs": [
+      "Linux",
+      "Native Linux ARM64"
+    ]
+  },
+  "limits": [
+    "No real SSSD or Himmelblau deployment has been qualified.",
+    "The CLI checks stop at guarded account-changing commands; they do not qualify a real directory service administration workflow.",
+    "Cold pulls, full application workloads and directory-service latency are outside the five reference workloads.",
+    "The runtime fixture and these contracts are tests, not a formal verification claim.",
+    "No GNU native package has yet been published from this change."
+  ],
+  "implementation_files_sha256": {
+    ".github/workflows/platforms.yml": "355e2e81129cf9cb87223dbe451bbfb2d89c1051a1e38b415cc3985d99aa484f",
+    ".github/workflows/reference-performance.yml": "7aede5adff64ce8e3300c5b1a317859e4de6710eff597893749d8e899ed6522b",
+    ".github/workflows/release.yml": "9ee2acdbebcbf8dfe3415c544d40495f8150cb6b4086839b746638086101961d",
+    "crates/asagiri/src/daemon/access.rs": "5aced930eb8a50eb75fdd4bc4b3ce8972ee588afb4fd7c604b2e42a1882b0fe3",
+    "crates/asagiri/src/hostaccess.rs": "5a2c8be27fb859a2a071f2c0e8abecbe62e3221fca80ceba2dd7c0e1f5e766e7",
+    "crates/asagiri/src/main.rs": "0f8fbc039ce3d8f50ef340a22daa351c08ce28ee893039aa279850215869c2b1",
+    "packaging/README.md": "e25ad9bbd3a83016cd3bedc912e23da60cf80ad6fd410a1a0c682d592811a818",
+    "packaging/linux/appimage.sh": "3a5830870bde9b57ce352bc3134c8780445a3b11a148874d98326fb12d2ea469",
+    "packaging/linux/build.sh": "298084488e07cd3d82c6f4931455c9fe5a1ce5fd1fb70a0e96f27404785c9a66",
+    "packaging/linux/rpm/asagiri.spec": "273c71790721dc0139e5528386164d7e709fc0a179bd8fcfeb46c7d033a998d7",
+    "packaging/linux/test.sh": "635d030563009e6a6c4b0a3aee92d258af72b8365c32f871b62e5f48796f47cb",
+    "scripts/ci/appimage.sh": "668103b1c675eead85a866ea3004b9b3a301a893b9d04dc947b8c0b99d38a7ae",
+    "scripts/ci/linux-build.sh": "da47aff1cc0f9ff49024ab3ff43ed32264dfade84439f87eeb4b29f207af7864",
+    "scripts/ci/linux-packages.sh": "c64db22e58007ebc6eef9b30887de010a35de52b49e0fa4c5e0f22ab188294f3",
+    "scripts/ci/reference-images.json": "b29791a9e1ce06ffab8d74d27e34ed17f834ced30e2fcfab4417a895514c53fd",
+    "scripts/ci/reference-run.py": "99005291560f3e1e47fa6e4383afef6f98aedc05717002aa14303bac59da5a47",
+    "scripts/ci/release-linux.sh": "53ca031d14cfafb2bdb44ab199735fa1cda0000df63683b9c4e14448be1c451a",
+    "crates/asagiri/src/daemon/access/nss_tests.rs": "3b7a9061ecd3949b98dae73273c4de925d628305ed396a305d13cb6aa0e0d9b7",
+    "packaging/linux/native-build.json": "26f17780a76980c59673de7de3d41c8d378636410c440ff36cede7ea8f5cdf3a",
+    "scripts/ci/build-linux-native.sh": "f27b2fb56d4429c110e430d60d62fcfd48b2981a4beb11750fb7a7993d0f210e",
+    "scripts/ci/verify-linux-native.py": "5e6c39ec48a51864cee490b2d5a1b878d1155189128019aee25d785dff0c874f",
+    "tests/fixtures/nss/provider.c": "d46ce4cb48b6821c62fe5660dd0e6f238874f75666ae752867d450f8dbd91b15",
+    "tests/nss-directory.py": "b254e421d6597d58dc8519c166a69cb696e728773f60a26f25664c8c52279040"
+  }
+}

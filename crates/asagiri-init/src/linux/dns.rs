@@ -16,6 +16,7 @@
 //! (crates/asagiri/src/daemon/dns.rs). A container's own `--dns` servers are
 //! never second-guessed.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -56,6 +57,10 @@ struct Server {
     /// The networks whose names it answers: a gateway's one, or every
     /// network of the container it is in.
     bridges: Vec<String>,
+    /// Internal networks follow routed ones; more gateway families come
+    /// first. IPv6 can be disabled for one container on a dual-stack network,
+    /// so this belongs to the endpoint, not the bridge's shared name table.
+    priorities: HashMap<String, (bool, Reverse<u8>)>,
     sock: OwnedFd,
     /// In a container's namespace: (its PID, the address its `--dns`
     /// servers are kept under). Every query there comes from 127.0.0.1.
@@ -99,6 +104,8 @@ pub struct Dns {
     /// bridge → name → (the container's IPv4 address there, its IPv6 one):
     /// the IPv4 address is what `unregister` names the container by.
     names6: HashMap<String, HashMap<String, Owned6>>,
+    /// Bridge to its Docker network name, for DNS search order.
+    networks: HashMap<String, String>,
     /// Container address → its `--dns` servers, used instead of the VM's.
     clients: HashMap<[u8; 4], Vec<[u8; 4]>>,
     pending: Vec<Pending>,
@@ -149,7 +156,7 @@ impl Dns {
             return Ok(());
         }
         let sock = bound(gateway, 53)?;
-        self.servers.push(Server { bridges: vec![bridge.to_owned()], sock, container: None });
+        self.servers.push(Server { bridges: vec![bridge.to_owned()], priorities: HashMap::new(), sock, container: None });
         Ok(())
     }
 
@@ -172,7 +179,7 @@ impl Dns {
             super::netlink::install_embedded_dns(EMBEDDED, socket.local_addr()?.port())?;
             Ok(OwnedFd::from(socket))
         })?;
-        self.servers.push(Server { bridges: vec![bridge.to_owned()], sock, container: Some((pid, owner)) });
+        self.servers.push(Server { bridges: vec![bridge.to_owned()], priorities: HashMap::new(), sock, container: Some((pid, owner)) });
         Ok(())
     }
 
@@ -180,6 +187,7 @@ impl Dns {
     pub fn leave(&mut self, pid: i32, bridge: &str) {
         for s in self.servers.iter_mut().filter(|s| s.container.is_some_and(|(p, _)| p == pid)) {
             s.bridges.retain(|b| b != bridge);
+            s.priorities.remove(bridge);
         }
     }
 
@@ -217,14 +225,46 @@ impl Dns {
         }
     }
 
+    /// `bridge` is Docker network `name` (`net_opts::NETWORK`).
+    fn name_network(&mut self, bridge: &str, name: &str) {
+        if self.networks.get(bridge).is_none_or(|n| n != name) {
+            self.networks.insert(bridge.to_owned(), name.to_owned());
+        }
+    }
+
+    /// Called after this endpoint's DNS listener is ready. Docker searches
+    /// non-internal endpoints before internal ones, then prefers more
+    /// gateway families, then the network name. An older daemon may omit
+    /// the name; its bridge name provides a stable fallback.
+    pub fn describe_network(&mut self, pid: i32, net: asagiri_proto::NetSpec<'_>) {
+        use asagiri_proto::net_opts;
+        if let Some(name) = net_opts::values(net.opts, net_opts::NETWORK).next().filter(|n| !n.is_empty()) {
+            self.name_network(net.bridge, name);
+        }
+        let plug = super::net::Plug::from_opts(net.opts);
+        let gateways = if plug.internal || plug.own_link() {
+            0
+        } else {
+            u8::from(!plug.no_ipv4 && net.gateway != [0; 4])
+                + u8::from(super::net::Ip6::from_opts(net.opts).is_some_and(|v| v.gateway != [0; 16]))
+        };
+        for server in self.servers.iter_mut().filter(|s| s.container.is_some_and(|(p, _)| p == pid)) {
+            if server.bridges.iter().any(|b| b == net.bridge) {
+                server.priorities.insert(net.bridge.to_owned(), (plug.internal, Reverse(gateways)));
+            }
+        }
+    }
+
     /// A removed network's bridge: its server and names go.
     pub fn forget_bridge(&mut self, bridge: &str) {
         self.servers.retain(|s| s.container.is_some() || !s.bridges.iter().any(|b| b == bridge));
         for s in &mut self.servers {
             s.bridges.retain(|b| b != bridge);
+            s.priorities.remove(bridge);
         }
         self.names.remove(bridge);
         self.names6.remove(bridge);
+        self.networks.remove(bridge);
         self.forget_pending();
     }
 
@@ -316,10 +356,13 @@ impl Dns {
     fn answer(&self, server: usize, q: &[u8]) -> Option<Vec<u8>> {
         let (name, qtype, end) = parse_question(q)?;
         let host = vec![super::net::HOST_ADDR];
-        // The first of the server's networks that has the name answers.
-        let bridge = self.servers[server].bridges.iter().find(|b| {
-            self.names.get(*b).is_some_and(|t| t.contains_key(&name)) || self.names6.get(*b).is_some_and(|t| t.contains_key(&name))
-        });
+        // Compose registers service aliases on every joined network. Among
+        // equivalent endpoints, Docker searches network names in order,
+        // rather than join order. Keep routing precedence before that name.
+        let bridge = self.servers[server].bridges.iter()
+            .filter(|b| self.names.get(*b).is_some_and(|t| t.contains_key(&name)) || self.names6.get(*b).is_some_and(|t| t.contains_key(&name)))
+            .min_by_key(|b| (self.servers[server].priorities.get(*b).copied().unwrap_or_default(),
+                self.networks.get(*b).map_or(b.as_str(), String::as_str), b.as_str()));
         let addrs = bridge.and_then(|b| self.names.get(b)).and_then(|t| t.get(&name));
         let addrs6 = bridge.and_then(|b| self.names6.get(b)).and_then(|t| t.get(&name));
         // The host's names answer A with the host's address, and AAAA with
@@ -590,11 +633,23 @@ fn parse_question(q: &[u8]) -> Option<(String, u16, usize)> {
 #[cfg(test)]
 mod tests {
     use super::{Dns, Pending, Server, response_matches, udp_socket};
+    use std::collections::HashMap;
+
+    fn describe(dns: &mut Dns, pid: i32, bridge: &str, name: Option<&str>, options: &[&str]) {
+        let mut opts: Vec<String> = options.iter().map(|s| (*s).to_owned()).collect();
+        if let Some(name) = name { opts.push(format!("network={name}")); }
+        let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+        let mut frame = Vec::new();
+        asagiri_proto::encode_net_attach(&mut frame, "fixture", "eth0", bridge,
+            [10, 1, 0, 2], 24, [10, 1, 0, 1], &["db"], &opts);
+        let asagiri_proto::Msg::NetAttach { net, .. } = asagiri_proto::decode(&frame).unwrap() else { panic!("network frame") };
+        dns.describe_network(pid, net);
+    }
 
     #[test]
     fn host_names_answer_on_every_network() {
         let mut dns = Dns::default();
-        dns.servers.push(Server { bridges: vec!["asagiri1".into()], sock: udp_socket().unwrap(), container: None });
+        dns.servers.push(Server { bridges: vec!["asagiri1".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: None });
         let q = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x04host\x06docker\x08internal\x00\x00\x01\x00\x01";
         let r = dns.answer(0, q).expect("answered, not forwarded");
         assert_eq!(&r[6..8], &[0, 1], "one answer");
@@ -612,7 +667,7 @@ mod tests {
     #[test]
     fn a_containers_server_answers_for_each_of_its_networks() {
         let mut dns = Dns::default();
-        dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], sock: udp_socket().unwrap(), container: Some((42, [10, 5, 0, 2])) });
+        dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((42, [10, 5, 0, 2])) });
         dns.register("asagiri1", ["web"].iter(), [10, 5, 0, 3]);
         dns.register("asagiri2", ["db"].iter(), [10, 6, 0, 3]);
         let q = query("db", 1);
@@ -623,6 +678,120 @@ mod tests {
         assert!(dns.answer(0, &query("db", 1)).is_none(), "gone with the network");
         dns.drop_container(42);
         assert!(dns.servers.is_empty());
+    }
+
+    #[test]
+    fn a_containers_networks_are_searched_by_docker_network_name() {
+        for (shared, project, shared_answers) in [("kiri_shared_t", "kra_default", true), ("ddev_default", "ddev-a_default", false), ("zz_shared", "kca_default", false)] {
+            for bridges in [["asagiri1", "asagiri2"], ["asagiri2", "asagiri1"]] {
+                let mut dns = Dns::default();
+                dns.servers.push(Server { bridges: bridges.iter().map(|s| (*s).to_owned()).collect(), priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((42, [10, 1, 0, 2])) });
+                describe(&mut dns, 42, "asagiri1", Some(shared), &[]);
+                describe(&mut dns, 42, "asagiri2", Some(project), &[]);
+                dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 3]);
+                dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 4]);
+                dns.register("asagiri2", ["db"].iter(), [10, 2, 0, 3]);
+                let q = query("db", 1);
+                let got = answers(&dns.answer(0, &q).unwrap(), q.len());
+                let want = if shared_answers { vec![(1, vec![10, 1, 0, 3]), (1, vec![10, 1, 0, 4])] } else { vec![(1, vec![10, 2, 0, 3])] };
+                assert_eq!(got, want, "{shared} and {project}, joined as {bridges:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn routed_endpoints_and_gateway_families_precede_network_names() {
+        let dual = ["ip6=fd42:77::2/64", "gw6=fd42:77::1"];
+        let internal_dual = ["internal=1", "ip6=fd42:77::2/64", "gw6=fd42:77::1"];
+        let cases: &[(&[&str], &[&str], bool)] = &[
+            (&["internal=1"], &[], false),
+            (&[], &["internal=1"], true),
+            (&[], &dual, false),
+            (&dual, &[], true),
+            (&internal_dual, &[], false),
+            (&internal_dual, &["internal=1"], true),
+            (&["macvlan=bridge"], &[], false),
+        ];
+        for &(first, second, first_answers) in cases {
+            let mut dns = Dns::default();
+            dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((42, [10, 1, 0, 2])) });
+            describe(&mut dns, 42, "asagiri1", Some("a-first"), first);
+            describe(&mut dns, 42, "asagiri2", Some("z-second"), second);
+            dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 3]);
+            dns.register("asagiri2", ["db"].iter(), [10, 2, 0, 3]);
+            let q = query("db", 1);
+            let want = if first_answers { vec![10, 1, 0, 3] } else { vec![10, 2, 0, 3] };
+            assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, want)], "{first:?}, {second:?}");
+        }
+    }
+
+    #[test]
+    fn gateway_family_priority_belongs_to_each_container() {
+        let mut dns = Dns::default();
+        for pid in [42, 43] {
+            dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((pid, [10, 1, 0, 2])) });
+            describe(&mut dns, pid, "asagiri1", Some("a-ipv4"), &[]);
+        }
+        describe(&mut dns, 42, "asagiri2", Some("z-dual"), &["ip6=fd42:77::2/64", "gw6=fd42:77::1"]);
+        // IPv6 was disabled for the second container before its network was
+        // attached. It must not overwrite the first one's gateway priority.
+        describe(&mut dns, 43, "asagiri2", Some("z-dual"), &[]);
+        dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 3]);
+        dns.register("asagiri2", ["db"].iter(), [10, 2, 0, 3]);
+        let q = query("db", 1);
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, vec![10, 2, 0, 3])]);
+        assert_eq!(answers(&dns.answer(1, &q).unwrap(), q.len()), [(1, vec![10, 1, 0, 3])]);
+    }
+
+    #[test]
+    fn network_order_uses_ipv6_records_and_only_joined_networks() {
+        let mut dns = Dns::default();
+        dns.servers.push(Server { bridges: vec!["asagiri1".into(), "asagiri2".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((42, [10, 1, 0, 2])) });
+        for (bridge, name, last) in [("asagiri1", "z-last", 1), ("asagiri2", "a-first", 2), ("unjoined", "000-earliest", 3)] {
+            describe(&mut dns, 42, bridge, Some(name), &["noipv4=1", "ip6=fd42:77::2/64", "gw6=fd42:77::1"]);
+            let mut ip = [0; 16];
+            ip[0] = 0xfd;
+            ip[15] = last;
+            dns.register6(bridge, ["db"].iter(), [10, last, 0, 3], ip);
+        }
+        let q = query("db", 28);
+        let mut want = vec![0; 16];
+        want[0] = 0xfd;
+        want[15] = 2;
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(28, want)]);
+        let q4 = query("db", 1);
+        assert!(answers(&dns.answer(0, &q4).unwrap(), q4.len()).is_empty(), "known IPv6-only name must not be forwarded");
+    }
+
+    #[test]
+    fn old_network_frames_and_reused_bridges_keep_no_stale_order() {
+        let mut dns = Dns::default();
+        dns.servers.push(Server { bridges: vec!["bridge-z".into(), "bridge-a".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: Some((42, [10, 1, 0, 2])) });
+        for (bridge, last) in [("bridge-z", 1), ("bridge-a", 2)] {
+            describe(&mut dns, 42, bridge, None, &[]);
+            dns.register(bridge, ["db"].iter(), [10, last, 0, 3]);
+        }
+        let q = query("db", 1);
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, vec![10, 2, 0, 3])]);
+        describe(&mut dns, 42, "bridge-z", Some("a-project"), &[]);
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, vec![10, 1, 0, 3])]);
+        dns.leave(42, "bridge-z");
+        assert!(!dns.servers[0].priorities.contains_key("bridge-z"));
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, vec![10, 2, 0, 3])]);
+        dns.forget_bridge("bridge-z");
+        assert!(!dns.networks.contains_key("bridge-z"));
+        dns.servers[0].bridges.push("bridge-z".into());
+        describe(&mut dns, 42, "bridge-z", Some("z-reused"), &["internal=1"]);
+        dns.register("bridge-z", ["db"].iter(), [10, 3, 0, 3]);
+        assert_eq!(answers(&dns.answer(0, &q).unwrap(), q.len()), [(1, vec![10, 2, 0, 3])]);
+    }
+
+    #[test]
+    fn a_removed_networks_name_goes_with_its_bridge() {
+        let mut dns = Dns::default();
+        dns.name_network("asagiri1", "frontend");
+        dns.forget_bridge("asagiri1");
+        assert!(dns.networks.is_empty());
     }
 
     #[test]
@@ -658,7 +827,7 @@ mod tests {
         let server = bind([127, 0, 0, 3], 0);
         let client = bind([127, 0, 0, 1], 0);
         let mut dns = Dns::default();
-        dns.servers.push(Server { bridges: vec!["asagiri1".into()], sock: server, container: None });
+        dns.servers.push(Server { bridges: vec!["asagiri1".into()], priorities: HashMap::new(), sock: server, container: None });
         let server_fd = dns.servers[0].sock.as_raw_fd();
         let to = name(server_fd);
         let mut ports = Vec::new();
@@ -727,7 +896,7 @@ mod tests {
     fn names_answer_a_and_aaaa() {
         let mut dns = Dns::default();
         // A server needs a socket; any UDP socket stands in for the bridge's.
-        dns.servers.push(super::Server { bridges: vec!["asagiri1".into()], sock: super::udp_socket().unwrap(), container: None });
+        dns.servers.push(super::Server { bridges: vec!["asagiri1".into()], priorities: HashMap::new(), sock: super::udp_socket().unwrap(), container: None });
         dns.register("asagiri1", ["web", "Alias"].iter(), [10, 5, 0, 2]);
         let v6 = [0xfd, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2];
         dns.register6("asagiri1", ["web", "Alias"].iter(), [10, 5, 0, 2], v6);
@@ -771,7 +940,7 @@ mod tests {
     #[test]
     fn one_client_cant_take_every_forwarded_slot() {
         let mut dns = Dns::default();
-        dns.servers.push(Server { bridges: vec!["asagiri0".into()], sock: udp_socket().unwrap(), container: None });
+        dns.servers.push(Server { bridges: vec!["asagiri0".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: None });
         let client = super::sockaddr([172, 17, 0, 2], 4000);
         for _ in 0..super::MAX_PER_CLIENT {
             let mut p = pending();
@@ -834,7 +1003,7 @@ mod tests {
         client.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
         let std::net::SocketAddr::V4(addr) = client.local_addr().unwrap() else { panic!() };
         let mut dns = Dns::default();
-        dns.servers.push(Server { bridges: vec!["asagiri1".into()], sock: udp_socket().unwrap(), container: None });
+        dns.servers.push(Server { bridges: vec!["asagiri1".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: None });
         let mut fds = [0; 2];
         // SAFETY: `fds` has room for the pair.
         assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_NONBLOCK, 0, fds.as_mut_ptr()) }, 0);

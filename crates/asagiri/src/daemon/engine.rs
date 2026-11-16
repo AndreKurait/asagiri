@@ -482,6 +482,8 @@ pub struct Container {
     pub started: Option<SystemTime>,
     pub finished: Option<SystemTime>,
     pub exit_code: i32,
+    /// The last start failure, cleared once a later start succeeds.
+    pub start_error: String,
     /// Its last run ended with the kernel killing it for memory.
     pub oom_killed: bool,
     /// Its last run ended because the VM or the engine stopped under it, not
@@ -590,6 +592,8 @@ struct Saved {
     started_ns: Option<u64>,
     finished_ns: Option<u64>,
     exit_code: i32,
+    #[serde(default)]
+    start_error: String,
     #[serde(default)]
     oom_killed: bool,
     #[serde(default)]
@@ -763,6 +767,12 @@ pub enum Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&error_text(self))
     }
 }
 
@@ -1473,6 +1483,7 @@ impl Engine {
                     started: s.started_ns.map(from_ns),
                     finished: if was_running { Some(now) } else { s.finished_ns.map(from_ns) },
                     exit_code: if was_running { 255 } else { s.exit_code },
+                    start_error: s.start_error,
                     oom_killed: !was_running && s.oom_killed,
                     vm_stopped: was_running || s.vm_stopped,
                     stopped_by_user: s.stopped_by_user,
@@ -1550,6 +1561,8 @@ impl Engine {
 
     /// Writes `containers.json`. `--rm` containers are left out.
     fn save(&self) {
+        // Snapshot and replacement must follow the same writer order.
+        let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let json = {
             let st = self.lock();
             let saved: Vec<Saved> = st
@@ -1566,6 +1579,7 @@ impl Engine {
                     started_ns: c.started.map(ns),
                     finished_ns: c.finished.map(ns),
                     exit_code: c.exit_code,
+                    start_error: c.start_error.clone(),
                     oom_killed: c.oom_killed,
                     vm_stopped: c.vm_stopped,
                     stopped_by_user: c.stopped_by_user,
@@ -1576,7 +1590,6 @@ impl Engine {
             serde_json::to_vec(&saved)
         };
         let Ok(json) = json else { return };
-        let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = self.records.with_extension("json.tmp");
         if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.records)) {
             crate::diag::error!("saving containers failed", error = e);
@@ -1672,14 +1685,17 @@ impl Engine {
                 };
                 let mut anon = Vec::new();
                 let mut removed_log = None;
+                let mut removed_blobs = Vec::new();
                 if remove {
                     if let Some(c) = st.containers.remove(id) {
+                        removed_blobs = std::iter::once(c.spec.image_id.clone()).chain(c.layers).collect();
                         anon = c.spec.anon_volumes;
                         removed_log = Some(c.log);
                     }
                     note_removed(&mut st, id, code);
                 }
                 drop(st);
+                self.release_image_blobs(&removed_blobs);
                 if let Some((image, attrs)) = actor {
                     self.emit_container_with("die", id, &image, attrs.clone(), &[("exitCode", code.to_string())]);
                     if remove {
@@ -1925,6 +1941,21 @@ impl Engine {
         Ok(image_named(self.store.images()?, name))
     }
 
+    /// A forced image removal must not discard data its containers still own.
+    pub(super) fn image_blob_users(&self) -> Vec<String> {
+        self.each(|c| Some(std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>()))
+            .into_iter().flatten().collect()
+    }
+
+    fn release_image_blobs(&self, candidates: &[String]) {
+        if candidates.is_empty() {
+            return;
+        }
+        if let Err(error) = self.store.release_blobs(candidates, &self.image_blob_users()) {
+            crate::diag::warn!("kept unused image blobs after container removal", error = error);
+        }
+    }
+
     /// Sends the guest every layer of these (digest, media type) it doesn't
     /// have unpacked, from the blob store.
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
@@ -1948,7 +1979,7 @@ impl Engine {
         ImagePreparation(self)
     }
 
-    /// A successful pull must leave its layers ready for container creation.
+    /// A successful pull or load leaves its layers ready for container creation.
     pub fn prepare_image(&self, image: &Image, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         check_preparation(cancelled)?;
         if image.layers.is_empty() {
@@ -1963,8 +1994,8 @@ impl Engine {
     /// guest deletes an unpacked layer at boot when it isn't whole (an unpack
     /// cut short, or one from before layers were marked whole), and a
     /// container created before that would otherwise fail to start with
-    /// "layer ... is not unpacked". The media type comes from any image with
-    /// the layer; a layer no image has any more can't be sent again.
+    /// "layer ... is not unpacked". After forced image deletion its container
+    /// still owns the compressed blob, whose format supplies the media type.
     fn restore_layers(&self, vm: &VmLink, layers: &[String]) -> Result<(), Error> {
         let mut missing = Vec::new();
         for digest in layers {
@@ -1979,10 +2010,11 @@ impl Engine {
         let images = self.store.images()?;
         let mut wanted = Vec::with_capacity(missing.len());
         for digest in missing {
-            let Some(l) = images.iter().flat_map(|i| &i.layers).find(|l| &l.digest == digest) else {
-                return Err(Error::Conflict(format!("layer {digest} is gone from the engine and no image has it any more: remove this container and create it again")));
+            let media_type = match images.iter().flat_map(|i| &i.layers).find(|l| &l.digest == digest) {
+                Some(layer) => layer.media_type.as_str(),
+                None => asagiri_image::archive::media_type_of(&self.store.blob_path(digest)?)?,
             };
-            wanted.push((l.digest.as_str(), l.media_type.as_str()));
+            wanted.push((digest.as_str(), media_type));
         }
         Ok(self.ensure_layers(vm, wanted.into_iter(), &|| false)?)
     }
@@ -2028,6 +2060,7 @@ impl Engine {
                 started: None,
                 finished: None,
                 exit_code: 0,
+                start_error: String::new(),
                 oom_killed: false,
                 vm_stopped: false,
                 stopped_by_user: false,
@@ -2247,6 +2280,7 @@ impl Engine {
                         if n.no_ipv4 {
                             net6_opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
                         }
+                        net6_opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, n.name));
                         if let Some(mtu) = n.mtu() {
                             net6_opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
                         }
@@ -2342,7 +2376,7 @@ impl Engine {
             Err(e) => {
                 crate::diag::warn!("container did not start", id = &id[..12], image = spec.image, error = e);
                 self.fail_start(&id, &spec, &e);
-                return Err(Error::Io(e));
+                return Err(start_error(e));
             }
         }
         if let (true, Some((rows, cols))) = (spec.tty, size) {
@@ -2372,9 +2406,16 @@ impl Engine {
                 }
                 Err(e) => {
                     crate::diag::warn!("ports not published; container stopped", id = &id[..12], error = e);
+                    let message = e.to_string();
+                    if let Some(c) = self.lock().containers.get_mut(&id) {
+                        c.start_error = message.clone();
+                    }
                     // Docker refuses to run a container whose ports clash.
                     let _ = vm.kill(&id, libc::SIGKILL as u32);
-                    return Err(Error::Conflict(e.to_string()));
+                    if !spec.auto_remove {
+                        self.save();
+                    }
+                    return Err(Error::Conflict(message));
                 }
             }
         }
@@ -2385,8 +2426,13 @@ impl Engine {
         // The guest has the process now. A stop or kill that came in meanwhile
         // waits for this, and not for the input below: handing that over
         // takes as long as the program takes to read it.
-        if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
-            c.in_guest = true;
+        if let Some(c) = self.lock().containers.get_mut(&id) {
+            // A short command may already have exited before Started arrived.
+            // It still started successfully and must clear the previous error.
+            c.start_error.clear();
+            if c.status == Status::Running {
+                c.in_guest = true;
+            }
         }
         self.changed.notify_all();
         drop(starting);
@@ -2572,8 +2618,9 @@ impl Engine {
 
     /// Records a start that never reached the guest as an immediate exit,
     /// with the exit code Docker gives that failure (see `start_exit_code`).
-    fn fail_start(&self, id: &str, spec: &Spec, err: &dyn std::fmt::Debug) {
-        let code = start_exit_code(&format!("{err:?}"));
+    fn fail_start(&self, id: &str, spec: &Spec, err: &dyn std::fmt::Display) {
+        let message = err.to_string();
+        let code = start_exit_code(&message);
         let vm = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(vm) = vm {
             let _ = vm.is_lost();
@@ -2582,6 +2629,7 @@ impl Engine {
         // Lost may have run before this start finished allocating addresses.
         // Reclaim those even when preserving the crash's exit accounting.
         if let Some(c) = st.containers.get_mut(id) {
+            c.start_error = message;
             if let Some(ip) = c.ip.take() {
                 self.release_ip(&c.spec.network_mode, ip);
             }
@@ -2591,6 +2639,8 @@ impl Engine {
             self.release_ip6s(c);
         }
         if !spec.auto_remove && st.containers.get(id).is_some_and(|c| c.vm_stopped) {
+            drop(st);
+            self.save();
             return;
         }
         let actor = st.containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs)));
@@ -2615,6 +2665,7 @@ impl Engine {
         drop(st);
         self.changed.notify_all();
         if let Some(c) = removed {
+            self.release_image_blobs(&std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>());
             if let Some(vm) = self.awake() {
                 let _ = vm.remove(id);
             }
@@ -2981,6 +3032,7 @@ impl Engine {
         if net.no_ipv4 {
             opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
         }
+        opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, net.name));
         if let Some(mtu) = net.mtu() {
             opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
         }
@@ -3486,6 +3538,7 @@ impl Engine {
         let anon = removed.as_ref().map(|c| c.spec.anon_volumes.clone()).unwrap_or_default();
         if let Some(c) = &removed {
             lock_log(&c.log).remove();
+            self.release_image_blobs(&std::iter::once(c.spec.image_id.clone()).chain(c.layers.iter().cloned()).collect::<Vec<_>>());
         }
         if removed.as_ref().is_some_and(|c| !c.spec.auto_remove) {
             self.save();
@@ -4049,6 +4102,14 @@ fn close_monitor(h: &mut HealthRun) {
     }
 }
 
+fn start_error(e: io::Error) -> Error {
+    if e.get_ref().is_some_and(|error| error.is::<super::vmlink::StartRejected>()) {
+        Error::BadRequest(e.to_string())
+    } else {
+        Error::Io(e)
+    }
+}
+
 fn error_text(e: &Error) -> String {
     match e {
         Error::NotFound(m) | Error::Conflict(m) | Error::BadRequest(m) | Error::Unauthorized(m) => m.clone(),
@@ -4548,6 +4609,7 @@ mod vm_recovery_tests {
         };
         engine.fail_start(&ids["always-live"], &late_spec, &"late VM start failure");
         assert_eq!(engine.with(&ids["always-live"], |c| c.exit_code).unwrap(), 255);
+        assert_eq!(engine.with(&ids["always-live"], |c| c.start_error.clone()).unwrap(), "late VM start failure");
         engine.lock_networks().reserve("late-start", late_ip).expect("failed recovery must release a late fixed-IP reservation");
         engine.lock_networks().release("late-start", late_ip);
         let retry_at = engine.lock().vm_recovery_at.expect("a VM loss schedules recovery with backoff");
@@ -4562,6 +4624,7 @@ mod vm_recovery_tests {
         let live = saved.iter().find(|c| c.name == "always-live").unwrap();
         assert_eq!(live.status, Status::Exited);
         assert_eq!(live.exit_code, 255);
+        assert_eq!(live.start_error, "late VM start failure");
         assert!(live.vm_stopped);
         assert_eq!(live.restart_count, 1, "a VM recovery counts as a restart");
         assert_eq!(saved.iter().find(|c| c.name == "unless-live").unwrap().restart_count, 1);
@@ -4750,16 +4813,182 @@ mod vm_end_tests {
 }
 
 #[cfg(test)]
+mod image_loading_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    fn load_to_stopped_engine(with_layer: bool) -> (String, usize) {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let root = std::env::temp_dir().join(format!("asagiri-load-preparation-{}", random_hex(16)));
+        let _cleanup = Cleanup(root.clone());
+        let source = Store::open(root.join("source")).unwrap();
+        let mut layers = Vec::new();
+        if with_layer {
+            let mut writer = source.ingest().unwrap();
+            writer.write_all(&[0u8; 1024]).unwrap();
+            let (digest, size) = writer.finish().unwrap();
+            layers.push(asagiri_image::Layer {
+                digest, size, media_type: "application/vnd.oci.image.layer.v1.tar".into(),
+            });
+        }
+        let config = serde_json::json!({
+            "os": "linux", "architecture": "amd64", "config": {},
+            "rootfs": {"type": "layers", "diff_ids": layers.iter().map(|l| &l.digest).collect::<Vec<_>>()},
+        });
+        let mut writer = source.ingest().unwrap();
+        writer.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        let image = asagiri_image::archive::from_config("load-preparation:fixture".into(), &digest, &config, layers);
+        let mut archive = Vec::new();
+        asagiri_image::archive::save(&source, &[image], &mut archive).unwrap();
+        let engine = Engine::boot(Store::open(root.join("engine")).unwrap()).unwrap();
+        // Exercise the real API and preparation error without booting any guest.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let serving = engine.clone();
+        let worker = std::thread::spawn(move || super::super::api::serve(server, serving));
+        write!(client, "POST /v1.47/images/load HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", archive.len()).unwrap();
+        client.write_all(&archive).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        worker.join().unwrap().unwrap();
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let loads = engine.events.lock().unwrap().recent.iter().filter(|event| event["Action"] == "load").count();
+        (response, loads)
+    }
+
+    #[test]
+    fn image_load_reports_layer_preparation_failure_without_success() {
+        let (response, loads) = load_to_stopped_engine(true);
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.contains("\"errorDetail\"") && response.contains(STOPPED), "{response}");
+        assert!(!response.contains("Loaded image"), "{response}");
+        assert_eq!(loads, 0, "a failed preparation is not a successful load event");
+    }
+
+    #[test]
+    fn image_load_without_layers_needs_no_guest() {
+        let (response, loads) = load_to_stopped_engine(false);
+        assert!(response.contains("Loaded image: load-preparation:fixture"), "{response}");
+        assert!(!response.contains("\"error\""), "{response}");
+        assert_eq!(loads, 1);
+    }
+}
+
+#[cfg(test)]
+mod image_blob_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn forced_image_deletion_keeps_persisted_containers_data_until_last_removal() {
+        let root = std::env::temp_dir().join(format!("asagiri-image-blob-{}", random_hex(16)));
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        let config = serde_json::json!({"os": "linux", "architecture": "amd64", "config": {}});
+        let mut writer = engine.store.ingest().unwrap();
+        writer.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        let image = asagiri_image::archive::from_config("owned:latest".into(), &digest, &config, vec![]);
+        engine.store.put_image(image.clone()).unwrap();
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": image.name, "image_id": digest, "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+        })).unwrap();
+        // Empty layers keep this a host test; no guest or other runtime boots.
+        let first = engine.create(None, spec.clone(), &image).unwrap();
+        let second = engine.create(None, spec, &image).unwrap();
+        engine.store.remove_image_references_retaining(&digest, None, false, &engine.image_blob_users()).unwrap();
+        let blob = engine.store.blob_path(&digest).unwrap();
+        assert!(engine.store.images().unwrap().is_empty() && blob.exists());
+        drop(engine);
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.each(|c| Some(c.spec.image_id.clone())), [digest.clone(), digest]);
+        restored.remove(&first, false, false).unwrap();
+        assert!(blob.exists(), "the second container still owns the deleted image config");
+        restored.remove(&second, false, false).unwrap();
+        assert!(!blob.exists(), "the last container removal reclaims the retained data");
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod start_exit_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_guest_command_rejection_is_an_invalid_start_request() {
+        let message = "exec: \"/missing\": no such file or directory";
+        let rejected = io::Error::other(super::super::vmlink::StartRejected(message.into()));
+        assert!(matches!(start_error(rejected), Error::BadRequest(s) if s == message));
+        // The writer's oversized frame and all unrelated runtime errors keep
+        // their 500 contract, even when their wording resembles a command error.
+        for error in [
+            io::Error::new(io::ErrorKind::InvalidInput, "agent frame exceeds maximum"),
+            io::Error::other(message),
+        ] {
+            assert!(matches!(start_error(error), Error::Io(_)));
+        }
+    }
+
     #[test]
     fn a_failed_start_gets_dockers_exit_code() {
-        let io = |m: &str| format!("{:?}", super::Error::Io(std::io::Error::other(m.to_owned())));
+        let io = |m: &str| Error::Io(io::Error::other(m.to_owned())).to_string();
         assert_eq!(super::start_exit_code(&io("dns: No such file or directory (os error 2)")), 127);
         assert_eq!(super::start_exit_code(&io("exec: \"nope\": executable file not found in $PATH")), 127);
         assert_eq!(super::start_exit_code(&io("mount etc/hosts: mount /proc/self/fd/28: Not a directory (os error 20)")), 127);
         assert_eq!(super::start_exit_code(&io("exec /app: Permission denied (os error 13)")), 126);
-        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::Conflict("no free address left on network n".into()))), 128);
-        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
+        assert_eq!(super::start_exit_code(&Error::Conflict("no free address left on network n".into()).to_string()), 128);
+        assert_eq!(super::start_exit_code(&Error::NotFound("network x not found".into()).to_string()), 128);
+    }
+
+    #[test]
+    fn failed_start_error_survives_daemon_restart_and_old_records_still_load() {
+        let root = std::env::temp_dir().join(format!("asagiri-start-error-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        // No saved policy or real guest: starting must take the production
+        // failed-boot path, without touching another engine's runtime.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "test:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true, config_digest: "sha256:test".into(),
+            layers: Vec::new(), size: 0, platform: "linux/amd64".into(), created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "test:local", "image_id": "sha256:test", "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            "restart": {"name": "no", "max_retries": 0}
+        })).unwrap();
+        let id = engine.create(Some("failed-start".into()), spec, &image).unwrap();
+        assert!(engine.with(&id, |c| c.start_error.is_empty()).unwrap());
+        let error = engine.start(&id).unwrap_err();
+        assert!(matches!(&error, Error::Io(e) if e.to_string() == STOPPED));
+        let expected = (Status::Exited, 128, error_text(&error));
+        assert_eq!(engine.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), expected);
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(engine);
+
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), expected);
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        // Upgrade compatibility: old records have no start_error field.
+        let records = root.join("containers.json");
+        let mut legacy: serde_json::Value = serde_json::from_slice(&std::fs::read(&records).unwrap()).unwrap();
+        assert_eq!(legacy[0].as_object_mut().unwrap().remove("start_error").unwrap(), expected.2);
+        std::fs::write(&records, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), (Status::Exited, 128, String::new()));
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

@@ -1,0 +1,507 @@
+{
+  "status": "passed",
+  "at": "2026-11-16T15:53:23.471107+00:00",
+  "run": 43894416036,
+  "attempt": 1,
+  "worktree_cleanup": {
+    "status": "passed",
+    "sources": {
+      "baseline": "ed482bd6e03354441e0396172d42bd175ab271e8",
+      "candidate": "f42868bfa959de9c2d2b131c871aa5f508cffab0"
+    },
+    "context": {
+      "repository": "AndreKurait/asagiri",
+      "run_id": "43894416036",
+      "run_attempt": "1",
+      "event": "workflow_dispatch"
+    },
+    "baseline_directory_removed": true,
+    "baseline_worktree_unregistered": true,
+    "temporary_directory_removed": true,
+    "candidate_checkout_clean": true
+  },
+  "worktree_cleanup_sha256": "766ad8d47758ae9b96bae83255c5de296f0054bf5d2d7dea325af632aef5806d",
+  "sources": {
+    "baseline": "ed482bd6e03354441e0396172d42bd175ab271e8",
+    "candidate": "f42868bfa959de9c2d2b131c871aa5f508cffab0"
+  },
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline"
+  ],
+  "job": 133393960324,
+  "artifact": 14242025937,
+  "artifact_sha256": "5148090abe285d69c15e2efb7a36dd3b0aeac9ac65faa184c6dc111a4cbaea9a",
+  "host": {
+    "system": "Linux",
+    "architecture": "x86_64",
+    "kernel": "7.0.0-1014-aws",
+    "cpu_model": "Intel(R) Xeon(R) 6975P-C",
+    "cpus": 4,
+    "python": "3.12.3",
+    "runner_image": "ubuntu24",
+    "runner_version": "20261111.127.1"
+  },
+  "samples_verified": 24000,
+  "leg_metrics_recalculated": 60,
+  "combined_metrics_recalculated": 15,
+  "metrics": [
+    {
+      "engine": "Asagiri",
+      "workload": "ping",
+      "baseline": {
+        "median": 0.1518805,
+        "p95": 0.240452,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.1511525,
+          0.1519435
+        ]
+      },
+      "candidate": {
+        "median": 0.15267150000000002,
+        "p95": 0.234031,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.15677200000000002,
+          0.14910600000000002
+        ]
+      },
+      "median_ratio": 1.0052080418486904
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "list",
+      "baseline": {
+        "median": 0.1201315,
+        "p95": 0.191249,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.11903649999999999,
+          0.120556
+        ]
+      },
+      "candidate": {
+        "median": 0.1189205,
+        "p95": 0.209285,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.120492,
+          0.1174895
+        ]
+      },
+      "median_ratio": 0.989919380012736
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "run",
+      "baseline": {
+        "median": 4.524459500000001,
+        "p95": 8.512251,
+        "samples": 800,
+        "over_240_ms": 40,
+        "leg_medians": [
+          4.483821,
+          4.5655304999999995
+        ]
+      },
+      "candidate": {
+        "median": 4.577180500000001,
+        "p95": 5.849411,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          4.6695745,
+          4.492915
+        ]
+      },
+      "median_ratio": 1.0116524415789334
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "exec",
+      "baseline": {
+        "median": 1.589064,
+        "p95": 1.775733,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          1.5770625,
+          1.5989710000000001
+        ]
+      },
+      "candidate": {
+        "median": 1.5743995,
+        "p95": 1.757178,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          1.6089905,
+          1.5379185
+        ]
+      },
+      "median_ratio": 0.9907716114643589
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "copy",
+      "baseline": {
+        "median": 1.2549725,
+        "p95": 1.362068,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          1.25039,
+          1.2580305
+        ]
+      },
+      "candidate": {
+        "median": 1.243401,
+        "p95": 1.353758,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          1.257054,
+          1.233365
+        ]
+      },
+      "median_ratio": 0.9907794792316166
+    },
+    {
+      "engine": "Docker",
+      "workload": "ping",
+      "baseline": {
+        "median": 0.3072785,
+        "p95": 0.392532,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.3037345,
+          0.309158
+        ]
+      },
+      "candidate": {
+        "median": 0.3025175,
+        "p95": 0.406903,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.32789199999999996,
+          0.2758505
+        ]
+      },
+      "median_ratio": 0.984505912388924
+    },
+    {
+      "engine": "Docker",
+      "workload": "list",
+      "baseline": {
+        "median": 0.229236,
+        "p95": 0.343615,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.226052,
+          0.2322055
+        ]
+      },
+      "candidate": {
+        "median": 0.221219,
+        "p95": 0.348446,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.2333135,
+          0.210147
+        ]
+      },
+      "median_ratio": 0.9650273081016943
+    },
+    {
+      "engine": "Docker",
+      "workload": "run",
+      "baseline": {
+        "median": 75.23263449999999,
+        "p95": 81.874246,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          75.1702325,
+          75.496691
+        ]
+      },
+      "candidate": {
+        "median": 75.605039,
+        "p95": 83.089549,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          77.49577099999999,
+          73.797112
+        ]
+      },
+      "median_ratio": 1.0049500393343267
+    },
+    {
+      "engine": "Docker",
+      "workload": "exec",
+      "baseline": {
+        "median": 27.191864000000002,
+        "p95": 28.208401,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          27.1961565,
+          27.186124
+        ]
+      },
+      "candidate": {
+        "median": 26.966378499999998,
+        "p95": 28.134318,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          27.234453000000002,
+          26.801232
+        ]
+      },
+      "median_ratio": 0.9917076115120315
+    },
+    {
+      "engine": "Docker",
+      "workload": "copy",
+      "baseline": {
+        "median": 2.8905175,
+        "p95": 3.278238,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          2.886689,
+          2.892769
+        ]
+      },
+      "candidate": {
+        "median": 2.8903645,
+        "p95": 3.381571,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          2.92896,
+          2.834231
+        ]
+      },
+      "median_ratio": 0.9999470683017833
+    },
+    {
+      "engine": "Podman",
+      "workload": "ping",
+      "baseline": {
+        "median": 0.319692,
+        "p95": 0.428695,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.3166765,
+          0.323924
+        ]
+      },
+      "candidate": {
+        "median": 0.317472,
+        "p95": 0.414361,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.32805799999999996,
+          0.29996100000000003
+        ]
+      },
+      "median_ratio": 0.9930558162231148
+    },
+    {
+      "engine": "Podman",
+      "workload": "list",
+      "baseline": {
+        "median": 0.337971,
+        "p95": 0.45906,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.3317635,
+          0.34146350000000003
+        ]
+      },
+      "candidate": {
+        "median": 0.3272255,
+        "p95": 0.451451,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          0.35590299999999997,
+          0.3157275
+        ]
+      },
+      "median_ratio": 0.968205851981383
+    },
+    {
+      "engine": "Podman",
+      "workload": "run",
+      "baseline": {
+        "median": 22.665954499999998,
+        "p95": 24.944616,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          22.6550635,
+          22.676326000000003
+        ]
+      },
+      "candidate": {
+        "median": 22.7582395,
+        "p95": 25.602557,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          23.137068,
+          22.2849305
+        ]
+      },
+      "median_ratio": 1.004071524982546
+    },
+    {
+      "engine": "Podman",
+      "workload": "exec",
+      "baseline": {
+        "median": 46.852073000000004,
+        "p95": 55.629722,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          46.423160499999994,
+          47.283228
+        ]
+      },
+      "candidate": {
+        "median": 46.4918185,
+        "p95": 55.31274,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          47.670493,
+          45.3732265
+        ]
+      },
+      "median_ratio": 0.9923108098119798
+    },
+    {
+      "engine": "Podman",
+      "workload": "copy",
+      "baseline": {
+        "median": 135.2976415,
+        "p95": 139.035013,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          135.2021525,
+          135.34425
+        ]
+      },
+      "candidate": {
+        "median": 134.382516,
+        "p95": 138.246808,
+        "samples": 800,
+        "over_240_ms": 0,
+        "leg_medians": [
+          135.9203475,
+          131.93832700000002
+        ]
+      },
+      "median_ratio": 0.9932362050819638
+    }
+  ],
+  "binaries_independently_rehashed": {
+    "baseline": {
+      "asagiri": "65d539a21be6f3f5b1c8cbe86df413f9dd90dc05376a8ee73f8d04a04799825d",
+      "asagiri-init": "bcbce04126bc7582b72859b92a6cbdada78b3d701c6efaa61a37c17f8c19a398"
+    },
+    "candidate": {
+      "asagiri": "65d539a21be6f3f5b1c8cbe86df413f9dd90dc05376a8ee73f8d04a04799825d",
+      "asagiri-init": "7d1322c6a4a580a8d6aa539de0ddd30eb626a9c3bac0913963f7b25d72bc0989"
+    }
+  },
+  "inputs": {
+    "harness_sha256": "ad5f81bf76021c4e96e279b899591510e03fc016726d94fa47c57076e8cfdee1",
+    "runner_sha256": "99005291560f3e1e47fa6e4383afef6f98aedc05717002aa14303bac59da5a47",
+    "images_sha256": "b29791a9e1ce06ffab8d74d27e34ed17f834ced30e2fcfab4417a895514c53fd"
+  },
+  "build_inputs": {
+    "scripts/ci/build-linux.sh": "483f0c48ac49b616a7141efd5cc48986b316f7b00e573c8c6983e0517e4665e7",
+    "scripts/ci/images.json": "0dba0883f35a56185c9cc92824ad16d4234ee5f957e6131e5c433dd3df76f737",
+    ".cargo/config.toml": "75321416c9b03ac539e33a2ebbe7c44a3b64aea1876e68fdcc204dc248413edf"
+  },
+  "compiler_image": "sha256:40abe462ed26e555a0f7b7955254c583389f419045e7204f77ef75434fda4151",
+  "compiler_pin": {
+    "image": "rust:1.99.1-alpine@sha256:44819b27be4c97b0e4d7203bd2e02c4820f97700211b6a37fb4c246a2de59383",
+    "config": {
+      "amd64": "sha256:40abe462ed26e555a0f7b7955254c583389f419045e7204f77ef75434fda4151",
+      "arm64": "sha256:7a01cbf903e1ed14014bd087f2969bfdfa4bb5a46336ca44144834b1043a5343"
+    },
+    "env": "ASAGIRI_CI_RUST_IMAGE",
+    "groups": [
+      "ci",
+      "release"
+    ]
+  },
+  "command_log_sha256": {
+    "build-baseline": "9aed4f0095dc7e69e0e5cd205e2559abfa712ebcc3cdb4b1aad188782b3fff7d",
+    "build-candidate": "d6d43d93e428b859d0927c42671a63d3da445d49b33699ff8ef57659f43fcb69",
+    "measure-1-baseline": "cee69dcb81aeb592a1bd3bfeaec46525f65f532f2ca3625f953af92029f66e82",
+    "measure-2-candidate": "43116db7bb8ffdde73b8c8238262ab963d6eb48c07234909ac576980afe0f1aa",
+    "measure-3-candidate": "737659694a18555d8c4a5fa04d70a21a331498957dd0dbbf112725de3d63d36d",
+    "measure-4-baseline": "bb2c31f9053173604af313be373ab54fe1e2205e0e874356ff8354681d3fbfe5"
+  },
+  "leg_files": [
+    {
+      "variant": "baseline",
+      "comparison_sha256": "dff887bafe13b0ee793268ffc1a143d5d308624510377abbe9d177941eb0cba6",
+      "path": "leg-1-baseline/comparison.json"
+    },
+    {
+      "variant": "candidate",
+      "comparison_sha256": "d28253889b7c50bc52587a3474d3d7ac383c5ec9517db34e62fb6dfde061a33f",
+      "path": "leg-2-candidate/comparison.json"
+    },
+    {
+      "variant": "candidate",
+      "comparison_sha256": "7b265657f76dd9484c5fa23e114f573ab1f31007e28db7a044bbf7fcd1f5089b",
+      "path": "leg-3-candidate/comparison.json"
+    },
+    {
+      "variant": "baseline",
+      "comparison_sha256": "75af64c695c35d57f2da3c1ccf7cd55c50baab0a703ed05559ba244f13db6a50",
+      "path": "leg-4-baseline/comparison.json"
+    }
+  ],
+  "host_log_sha256": {
+    "leg-1-baseline/asagiri-host.log": "3f041fe2e6bc6b4c0bd5d38c7edf2a621ad942dfa739ed6c6072253fd42aa5ed",
+    "leg-1-baseline/docker-host.log": "bca629a73c878b01a94c6c98d348dcd09b267aa97d717c6b648dce9d0ce5a137",
+    "leg-1-baseline/podman-host.log": "580b6ff088ad2b3882c64e1129d08236c340faaf7876bb6834f8f75db2b65395",
+    "leg-2-candidate/asagiri-host.log": "4f31ba91de4a306479d1f22afa4ce5c8402127b6d3ed80a84731274a6ad01273",
+    "leg-2-candidate/docker-host.log": "a0b56940680385476544584aa204488639f939518d9ed9ab6daac3517efb1dc4",
+    "leg-2-candidate/podman-host.log": "30baceeb0b52a2d08747cb7ff2c131b9b9d57b30c3f961608016b3000cc743b8",
+    "leg-3-candidate/asagiri-host.log": "d4cdfc4c53f52481571d5a2ebfacdd700a9e6c6cc14997ddcad359fd12e569f1",
+    "leg-3-candidate/docker-host.log": "bdc41b5a44f4390c1c757012759638bbe59930c2fd6894127c117207b45b6b99",
+    "leg-3-candidate/podman-host.log": "f0566048f166349b98d4022bf690cd2f869a4bd60b60095b7cc6743921e186fa",
+    "leg-4-baseline/asagiri-host.log": "062997ef69e7930e3b98d4f681fa9aa942fd917c7b421dcc6e956e6bdb321463",
+    "leg-4-baseline/docker-host.log": "c19d1e5c0c71930d18b7444ea7fedbc4ad053383f612f4aaf0615499b23efa3f",
+    "leg-4-baseline/podman-host.log": "31e7f9fdb6b5193e8e6046750baac65ff601bb90a5c9852877bd886aadbbed3c"
+  },
+  "comparison_pair_sha256": "7a7ca81c0b84d76d3588effe54c745961273ee776dd67b7ae41a6b7925e74c0b",
+  "verifier_sha256": "1a43c70566a84a67d80bab928ec24cbb6e2a0b80b6f13c4c32187f83614f77b3",
+  "limits": "Four sequential measurements on one hosted x86 Linux machine. Inner fixture deletion is checked from each run record; outer-host removal is source-bound to successful command exits. Successful temporary-directory removal and worktree unregistration are also required. Measurement integrity does not by itself assert a speedup or all-workload performance."
+}

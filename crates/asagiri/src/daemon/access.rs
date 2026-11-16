@@ -59,6 +59,9 @@ unsafe fn nss<T>(mut call: impl FnMut(*mut T, *mut c_char, usize, *mut *mut T) -
             0 => return Ok(Some(Rec { rec, _buf: buf })),
             // Groups of many thousands of names run to megabytes.
             libc::ERANGE if size < 1 << 28 => size *= 2,
+            // GNU NSS returns zero with a null record for absence. A provider
+            // can return ENOENT when its own socket or database is missing.
+            #[cfg(not(target_env = "gnu"))]
             libc::ENOENT | libc::ESRCH => return Ok(None),
             e => return Err(io::Error::from_raw_os_error(e)),
         }
@@ -75,10 +78,9 @@ fn account_by_name(name: &CStr) -> io::Result<Option<Rec<libc::passwd>>> {
     unsafe { nss(|rec, buf, len, out| libc::getpwnam_r(name.as_ptr(), rec, buf, len, out)) }
 }
 
-fn group_by_name(name: &CStr) -> io::Result<Rec<libc::group>> {
+fn group_by_name(name: &CStr) -> io::Result<Option<Rec<libc::group>>> {
     // SAFETY: getgrnam_r with a valid C string, a group record and a buffer of the stated size.
-    unsafe { nss(|rec, buf, len, out| libc::getgrnam_r(name.as_ptr(), rec, buf, len, out)) }?
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no group {}", name.to_string_lossy())))
+    unsafe { nss(|rec, buf, len, out| libc::getgrnam_r(name.as_ptr(), rec, buf, len, out)) }
 }
 
 fn c_name(s: &str) -> io::Result<CString> {
@@ -99,20 +101,21 @@ fn names(group: &libc::group) -> Vec<&CStr> {
     out
 }
 
-fn group_members(group: &CStr) -> io::Result<Vec<String>> {
-    let g = group_by_name(group)?;
-    Ok(names(&g.rec).iter().map(|n| n.to_string_lossy().into_owned()).collect())
+fn group_members(group: &CStr) -> io::Result<Option<Vec<String>>> {
+    Ok(group_by_name(group)?.map(|g|
+        names(&g.rec).iter().map(|n| n.to_string_lossy().into_owned()).collect()))
 }
 
 /// The users in `group` by name (its member list, not primary-group users).
-pub fn members(group: &str) -> io::Result<Vec<String>> {
+/// `None` means the group is absent; a lookup error remains an error.
+pub fn members(group: &str) -> io::Result<Option<Vec<String>>> {
     group_members(&c_name(group)?)
 }
 
-/// A user's numeric id, if the account exists.
-pub fn uid(user: &str) -> Option<u32> {
-    let a = account_by_name(&c_name(user).ok()?).ok()??;
-    Some(a.rec.pw_uid)
+/// A user's numeric id, if the account exists. A directory lookup failure
+/// is not evidence that the account is absent.
+pub fn uid(user: &str) -> io::Result<Option<u32>> {
+    Ok(account_by_name(&c_name(user)?)?.map(|a| a.rec.pw_uid))
 }
 
 /// The uids of the names in a group record, sorted. A name with no account
@@ -131,7 +134,9 @@ fn uids_of(group: &libc::group) -> io::Result<Vec<u32>> {
 }
 
 fn member_uids(group: &CStr) -> io::Result<Vec<u32>> {
-    uids_of(&group_by_name(group)?.rec)
+    let g = group_by_name(group)?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no group {}", group.to_string_lossy())))?;
+    uids_of(&g.rec)
 }
 
 /// Gives every member of `group` read-write access to `socket` by name, so a
@@ -163,11 +168,7 @@ fn group_member(user: &CStr, primary_gid: libc::gid_t, group: &libc::group) -> b
 /// The group's record, or `None` if the group was deleted: that leaves
 /// nobody in it, which is an answer, not a failure.
 fn current(group: &CStr) -> io::Result<Option<Rec<libc::group>>> {
-    match group_by_name(group) {
-        Ok(g) => Ok(Some(g)),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
+    group_by_name(group)
 }
 
 /// Whether the account `uid` is in the group now. No account, or no group: no.
@@ -613,8 +614,8 @@ mod tests {
         let _ = Command::new("groupdel").arg("asagiritestg").status();
         run(&["groupadd", "asagiritestg"]);
         run(&["useradd", "-M", "-G", "asagiritestg", "asagiritest"]);
-        let who = uid("asagiritest").unwrap();
-        assert!(members("asagiritestg").unwrap().contains(&"asagiritest".to_owned()));
+        let who = uid("asagiritest").unwrap().unwrap();
+        assert!(members("asagiritestg").unwrap().unwrap().contains(&"asagiritest".to_owned()));
 
         let dir = Path::new("/dev/shm").join(format!("asagiri-gate-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -673,3 +674,7 @@ mod tests {
         assert_eq!(acl(&[]).len(), 4 + 4 * 8);
     }
 }
+
+#[cfg(all(test, target_env = "gnu"))]
+#[path = "access/nss_tests.rs"]
+mod nss_tests;

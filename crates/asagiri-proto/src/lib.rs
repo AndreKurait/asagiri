@@ -76,6 +76,9 @@ pub enum Msg<'a> {
     Shutdown,
     /// Guest → host: a human-readable failure.
     Error(&'a str),
+    /// Guest → host: Run rejected the command during final container setup.
+    /// This is an invalid command, distinct from a transport/runtime failure.
+    StartRejected(&'a str),
     /// Host → guest: report current resource use.
     StatsRequest,
     /// Guest → host: answer to `StatsRequest`.
@@ -87,7 +90,7 @@ pub enum Msg<'a> {
     /// blob. Answered by `LayerStored` or `Error`.
     LayerBegin(LayerBegin<'a>),
     LayerStored(LayerStored),
-    /// Host → guest: start a container. Answered by `Started` (or `Error`),
+    /// Host → guest: start a container. Answered by `Started`, `StartRejected` or `Error`,
     /// then any number of `Output`, then `Exited`.
     Run(RunSpec<'a>),
     Started { id: &'a str, pid: u32 },
@@ -477,6 +480,9 @@ pub mod net_opts {
     /// only the name the guest keeps it by: neither it nor the bridge gets
     /// one, and DNS has no A record for it.
     pub const NO_IPV4: &str = "noipv4";
+    /// `network=frontend`: the Docker network's name. The guest otherwise
+    /// only knows bridges; DNS uses the name to order equivalent networks.
+    pub const NETWORK: &str = "network";
     /// `mtu=1400`: the network's `com.docker.network.driver.mtu`, for the
     /// bridge and both ends of the container's link. Absent: 1500.
     pub const MTU: &str = "mtu";
@@ -750,6 +756,7 @@ mod kind {
     pub const CLEANUP_PENDING: u16 = 78;
     pub const CLEANUP_DONE: u16 = 79;
     pub const FS_EVENTS: u16 = 80;
+    pub const START_REJECTED: u16 = 81;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -935,6 +942,7 @@ impl Msg<'_> {
             Msg::Pong(v) => frame(out, kind::PONG, |o| put_u64(o, v)),
             Msg::Shutdown => frame(out, kind::SHUTDOWN, |_| {}),
             Msg::Error(s) => frame(out, kind::ERROR, |o| o.extend_from_slice(s.as_bytes())),
+            Msg::StartRejected(s) => frame(out, kind::START_REJECTED, |o| o.extend_from_slice(s.as_bytes())),
             Msg::StatsRequest => frame(out, kind::STATS_REQUEST, |_| {}),
             Msg::Stats(st) => frame(out, kind::STATS, |o| {
                 for v in [st.uptime_ns, st.mem_total_kib, st.mem_available_kib, st.agent_rss_kib, st.mem_used_kib,
@@ -1238,6 +1246,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::PONG => Msg::Pong(r.u64()?),
         kind::SHUTDOWN => Msg::Shutdown,
         kind::ERROR => Msg::Error(core::str::from_utf8(r.rest()).map_err(|_| DecodeError::BadUtf8)?),
+        kind::START_REJECTED => Msg::StartRejected(core::str::from_utf8(r.rest()).map_err(|_| DecodeError::BadUtf8)?),
         kind::STATS_REQUEST => Msg::StatsRequest,
         kind::STATS => Msg::Stats(Stats {
             uptime_ns: r.u64()?,
@@ -1413,6 +1422,7 @@ mod tests {
         round(Msg::Pong(7));
         round(Msg::Shutdown);
         round(Msg::Error("boom"));
+        round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
         let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
             mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };

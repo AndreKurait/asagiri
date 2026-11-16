@@ -1,31 +1,26 @@
 # Upstream work
 
 Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
-The original Apache-2.0 license, copyright notices, and Git history are preserved.
-The rename does not change the authorship of inherited code.
+The original Apache-2.0 license, copyright notices and contributor authorship are preserved.
 
-Upstream `main` was reviewed on **2026-11-16** at
-`260cf66b9b56963a0170857c2b4306c38814e108`. Its complete history through
-`baa2d41` is merged; later changes have reviewed ports or explicit equivalence.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **214** public PRs
-in the frozen 07:55 UTC snapshot: 105 merged, 60 closed without merging
-and 49 open. Every reviewed head has a port, inheritance, equivalence or
-explicit open-work disposition. Full review of #357's compiler remains open.
-The [issue verification inventory](docs/issue-verification.md) maps all **141**
-issues to checks and remaining gaps, retaining previous evidence.
+The incremental public review through **2026-11-16 13:52 UTC** covers
+[221 pull requests](docs/upstream-pr-audit.md): 106 merged, 61 closed without
+merging and 54 open. The [issue inventory](docs/issue-verification.md) maps
+all 161 reports in that snapshot to checked-in tests or explicit remaining
+gaps. The records retain the upstream state and reviewed source identity.
 
-The audit distinguishes published/native **v0.1.6-dev.100**, the newly merged
-and [qualified PR50](docs/verification/public-integration-2026-11-16.json), and
-the later followup candidate. PR50 passed Windows/macOS/Linux, eight independent
-artifact gates, both guest architectures and 6,000 Docker/Podman/Asagiri samples.
-Its next release is pending. The new group, route, clipboard, image-order,
-daemon-time, import, top-argument and default-filter changes still need final combined
-qualification. [Local followup evidence](docs/verification/public-followup-local-2026-11-16.json)
-records the Hyperfine 1/2 report checks, native top negative control and compiled
-desktop-import CI entrypoint, with their remaining runtime limits. [Release/native evidence](docs/verification/native-release-100-2026-11-16.json)
-and the [engine comparison](docs/engine-comparison.md) identify actual revisions
-and workloads. Native Windows, GTK/AppKit, VPN/NSS/Rosetta hosts and remaining
-application/feature gaps stay explicit.
+The integrated candidate includes GNU NSS packages, cgroup shutdown and
+removal fixes, seccomp argument/equality corrections, deterministic DNS
+selection, working-directory setup and Armenian support. Source-specific
+local tests passed; full platform/API and release qualification remains
+separate. The audit records identify exactly which checks ran and preserve
+unsupported platforms, workloads and feature gaps.
+
+The [engine comparison](docs/engine-comparison.md) includes the unfavorable
+cleanup p95 that motivated the removed-cgroup regression checks.
+[Verus verification](docs/verified-ipam.md) covers the production IPAM gap
+search; it does not certify the complete engine. Prior release and component
+evidence remain in `docs/verification/` and the audit JSON records.
 
 ## Integration policy
 
