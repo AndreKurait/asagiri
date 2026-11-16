@@ -1,4 +1,4 @@
-"""Explicit rm must not stall unrelated control requests after exit cleanup.
+"""Explicit rm must not stall unrelated control requests while retiring its root.
 
 Run only in the disposable privileged test engine with strace installed.
 Delays the removed container's umount2 by 15 seconds, not stop's cleanup.
@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import select
 import signal
 import subprocess
 import time
@@ -30,7 +31,7 @@ def main():
         return subprocess.check_output(docker + list(command), timeout=timeout, stderr=subprocess.STDOUT)
 
     network = "remove-" + uuid.uuid4().hex[:8]
-    ids, tracer, removal, log = [], None, None, None
+    ids, tracer, removal, log, worker_fd = [], None, None, None, None
     try:
         call("network", "create", network)
         for name in ("survivor", "victim"):
@@ -39,14 +40,14 @@ def main():
         survivor, victim = ids
         call("exec", victim, "sh", "-c", "printf preserved > /remove-proof")
         call("stop", "-t", "0", victim)
-        # Stopped-container copy waits the existing exit-cleanup barrier.
-        # Thus the delayed syscall below can only belong to explicit removal.
+        # Complete the stopped copy through EOF before injecting the fault.
+        # The delayed syscall below must belong to explicit removal.
         proof = "/tmp/remove-proof-" + victim
         call("cp", victim + ":/remove-proof", proof)
         assert Path(proof).read_bytes() == b"preserved"
         Path(proof).unlink()
-        # A diff waits for the stopped copy's root retirement, then holds only
-        # its upper directory and schedules no further root unmount.
+        # A diff also waits any old cleanup; neither successful operation
+        # requires a retained idle overlay to be unmounted.
         call("diff", victim)
         init = []
         for item in Path("/proc").iterdir():
@@ -62,18 +63,25 @@ def main():
         root = Path("/var/lib/asagiri/containers") / victim / "rootfs"
         assert root.is_dir() and root.resolve() == root, root
         through_agent = Path("/proc", str(init[0]), "root") / str(root).lstrip("/")
-        assert (root.stat().st_dev, root.stat().st_ino) == (through_agent.stat().st_dev, through_agent.stat().st_ino)
+        # The container directory is the same owned directory in both views.
+        # Its rootfs may already be an overlay in the agent's mount namespace.
+        assert (root.parent.stat().st_dev, root.parent.stat().st_ino) == (through_agent.parent.stat().st_dev, through_agent.parent.stat().st_ino)
         rootfs = str(root)
         def mounts():
             return [line for line in Path("/proc", str(init[0]), "mountinfo").read_text().splitlines()
                     if line.split()[4] == rootfs]
-        assert not mounts(), "The stopped copy's root cleanup is still pending"
-        # Removal need not call umount2 for an already unmounted directory.
-        # Give this owned victim a real mount to retire, so the fault remains
-        # mandatory even when the engine correctly avoids redundant syscalls.
-        subprocess.check_call(["nsenter", "-t", str(init[0]), "-m", "--",
-                               "mount", "--bind", rootfs, rootfs], timeout=10)
+        existing = mounts()
+        if existing:
+            assert len(existing) == 1 and existing[0].split(" - ", 1)[1].startswith("overlay "), existing
+            removal_mount = "retained overlay"
+        else:
+            # Preserve the old-engine negative control: give an unmounted
+            # victim a real mount, so removal still has mandatory work.
+            subprocess.check_call(["nsenter", "-t", str(init[0]), "-m", "--",
+                                   "mount", "--bind", rootfs, rootfs], timeout=10)
+            removal_mount = "controlled bind mount"
         assert len(mounts()) == 1, mounts()
+        mount_id = mounts()[0].split()[0]
         log = open("/tmp/remove-delay-" + victim + ".trace", "xb")
         tracer = subprocess.Popen(["strace", "-f", "-P", rootfs, "-e", "trace=umount2",
                                    "-e", "inject=umount2:delay_enter=15s", "-p", str(init[0])],
@@ -101,9 +109,11 @@ def main():
                     pass
             time.sleep(.01)
         assert blocked is not None, "No explicit-removal umount2 fault observed"
+        worker_fd = os.pidfd_open(blocked)
         report = {"initPid": init[0], "blockedPid": blocked, "rootfs": rootfs,
-                  "injectedDelaySeconds": 15, "exitCleanupFinishedBeforeInjection": True,
-                  "copyCleanupFinishedBeforeInjection": True, "controlledVictimBindMount": True}
+                  "injectedDelaySeconds": 15, "earlierRequiredCleanupFinished": True,
+                  "copyBytesAndEofBeforeInjection": True, "removalMount": removal_mount,
+                  "retiringMountId": mount_id}
         started = time.monotonic()
         try:
             call("exec", survivor, "true", timeout=3)
@@ -128,8 +138,15 @@ def main():
         while root.parent.exists():
             assert time.monotonic() < deadline, "Explicit removal never completed"
             time.sleep(.05)
+        if not args.expect_blocked:
+            poll = select.poll()
+            poll.register(worker_fd, select.POLLIN)
+            assert poll.poll(3000), "Explicit removal's cleanup worker did not exit"
+        assert not mounts(), "Removed container still has a mounted root"
         ids.remove(victim)
         report["removedTreeAbsent"] = True
+        report["cleanupWorkerExited"] = not args.expect_blocked
+        report["removedMountAbsent"] = True
         report["totalSeconds"] = time.monotonic() - began
         tracer.send_signal(signal.SIGINT)
         tracer.wait(timeout=10)
@@ -142,6 +159,8 @@ def main():
             tracer.wait(timeout=20)
         if log is not None:
             log.close()
+        if worker_fd is not None:
+            os.close(worker_fd)
         if removal is not None and removal.poll() is None:
             removal.communicate(timeout=30)
         for cid in ids:
