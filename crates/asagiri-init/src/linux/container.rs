@@ -434,6 +434,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 // `--dns`: names the network does not know go to these instead.
                 let servers: Vec<[u8; 4]> = net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect();
                 net.dns.set_upstream(spec.net.ip, servers);
+                net.dns.describe_network(pid, spec.net);
             }
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".

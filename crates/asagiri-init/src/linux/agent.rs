@@ -663,6 +663,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         });
                         match attached {
                             Ok(link) => {
+                                dns.describe_network(pid, n);
                                 if !plug.no_ipv4 {
                                     dns.register(n.bridge, n.dns_names.iter(), n.ip);
                                 }
