@@ -1,7 +1,7 @@
 {
   "schema": "asagiri.native-nss-development.v1",
   "date": "2026-11-16",
-  "status": "local_gnu_runtime_passed_additional_backend_error_fix_pending_verification",
+  "status": "local_gnu_backend_runtime_passed_hosted_qualification_pending",
   "public_issue": "https://github.com/libracoder/kiri/issues/349",
   "problem": "The static portable Linux executable does not load GNU NSS modules, so an existing directory account can be reported as absent by host-access. Lookup failures were also collapsed into absence.",
   "implementation": [
@@ -41,31 +41,23 @@
         "x86_64"
       ],
       "source_sha256": "d46ce4cb48b6821c62fe5660dd0e6f238874f75666ae752867d450f8dbd91b15",
-      "runtime": "pending"
-    },
-    "actual_gnu_runtime": {
-      "status": "passed",
-      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
-      "scenarios_passed": 16,
-      "access_unit_tests_passed": 11,
-      "access_unit_tests_ignored": 2,
-      "receipt_sha256": "69f2253268645e678a4da39dfd2f0eea0b7d9c08596ad792b19c5f0638c9023a",
-      "controller_receipt_sha256": "43ec0e7bf7f87d3ba63e708fc6dd0ade44045a43915ba2865ab5fad7dfe55971",
-      "scope": "Actual GNU engine and Cargo test executable plus same-source static control in one owned network-none container, with only SETUID/SETGID and no-new-privileges. The container and image were removed; native images, volumes, volume metadata and installed app binary were preserved."
+      "runtime": "aarch64 real GNU fixture passed; x86_64 hosted runtime pending"
     },
     "gnu_compilation": {
       "status": "passed",
-      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
-      "receipt_sha256": "6efa4688afeb5ac88946b1bb6dc754ce990b51dd93d0524ffcde6b81a53978f0",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "9104385b774aa3fb95f304462c58bd32eb1689f37fdb319b7ffd11de31a3c283",
       "first_linker_failure_receipt_sha256": "57caf47291c67be39ad8f1cc0b63eab84428d2f27d19a14e0f871d43964a0f3d",
-      "limit": "The local Zig adapter omits an unsupported Cortex-A53 linker erratum option for this Apple ARM VM probe. No hosted compiler flags change, and this build does not qualify Cortex-A53 hardware."
+      "limit": "The local Zig adapter omits an unsupported Cortex-A53 linker erratum option for this Apple ARM VM probe. No hosted compiler flags change, and this build does not qualify Cortex-A53 hardware.",
+      "initial_success_receipt_sha256": "6efa4688afeb5ac88946b1bb6dc754ce990b51dd93d0524ffcde6b81a53978f0"
     },
     "portable_control_compilation": {
       "status": "passed",
-      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
-      "receipt_sha256": "368ee1a2c0f269b936f9a6c35ad927f6719d8d8eda9ee43aacadbbe529020bc1",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "263587ac8313138e03de916ee89d183446800c9032eaa3dc47f3e3a2ab5cec8d",
       "first_linker_failure_receipt_sha256": "8fd5cc11ff794834e40c3418a3da65028140a170ceccfe218b0a6e8bb50e8956",
-      "limit": "The local C adapter disables Zig implicit UBSan instrumentation because the direct Rust musl linker lacks that runtime. No sanitizer failure was suppressed and no hosted flags change."
+      "limit": "The local C adapter disables Zig implicit UBSan instrumentation because the direct Rust musl linker lacks that runtime. No sanitizer failure was suppressed and no hosted flags change.",
+      "initial_success_receipt_sha256": "368ee1a2c0f269b936f9a6c35ad927f6719d8d8eda9ee43aacadbbe529020bc1"
     },
     "independent_elf_inspection": {
       "status": "passed",
@@ -84,7 +76,51 @@
       },
       "old_cli_reached_groupadd_guard_for_both": true,
       "scope": "Actual libc getgrnam_r distinguishes zero/null absence from ENOENT when the provider backend file is missing. The old GNU executable incorrectly reached the guarded group creation path for both. No account files changed; owned container and image were removed and original inventory preserved.",
-      "followup_runtime": "pending"
+      "followup_runtime": "passed",
+      "followup_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "followup_receipt_sha256": "39ac6a7a8b8826c291b74e478bd80d459342566229a0c3f79efbc28bc2dc3c62"
+    },
+    "initial_gnu_runtime": {
+      "status": "passed",
+      "tested_source": "7c7d8d22a0c00944d491cc97c8602a2d01badfd0",
+      "scenarios_passed": 16,
+      "access_unit_tests_passed": 11,
+      "access_unit_tests_ignored": 2,
+      "receipt_sha256": "69f2253268645e678a4da39dfd2f0eea0b7d9c08596ad792b19c5f0638c9023a",
+      "controller_receipt_sha256": "43ec0e7bf7f87d3ba63e708fc6dd0ade44045a43915ba2865ab5fad7dfe55971",
+      "scope": "Actual GNU engine and Cargo test executable plus same-source static control in one owned network-none container, with only SETUID/SETGID and no-new-privileges. The container and image were removed; native images, volumes, volume metadata and installed app binary were preserved."
+    },
+    "actual_gnu_runtime": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "scenarios_passed": 19,
+      "access_unit_tests_passed": 12,
+      "access_unit_tests_ignored": 2,
+      "receipt_sha256": "39ac6a7a8b8826c291b74e478bd80d459342566229a0c3f79efbc28bc2dc3c62",
+      "controller_receipt_sha256": "c0b1a623f3f5aa77236bfea55c0e5a684e1b87558999d1ebea9a92a54a5b37bb",
+      "engine_sha256": "8fe0c42f646b94f65bf46c9e17db3224c827a7036bb78d2e99be34f97e2b2eb8",
+      "unit_binary_sha256": "1369baf7a390b046381dafaeac0980a77388fa22fc02f81cb49ecbbc70fd60bd",
+      "portable_control_sha256": "92acbcb58de0b1c794ec3b48f7d1a0c70f70c2105a03ed11a39f50c9a2327147",
+      "scope": "Actual GNU engine and Cargo test executable plus same-source static control in one owned network-none container, with only SETUID/SETGID and no-new-privileges. The container and image were removed; native images, volumes, volume metadata and installed app binary were preserved."
+    },
+    "backend_followup_elf": {
+      "status": "passed",
+      "tested_source": "d597114fdd4e513b323d6facc8e8e37962d34f9f",
+      "receipt_sha256": "43c1d1e5daccd828e2034e467134737d620567320fcd9377efdbc094514143c8",
+      "actual_binaries_inspected": 3,
+      "maximum_observed_glibc": "2.34",
+      "scope": "Both new GNU executables use the host GNU loader and bounded runtime imports; the same-source portable control remains static."
+    },
+    "backend_followup_source_checks": {
+      "status": "passed",
+      "receipt_sha256": "16d77c92e6285fe9912dbc5acd39d3626f18e983f8cd747511977756b16ad91b",
+      "scope": "Final backend-error controller syntax and all three changed workflows passed Python parsing, actionlint and whitespace checks."
+    },
+    "evidence_reader_controls": {
+      "status": "passed",
+      "receipt_sha256": "8150d0ee1b2706708af09bd6b779e52554c04f7c1d80f2a3fa433bb48d7b5411",
+      "controls": 8,
+      "scope": "Accepted the actual 19-scenario local result and rejected seven malformed or mismatched evidence controls. Hosted artifact verification is still pending."
     }
   },
   "required_hosted_evidence": {
