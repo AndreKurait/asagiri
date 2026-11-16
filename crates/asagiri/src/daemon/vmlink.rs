@@ -133,7 +133,34 @@ struct Writer {
 }
 
 impl Writer {
+    fn check_frame(&self) -> io::Result<()> {
+        if self.out.len() > asagiri_proto::MAX_FRAME {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                format!("agent request is {} bytes, larger than the {}-byte frame limit", self.out.len(), asagiri_proto::MAX_FRAME)));
+        }
+        Ok(())
+    }
+
+    fn request(&mut self, windows: &Windows, pending: &Mutex<VecDeque<SyncSender<Reply>>>, body: Option<(&Path, u64)>) -> io::Result<mpsc::Receiver<Reply>> {
+        // Refusing an unsent frame must not consume the next request's reply.
+        self.check_frame()?;
+        let (tx, rx) = mpsc::sync_channel(1);
+        // Queue the slot before writing, so the reply can never arrive first.
+        {
+            let mut pending = pending.lock().unwrap_or_else(|e| e.into_inner());
+            if windows.lock().lost {
+                return Err(io::Error::other("the VM stopped"));
+            }
+            pending.push_back(tx);
+        }
+        self.write(windows, body)?;
+        Ok(rx)
+    }
+
     fn write(&mut self, windows: &Windows, body: Option<(&Path, u64)>) -> io::Result<()> {
+        // Also bounds messages without replies. A local size error leaves the
+        // stream usable; only a write failure can have sent a partial frame.
+        self.check_frame()?;
         let result = self.write_request(body);
         if result.is_err() {
             // A partial frame cannot be retried on this stream. Publish
@@ -366,21 +393,12 @@ impl VmLink {
 
     /// Sends one request and waits for its reply.
     fn call(&self, encode: impl FnOnce(&mut Vec<u8>), body: Option<(&Path, u64)>) -> io::Result<Reply> {
-        let (tx, rx) = mpsc::sync_channel(1);
-        {
+        let rx = {
             let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
             w.out.clear();
             encode(&mut w.out);
-            // Queue the slot before writing, so the reply can never arrive first.
-            {
-                let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-                if self.windows.lock().lost {
-                    return Err(io::Error::other("the VM stopped"));
-                }
-                pending.push_back(tx);
-            }
-            w.write(&self.windows, body)?;
-        }
+            w.request(&self.windows, &self.pending, body)?
+        };
         match rx.recv() {
             Ok(Reply::Error(e)) => Err(io::Error::other(e)),
             Ok(r) => Ok(r),
@@ -753,6 +771,135 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    fn dense_seccomp_options() -> Vec<String> {
+        // The Docker-valid 2,997-rule profile: three syscall families, a hole
+        // at 0600, and a change of errno at 01000. Do not group or shrink it.
+        let mut rules = Vec::new();
+        for (name, argument) in [("chmod", 1), ("fchmodat", 2), ("fchmodat2", 2)] {
+            for mode in (0..1000).filter(|mode| *mode != 0o600) {
+                rules.push(serde_json::json!({
+                    "names": [name], "action": "SCMP_ACT_ERRNO", "errnoRet": if mode < 0o1000 { 13 } else { 95 },
+                    "args": [{"index": argument, "op": "SCMP_CMP_EQ", "value": mode}],
+                }));
+            }
+        }
+        assert_eq!(rules.len(), 2997);
+        let profile = serde_json::json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules});
+        super::super::engine::seccomp_lines(&[format!("seccomp={profile}")]).unwrap()
+    }
+
+    fn run_frame(opts: &[String], env: &[String]) -> Vec<u8> {
+        let mut frame = Vec::new();
+        let net = asagiri_proto::Net { bridge: "", ip: [0; 4], prefix: 0, gateway: [0; 4], extra_hosts: &[], dns_names: &[], opts: &[] };
+        asagiri_proto::encode_run(&mut frame, "c1", &["sha256:layer".into()], &["sh".into(), "-c".into(), "true".into()],
+            env, "/", "", "c1", 0, net, &["/source\t/target\tro".into()], &asagiri_proto::Limits::default(), 0, opts);
+        frame
+    }
+
+    fn exchange_request(frame: Vec<u8>) -> Vec<u8> {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        socket.set_write_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let mut writer = Writer { conn: std::os::fd::OwnedFd::from(socket).into(), out: frame, blob: vec![0; 16] };
+        let windows = Windows::default();
+        let pending = Mutex::new(VecDeque::new());
+        let mut received = Vec::new();
+        std::thread::scope(|scope| {
+            let caller = scope.spawn(|| {
+                let reply = writer.request(&windows, &pending, None).unwrap();
+                assert!(matches!(reply.recv_timeout(std::time::Duration::from_secs(10)).unwrap(), Reply::Started(42)));
+            });
+            let mut peer = File::from(std::os::fd::OwnedFd::from(peer));
+            read_frame(&mut peer, &mut received).unwrap();
+            pending.lock().unwrap().pop_front().unwrap().send(Reply::Started(42)).unwrap();
+            caller.join().unwrap();
+        });
+        assert!(pending.lock().unwrap().is_empty());
+        assert!(!windows.lock().lost);
+        received
+    }
+
+    #[test]
+    fn the_original_dense_seccomp_profile_reaches_the_agent_unchanged() {
+        let options = dense_seccomp_options();
+        assert_eq!(options[0].len(), 342_382);
+        assert!(options[0].len() > asagiri_proto::MAX_FRAME / 4);
+        let sent = run_frame(&options, &["A=1".into()]);
+        let received = exchange_request(sent.clone());
+        assert_eq!(received, sent);
+        let Msg::Run(run) = asagiri_proto::decode(&received).unwrap() else { panic!("expected Run") };
+        assert_eq!(run.opts.iter().collect::<Vec<_>>(), options);
+        assert_eq!(run.env.iter().collect::<Vec<_>>(), ["A=1"]);
+        assert_eq!(run.flags & asagiri_proto::run_flags::NO_SECCOMP, 0);
+    }
+
+    #[test]
+    fn the_frame_budget_includes_every_field_and_the_header() {
+        let options = dense_seccomp_options();
+        let mut env: Vec<_> = (0..16).map(|i| format!("PADDING{i}=")).collect();
+        let mut room = asagiri_proto::MAX_FRAME - run_frame(&options, &env).len();
+        for (i, value) in env.iter_mut().enumerate() {
+            let added = room / (16 - i);
+            value.push_str(&"x".repeat(added));
+            room -= added;
+        }
+        let exact = run_frame(&options, &env);
+        assert_eq!(exact.len(), asagiri_proto::MAX_FRAME);
+        assert_eq!(exchange_request(exact.clone()), exact);
+
+        env[0].push('x');
+        let oversized = run_frame(&options, &env);
+        assert_eq!(oversized.len(), asagiri_proto::MAX_FRAME + 1);
+        assert!(env.iter().all(|value| value.len() < 64 * 1024));
+        assert!(options[0].len() < asagiri_proto::MAX_FRAME);
+        assert!(asagiri_proto::frame_len(oversized[..4].try_into().unwrap()).is_err());
+        assert_refused_without_stream_loss(oversized);
+    }
+
+    #[test]
+    fn an_oversized_profile_is_refused_without_disabling_seccomp() {
+        let profile = serde_json::json!({"defaultAction": "SCMP_ACT_ERRNO", "comment": "x".repeat(asagiri_proto::MAX_FRAME)});
+        let options = super::super::engine::seccomp_lines(&[format!("seccomp={profile}")]).unwrap();
+        assert!(options[0].contains("SCMP_ACT_ERRNO"));
+        assert_refused_without_stream_loss(run_frame(&options, &[]));
+    }
+
+    fn assert_refused_without_stream_loss(frame: Vec<u8>) {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let mut writer = Writer { conn: std::os::fd::OwnedFd::from(socket).into(), out: frame, blob: vec![0; 16] };
+        let windows = Windows::default();
+        windows.open("unrelated");
+        let (earlier, earlier_reply) = mpsc::sync_channel(1);
+        let pending = Mutex::new(VecDeque::from([earlier]));
+        // An oversized request must not open or send its streamed body either.
+        let error = writer.request(&windows, &pending, Some((Path::new("/not-a-layer"), 1))).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("frame limit"), "{error}");
+        assert_eq!(pending.lock().unwrap().len(), 1, "no reply slot for the rejected request");
+        assert_eq!(writer.write(&windows, None).unwrap_err().kind(), io::ErrorKind::InvalidInput, "messages without replies share the bound");
+        assert!(!windows.lock().lost);
+        assert_eq!(windows.lock().by_id["unrelated"], asagiri_proto::INPUT_WINDOW);
+        peer.set_nonblocking(true).unwrap();
+        assert_eq!(peer.read(&mut [0]).unwrap_err().kind(), io::ErrorKind::WouldBlock, "no bytes and no EOF");
+        peer.set_nonblocking(false).unwrap();
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+
+        writer.out.clear();
+        Msg::Ping(42).encode(&mut writer.out);
+        let next = writer.request(&windows, &pending, None).unwrap();
+        let mut received = Vec::new();
+        read_frame(&mut std::os::fd::OwnedFd::from(peer).into(), &mut received).unwrap();
+        assert_eq!(asagiri_proto::decode(&received).unwrap(), Msg::Ping(42));
+        assert_eq!(pending.lock().unwrap().len(), 2);
+        pending.lock().unwrap().pop_front().unwrap().send(Reply::Ack).unwrap();
+        assert!(matches!(earlier_reply.try_recv().unwrap(), Reply::Ack));
+        assert!(matches!(next.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        pending.lock().unwrap().pop_front().unwrap().send(Reply::Pong).unwrap();
+        assert!(matches!(next.try_recv().unwrap(), Reply::Pong));
+        assert!(pending.lock().unwrap().is_empty());
+        assert!(!windows.lock().lost);
+    }
 
     #[test]
     fn a_failed_write_disconnects_before_the_reader_accounts_loss() {
