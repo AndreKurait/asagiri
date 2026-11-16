@@ -271,8 +271,9 @@ pub(super) fn set_appearance(theme: &str) {
                 // SAFETY: the live window's view, on the main queue.
                 unsafe {
                     let content: Option<Retained<AnyObject>> = msg_send![&**window, contentView];
-                    if let Some(content) = content {
-                        let _: () = msg_send![&*content, layoutSubtreeIfNeeded];
+                    let frame: Option<Retained<AnyObject>> = content.and_then(|c| msg_send![&*c, superview]);
+                    if let Some(frame) = frame {
+                        let _: () = msg_send![&*frame, layoutSubtreeIfNeeded];
                     }
                 }
                 place_lights(window);
