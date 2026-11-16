@@ -6,6 +6,7 @@
 
 use std::ffi::CStr;
 use std::io;
+use std::os::fd::RawFd;
 
 use super::sys::child_fail;
 
@@ -17,22 +18,34 @@ const NOT_FORWARDED: [libc::c_int; 9] =
 /// The supervisor does not exec, so it must close the descriptors that an
 /// ordinary container releases through CLOEXEC. Called before user limits
 /// and seccomp, with stdin/stdout/stderr already installed.
-pub(super) fn close_inherited() -> io::Result<()> {
+pub(super) fn close_inherited(keep: Option<RawFd>) -> io::Result<()> {
+    // The private setup reply must survive until final user/command setup.
+    // The child closes it as soon as the supervisor is ready.
+    let keep = keep.filter(|fd| *fd >= 3).map(|fd| fd as u32);
+    if let Some(fd) = keep {
+        if fd > 3 { close_range(3, fd - 1)?; }
+        close_range(fd + 1, u32::MAX)
+    } else {
+        close_range(3, u32::MAX)
+    }
+}
+
+fn close_range(first: u32, last: u32) -> io::Result<()> {
     // SAFETY: this runs only in the cloned child's private descriptor table.
-    if unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0) } == 0 {
+    if unsafe { libc::syscall(libc::SYS_close_range, first, last, 0) } == 0 {
         return Ok(());
     }
     let error = io::Error::last_os_error();
     if error.raw_os_error() != Some(libc::ENOSYS) {
         return Err(error);
     }
-    close_inherited_one_by_one()
+    close_inherited_one_by_one(first, last)
 }
 
 /// Kernels before close_range still support the native backend. Use the
 /// inherited hard limit before applying a possibly smaller container limit;
 /// /proc inside the container can be replaced by a caller's bind mount.
-fn close_inherited_one_by_one() -> io::Result<()> {
+fn close_inherited_one_by_one(first: u32, last: u32) -> io::Result<()> {
     // SAFETY: getrlimit initializes a plain local structure.
     let mut limit: libc::rlimit = unsafe { std::mem::zeroed() };
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
@@ -41,7 +54,8 @@ fn close_inherited_one_by_one() -> io::Result<()> {
     if limit.rlim_max == libc::RLIM_INFINITY {
         return Err(io::Error::other("cannot bound inherited descriptors"));
     }
-    for fd in 3..limit.rlim_max.min(libc::c_int::MAX as libc::rlim_t) {
+    let end = limit.rlim_max.min(libc::c_int::MAX as libc::rlim_t).min((last as libc::rlim_t).saturating_add(1));
+    for fd in (first as libc::rlim_t)..end {
         // SAFETY: only the child's inherited descriptor table is affected.
         if unsafe { libc::close(fd as libc::c_int) } != 0 {
             let error = io::Error::last_os_error();
@@ -177,12 +191,43 @@ mod tests {
                     if fd < 64 {
                         libc::_exit(2);
                     }
-                    let result = if fallback { close_inherited_one_by_one() } else { close_inherited() };
+                    let result = if fallback { close_inherited_one_by_one(3, u32::MAX) } else { close_inherited(None) };
                     if result.is_err() || libc::fcntl(fd, libc::F_GETFD) != -1 {
                         libc::_exit(3);
                     }
                     if libc::fcntl(1, libc::F_GETFD) < 0 || libc::fcntl(2, libc::F_GETFD) < 0 {
                         libc::_exit(4);
+                    }
+                    libc::_exit(0);
+                }
+                let mut status = 0;
+                assert_eq!(libc::waitpid(child, &mut status, 0), child);
+                assert_eq!(status, 0, "fallback={fallback}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_setup_reply_survives_until_init_is_ready() {
+        for fallback in [false, true] {
+            // SAFETY: all descriptor changes happen in this test's child.
+            unsafe {
+                let child = libc::fork();
+                assert!(child >= 0);
+                if child == 0 {
+                    let limit = libc::rlimit { rlim_cur: 128, rlim_max: 128 };
+                    if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 { libc::_exit(1); }
+                    let keep = libc::fcntl(1, libc::F_DUPFD_CLOEXEC, 64);
+                    let other = libc::fcntl(1, libc::F_DUPFD_CLOEXEC, keep + 1);
+                    if keep < 64 || other <= keep { libc::_exit(2); }
+                    let result = if fallback {
+                        close_inherited_one_by_one(3, keep as u32 - 1)
+                            .and_then(|()| close_inherited_one_by_one(keep as u32 + 1, u32::MAX))
+                    } else {
+                        close_inherited(Some(keep))
+                    };
+                    if result.is_err() || libc::fcntl(keep, libc::F_GETFD) < 0 || libc::fcntl(other, libc::F_GETFD) != -1 {
+                        libc::_exit(3);
                     }
                     libc::_exit(0);
                 }

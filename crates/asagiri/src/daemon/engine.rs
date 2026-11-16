@@ -482,6 +482,8 @@ pub struct Container {
     pub started: Option<SystemTime>,
     pub finished: Option<SystemTime>,
     pub exit_code: i32,
+    /// The last start failure, cleared once a later start succeeds.
+    pub start_error: String,
     /// Its last run ended with the kernel killing it for memory.
     pub oom_killed: bool,
     /// Its last run ended because the VM or the engine stopped under it, not
@@ -590,6 +592,8 @@ struct Saved {
     started_ns: Option<u64>,
     finished_ns: Option<u64>,
     exit_code: i32,
+    #[serde(default)]
+    start_error: String,
     #[serde(default)]
     oom_killed: bool,
     #[serde(default)]
@@ -763,6 +767,12 @@ pub enum Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&error_text(self))
     }
 }
 
@@ -1473,6 +1483,7 @@ impl Engine {
                     started: s.started_ns.map(from_ns),
                     finished: if was_running { Some(now) } else { s.finished_ns.map(from_ns) },
                     exit_code: if was_running { 255 } else { s.exit_code },
+                    start_error: s.start_error,
                     oom_killed: !was_running && s.oom_killed,
                     vm_stopped: was_running || s.vm_stopped,
                     stopped_by_user: s.stopped_by_user,
@@ -1566,6 +1577,7 @@ impl Engine {
                     started_ns: c.started.map(ns),
                     finished_ns: c.finished.map(ns),
                     exit_code: c.exit_code,
+                    start_error: c.start_error.clone(),
                     oom_killed: c.oom_killed,
                     vm_stopped: c.vm_stopped,
                     stopped_by_user: c.stopped_by_user,
@@ -2028,6 +2040,7 @@ impl Engine {
                 started: None,
                 finished: None,
                 exit_code: 0,
+                start_error: String::new(),
                 oom_killed: false,
                 vm_stopped: false,
                 stopped_by_user: false,
@@ -2342,7 +2355,7 @@ impl Engine {
             Err(e) => {
                 crate::diag::warn!("container did not start", id = &id[..12], image = spec.image, error = e);
                 self.fail_start(&id, &spec, &e);
-                return Err(Error::Io(e));
+                return Err(start_error(e));
             }
         }
         if let (true, Some((rows, cols))) = (spec.tty, size) {
@@ -2372,9 +2385,16 @@ impl Engine {
                 }
                 Err(e) => {
                     crate::diag::warn!("ports not published; container stopped", id = &id[..12], error = e);
+                    let message = e.to_string();
+                    if let Some(c) = self.lock().containers.get_mut(&id) {
+                        c.start_error = message.clone();
+                    }
                     // Docker refuses to run a container whose ports clash.
                     let _ = vm.kill(&id, libc::SIGKILL as u32);
-                    return Err(Error::Conflict(e.to_string()));
+                    if !spec.auto_remove {
+                        self.save();
+                    }
+                    return Err(Error::Conflict(message));
                 }
             }
         }
@@ -2385,8 +2405,13 @@ impl Engine {
         // The guest has the process now. A stop or kill that came in meanwhile
         // waits for this, and not for the input below: handing that over
         // takes as long as the program takes to read it.
-        if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
-            c.in_guest = true;
+        if let Some(c) = self.lock().containers.get_mut(&id) {
+            // A short command may already have exited before Started arrived.
+            // It still started successfully and must clear the previous error.
+            c.start_error.clear();
+            if c.status == Status::Running {
+                c.in_guest = true;
+            }
         }
         self.changed.notify_all();
         drop(starting);
@@ -2572,8 +2597,9 @@ impl Engine {
 
     /// Records a start that never reached the guest as an immediate exit,
     /// with the exit code Docker gives that failure (see `start_exit_code`).
-    fn fail_start(&self, id: &str, spec: &Spec, err: &dyn std::fmt::Debug) {
-        let code = start_exit_code(&format!("{err:?}"));
+    fn fail_start(&self, id: &str, spec: &Spec, err: &dyn std::fmt::Display) {
+        let message = err.to_string();
+        let code = start_exit_code(&message);
         let vm = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(vm) = vm {
             let _ = vm.is_lost();
@@ -2582,6 +2608,7 @@ impl Engine {
         // Lost may have run before this start finished allocating addresses.
         // Reclaim those even when preserving the crash's exit accounting.
         if let Some(c) = st.containers.get_mut(id) {
+            c.start_error = message;
             if let Some(ip) = c.ip.take() {
                 self.release_ip(&c.spec.network_mode, ip);
             }
@@ -2591,6 +2618,8 @@ impl Engine {
             self.release_ip6s(c);
         }
         if !spec.auto_remove && st.containers.get(id).is_some_and(|c| c.vm_stopped) {
+            drop(st);
+            self.save();
             return;
         }
         let actor = st.containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs)));
@@ -4049,6 +4078,14 @@ fn close_monitor(h: &mut HealthRun) {
     }
 }
 
+fn start_error(e: io::Error) -> Error {
+    if e.get_ref().is_some_and(|error| error.is::<super::vmlink::StartRejected>()) {
+        Error::BadRequest(e.to_string())
+    } else {
+        Error::Io(e)
+    }
+}
+
 fn error_text(e: &Error) -> String {
     match e {
         Error::NotFound(m) | Error::Conflict(m) | Error::BadRequest(m) | Error::Unauthorized(m) => m.clone(),
@@ -4548,6 +4585,7 @@ mod vm_recovery_tests {
         };
         engine.fail_start(&ids["always-live"], &late_spec, &"late VM start failure");
         assert_eq!(engine.with(&ids["always-live"], |c| c.exit_code).unwrap(), 255);
+        assert_eq!(engine.with(&ids["always-live"], |c| c.start_error.clone()).unwrap(), "late VM start failure");
         engine.lock_networks().reserve("late-start", late_ip).expect("failed recovery must release a late fixed-IP reservation");
         engine.lock_networks().release("late-start", late_ip);
         let retry_at = engine.lock().vm_recovery_at.expect("a VM loss schedules recovery with backoff");
@@ -4562,6 +4600,7 @@ mod vm_recovery_tests {
         let live = saved.iter().find(|c| c.name == "always-live").unwrap();
         assert_eq!(live.status, Status::Exited);
         assert_eq!(live.exit_code, 255);
+        assert_eq!(live.start_error, "late VM start failure");
         assert!(live.vm_stopped);
         assert_eq!(live.restart_count, 1, "a VM recovery counts as a restart");
         assert_eq!(saved.iter().find(|c| c.name == "unless-live").unwrap().restart_count, 1);
@@ -4751,15 +4790,74 @@ mod vm_end_tests {
 
 #[cfg(test)]
 mod start_exit_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_guest_command_rejection_is_an_invalid_start_request() {
+        let message = "exec: \"/missing\": no such file or directory";
+        let rejected = io::Error::other(super::super::vmlink::StartRejected(message.into()));
+        assert!(matches!(start_error(rejected), Error::BadRequest(s) if s == message));
+        // The writer's oversized frame and all unrelated runtime errors keep
+        // their 500 contract, even when their wording resembles a command error.
+        for error in [
+            io::Error::new(io::ErrorKind::InvalidInput, "agent frame exceeds maximum"),
+            io::Error::other(message),
+        ] {
+            assert!(matches!(start_error(error), Error::Io(_)));
+        }
+    }
+
     #[test]
     fn a_failed_start_gets_dockers_exit_code() {
-        let io = |m: &str| format!("{:?}", super::Error::Io(std::io::Error::other(m.to_owned())));
+        let io = |m: &str| Error::Io(io::Error::other(m.to_owned())).to_string();
         assert_eq!(super::start_exit_code(&io("dns: No such file or directory (os error 2)")), 127);
         assert_eq!(super::start_exit_code(&io("exec: \"nope\": executable file not found in $PATH")), 127);
         assert_eq!(super::start_exit_code(&io("mount etc/hosts: mount /proc/self/fd/28: Not a directory (os error 20)")), 127);
         assert_eq!(super::start_exit_code(&io("exec /app: Permission denied (os error 13)")), 126);
-        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::Conflict("no free address left on network n".into()))), 128);
-        assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
+        assert_eq!(super::start_exit_code(&Error::Conflict("no free address left on network n".into()).to_string()), 128);
+        assert_eq!(super::start_exit_code(&Error::NotFound("network x not found".into()).to_string()), 128);
+    }
+
+    #[test]
+    fn failed_start_error_survives_daemon_restart_and_old_records_still_load() {
+        let root = std::env::temp_dir().join(format!("asagiri-start-error-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        // No saved policy or real guest: starting must take the production
+        // failed-boot path, without touching another engine's runtime.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "test:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true, config_digest: "sha256:test".into(),
+            layers: Vec::new(), size: 0, platform: "linux/amd64".into(), created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "test:local", "image_id": "sha256:test", "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            "restart": {"name": "no", "max_retries": 0}
+        })).unwrap();
+        let id = engine.create(Some("failed-start".into()), spec, &image).unwrap();
+        assert!(engine.with(&id, |c| c.start_error.is_empty()).unwrap());
+        let error = engine.start(&id).unwrap_err();
+        assert!(matches!(&error, Error::Io(e) if e.to_string() == STOPPED));
+        let expected = (Status::Exited, 128, error_text(&error));
+        assert_eq!(engine.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), expected);
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(engine);
+
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), expected);
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        // Upgrade compatibility: old records have no start_error field.
+        let records = root.join("containers.json");
+        let mut legacy: serde_json::Value = serde_json::from_slice(&std::fs::read(&records).unwrap()).unwrap();
+        assert_eq!(legacy[0].as_object_mut().unwrap().remove("start_error").unwrap(), expected.2);
+        std::fs::write(&records, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| (c.status, c.exit_code, c.start_error.clone())).unwrap(), (Status::Exited, 128, String::new()));
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(restored);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

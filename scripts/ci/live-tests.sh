@@ -100,6 +100,7 @@ done
 run engine-identity
 run engine-power alpine:3.21
 run exec-errors alpine:3.21
+run start-error alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
@@ -176,6 +177,7 @@ restart_engine() {
   done
   docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --prepare-restart /tmp/image-label-restart.json || return 1
   docker exec "$name" python3 /src/tests/image-tag-retention.py "$sock" alpine:3.21 --prepare-restart /tmp/image-retention-restart.json || return 1
+  docker exec "$name" python3 /src/tests/start-error.py "$sock" alpine:3.21 --prepare-restart /tmp/start-error-restart.json || return 1
   before=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   docker restart -t 5 "$name" >/dev/null || return 1
   i=0
@@ -184,6 +186,7 @@ restart_engine() {
   done
   docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --verify-restart /tmp/image-label-restart.json || return 1
   docker exec "$name" python3 /src/tests/image-tag-retention.py "$sock" --verify-restart /tmp/image-retention-restart.json || return 1
+  docker exec "$name" python3 /src/tests/start-error.py "$sock" --verify-restart /tmp/start-error-restart.json || return 1
   after=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   [ "$before" != "$after" ] || return 1
   docker exec -e "EXPECTED_ENGINE_ID=$engine_id" "$name" python3 /src/tests/engine-identity.py "$sock" || return 1

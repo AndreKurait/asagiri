@@ -454,6 +454,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         Msg::Started { id: &run.id, pid: run.pid as u32 }.encode(&mut out);
                         procs.insert(run.id.clone(), new_proc(run, received_ns, cloned_ns));
                     }
+                    Err(e) if super::startup::rejected(&e) => Msg::StartRejected(&e.to_string()).encode(&mut out),
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
                 Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {

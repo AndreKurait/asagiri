@@ -436,10 +436,13 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             // SAFETY: one byte to a pipe we own: "your network is ready".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
         }
-        // An exec can be requested as soon as Started is sent. Joining a mount
-        // namespace before its init pivots would give that exec the old root.
-        // Wait for the child's mount setup, including pivot_root, before exposing it.
-        wait_root_ready(root_ready).map_err(kill_child)?;
+        // Started means the final root, user and executable have been checked,
+        // as in runc's init handshake. Keep the private error (also for a TTY)
+        // rather than replacing it with text from application stderr.
+        super::startup::wait(root_ready).inspect_err(|_| {
+            // SAFETY: only the child of this start; the failed-spawn path reaps it.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        })?;
         let (stdin, stdout, stderr) = finish_stdio(parent_io, child_io).map_err(kill_child)?;
         Ok(Process {
             id: spec.id.to_owned(),
@@ -1435,22 +1438,15 @@ fn report_fd(io: &ChildStdio) -> RawFd {
     }
 }
 
-/// A closed pipe before the acknowledgement means setup failed in the child.
-fn wait_root_ready(fd: OwnedFd) -> io::Result<()> {
-    use std::io::Read;
-    let mut byte = [0];
-    fs::File::from(fd).read_exact(&mut byte)?;
-    if byte != *b"r" {
-        return Err(io::Error::other("container root setup did not complete"));
-    }
-    Ok(())
-}
-
 /// Runs in the cloned child: PID 1 of the container, in its own namespaces
 /// and cgroup. Never returns: it execs or exits 127 with a message.
 fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: RawFd) -> ! {
+    let startup = super::startup::Child::new(Some(root_ready));
     let err = report_fd(io);
-    let fail = |what: &str, e: io::Error| -> ! { child_fail(err, what, e) };
+    let fail = |what: &str, e: io::Error| -> ! {
+        startup.error(&format!("{what}: {e}"), false);
+        child_fail(err, what, e)
+    };
 
     // Mount events must not leak back into the agent's namespace.
     sys::remount(c"/", libc::MS_REC | libc::MS_PRIVATE).unwrap_or_else(|e| fail("make mounts private", e));
@@ -1511,12 +1507,7 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: Raw
             fail("network", io::Error::other("the agent could not set up this container's network"));
         }
     }
-    // SAFETY: the parent owns the read end; this byte acknowledges that
-    // entering this mount namespace now enters the completed container root.
-    if unsafe { libc::write(root_ready, b"r".as_ptr().cast(), 1) } != 1 {
-        fail("root readiness", io::Error::last_os_error());
-    }
-    finish_child(p, io, true)
+    finish_child(p, io, true, &startup)
 }
 
 /// Runs in the cloned child of an exec: joins the container's remaining
@@ -1528,7 +1519,7 @@ fn exec_child(p: &Prepared, namespaces: &[(fs::File, libc::c_int)], io: &ChildSt
     }
     // SAFETY: valid NUL-terminated path.
     unsafe { libc::chdir(c"/".as_ptr()) };
-    finish_child(p, io, false)
+    finish_child(p, io, false, &super::startup::Child::new(None))
 }
 
 /// Binds the container's terminal over /dev/console; neither a privileged
@@ -1545,9 +1536,12 @@ fn bind_console(slave: &OwnedFd) {
 /// The part containers and execs share: standard streams, capabilities,
 /// user, working directory, exec. `console`: a container's own start, whose
 /// terminal also becomes its /dev/console (an exec's doesn't).
-fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
+fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::startup::Child) -> ! {
     let err = report_fd(io);
-    let fail = |what: &str, e: io::Error| -> ! { child_fail(err, what, e) };
+    let fail = |what: &str, e: io::Error| -> ! {
+        startup.error(&format!("{what}: {e}"), false);
+        child_fail(err, what, e)
+    };
 
     match io {
         ChildStdio::Tty { sock } => {
@@ -1601,13 +1595,16 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
 
     // From here on stderr is the container's own (the pipe or the terminal),
     // which is where the user will see why a start failed.
-    let fail = |what: &str, e: io::Error| -> ! { child_fail(2, what, e) };
+    let fail = |what: &str, e: io::Error| -> ! {
+        startup.error(&format!("{what}: {e}"), false);
+        child_fail(2, what, e)
+    };
 
     // --init supervises without exec, so CLOEXEC cannot release the agent's
     // inherited sockets, pipes and namespace handles. Stdio is now in place;
-    // close everything else before applying the container's limits/filter.
+    // close everything except its private setup reply before the limits/filter.
     if console && p.init {
-        super::pid1::close_inherited().unwrap_or_else(|e| fail("init descriptors", e));
+        super::pid1::close_inherited(startup.fd()).unwrap_or_else(|e| fail("init descriptors", e));
     }
 
     // While still root with every capability: raising a hard limit needs
@@ -1661,9 +1658,23 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
         }
     }
 
+    if console && p.init {
+        if p.no_new_privs { profile(); }
+        // Docker has started tini at this point. Its program can still fail
+        // with 126/127; that is a process exit, not a rejected container start.
+        startup.ready().unwrap_or_else(|e| fail("init readiness", e));
+    }
     let exe = find_executable(p).unwrap_or_else(|| {
-        fail(&p.argv[0].to_string_lossy(), io::Error::new(io::ErrorKind::NotFound, "executable file not found in $PATH"))
+        let why = format!("exec: {:?}: executable file not found in $PATH", p.argv[0].to_string_lossy());
+        startup.error(&why, true);
+        child_fail(2, "command", io::Error::new(io::ErrorKind::NotFound, why))
     });
+    if console && !p.init {
+        check_executable(&exe).unwrap_or_else(|e| {
+            startup.error(&e.to_string(), true);
+            child_fail(2, "command", e)
+        });
+    }
     let mut argv: Vec<*const libc::c_char> = p.argv.iter().map(|a| a.as_ptr()).collect();
     argv.push(std::ptr::null());
     // Docker sets HOME from the user's passwd entry when the image and the
@@ -1678,9 +1689,6 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     }
     envp.push(std::ptr::null());
     if console && p.init {
-        if p.no_new_privs {
-            profile();
-        }
         super::pid1::run(&exe, argv.as_ptr(), envp.as_ptr(), p.tty);
     }
     // The program starts as Docker would start it: nothing blocked and
@@ -1698,6 +1706,7 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
     if p.no_new_privs {
         profile();
     }
+    startup.ready().unwrap_or_else(|e| fail("exec readiness", e));
     // SAFETY: NULL-terminated arrays of valid C strings that outlive the call.
     unsafe { libc::execve(exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
     sys::exec_fail(2, &exe, io::Error::last_os_error(), false)
@@ -1969,8 +1978,33 @@ fn find_executable(p: &Prepared) -> Option<CString> {
         full.extend_from_slice(name);
         let c = CString::new(full).ok()?;
         // SAFETY: valid NUL-terminated path.
-        (unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0).then_some(c)
+        (unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0
+            && !Path::new(std::ffi::OsStr::from_bytes(c.as_bytes())).is_dir()).then_some(c)
     })
+}
+
+/// runc's LookPath runs in the final root as the configured user, before its
+/// setup reply. It checks existence and execute permission, including paths
+/// containing '/'; exec-format and interpreter errors still happen afterward.
+fn check_executable(exe: &CStr) -> io::Result<()> {
+    let path = Path::new(std::ffi::OsStr::from_bytes(exe.to_bytes()));
+    let metadata = fs::metadata(path);
+    let found = sys::Found { exists: metadata.is_ok(), dir: metadata.as_ref().is_ok_and(|m| m.is_dir()) };
+    let error = match metadata {
+        Err(error) => Some(error),
+        Ok(_) if found.dir => Some(io::Error::from_raw_os_error(libc::EISDIR)),
+        // SAFETY: the command is a valid NUL-terminated path; the final user
+        // was already installed before this check.
+        Ok(_) if unsafe { libc::access(exe.as_ptr(), libc::X_OK) } != 0 => Some(io::Error::last_os_error()),
+        Ok(_) => None,
+    };
+    match error {
+        None => Ok(()),
+        Some(error) => {
+            let (_, why) = sys::exec_failure(&exe.to_string_lossy(), &error, found, false);
+            Err(io::Error::new(error.kind(), why))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2171,15 +2205,42 @@ mod tests {
     }
 
     #[test]
-    fn root_readiness_requires_the_child_acknowledgement() {
+    fn start_readiness_requires_the_child_acknowledgement() {
         use std::io::Write;
         for (bytes, ready) in [(&b"r"[..], true), (&b"x"[..], false), (&b""[..], false)] {
             let (read, write) = super::sys::pipe().unwrap();
             let mut write = std::fs::File::from(write);
             write.write_all(bytes).unwrap();
             drop(write);
-            assert_eq!(super::wait_root_ready(read).is_ok(), ready);
+            assert_eq!(super::super::startup::wait(read).is_ok(), ready);
         }
+    }
+
+    #[test]
+    fn final_command_checks_reject_missing_paths_and_permissions_but_leave_exec_format_to_exec() {
+        use std::os::unix::fs::PermissionsExt;
+        // CI mounts /tmp noexec. The positive permission checks need an
+        // executable filesystem, so use an owned directory beside this test.
+        let executable = std::env::current_exe().unwrap();
+        let root = executable.parent().unwrap().join(format!("asagiri-command-check-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("command");
+        let command = super::sys::cstr(&file).unwrap();
+        let missing = super::check_executable(&command).unwrap_err();
+        assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
+        assert!(missing.to_string().contains("no such file or directory"));
+        std::fs::write(&file, b"echo no-shebang\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let denied = super::check_executable(&command).unwrap_err();
+        assert_eq!(denied.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(denied.to_string().contains("permission denied"));
+        let directory = super::check_executable(&super::sys::cstr(&root).unwrap()).unwrap_err();
+        assert!(directory.to_string().contains("is a directory: permission denied"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        super::check_executable(&command).unwrap();
+        std::fs::write(&file, b"#!/missing-interpreter\n").unwrap();
+        super::check_executable(&command).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// A start that fails on a child already gone reports what the child
