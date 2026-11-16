@@ -9,6 +9,9 @@ on:
       - Cargo.toml
       - Cargo.lock
       - scripts/ci/build-linux.sh
+      - scripts/ci/build-linux-native.sh
+      - scripts/ci/verify-linux-native.py
+      - packaging/linux/native-build.json
       - scripts/ci/images.json
       - '.github/actions/container-cache/**'
       - scripts/reference-bench.py

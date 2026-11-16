@@ -314,11 +314,11 @@ pub mod onboarding {
         crate::buildwith::places().is_ok_and(|p| p.ready())
     }
 
-    /// In the asagiri group by /etc/group, but this process (this session) isn't.
+    /// Listed in the asagiri group's NSS record, but this session isn't in it.
     fn in_group_not_session() -> bool {
         let me = user();
-        let listed = crate::daemon::access::members("asagiri").is_ok_and(|m| m.contains(&me));
-        listed && !session_has_group("asagiri")
+        let Ok(Some(members)) = crate::daemon::access::members("asagiri") else { return false };
+        members.contains(&me) && !session_has_group("asagiri")
     }
 
     fn session_has_group(group: &str) -> bool {

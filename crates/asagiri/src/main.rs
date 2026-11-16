@@ -221,7 +221,7 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--start"),
             args.iter().position(|a| a == "--view").and_then(|i| args.get(i + 1)).cloned(),
         ),
-        // The static engine has no window: the package's own build of it.
+        // The headless engine uses the package's separate window build.
         #[cfg(all(target_os = "linux", not(feature = "window")))]
         Some("ui") => window(&args),
         #[cfg(any(unix, windows))]

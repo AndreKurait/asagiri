@@ -1,9 +1,9 @@
 #!/bin/bash
-# appimage.sh <static-engine-directory> <GTK-window> <output-directory> [cache]
+# appimage.sh <native-engine-directory> <GTK-window> <output-directory> [cache]
 set -euo pipefail
 umask 022
 if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-  echo "usage: $0 <static-engine-directory> <GTK-window> <output-directory> [cache]" >&2
+  echo "usage: $0 <native-engine-directory> <GTK-window> <output-directory> [cache]" >&2
   exit 2
 fi
 [ "$(uname -s)" = Linux ] || { echo "Build the AppImage on Linux (a private build container also works)." >&2; exit 1; }
@@ -58,6 +58,7 @@ assert stat.S_ISDIR(tmp.st_mode) and tmp.st_uid == 0 and tmp.st_mode & stat.S_IS
 PY
 work=$(mktemp -d /tmp/asagiri-appimage-build.XXXXXXXX)
 trap 'rm -rf "$work"' EXIT
+python3 "$root/scripts/ci/verify-linux-native.py" "$bindir" --arch "$arch" --output "$work/native-elf.json" >&2
 app=$work/Asagiri.AppDir
 install -D -m 755 "$bindir/asagiri" "$app/usr/bin/asagiri"
 install -m 755 "$bindir/asagiri-init" "$app/usr/bin/asagiri-init"
