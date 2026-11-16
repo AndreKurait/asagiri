@@ -489,7 +489,7 @@ pub fn mount_rootfs(paths: &Paths, id: &str, image_layers: StrList<'_>) -> io::R
     }
     // Lower dirs are relative to the agent's working directory (the layer
     // store), which keeps the option string short enough for many layers.
-    let mut lower = String::with_capacity(image_layers.len() * 65);
+    let mut lower = Vec::with_capacity(image_layers.len());
     let mut seen = Vec::new();
     for digest in image_layers.iter() {
         if !layers::present(&paths.layers, digest) {
@@ -503,17 +503,13 @@ pub fn mount_rootfs(paths: &Paths, id: &str, image_layers: StrList<'_>) -> io::R
             continue;
         }
         seen.push(digest);
-        if !lower.is_empty() {
-            lower.push(':');
-        }
-        lower.push_str(layers::hex(digest)?);
+        lower.push(layers::hex(digest)?);
     }
     // diff/commit archive the upper layer itself. Kernel defaults that leave
     // metadata-only files or directory redirects there would lose file data.
     // Keep index's exclusive-upper protection: copy/restart cleanup must
     // finish before this mount, even on kernels that enable index by default.
-    let opts = format!("lowerdir={lower},upperdir={},workdir={},metacopy=off,redirect_dir=off", upper.display(), work.display());
-    sys::mount(c"overlay", &sys::cstr(&rootfs)?, c"overlay", 0, Some(&CString::new(opts)?))?;
+    super::overlay::mount(&lower, &upper, &work, &rootfs)?;
     Ok(rootfs)
 }
 
