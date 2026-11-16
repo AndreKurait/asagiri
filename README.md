@@ -30,6 +30,40 @@ The screenshot and browser demo use sample data in the real app UI.
   and Podman on Linux, with raw results and reproduction steps, and can also
   test a user-selected Colima socket.
 
+## Performance and validation
+
+Each complete Linux comparison records **6,000 measurements**: 400 samples
+for each of five operations across Asagiri, Docker and Podman, after warmup.
+It uses the same Alpine image and checks the returned data and test cleanup.
+
+One November 16, 2026 CI measurement recorded these **median times in
+milliseconds**; lower is better:
+
+| Operation | Asagiri | Docker | Podman |
+| --- | ---: | ---: | ---: |
+| Create, start, exit and remove a container | 7.89 | 116.08 | 40.09 |
+| Execute a command and check its result | 1.97 | 37.96 | 54.05 |
+| Upload, download and verify a 64 KiB file | 1.75 | 3.98 | 194.22 |
+| List an empty container set | 0.19 | 0.30 | 0.39 |
+| API ping | 0.20 | 0.40 | 0.40 |
+
+That same measurement caught a cleanup regression: Asagiri's lifecycle
+**p95 was 259 ms**, and 32 of 400 runs exceeded 240 ms after the container
+exited. Docker's p95 was 123 ms and Podman's was 47 ms. This is why the
+reports retain every sample and include cleanup in the lifecycle timing.
+The [source, raw results and investigation](docs/engine-comparison.md#investigated-lifecycle-cleanup-regression-workload-v2)
+identify the tested revision; these are CI measurements, not a stable-release
+or general application-speed claim.
+
+An optional comparison runs two revisions on the same machine in
+baseline/candidate/candidate/baseline order, retaining **24,000 samples**.
+Separate compatibility tests cover volume metadata and removal, package
+reinstallation and activation, and guest filesystem notifications and
+loop-device persistence. These small API workloads do not measure database
+throughput, builds, large-file throughput, VM startup or network speed.
+Verus checks the production address-gap search used by IPAM; the
+[proof and its boundaries](docs/verified-ipam.md) describe that specific scope.
+
 ## Downloads
 
 Start with the [installation guide](https://andrekurait.github.io/asagiri/install/)

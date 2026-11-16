@@ -29,7 +29,72 @@ GitHub artifact for 90 days. Asagiri changes also have the separate
 [performance comparison against the previous commit](performance.md), with
 regression gates and permanent raw history.
 
-## Latest verified Linux result (workload v2)
+## Investigated lifecycle cleanup regression (workload v2)
+
+[GHA run 43878562486](https://github.com/AndreKurait/asagiri/actions/runs/43878562486)
+measured PR55 head `ed482bd6e03354441e0396172d42bd175ab271e8` through source
+`5b540a35b8371296768fb24fc5f56a6195ef26c3`, with an identical source tree.
+This was a source-built Linux x86-64 CI binary reporting `0.0.0`. Its runner
+reported four CPUs, AMD EPYC 7763, Linux `7.0.0-1017-azure`, and Ubuntu
+image `20261111.370.1`. The comparison passed independently; that revision's
+separate platform suite failed on an oversized seccomp test fixture.
+
+Each cell is **median / p95 in milliseconds**, from 400 samples:
+
+| Workload | Asagiri `ed482bd` | Docker 29.9.3 | Podman 6.1.3 |
+| --- | ---: | ---: | ---: |
+| Ping | 0.204 / 0.259 | 0.396 / 0.460 | 0.396 / 0.476 |
+| Empty filtered list | 0.191 / 0.239 | 0.301 / 0.354 | 0.389 / 0.457 |
+| Create/start/wait/remove | 7.887 / 259.158 | 116.077 / 122.916 | 40.091 / 46.997 |
+| Exec, output and exit check | 1.968 / 2.177 | 37.962 / 39.699 | 54.052 / 66.783 |
+| 64 KiB named-volume file round trip | 1.754 / 1.876 | 3.984 / 4.700 | 194.222 / 201.386 |
+
+The [raw record](benchmarks/engine-comparison-2026-11-16-ed482.json) retains
+all 6,000 samples. Its
+[independent verification](benchmarks/engine-comparison-2026-11-16-ed482-verification.json)
+recomputes the medians and p95s and binds the source, artifact, image layers,
+payload and recorded fixture cleanup. As with earlier ordinary comparisons,
+the artifact records executable hashes but does not retain the executable
+bytes for an independent rehash.
+
+Asagiri had 32 of 400 measured lifecycle operations exceed 240 ms; Docker
+and Podman had none. Retained engine events placed the long interval after
+exit and before destruction in all 32 cases. The corresponding median
+interval was about 253 ms. Those timestamps locate the delay but do not
+alone establish its cause.
+
+The investigation found that an open, removed cgroup directory can retain
+a nonzero link count. The removed-directory regression tests fail on the
+old implementation and pass when removal is checked through the pinned
+directory's `cgroup.procs` entry. A replacement at the old pathname remains
+untouched. The first local candidate build incorrectly reused the baseline
+test executable; that result was discarded. A separate cache and checked
+executable hashes established that the corrected candidate was actually
+compiled before its 15 cgroup tests passed on Linux 6.18.58/aarch64.
+This is a targeted correctness result; a full-engine comparison is needed
+to measure its effect on the slow lifecycle samples.
+
+## Compare revisions on the same machine
+
+The manual `Engine comparison` workflow accepts an optional `baseline`
+input containing a full ancestor commit SHA. Select the candidate branch
+as the workflow ref. Both revisions must use the same workload, runner,
+reference-image pins and build recipe.
+
+The job compiles both sources, then runs the existing three-engine
+comparison in baseline/candidate/candidate/baseline order. It retains
+24,000 raw samples, build logs and executable bytes, with 800 measurements
+per version, engine and operation. The report includes medians, p95,
+individual-leg medians and the count of lifecycle samples over 240 ms.
+Source and executable hashes identify every leg; the reader rejects
+mismatched hosts, inputs, incomplete samples and replayed legs.
+
+Passing establishes measurement integrity, not a speedup. This order
+reduces simple time-order bias; it does not establish performance on other
+machines or application workloads. The ordinary per-commit comparison
+continues to run independently.
+
+## Earlier PR50 Linux result (workload v2)
 
 [GHA run 43831181768](https://github.com/AndreKurait/asagiri/actions/runs/43831181768)
 measured PR50 head `4377ea5c96f0d589501ee1c0096ee1be49baa6c8` through tested source
