@@ -58,7 +58,7 @@ Docker's commands also work as `asagiri` commands, always on Asagiri whatever
 docker context is selected: `asagiri run`, `asagiri ps`, `asagiri exec`, `asagiri logs`,
 `asagiri build`, `asagiri compose up` and the rest run the docker CLI against
 Asagiri's socket. (`asagiri import` is Asagiri's own: it brings images, volumes and
-containers over from OrbStack or Docker Desktop.) The daemon-free tools
+containers over from OrbStack or Docker Desktop; see the [engine import guide](engine-import.md).) The daemon-free tools
 that boot their own guest are `asagiri raw run|pull|images|rmi`.
 
 `asagiri` keeps its data in `~/Library/Application Support/Asagiri` (override with
