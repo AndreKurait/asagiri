@@ -1113,7 +1113,7 @@
       "updated_at": "2026-11-16T11:25:10Z",
       "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456",
       "disposition": "partial",
-      "reason": "Existing default-bridge DNS and BuildKit evidence is retained. The exact Bun/Compose application and new default-bridge UDP report remain unqualified. Public #366's shared-network alias ordering has a separate uncommitted candidate with six unit tests and 25 paired fixture cases prepared but not executed.",
+      "reason": "Existing default-bridge DNS and BuildKit evidence is retained. The exact Bun/Compose application and new default-bridge UDP report remain unqualified. Public #366's shared-network alias ordering is integrated. All 17 DNS unit tests, including six regressions, passed on the aarch64 guest. The 25-case Docker/Asagiri API fixture is checked in; final combined CI qualification remains pending.",
       "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {

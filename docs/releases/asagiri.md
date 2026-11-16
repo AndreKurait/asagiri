@@ -2,6 +2,11 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 
 The 0.1.6 changes include:
 
+- Failed container commands report their startup error before returning
+  success. Missing and non-executable commands return HTTP 400 with exit
+  codes 127 and 126; inspect retains the error across daemon restarts and
+  clears it after a successful retry. Post-start exec and `--init` exits
+  keep their process-exit behavior.
 - Bounded cgroup shutdown with pinned process handles, nested and threaded
   group handling, and cleanup that recognizes an already removed group
   without targeting a replacement at the same path.

@@ -53,9 +53,10 @@ The [raw record](benchmarks/engine-comparison-2026-11-16-ed482.json) retains
 all 6,000 samples. Its
 [independent verification](benchmarks/engine-comparison-2026-11-16-ed482-verification.json)
 recomputes the medians and p95s and binds the source, artifact, image layers,
-payload and recorded fixture cleanup. As with earlier ordinary comparisons,
-the artifact records executable hashes but does not retain the executable
-bytes for an independent rehash.
+payload and recorded fixture cleanup. Run `43878562486`'s ordinary-comparison
+artifact records executable hashes but does not retain the executable bytes
+for an independent rehash. The later paired run below has a separate artifact
+that does retain both revisions' executables.
 
 Asagiri had 32 of 400 measured lifecycle operations exceed 240 ms; Docker
 and Podman had none. Retained engine events placed the long interval after
@@ -101,7 +102,15 @@ and all four raw records
 [candidate 1](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-2-candidate/comparison.json),
 [candidate 2](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-3-candidate/comparison.json),
 [baseline 2](benchmarks/engine-comparison-pair-2026-11-16-f428/leg-4-baseline/comparison.json))
-remain in this repository. Executable bytes are retained in the Actions artifact.
+remain in this repository. This paired run's [Actions artifact `14242025937`](https://github.com/AndreKurait/asagiri/actions/runs/43894416036/artifacts/14242025937)
+retains both revisions' executable bytes. The downloaded artifact ZIP matched
+SHA-256 `5148090abe285d69c15e2efb7a36dd3b0aeac9ac65faa184c6dc111a4cbaea9a`.
+The independent reader rehashed all four executables and matched the recorded
+SHA-256 values:
+
+- Baseline and candidate `asagiri`: `65d539a21be6f3f5b1c8cbe86df413f9dd90dc05376a8ee73f8d04a04799825d`.
+- Baseline `asagiri-init`: `bcbce04126bc7582b72859b92a6cbdada78b3d701c6efaa61a37c17f8c19a398`.
+- Candidate `asagiri-init`: `7d1322c6a4a580a8d6aa539de0ddd30eb626a9c3bac0913963f7b25d72bc0989`.
 
 A separate [ordinary run 43897004170](https://github.com/AndreKurait/asagiri/actions/runs/43897004170)
 at head `07609658b0ee8bcb64bb23382fa6a50f10eb9742` retained one 311.656 ms
@@ -125,9 +134,10 @@ input containing a full ancestor commit SHA. Select the candidate branch
 as the workflow ref. Both revisions must use the same workload, runner,
 reference-image pins and build recipe.
 
-The job compiles both sources, then runs the existing three-engine
-comparison in baseline/candidate/candidate/baseline order. It retains
-24,000 raw samples, build logs and executable bytes, with 800 measurements
+This manual paired job compiles both sources, then runs the existing
+three-engine comparison in baseline/candidate/candidate/baseline order.
+Its Actions artifact retains 24,000 raw samples, build logs and both
+revisions' executable bytes, with 800 measurements
 per version, engine and operation. The report includes medians, p95,
 individual-leg medians and the count of lifecycle samples over 240 ms.
 Source and executable hashes identify every leg; the reader rejects
@@ -161,8 +171,8 @@ The [raw record](benchmarks/engine-comparison-2026-11-16-4377.json) retains all
 6,000 samples. Its [independent verification](benchmarks/engine-comparison-2026-11-16-4377-verification.json)
 recomputes all 15 medians/p95s and checks artifact/source identity, matching
 platform and unpacked layers, payload bytes and recorded fixture cleanup.
-Executable hashes were checked by CI; the artifact does not include executable
-bytes for a separate local rehash.
+CI checked executable hashes for run `43831181768`; that run's ordinary-comparison
+artifact does not include executable bytes for a separate local rehash.
 
 Dev.100's main [run 43827712984](https://github.com/AndreKurait/asagiri/actions/runs/43827712984)
 also passed, on an Intel Xeon 6975P-C/AWS host. It used a different host from
@@ -195,9 +205,9 @@ all 6,000 samples. The
 [verification record](benchmarks/engine-comparison-2026-11-16-c610-verification.json)
 checks the GitHub artifact digest, source tree, harness and image pins,
 independently recalculates all 15 medians and p95s, and checks matching image
-layers, payload bytes and recorded cleanup. Compiled binary hashes were
-checked and recorded by the workflow; its comparison artifact does not
-include the executable bytes for an independent local rehash.
+layers, payload bytes and recorded cleanup. Run `43823750794` checked and
+recorded compiled binary hashes; that run's ordinary-comparison artifact
+does not include executable bytes for an independent local rehash.
 
 The runs below are retained with their own source identities. Shared runner
 load varies, and no controlled experiment attributes timing differences
