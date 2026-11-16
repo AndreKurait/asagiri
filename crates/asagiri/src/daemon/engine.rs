@@ -621,6 +621,8 @@ struct HealthRun {
 
 #[derive(Default)]
 struct State {
+    /// Pull/create work that needs the guest before any container is running.
+    image_preparations: usize,
     vm_recovery_at: Option<std::time::Instant>,
     vm_recovery_running: bool,
     vm_recovery_generation: u64,
@@ -720,6 +722,16 @@ pub struct Engine {
     k8s_fwd: Mutex<HashMap<u16, super::ports::Forwards>>,
 }
 
+/// Keep idle retirement out until layer installation has finished, including
+/// failed and cancelled preparations. Explicit Stop still retires the guest.
+struct ImagePreparation<'a>(&'a Engine);
+
+impl Drop for ImagePreparation<'_> {
+    fn drop(&mut self) {
+        self.0.lock().image_preparations -= 1;
+    }
+}
+
 /// k3s's pod and service ranges, which `asagiri k8s` leaves at their defaults.
 pub const K8S_RANGES: [([u8; 4], u8); 2] = [([10, 42, 0, 0], 16), ([10, 43, 0, 0], 16)];
 
@@ -774,6 +786,10 @@ fn recover_after_vm_loss(c: &Container) -> bool {
 
 fn from_ns(n: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_nanos(n)
+}
+
+fn check_preparation(cancelled: &dyn Fn() -> bool) -> io::Result<()> {
+    if cancelled() { Err(io::Error::new(io::ErrorKind::Interrupted, "image preparation cancelled")) } else { Ok(()) }
 }
 
 impl Engine {
@@ -1196,7 +1212,7 @@ impl Engine {
             let (busy, parked) = {
                 let st = engine.lock();
                 let parked: Vec<String> = st.containers.values().filter(|c| c.status == Status::Running && c.paused && is_builder(c)).map(|c| c.id.clone()).collect();
-                let busy = st.containers.values().any(|c| c.status == Status::Running && !(c.paused && is_builder(c))) || st.execs.values().any(|e| e.running) || usb_attached();
+                let busy = st.image_preparations != 0 || st.containers.values().any(|c| c.status == Status::Running && !(c.paused && is_builder(c))) || st.execs.values().any(|e| e.running) || usb_attached();
                 (busy, parked)
             };
             let quiet = quiet_for >= idle;
@@ -1210,35 +1226,44 @@ impl Engine {
                     crate::diag::warn!("paused BuildKit container did not stop", id = &id[..12], error = format!("{e:?}"));
                 }
             }
-            if engine.sleep_if_idle() {
+            if engine.sleep_if_idle(true) {
                 crate::diag::info!("VM asleep: idle; the next request wakes it", idle_s = idle);
             }
         });
     }
 
-    /// Powers the VM off if nothing runs in it. True if it went to sleep.
-    fn sleep_if_idle(&self) -> bool {
+    /// Admit retirement under the same lock as preparation and boot. Keep it
+    /// until retirement completes so a new preparation cannot use the old VM.
+    fn when_idle(&self, idle_timer: bool, retire: impl FnOnce() -> bool) -> bool {
         let _waking = self.waking.lock().unwrap_or_else(|e| e.into_inner());
-        // Check under the lock: a request may have woken it.
-        let idle = !self.lock().containers.values().any(|c| c.status == Status::Running) && !usb_attached();
+        let idle = {
+            let st = self.lock();
+            !st.containers.values().any(|c| c.status == Status::Running)
+                && (!idle_timer || (st.image_preparations == 0 && !st.execs.values().any(|e| e.running)))
+                && !usb_attached()
+        };
+        idle && retire()
+    }
+
+    /// Powers the VM off if nothing runs in it. True if it went to sleep.
+    fn sleep_if_idle(&self, idle_timer: bool) -> bool {
         // Not `link.take().filter(..)`: that takes the VM first and drops it
         // when busy, which powers it off under whatever just started.
-        if !idle {
-            return false;
-        }
-        let Some(vm) = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return false };
-        self.sleeping.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.memory_used.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.memory_stall.store(0, std::sync::atomic::Ordering::Relaxed);
-        vm.shutdown();
-        // Let the guest flush its disk and power off before the VM is dropped.
-        if let Err(e) = vm.retire() {
-            self.sleeping.store(false, std::sync::atomic::Ordering::SeqCst);
-            crate::diag::warn!("the VM did not finish stopping", error = e);
-            return false;
-        }
-        *self.link.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        true
+        self.when_idle(idle_timer, || {
+            let Some(vm) = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return false };
+            self.sleeping.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.memory_used.store(0, std::sync::atomic::Ordering::Relaxed);
+            self.memory_stall.store(0, std::sync::atomic::Ordering::Relaxed);
+            vm.shutdown();
+            // Let the guest flush its disk and power off before the VM is dropped.
+            if let Err(e) = vm.retire() {
+                self.sleeping.store(false, std::sync::atomic::Ordering::SeqCst);
+                crate::diag::warn!("the VM did not finish stopping", error = e);
+                return false;
+            }
+            *self.link.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            true
+        })
     }
 
     /// The window's Stop: Asagiri off until Start. Marked stopped first, so
@@ -1373,7 +1398,7 @@ impl Engine {
         }
         // Passed-through USB devices go back to the Mac, as containers stop.
         detach_usb();
-        if self.sleep_if_idle() {
+        if self.sleep_if_idle(false) {
             crate::diag::info!("VM stopped on request");
         }
         Ok(())
@@ -1911,16 +1936,36 @@ impl Engine {
 
     /// Sends the guest every layer of these (digest, media type) it doesn't
     /// have unpacked, from the blob store.
-    fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>) -> io::Result<()> {
+    fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         for (digest, media_type) in layers {
+            check_preparation(cancelled)?;
             self.layers.run(digest, || {
+                check_preparation(cancelled)?;
                 if !vm.has_layer(digest)? {
                     vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
                 }
                 Ok::<_, io::Error>(())
             })?;
         }
-        Ok(())
+        check_preparation(cancelled)
+    }
+
+    fn image_preparation(&self) -> ImagePreparation<'_> {
+        // Register before vm(), including while waiting for a concurrent boot.
+        let _waking = self.waking.lock().unwrap_or_else(|e| e.into_inner());
+        self.lock().image_preparations += 1;
+        ImagePreparation(self)
+    }
+
+    /// A successful pull must leave its layers ready for container creation.
+    pub fn prepare_image(&self, image: &Image, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
+        check_preparation(cancelled)?;
+        if image.layers.is_empty() {
+            return Ok(());
+        }
+        let _preparing = self.image_preparation();
+        let vm = self.vm()?;
+        self.ensure_layers(&vm, image.layers.iter().map(|l| (l.digest.as_str(), l.media_type.as_str())), cancelled)
     }
 
     /// A container's layers back in the guest before it runs again: the
@@ -1948,16 +1993,13 @@ impl Engine {
             };
             wanted.push((l.digest.as_str(), l.media_type.as_str()));
         }
-        Ok(self.ensure_layers(vm, wanted.into_iter())?)
+        Ok(self.ensure_layers(vm, wanted.into_iter(), &|| false)?)
     }
 
     /// Records a container and makes sure its layers are in the guest, so
     /// `start` has nothing left to do but run it.
     pub fn create(&self, name: Option<String>, spec: Spec, image: &Image) -> Result<String, Error> {
-        if !image.layers.is_empty() {
-            let vm = self.vm()?;
-            self.ensure_layers(&vm, image.layers.iter().map(|l| (l.digest.as_str(), l.media_type.as_str())))?;
-        }
+        self.prepare_image(image, &|| false)?;
         let id = random_hex(32);
         let persist = !spec.auto_remove;
         let (log_dir, log_config) = (super::logfile::dir(self.store.root(), &id), spec.log_config.clone());
@@ -2064,6 +2106,7 @@ impl Engine {
         drop(_starting);
         // Retirement and boot own no container lock. A manual action can
         // invalidate this attempt while the previous VM is stopping.
+        let _preparing = self.image_preparation();
         let prepared = self.vm_inner(reason == Start::VmRecovery);
         let _starting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         if *_starting != generation {
@@ -4726,6 +4769,109 @@ mod start_exit_tests {
         assert_eq!(super::start_exit_code(&io("exec /app: Permission denied (os error 13)")), 126);
         assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::Conflict("no free address left on network n".into()))), 128);
         assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
+    }
+}
+
+#[cfg(test)]
+mod image_preparation_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    struct Fixture {
+        engine: Arc<Engine>,
+        root: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("asagiri-image-idle-{}", random_hex(16)));
+            std::fs::create_dir(&root).unwrap();
+            let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+            // A new empty store has no restart records. Never boot a real
+            // guest in these tests; exercise the production retirement gate.
+            engine.stopped.store(true, Ordering::SeqCst);
+            engine.last_activity.store(now_secs().saturating_sub(61), Ordering::Relaxed);
+            Self { engine, root }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            assert_eq!(self.engine.boot_attempts.load(Ordering::SeqCst), 0);
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn overlapping_preparations_block_idle_but_not_explicit_stop() {
+        let f = Fixture::new();
+        let first = f.engine.image_preparation();
+        let second = f.engine.image_preparation();
+        assert!(!f.engine.when_idle(true, || panic!("active preparation was retired")));
+        assert!(f.engine.when_idle(false, || true), "explicit Stop may interrupt preparation");
+        drop(first);
+        assert!(!f.engine.when_idle(true, || panic!("the second preparation is still active")));
+        drop(second);
+        assert!(f.engine.when_idle(true, || true));
+    }
+
+    #[test]
+    fn failed_cancelled_and_panicking_preparations_release_idle() {
+        let f = Fixture::new();
+        let image: Image = serde_json::from_value(serde_json::json!({
+            "name": "idle:test", "digest": "", "config_digest": "",
+            "layers": [{"digest": format!("sha256:{}", "a".repeat(64)), "size": 1,
+                "media_type": "application/vnd.oci.image.layer.v1.tar"}],
+            "size": 1, "platform": "linux/amd64", "pulled_at": 0, "config": {}
+        })).unwrap();
+        assert_eq!(f.engine.prepare_image(&image, &|| false).unwrap_err().to_string(), STOPPED);
+        assert!(f.engine.when_idle(true, || true), "a failed boot must release preparation");
+        assert_eq!(f.engine.prepare_image(&image, &|| true).unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert!(f.engine.when_idle(true, || true), "cancellation must not leave a preparation");
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _preparing = f.engine.image_preparation();
+            panic!("interrupted layer installation");
+        }));
+        assert!(failed.is_err());
+        assert!(f.engine.when_idle(true, || true), "unwinding must release preparation");
+    }
+
+    #[test]
+    fn new_preparation_waits_for_retirement_then_blocks_the_next_idle_attempt() {
+        let f = Fixture::new();
+        let wait = Duration::from_secs(3);
+        let (retiring, retirement_started) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let (attempting, attempted) = mpsc::channel();
+        let (prepared, preparation_started) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let engine = &f.engine;
+            let retiring = scope.spawn(move || engine.when_idle(true, || {
+                retiring.send(()).unwrap();
+                finished.recv_timeout(wait).unwrap();
+                true
+            }));
+            retirement_started.recv_timeout(wait).unwrap();
+            let preparing = scope.spawn(move || {
+                attempting.send(()).unwrap();
+                let _preparing = engine.image_preparation();
+                prepared.send(()).unwrap();
+                released.recv_timeout(wait).unwrap();
+            });
+            attempted.recv_timeout(wait).unwrap();
+            let early = preparation_started.recv_timeout(Duration::from_millis(50));
+            // Release retirement even if the old gate incorrectly admitted it.
+            finish.send(()).unwrap();
+            assert!(retiring.join().unwrap());
+            assert!(early.is_err(), "preparation entered before retirement completed");
+            preparation_started.recv_timeout(wait).unwrap();
+            let idle = engine.when_idle(true, || true);
+            release.send(()).unwrap();
+            preparing.join().unwrap();
+            assert!(!idle, "the new preparation must exclude the next idle attempt");
+        });
+        assert!(f.engine.when_idle(true, || true));
     }
 }
 
