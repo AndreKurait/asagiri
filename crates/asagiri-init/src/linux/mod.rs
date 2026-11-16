@@ -4,6 +4,7 @@ mod container;
 mod devices;
 mod copy;
 mod dns;
+mod fsnotify;
 mod fsview;
 mod hostopts;
 mod inroot;
