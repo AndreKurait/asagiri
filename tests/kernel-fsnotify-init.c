@@ -236,7 +236,14 @@ static void rejected(int control, int events, const char *line, const char *name
 {
     drain(events);
     errno = 0;
-    require(write(control, line, strlen(line)) == -1 && errno == expected, name);
+    ssize_t written = write(control, line, strlen(line));
+    int error = errno;
+    dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_REJECTION_RESULT: %s result=%zd errno=%d\n",
+            name, written, error);
+    /* A no-follow lookup of the parent can reject its final symlink as
+     * ENOTDIR before walking the remaining component. Both outcomes deny
+     * traversal; the ordinary stat below proves the target really exists. */
+    require(written == -1 && (error == expected || (expected == ELOOP && error == ENOTDIR)), name);
     struct pollfd ready = {.fd = events, .events = POLLIN};
     require(poll(&ready, 1, 100) == 0, "rejected path emitted no notification");
     dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_CONTROL_PASS: rejected %s\n", name);
@@ -332,6 +339,11 @@ int main(void)
     child_control(control, 1);
     rejected(control, events, "M\t/outside/guard\n", "outside-share path", EINVAL);
     rejected(control, events, "M\t/mnt/mac/../outside\n", "parent traversal", EXDEV);
+    struct stat direct, through_link;
+    require(stat("/outside/guard", &direct) == 0 &&
+            stat("/mnt/mac/link/guard", &through_link) == 0 &&
+            S_ISREG(through_link.st_mode) && direct.st_dev == through_link.st_dev &&
+            direct.st_ino == through_link.st_ino, "symlink leads to an existing outside target");
     rejected(control, events, "M\t/mnt/mac/link/guard\n", "symlink traversal", ELOOP);
     if (mount("tmpfs", "/mnt/mac/nested", "tmpfs", MS_NOSUID | MS_NODEV, "size=4096") < 0)
         fail("mount crossing control");
