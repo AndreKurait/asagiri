@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import socket
 import tarfile
+import time
 import uuid
 
 LABEL = "asagiri.test.start-error"
@@ -152,20 +153,36 @@ def check(args):
         print("PASS PATH permission failures use exit126 and a later executable still starts", flush=True)
         config = request("GET", "/images/" + args.image + "/json")["Config"]
         assert not any(item.startswith("HOME=") for item in config.get("Env") or []), "fixture must exercise HOME lookup"
+
+        def prepare_fifo(cid, path):
+            request("POST", "/containers/" + cid + "/start", statuses=(204,))
+            # Archive upload materializes special entries as regular files.
+            # Make the FIFO in the running fixture, then exercise a new start.
+            exec_id = request("POST", "/containers/" + cid + "/exec", {
+                "User": "0:0", "Cmd": ["/bin/sh", "-c", 'rm "$1" && mkfifo "$1"', "fifo-fixture", path],
+            }, (201,))["Id"]
+            request("POST", "/exec/" + exec_id + "/start", {"Detach": True, "Tty": False})
+            deadline = time.monotonic() + 10
+            while (state := request("GET", "/exec/" + exec_id + "/json"))["Running"]:
+                assert time.monotonic() < deadline, state
+                time.sleep(0.01)
+            assert state["ExitCode"] == 0, state
+            request("POST", "/containers/" + cid + "/stop?t=1", statuses=(204,))
+            stat = request("HEAD", "/containers/" + cid + "/archive?path=" + path, path_stat=True)
+            assert stat["mode"] & (1 << 25), stat  # Docker/Go ModeNamedPipe.
+
         for user, home in (("", "/root"), ("12345:12345", "/"), ("12345", "/")):
             marker = "home-" + nonce + ":"
-            cid = create(user=user, command=["/bin/sh", "-c", "printf '%s%s\\n' " + marker + ' "$HOME"'])
-            put_entry(cid, "/etc", "passwd", 0o644, kind=tarfile.FIFOTYPE)
-            stat = request("HEAD", "/containers/" + cid + "/archive?path=/etc/passwd", path_stat=True)
-            assert stat["mode"] & (1 << 25), stat  # Docker/Go ModeNamedPipe.
+            cid = create(user=user, command=["/bin/sh", "-c",
+                "if [ -p /etc/passwd ]; then printf '%s%s\\n' " + marker + ' "$HOME"; else exec sleep 300; fi'])
+            prepare_fifo(cid, "/etc/passwd")
             successful(cid, marker + home)
         regular = create(user="12345:12345", command=["/bin/sh", "-c", 'printf "%s\\n" "$HOME"'])
         put_entry(regular, "/etc", "passwd", 0o644, b"app:x:12345:12345::/home/from-passwd:/bin/sh\n")
         successful(regular, "/home/from-passwd")
-        group = create(command=["/bin/sh", "-c", 'printf "%s\\n" "$HOME"'])
-        put_entry(group, "/etc", "group", 0o644, kind=tarfile.FIFOTYPE)
-        stat = request("HEAD", "/containers/" + group + "/archive?path=/etc/group", path_stat=True)
-        assert stat["mode"] & (1 << 25), stat
+        group = create(command=["/bin/sh", "-c",
+            'if [ -p /etc/group ]; then printf "%s\\n" "$HOME"; else exec sleep 300; fi'])
+        prepare_fifo(group, "/etc/group")
         successful(group, "/root")
         print("PASS FIFO passwd/group files do not block startup; default, numeric and regular HOME lookup stays correct", flush=True)
 
