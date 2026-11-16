@@ -1,8 +1,8 @@
 #!/bin/bash
-# Asagiri's Linux packages from the static (musl) binaries:
+# Asagiri's Linux packages from the GNU host engine and static guest init:
 #   packaging/linux/build.sh <bindir> <outdir> [arch] [cli-dir] [window]
-#     bindir   holds asagiri and asagiri-init (cargo xtask linux: target/linux/release,
-#              or scripts/windows-engine.sh: target/linux-x86_64-musl)
+#     bindir   holds the GNU asagiri, static asagiri-init and SOURCE_COMMIT,
+#              produced by scripts/ci/build-linux-native.sh
 #     outdir   gets the packages
 #     arch     x86_64 (default) or aarch64
 #     cli-dir  docker, docker-compose, docker-buildx from fetch-cli.sh; with it
@@ -52,6 +52,7 @@ mkdir -p "$outdir"
 outdir=$(cd "$outdir" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+python3 "$root/scripts/ci/verify-linux-native.py" "$bindir" --arch "$arch" --output "$work/native-elf.json"
 
 # The files both packages share, into a staging root.
 stage_engine() { # root unitdir
@@ -121,7 +122,10 @@ License: Apache-2.0
  download.docker.com and github.com/docker.
 EOF
   fi
-  local size; size=$(du -sk "$pkg/usr" | cut -f1)
+  local size libc_min=2.34; size=$(du -sk "$pkg/usr" | cut -f1)
+  if [ "$full" = 1 ] && [ -n "$window" ]; then
+    libc_min=$(ldd --version | sed -n '1s/.* //p')
+  fi
   if [ "$full" = 1 ]; then other=asagiri-lite; else other=asagiri; fi
   cat > "$pkg/DEBIAN/control" <<EOF
 Package: $name
@@ -135,7 +139,7 @@ Homepage: https://andrekurait.github.io/asagiri
 Conflicts: $other
 Replaces: $other
 $([ "$full" = 1 ] || echo "Suggests: docker-cli | docker.io")
-$([ "$full" = 1 ] && [ -n "$window" ] && echo "Depends: libc6 (>= $(ldd --version | sed -n '1s/.* //p')), libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0")
+Depends: libc6 (>= $libc_min), libgcc-s1$([ "$full" = 1 ] && [ -n "$window" ] && echo ", libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0")
 $([ "$full" = 1 ] && [ -n "$window" ] && echo "Recommends: pkexec | policykit-1")
 Description: Tiny, fast container runtime (Docker API)$([ "$full" = 1 ] || echo ", engine only")
  Asagiri runs containers on this machine's kernel and speaks the Docker API on

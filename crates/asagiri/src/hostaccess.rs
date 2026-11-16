@@ -37,13 +37,23 @@ pub fn run(args: &[String]) -> io::Result<u8> {
     if unsafe { libc::geteuid() } != 0 {
         return Err(io::Error::other(format!("needs root: sudo asagiri host-access {}{user}", if restart { "--restart " } else { "" })));
     }
-    if crate::daemon::access::uid(user).is_none() {
+    if crate::daemon::access::uid(user)
+        .map_err(|e| io::Error::new(e.kind(), format!("couldn't look up account {user}: {e}")))?
+        .is_none()
+    {
         return Err(io::Error::other(format!("no account named {user}")));
     }
-    if crate::daemon::access::members(GROUP).is_err() {
-        must(Command::new("groupadd").args(["--system", GROUP]), "groupadd")?;
-    }
-    if !crate::daemon::access::members(GROUP)?.iter().any(|m| m == user) {
+    let lookup = || crate::daemon::access::members(GROUP)
+        .map_err(|e| io::Error::new(e.kind(), format!("couldn't look up group {GROUP}: {e}")));
+    let members = match lookup() {
+        Ok(members) => members,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            must(Command::new("groupadd").args(["--system", GROUP]), "groupadd")?;
+            lookup()?
+        }
+        Err(e) => return Err(e),
+    };
+    if !members.iter().any(|m| m == user) {
         // usermod everywhere we package for; gpasswd where it isn't.
         let added = Command::new("usermod").args(["-aG", GROUP, user]).status().is_ok_and(|s| s.success());
         if !added {

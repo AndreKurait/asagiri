@@ -1,10 +1,18 @@
 #!/bin/bash
-# Package the freshly built native Linux engine, and prepare the same
-# binaries and WSL rootfs for the Windows installer job. No ports published.
+# Package the GNU host engine and keep static portable/WSL inputs separate.
 set -euo pipefail
+if [ "$#" -ne 4 ]; then
+  echo "usage: release-linux.sh PORTABLE_BIN OUTPUT WSL_INPUTS NATIVE_BIN" >&2
+  exit 2
+fi
 bin=$(cd "$1" && pwd)
 out=$2
 inputs=$3
+native=$(cd "$4" && pwd)
+test "$(cat "$bin/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+test "$(cat "$native/SOURCE_COMMIT")" = "$(cat "$bin/SOURCE_COMMIT")"
+(cd "$bin" && sha256sum -c SHA256SUMS)
+(cd "$native" && sha256sum -c SHA256SUMS)
 arch=$(uname -m)
 case "$arch" in x86_64|aarch64) ;; *) exit 2 ;; esac
 version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')
@@ -13,7 +21,7 @@ out=$(cd "$out" && pwd)
 inputs=$(cd "$inputs" && pwd)
 cli=$PWD/target/linux-cli-$arch
 bash packaging/linux/fetch-cli.sh "$cli" "$HOME/.cache/asagiri-linux-cli" "$arch"
-bash packaging/linux/build.sh "$bin" "$out" "$arch" "$cli"
+bash packaging/linux/build.sh "$native" "$out" "$arch" "$cli"
 ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test.sh "$out" docker "$cli"
 ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test-amazon.sh "$out" "$cli"
 ASAGIRI_EXPECTED_VERSION="$version" bash packaging/linux/test-amazon-systemd.sh "$out" "$cli"

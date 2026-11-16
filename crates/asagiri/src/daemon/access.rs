@@ -109,10 +109,10 @@ pub fn members(group: &str) -> io::Result<Vec<String>> {
     group_members(&c_name(group)?)
 }
 
-/// A user's numeric id, if the account exists.
-pub fn uid(user: &str) -> Option<u32> {
-    let a = account_by_name(&c_name(user).ok()?).ok()??;
-    Some(a.rec.pw_uid)
+/// A user's numeric id, if the account exists. A directory lookup failure
+/// is not evidence that the account is absent.
+pub fn uid(user: &str) -> io::Result<Option<u32>> {
+    Ok(account_by_name(&c_name(user)?)?.map(|a| a.rec.pw_uid))
 }
 
 /// The uids of the names in a group record, sorted. A name with no account
@@ -613,7 +613,7 @@ mod tests {
         let _ = Command::new("groupdel").arg("asagiritestg").status();
         run(&["groupadd", "asagiritestg"]);
         run(&["useradd", "-M", "-G", "asagiritestg", "asagiritest"]);
-        let who = uid("asagiritest").unwrap();
+        let who = uid("asagiritest").unwrap().unwrap();
         assert!(members("asagiritestg").unwrap().contains(&"asagiritest".to_owned()));
 
         let dir = Path::new("/dev/shm").join(format!("asagiri-gate-{}", std::process::id()));
@@ -673,3 +673,7 @@ mod tests {
         assert_eq!(acl(&[]).len(), 4 + 4 * 8);
     }
 }
+
+#[cfg(all(test, target_env = "gnu"))]
+#[path = "access/nss_tests.rs"]
+mod nss_tests;

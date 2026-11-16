@@ -10,13 +10,15 @@
 # zig, the crates, the downloads and the build between runs.
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
+image=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["image"])' "$root/packaging/linux/native-build.json")
 docker run --rm --platform linux/arm64 \
   -v "$root:/src" -w /src \
   -v asagiri-linux-cache:/root/.cache \
   -v asagiri-linux-cargo:/usr/local/cargo/registry \
   -e HOME=/root \
-  rust:1-bookworm sh -euc '
+  "$image" sh -euc '
     apt-get update -qq
-    apt-get install -y -qq --no-install-recommends python3 python3-venv rpm pkg-config libwebkit2gtk-4.1-dev >/dev/null
+    apt-get install -y -qq --no-install-recommends python3 python3-venv rpm pkg-config libwebkit2gtk-4.1-dev \
+      gcc-x86-64-linux-gnu gcc-aarch64-linux-gnu libc6-dev-amd64-cross libc6-dev-arm64-cross >/dev/null
     sh scripts/ci/linux-build.sh
   '
