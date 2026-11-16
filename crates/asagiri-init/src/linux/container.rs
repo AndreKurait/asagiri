@@ -1447,6 +1447,21 @@ fn make_marker(root: BorrowedFd<'_>) -> io::Result<()> {
     }
 }
 
+/// A container start creates its working directory while the mounted root
+/// is still writable and the setup process is still root. Resolve image
+/// symlinks and `..` through the same scoped lookup used for mount targets.
+fn make_workdir(root: BorrowedFd<'_>, cwd: &CStr) -> io::Result<()> {
+    if cwd.to_bytes() == b"/" {
+        return Ok(()); // open_root already established this directory.
+    }
+    let path = Path::new(std::ffi::OsStr::from_bytes(cwd.to_bytes()));
+    let found = inroot::open(root, path, Last::Dir)?;
+    if !fs::File::from(found.fd).metadata()?.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+    }
+    Ok(())
+}
+
 /// Where the child reports a failure before it has execed: the stderr pipe,
 /// or the pty socket (the agent reads text there instead of a descriptor).
 fn report_fd(io: &ChildStdio) -> RawFd {
@@ -1500,6 +1515,7 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: Raw
         apply_mount(root, image.as_ref().map(|f| f.as_fd()), m).unwrap_or_else(|e| fail(&format!("mount {}", m.target.to_string_lossy()), e));
     }
     drop(image);
+    make_workdir(root, &p.cwd).unwrap_or_else(|e| fail("working directory", e));
 
     // pivot_root(".", ".") stacks the old root under the new one; detaching
     // it leaves only the container's filesystem visible.
@@ -1674,11 +1690,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool) -> ! {
             fail("switch user", io::Error::last_os_error());
         }
         if libc::chdir(p.cwd.as_ptr()) != 0 {
-            // Docker creates the whole working directory path, like mkdir -p.
-            let _ = fs::create_dir_all(std::ffi::OsStr::from_encoded_bytes_unchecked(p.cwd.as_bytes()));
-            if libc::chdir(p.cwd.as_ptr()) != 0 {
-                fail("working directory", io::Error::last_os_error());
-            }
+            // Starts prepared this path before making the root read-only.
+            // An exec requires its requested working directory to exist.
+            fail("working directory", io::Error::last_os_error());
         }
     }
 
@@ -1992,6 +2006,90 @@ fn find_executable(p: &Prepared) -> Option<CString> {
         // SAFETY: valid NUL-terminated path.
         (unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0).then_some(c)
     })
+}
+
+#[cfg(test)]
+mod workdir_tests {
+    use super::{inroot, make_workdir};
+    use std::fs;
+    use std::os::fd::AsFd;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("asagiri-workdir-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+            fs::create_dir(path.join("root")).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn missing_workdir_parents_are_created_inside_the_container_root() {
+        let fixture = Fixture::new();
+        let root = inroot::open_root(&fixture.0.join("root")).unwrap();
+        make_workdir(root.as_fd(), c"/var/www/html/project").unwrap();
+        assert!(fixture.0.join("root/var/www/html/project").is_dir());
+        assert!(!fixture.0.join("var").exists());
+        make_workdir(root.as_fd(), c"/var/www/html/project").unwrap();
+    }
+
+    #[test]
+    fn existing_workdir_keeps_its_permissions_ownership_and_contents() {
+        let fixture = Fixture::new();
+        let directory = fixture.0.join("root/existing");
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o711)).unwrap();
+        fs::write(directory.join("payload"), b"preserve").unwrap();
+        let before = fs::metadata(&directory).unwrap();
+        let root = inroot::open_root(&fixture.0.join("root")).unwrap();
+        make_workdir(root.as_fd(), c"/existing").unwrap();
+        let after = fs::metadata(&directory).unwrap();
+        assert_eq!((after.ino(), after.uid(), after.gid(), after.mode()),
+                   (before.ino(), before.uid(), before.gid(), before.mode()));
+        assert_eq!(fs::read(directory.join("payload")).unwrap(), b"preserve");
+    }
+
+    #[test]
+    fn workdir_image_symlinks_and_parent_components_stay_in_the_root() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.0.join("outside")).unwrap();
+        fs::write(fixture.0.join("outside/keep"), b"outside").unwrap();
+        let path = fixture.0.join("root");
+        symlink("/outside", path.join("absolute")).unwrap();
+        symlink("../../outside", path.join("relative")).unwrap();
+        let root = inroot::open_root(&path).unwrap();
+        make_workdir(root.as_fd(), c"/absolute/first").unwrap();
+        make_workdir(root.as_fd(), c"/relative/second").unwrap();
+        make_workdir(root.as_fd(), c"/../../outside/third").unwrap();
+        for name in ["first", "second", "third"] {
+            assert!(path.join("outside").join(name).is_dir());
+            assert!(!fixture.0.join("outside").join(name).exists());
+        }
+        assert_eq!(fs::read(fixture.0.join("outside/keep")).unwrap(), b"outside");
+    }
+
+    #[test]
+    fn a_file_or_symlink_loop_cannot_be_a_workdir() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("root");
+        fs::write(path.join("file"), b"preserve").unwrap();
+        symlink("loop", path.join("loop")).unwrap();
+        let root = inroot::open_root(&path).unwrap();
+        assert_eq!(make_workdir(root.as_fd(), c"/file").unwrap_err().raw_os_error(), Some(libc::ENOTDIR));
+        assert!(make_workdir(root.as_fd(), c"/file/child").is_err());
+        assert!(make_workdir(root.as_fd(), c"/loop").is_err());
+        assert_eq!(fs::read(path.join("file")).unwrap(), b"preserve");
+    }
 }
 
 #[cfg(test)]
