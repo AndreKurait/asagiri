@@ -2,6 +2,11 @@
 //! sockets, forks and waitpid. No libtest thread may exist at a worker fork.
 
 #[cfg(target_os = "linux")]
+#[path = "../src/layer_tar.rs"]
+#[allow(dead_code, unused_imports)] // The included agent also builds its layer extractor.
+mod layer_tar;
+
+#[cfg(target_os = "linux")]
 #[allow(dead_code)]
 #[expect(unused_imports, reason = "harness=false includes cfg(test) modules without libtest bodies")]
 mod linux {
