@@ -2378,14 +2378,16 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
             return None;
         }
         let labels = if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) };
-        let net = networks.iter().find(|n| n.name == c.spec.network_mode || n.id == c.spec.network_mode || (c.spec.network_mode == "default" && n.name == "bridge"));
         let keep = f.any("id", |v| c.id.starts_with(v))
             && f.container_name(&c.name)
             && f.labels(&labels)
             && f.any("status", |v| v == state_word(c))
             && f.any("exited", |v| c.status == Status::Exited && v.parse() == Ok(c.exit_code))
             && f.any("ancestor", |v| reference_matches(v, &c.spec.image) || c.spec.image == v || c.spec.image_id.trim_start_matches("sha256:").starts_with(v.trim_start_matches("sha256:")))
-            && f.any("network", |v| net.is_some_and(|n| n.name == v || n.id.starts_with(v)))
+            && f.any("network", |v| networks.iter().any(|n| (n.name == v || n.id.starts_with(v))
+                && (n.name == c.spec.network_mode || n.id == c.spec.network_mode
+                    || (c.spec.network_mode == "default" && n.name == "bridge")
+                    || c.spec.extra_networks.iter().any(|x| x.name == n.name || x.name == n.id))))
             && f.any("volume", |v| c.spec.volumes.iter().chain(&c.spec.anon_volumes).any(|n| n == v) || c.spec.mount_info.iter().any(|m| m["Destination"] == v || m["Source"] == v))
             && f.any("health", |v| v == health.get(&c.id).map_or("none", |h| h.status.as_str()));
         if !keep {
