@@ -37,3 +37,7 @@ harness = false
 [[test]]
 name = "shared-root-process"
 harness = false
+
+[[test]]
+name = "cgroup-startup"
+harness = false

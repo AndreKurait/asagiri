@@ -275,15 +275,15 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     // Docker make them); its cgroup would then refuse processes.
     remove_cgroup(&cgroup);
     if !paths.cgroup.is_dir() {
-        super::containers_cgroup(&paths.cgroup);
+        super::containers_cgroup(&paths.cgroup).map_err(cleanup)?;
     }
     if host.buildx_parent {
         // Keep Buildx's aggregate counters/limits under our delegated tree,
         // so host-wide accounting and other services' cgroups stay separate.
-        super::containers_cgroup(&paths.cgroup.join("docker"));
-        super::containers_cgroup(&parent);
+        super::containers_cgroup(&paths.cgroup.join("docker")).map_err(cleanup)?;
+        super::containers_cgroup(&parent).map_err(cleanup)?;
     }
-    let _ = fs::create_dir(&cgroup);
+    super::make_cgroup(&cgroup).map_err(cleanup)?;
     if spec.limits != asagiri_proto::Limits::default() {
         super::cgroup::apply_limits(&cgroup, &spec.limits).map_err(cleanup)?;
     }
