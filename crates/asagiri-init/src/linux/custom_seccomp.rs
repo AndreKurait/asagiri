@@ -524,7 +524,13 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
         // any of them may match.
         let repeated = (0..6).any(|i| conds.iter().filter(|c| c.index == i).count() > 1);
         conds.sort_by_key(|c| c.index);
-        let groups: Vec<Vec<Cond>> = if repeated { conds.iter().map(|c| vec![*c]).collect() } else { vec![conds] };
+        let mut groups: Vec<Vec<Cond>> = if repeated { conds.iter().map(|c| vec![*c]).collect() } else { vec![conds] };
+        // A zero mask always matches. Remove it after the OR split so that
+        // an always-matching branch has unconditional-rule precedence and
+        // equivalent conditions still reach the conflict check.
+        for group in &mut groups {
+            group.retain(|c| c.op != Op::MaskedEq || c.value != 0);
+        }
         for name in names {
             if name.is_empty() {
                 return Err(bad("empty string is not a valid syscall"));
@@ -1068,5 +1074,66 @@ mod tests {
             {"index": 0, "op": "SCMP_CMP_EQ", "value": 0}, {"index": 0, "op": "SCMP_CMP_EQ", "value": 1}, {"index": 1, "op": "SCMP_CMP_EQ", "value": 9},
         ]});
         assert_eq!(verdicts(profile(json!([either]))), [ERRNO; 2]);
+    }
+
+    #[test]
+    fn zero_masks_preserve_the_first_unconditional_action() {
+        let zero = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13,
+            "args": [{"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99}]});
+        let plain = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95});
+        let nr = syscall_table::number("getppid").unwrap();
+        for (rules, expected) in [(json!([zero, plain]), RET_ERRNO | 13), (json!([plain, zero]), RET_ERRNO | 95)] {
+            let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules})).unwrap().unwrap();
+            for arg in [0, 1, 0x1_0000_0000, u64::MAX] {
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [arg; 6]), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_masks_do_not_change_and_or_grouping() {
+        let zero = json!({"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99});
+        let first = json!({"index": 0, "op": "SCMP_CMP_EQ", "value": 1});
+        let second = json!({"index": 1, "op": "SCMP_CMP_EQ", "value": 2});
+        let on = |args: Value| json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13, "args": args});
+        let plain = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95});
+        let nr = syscall_table::number("getppid").unwrap();
+        // Different indexes are ANDed: the real condition must still hold.
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [on(json!([zero, second]))]})).unwrap().unwrap();
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0; 6]), RET_ALLOW);
+        assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0, 2, 0, 0, 0, 0]), RET_ERRNO | 13);
+        // Repeated indexes split every condition into an OR branch before
+        // a zero mask is removed, including conditions on other indexes.
+        for args in [json!([zero, first]), json!([zero, first, second])] {
+            let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [on(args), plain]})).unwrap().unwrap();
+            for arg in [0, 1, 2, u64::MAX] {
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [arg; 6]), RET_ERRNO | 13);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_masks_reveal_conflicting_equivalent_rules() {
+        let zero = json!({"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99});
+        let second = json!({"index": 1, "op": "SCMP_CMP_EQ", "value": 2});
+        let first_rule = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13, "args": [zero, second]});
+        let second_rule = json!({"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95, "args": [second]});
+        for rules in [json!([first_rule, second_rule]), json!([second_rule, first_rule])] {
+            let error = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": rules})).err().expect("conflicting rules");
+            assert!(error.to_string().contains("same conditions already have another action"), "{error}");
+        }
+    }
+
+    #[test]
+    fn zero_masks_are_enforced_with_the_first_action() {
+        let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+            {"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 13,
+                "args": [{"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99}]},
+            {"names": ["getppid"], "action": "SCMP_ACT_ERRNO", "errnoRet": 95},
+        ]})).unwrap().unwrap();
+        assert!(enforced(&filter, || {
+            // SAFETY: getppid only reads this child's parent process ID.
+            errno_of(unsafe { libc::syscall(libc::SYS_getppid) }) == libc::EACCES
+        }));
     }
 }

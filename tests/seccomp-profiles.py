@@ -167,6 +167,16 @@ def check(path, image):
         assert "plain=0" in output and "equal=1" in output and "masked=1" in output, output
         assert "Permission denied" in output and "not permitted" in output, output
 
+        # A zero mask makes its branch unconditional. It must keep the first
+        # action when another unconditional rule follows, including after
+        # repeated argument indexes split the conditions into alternatives.
+        always = {"index": 0, "op": "SCMP_CMP_MASKED_EQ", "value": 0, "valueTwo": 99}
+        for conditions in ([always], [always, {"index": 0, "op": "SCMP_CMP_EQ", "value": 1},
+                                      {"index": 1, "op": "SCMP_CMP_EQ", "value": 2}]):
+            status, output = run([profile(deny_chmod(errnoRet=13, args=conditions), deny_chmod(errnoRet=95))],
+                                 "touch /f; chmod 600 /f; echo chmod=$?")
+            assert status == 0 and "chmod=1" in output and "Permission denied" in output, output
+
         # An argument is 64 bits wide and compared as a whole: the length
         # ftruncate is given, on both sides of 2^32.
         lengths = (0xffffffff, 0x100000004, 0x100000005, 0x100000016, 0x200000005, 0x200000006)
