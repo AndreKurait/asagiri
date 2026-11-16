@@ -591,8 +591,8 @@ fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json:
 
 fn image_remove(engine: &Engine, name: &str, force: bool) -> Result<Value, Error> {
     let i = engine.image(name)?.ok_or_else(|| Error::NotFound(format!("No such image: {name}")))?;
-    let in_use = engine.each(|c| (c.spec.image_id == i.config_digest).then(|| c.short_id().to_owned()));
-    let (removed, deleted) = remove_image_references(&engine.store, &i, name, force, &in_use)?;
+    let in_use = engine.each(|c| (c.spec.image_id == i.config_digest).then(|| (c.short_id().to_owned(), c.status == Status::Running)));
+    let (removed, deleted) = remove_image_references(&engine.store, &i, name, force, &in_use, &engine.image_blob_users())?;
     let mut rows = Vec::new();
     for image in removed {
         if image.name != image.config_digest {
@@ -608,7 +608,7 @@ fn image_remove(engine: &Engine, name: &str, force: bool) -> Result<Value, Error
 }
 
 fn remove_image_references(
-    store: &asagiri_image::Store, image: &asagiri_image::Image, name: &str, force: bool, in_use: &[String],
+    store: &asagiri_image::Store, image: &asagiri_image::Image, name: &str, force: bool, in_use: &[(String, bool)], retained_blobs: &[String],
 ) -> Result<(Vec<asagiri_image::Image>, bool), Error> {
     let by_id = image.config_digest == name
         || image.config_digest.strip_prefix("sha256:").is_some_and(|hex| name.len() >= 12 && hex.starts_with(name));
@@ -618,9 +618,9 @@ fn remove_image_references(
             "conflict: unable to delete image \"{name}\" (must force) - image has multiple references"
         )));
     }
-    // A named reference may be untagged while another reference keeps the
-    // image. Removing by ID must protect containers even when aliases exist.
-    if (by_id || !other_references) && let Some(c) = in_use.first() {
+    // Running use is a hard conflict for ID deletion. A forced tag removal
+    // may leave that image dangling; stopped containers allow forced deletion.
+    if (by_id || !other_references) && let Some((c, _)) = in_use.iter().find(|(_, running)| !force || (by_id && *running)) {
         return Err(Error::Conflict(format!(
             "conflict: unable to remove image \"{name}\" - container {c} is using its referenced image"
         )));
@@ -628,7 +628,8 @@ fn remove_image_references(
     // Only an explicit forced ID removal may remove all references. A
     // non-forced request cannot consume an alias added after the check above.
     let selected_name = if by_id && force { None } else { Some(image.name.as_str()) };
-    let removed = store.remove_image_references(&image.config_digest, selected_name)?;
+    let keep_image = !by_id && in_use.iter().any(|(_, running)| *running);
+    let removed = store.remove_image_references_retaining(&image.config_digest, selected_name, keep_image, retained_blobs)?;
     if removed.is_empty() {
         return Err(Error::NotFound(format!("No such image: {name}")));
     }
@@ -3594,7 +3595,7 @@ mod tests {
                 1 => &image.config_digest[7..],
                 _ => &image.config_digest[7..19],
             };
-            let (removed, deleted) = remove_image_references(&fixture.store, image, name, true, &[]).unwrap();
+            let (removed, deleted) = remove_image_references(&fixture.store, image, name, true, &[], &[]).unwrap();
             assert_eq!(removed.len(), 2);
             assert!(deleted);
             assert!(fixture.store.images().unwrap().is_empty());
@@ -3606,7 +3607,7 @@ mod tests {
         let fixture = ImageRemovalFixture::new();
         let before = fixture.store.images().unwrap();
         assert!(matches!(remove_image_references(
-            &fixture.store, &fixture.image, &fixture.image.config_digest, false, &[],
+            &fixture.store, &fixture.image, &fixture.image.config_digest, false, &[], &[],
         ), Err(Error::Conflict(_))));
         assert_eq!(fixture.store.images().unwrap(), before);
     }
@@ -3616,7 +3617,7 @@ mod tests {
         let fixture = ImageRemovalFixture::new();
         let before = fixture.store.images().unwrap();
         assert!(matches!(remove_image_references(
-            &fixture.store, &fixture.image, &fixture.image.config_digest, true, &["container-in-use".into()],
+            &fixture.store, &fixture.image, &fixture.image.config_digest, true, &[("container-in-use".into(), true)], &[],
         ), Err(Error::Conflict(_))));
         assert_eq!(fixture.store.images().unwrap(), before);
     }
@@ -3629,7 +3630,7 @@ mod tests {
                 let selected = fixture.store.images().unwrap().into_iter()
                     .find(|image| image.name.contains('@') == digest_reference).unwrap();
                 let (removed, deleted) = remove_image_references(
-                    &fixture.store, &selected, &selected.name, force, &["container-in-use".into()],
+                    &fixture.store, &selected, &selected.name, force, &[("container-in-use".into(), true)], &[],
                 ).unwrap();
                 assert_eq!(removed, vec![selected]);
                 assert!(!deleted);
@@ -3647,16 +3648,47 @@ mod tests {
         let before = fixture.store.images().unwrap();
         for force in [false, true] {
             assert!(matches!(remove_image_references(
-                &fixture.store, &fixture.image, &fixture.image.config_digest, force, &["container-in-use".into()],
+                &fixture.store, &fixture.image, &fixture.image.config_digest, force, &[("container-in-use".into(), true)], &[],
             ), Err(Error::Conflict(_))));
             assert_eq!(fixture.store.images().unwrap(), before);
         }
         let (removed, deleted) = remove_image_references(
-            &fixture.store, &fixture.image, &fixture.image.config_digest, false, &[],
+            &fixture.store, &fixture.image, &fixture.image.config_digest, false, &[], &[],
         ).unwrap();
         assert_eq!(removed, before);
         assert!(deleted);
         assert!(fixture.store.images().unwrap().is_empty());
+    }
+
+    #[test]
+    fn image_removal_by_id_can_force_stopped_container_use() {
+        let fixture = ImageRemovalFixture::new();
+        let stopped = [("stopped".into(), false)];
+        assert!(matches!(remove_image_references(
+            &fixture.store, &fixture.image, &fixture.image.config_digest, false, &stopped, &[],
+        ), Err(Error::Conflict(_))));
+        let (removed, deleted) = remove_image_references(
+            &fixture.store, &fixture.image, &fixture.image.config_digest, true, &stopped, &[],
+        ).unwrap();
+        assert_eq!(removed.len(), 2);
+        assert!(deleted && fixture.store.images().unwrap().is_empty());
+    }
+
+    #[test]
+    fn image_removal_can_force_a_running_containers_last_tag_to_become_dangling() {
+        let fixture = ImageRemovalFixture::new();
+        fixture.store.remove_image(&fixture.image.name).unwrap();
+        let tagged = fixture.store.images().unwrap().remove(0);
+        let running = [("running".into(), true)];
+        assert!(matches!(remove_image_references(
+            &fixture.store, &tagged, &tagged.name, false, &running, &[],
+        ), Err(Error::Conflict(_))));
+        let (removed, deleted) = remove_image_references(
+            &fixture.store, &tagged, &tagged.name, true, &running, &[],
+        ).unwrap();
+        assert_eq!(removed.as_slice(), std::slice::from_ref(&tagged));
+        assert!(!deleted);
+        assert_eq!(fixture.store.images().unwrap(), [tagged.tagged(tagged.config_digest.clone())]);
     }
 
     #[test]

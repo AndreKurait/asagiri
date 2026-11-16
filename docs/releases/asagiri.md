@@ -100,7 +100,10 @@ the configuration and layer contents.
 
 Forced image deletion by ID removes all references to that image in one
 index update. Removing a named tag or digest preserves other references
-and shared layers; images used by containers remain protected.
+and shared layers. Running containers prevent image-ID deletion even with
+force; forcing the last tag off a running image keeps it dangling. A stopped
+container's image can be forcibly deleted while retaining the data needed
+to restart that container, until its last container is removed.
 
 Rejected container starts release their embedded DNS listener, names and
 parent rootfs mount before returning the setup error. This prevents repeated
