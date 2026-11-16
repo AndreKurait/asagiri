@@ -14,19 +14,25 @@ the current file contents when notified.
 
 The host callback and guest queues have fixed limits. The callback never
 waits for the guest; overflowing host events produce a diagnostic warning.
+Lost host events trigger a bounded scan of the watched sources. Each scan
+examines at most 100,000 entries; large storms can still lose intermediate
+changes. Stream replacements replay edits made between streams, while a
+new bind source starts with its own event history. Remembered file metadata
+prevents stale FSEvents flags from repeatedly reporting an unchanged file.
 The guest processes a limited batch between other agent messages. Paths
 remain within the Mac share, and the guest kernel interface accepts writes
 only from its initial mount namespace. No file content is changed to
 generate a notification.
 
 This preserves the authorship of
-[Kiri PR #304](https://github.com/libracoder/kiri/pull/304), addressing
+[Kiri PR #304](https://github.com/libracoder/kiri/pull/304) and its merged
+replacement [PR #320](https://github.com/libracoder/kiri/pull/320), addressing
 [issue #48](https://github.com/libracoder/kiri/issues/48) and
 [issue #310](https://github.com/libracoder/kiri/issues/310). Asagiri uses
 protocol message 80 because 78 and 79 already carry cleanup results.
 Native Mac tests exercise FSEvents and individual-file filtering; protocol
 tests cover message encoding, and guest queue tests cover scope and bounds.
-The guest kernel workflow also boots both actual kernels with
+The guest kernel and release workflows also boot both actual kernels with
 `tests/kernel-fsnotify.py`. Its synthetic FUSE share exists entirely in
 guest RAM. It checks real directory and file notifications, unchanged
 contents, rejection of paths outside the share, symlinks and nested mounts,
