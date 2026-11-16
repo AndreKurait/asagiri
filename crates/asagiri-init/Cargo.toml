@@ -26,3 +26,7 @@ harness = false
 [[test]]
 name = "removal-process"
 harness = false
+
+[[test]]
+name = "clock-read"
+harness = false
