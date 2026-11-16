@@ -131,6 +131,20 @@ def check(path, image):
         assert found[front]["NetworkID"] == front_id and found[back]["NetworkID"] == back_id
         print("PASS each network of a container has its own endpoint id and MAC address", flush=True)
 
+        def listed(*filters):
+            query = urllib.parse.quote(json.dumps({"network": list(filters)}))
+            return {row["Id"] for row in request("GET", "/containers/json?all=1&filters=" + query)}
+
+        for name in (front, back, front_id, back_id, front_id[:12], back_id[:12]):
+            assert web in listed(name), name
+        assert web in listed("missing-" + tag, back)
+        request("POST", "/networks/" + back_id + "/disconnect", {"Container": web}, (200, 204))
+        assert web in listed(front) and web not in listed(back)
+        request("POST", "/networks/" + back_id + "/connect", {"Container": web, "EndpointConfig": {"Aliases": [other]}}, (200, 204))
+        assert web in listed(back_id), "reconnected secondary network"
+        found = endpoints(web)
+        print("PASS network filters include each membership by name and full or short id", flush=True)
+
         query = urllib.parse.quote(json.dumps({"id": [web]}))
         row = request("GET", "/containers/json?filters=" + query)[0]["NetworkSettings"]["Networks"]
         for name, endpoint in found.items():
@@ -181,7 +195,7 @@ def check(path, image):
         stop(fresh)
         assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
         print("PASS DNS names of the network a container was created on are listed from its first start on", flush=True)
-        print("7 endpoint metadata scenarios passed")
+        print("8 endpoint metadata scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
