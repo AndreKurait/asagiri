@@ -1,0 +1,122 @@
+{
+  "schema": "asagiri.seccomp-zero-mask.v1",
+  "status": "local_native_regression_verified_hosted_qualification_pending",
+  "verified_at": "2026-11-16T11:32:51.528158+00:00",
+  "code_commit": "41924e2f5f51f1ef1185cb4017ced607751f19f8",
+  "public_base": "b127be512b032164a1cd2a61d90d1b2395023821",
+  "code_tree": "5655ba7d3ed9edcec4b4f5c4ccf8972bba37c73d",
+  "source_sha256": {
+    "crates/asagiri-init/src/linux/custom_seccomp.rs": "34069f600f05b3015943e8a30add1341e8a85ad1b2a0e8ebfff6947b75e0de27",
+    "tests/seccomp-profiles.py": "9e4d3454b6f260923cbe030a2ecd03ad6c78ad3a960b2ac00cfbb27d32814083"
+  },
+  "public_sources": [
+    {
+      "repository": "libracoder/kiri",
+      "pull_request": 371,
+      "commit": "db69d51c00ead9f60606c9972f93011f6094580f",
+      "url": "https://github.com/libracoder/kiri/pull/371",
+      "adapted_behavior": "A masked equality with a zero mask is unconditional after duplicate argument indexes are split into alternative rules."
+    },
+    {
+      "repository": "libracoder/kiri",
+      "issue": 130,
+      "url": "https://github.com/libracoder/kiri/issues/130"
+    },
+    {
+      "repository": "seccomp/libseccomp",
+      "version": "2.6.1",
+      "url": "https://github.com/seccomp/libseccomp/releases/tag/v2.6.1",
+      "source_archive_sha256": "501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be"
+    },
+    {
+      "repository": "opencontainers/runc",
+      "version": "v1.5.3",
+      "path": "libcontainer/seccomp/seccomp_linux.go",
+      "sha256": "c197e62b5e9c7eb91cc563f19e89d25f775889330412e7ae8233bf952df5ecd8",
+      "url": "https://github.com/opencontainers/runc/blob/v1.5.3/libcontainer/seccomp/seccomp_linux.go"
+    }
+  ],
+  "change": "Discard conditions with a zero mask after repeated argument indexes are split. This retains the first unconditional action and detects conflicting rules that have equivalent remaining conditions.",
+  "baseline": {
+    "production_compiler_unchanged_from_public_base": true,
+    "new_regression_tests_failed": 4,
+    "exit_code": 101,
+    "actual_kernel_enforcement_failed_before_correction": true,
+    "binary_sha256": "81a90bfc2663f8469972cb5484a811753c5e0cd20d4bc4280bb602e64fea80c0",
+    "receipt_sha256": "5c16c82d690a94c6d91336008697241c96ca2e971931b45517a94c5a7e42c3e1"
+  },
+  "native_tests": {
+    "target": "aarch64-unknown-linux-musl",
+    "toolchain": "1.99.1",
+    "suite": "linux::custom_seccomp::tests",
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "new_regression_tests": 4,
+    "kernel_enforcement": "The actual Cargo unit executable forks child processes and installs the production host boundary and custom filter. The parent remains unfiltered by the probe.",
+    "native_engine": "0.1.6-dev.100",
+    "unit_binary_sha256": "f81069c72eb9a0fb1432082716c43e6f3577e8c17478c5ec887e24f4e5c4f8e9",
+    "custom_seccomp_source_sha256": "34069f600f05b3015943e8a30add1341e8a85ad1b2a0e8ebfff6947b75e0de27",
+    "source_manifest_sha256": "32af62ebef0edbe2997d4b204f98fcd466184251b013cdae836d106e861e17e7",
+    "receipt_sha256": "2e4aa2422e8827848ef48fbdc0bf9d32fc5408c9f68816e63d06ac945b300418",
+    "conditions": "Owned container, network disabled, UID 65534, no capabilities, no-new-privileges. Runtime binary hash, effective capabilities and no-new-privileges were checked.",
+    "owned_container_removed": true,
+    "original_images_volumes_metadata_containers_and_app_preserved": true
+  },
+  "other_architecture": {
+    "target": "x86_64-unknown-linux-musl",
+    "status": "actual_unit_executable_compiled_not_executed",
+    "binary_sha256": "467d33f150f7d4b9c21972bf37d9701d3ba7cab03bbbcad07f8a0635b901eaa1",
+    "receipt_sha256": "c68719f96c1877e41d148b32e877a5cc365bbbf933ec243a466a9cfe4eda1441"
+  },
+  "reference_comparison": {
+    "profiles": 22,
+    "queries_per_accepted_profile": 40,
+    "agreement_controls_passed": 13,
+    "zero_mask_mismatches_before": 3,
+    "zero_mask_mismatches_after": 0,
+    "reference": "Actual libseccomp 2.6.1, statically compiled for ARM Linux, with a narrow canonical-profile adapter following runc v1.5.3 matchCall. BPF programs were exported and interpreted independently; this comparison does not install them.",
+    "library_sha256": "415067112c137ac7ee4917954f878d5ba992d3dc530a403c84078ce0de7206a8",
+    "candidate_binary_sha256": "b8589fd8458e2ba87200b99176743104b29482567ad756052d002f098e888c70",
+    "receipt_sha256": "aa3896102139a170d6aa240811ebba053cb1448100d5f91e90459dd468b153c0",
+    "native_execution_receipt_sha256": "21dd485aa31590f506dd49ec3f39d79f210a1425b6d06fb7dedb1ad018541722",
+    "remaining_differences_in_this_reference_set": [
+      "higher-argument-precedence",
+      "longer-before-shorter",
+      "redundant-default-invalid-condition",
+      "unknown-name-invalid-condition"
+    ],
+    "limitations": "This is not the Docker JSON decoder, runc ENOSYS patch, an end-to-end Docker/Podman workload, an exhaustive rule-tree comparison, or a formal proof."
+  },
+  "ci_coverage": {
+    "new_rust_tests": 4,
+    "additional_live_profile_cases": 2,
+    "live_fixture": "tests/seccomp-profiles.py",
+    "live_fixture_status": "Python syntax checked; the new live cases require hosted execution before merge.",
+    "source_scope": "Native Rust tests bind the compiled Rust source and pre-fixture-change manifest. The later Python live-fixture addition does not change the tested Rust code. This proof document does not change runtime code."
+  },
+  "lint": {
+    "strict_status": "Both baseline and candidate fail -D warnings on 24 pre-existing diagnostics. No lint is suppressed.",
+    "new_diagnostics": 0,
+    "removed_diagnostics": 0,
+    "targets_checked": [
+      "asagiri-init",
+      "clock-read",
+      "removal-process",
+      "seccomp-default",
+      "shared-root-process",
+      "trim-process"
+    ],
+    "comparison": "Both complete runs used --keep-going. Diagnostics were compared using normalized source paths, exact source text and diagnostic codes.",
+    "receipt_sha256": "ca101809fbc987b9c3ee3737a9eac7335bb68ca5b2417b7a3b235f2c3f23eb2b"
+  },
+  "scope": {
+    "existing_profile_parser_and_host_boundary_preserved": true,
+    "new_production_dependencies": false,
+    "full_upstream_compiler_port": false,
+    "full_docker_default_allowlist_parity": false,
+    "seccomp_formal_verification": false,
+    "hosted_candidate_qualification": "pending",
+    "release_and_native_installation_of_candidate": "pending"
+  }
+}
