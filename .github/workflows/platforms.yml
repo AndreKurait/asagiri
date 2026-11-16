@@ -128,6 +128,14 @@ jobs:
           path: ${{ runner.temp }}/bin-engine-import
           if-no-files-found: ignore
           retention-days: 90
+      - name: Preserve health and Compose reference evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: health-compose-${{ runner.arch }}
+          path: ${{ runner.temp }}/bin-health-compose/*.json
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Restart the daemon with orphaned container mounts
         run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Verify registry TLS trust and actual BuildKit admission
