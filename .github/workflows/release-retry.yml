@@ -4,7 +4,7 @@ on:
   # Inspect trusted metadata only. Never execute a triggering workflow's code
   # or artifacts with the token that can request a retry.
   workflow_run: # zizmor: ignore[dangerous-triggers] same-repository main checks or official release; trusted workflow checkout, no artifact execution
-    workflows: [Platform builds, UI tests, Security, Speed, CodeQL, Release]
+    workflows: [Platform builds, UI tests, Security, Speed, CodeQL, Engine comparison, Release]
     types: [completed]
 
 permissions: {}
