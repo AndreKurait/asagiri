@@ -71,6 +71,10 @@ def check(path, image):
     def members(net):
         return request("GET", "/networks/" + net)["Containers"]
 
+    def listed(net):
+        query = urllib.parse.quote(json.dumps({"network": [net]}))
+        return {row["Id"] for row in request("GET", "/containers/json?all=1&filters=" + query)}
+
     def capture(cid, command):
         target = "/tmp/endpoint-" + uuid.uuid4().hex
         eid = request("POST", "/containers/" + cid + "/exec",
@@ -129,6 +133,8 @@ def check(path, image):
         assert found[front]["EndpointID"] != found[back]["EndpointID"]
         assert found[front]["MacAddress"] != found[back]["MacAddress"]
         assert found[front]["NetworkID"] == front_id and found[back]["NetworkID"] == back_id
+        assert web in listed(front_id) and web in listed(back_id)
+        assert web in listed(front_id[:12]) and web in listed(back_id[:12])
         print("PASS each network of a container has its own endpoint id and MAC address", flush=True)
 
         query = urllib.parse.quote(json.dumps({"id": [web]}))
@@ -160,6 +166,7 @@ def check(path, image):
         stop(fixed)
         endpoint = endpoints(fixed)[front]
         assert endpoint["EndpointID"] == "" and endpoint["IPAddress"] == "", endpoint
+        assert endpoint["NetworkID"] == front_id and fixed in listed(front_id), endpoint
         # Docker leaves it out of the network's containers; listed, it has none there either.
         assert members(front).get(fixed, {"EndpointID": ""})["EndpointID"] == "", members(front)[fixed]
         stop(cid)
@@ -167,21 +174,48 @@ def check(path, image):
         assert endpoint["EndpointID"] == "" and endpoint["MacAddress"] == "", endpoint
         print("PASS a stopped container has no endpoint id", flush=True)
 
-        fresh = create("meta-new-" + tag, front)
+        # A network passed by ID is still keyed by its name in the container.
+        fresh = create("meta-new-" + tag, front_id)
         endpoint = endpoints(fresh)[front]
         assert endpoint["DNSNames"] is None and endpoint["EndpointID"] == "", endpoint
+        assert endpoint["NetworkID"] == "", endpoint
+        assert fresh in listed(front) and fresh not in listed(front_id)
+        assert fresh not in listed(front_id[:12])
         assert members(front).get(fresh, {"EndpointID": ""})["EndpointID"] == "", members(front)[fresh]
+        print("PASS a created endpoint matches its network name without inventing a network id", flush=True)
         names = sorted(["meta-new-" + tag, fresh[:12]])
         # A network connected before the start lists them at once.
         request("POST", "/networks/" + back_id + "/connect", {"Container": fresh}, (200, 204))
         found = endpoints(fresh)
         assert found[front]["DNSNames"] is None and sorted(found[back]["DNSNames"]) == names, found
+        assert found[back]["NetworkID"] == "", found
+        assert fresh in listed(back) and fresh not in listed(back_id)
         request("POST", "/containers/" + fresh + "/start", statuses=(204,))
         assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
+        assert fresh in listed(front_id) and fresh in listed(back_id)
+        assert fresh in listed(back_id[:12])
         stop(fresh)
         assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
+        assert endpoints(fresh)[front]["NetworkID"] == front_id
+        assert endpoints(fresh)[back]["NetworkID"] == back_id
+        assert fresh in listed(front_id) and fresh in listed(back_id)
         print("PASS DNS names of the network a container was created on are listed from its first start on", flush=True)
-        print("7 endpoint metadata scenarios passed")
+        print("PASS primary and extra network ids remain filterable after the container stops", flush=True)
+
+        request("POST", "/networks/" + back_id + "/disconnect", {"Container": fresh}, (200, 204))
+        assert back not in endpoints(fresh)
+        assert fresh not in listed(back) and fresh not in listed(back_id)
+        request("POST", "/networks/" + back_id + "/connect", {"Container": fresh}, (200, 204))
+        assert endpoints(fresh)[back]["NetworkID"] == ""
+        assert fresh in listed(back) and fresh not in listed(back_id)
+        assert fresh in listed(front_id)
+        request("POST", "/containers/" + fresh + "/start", statuses=(204,))
+        assert endpoints(fresh)[back]["NetworkID"] == back_id
+        assert fresh in listed(back_id)
+        stop(fresh)
+        assert fresh in listed(back_id)
+        print("PASS a stopped reconnect gains its own network id only after attachment", flush=True)
+        print("10 endpoint metadata scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []

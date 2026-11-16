@@ -2238,7 +2238,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "Aliases": if aliases.is_empty() { Value::Null } else { json!(aliases) },
                 "MacAddress": mac,
                 "DriverOpts": null,
-                "NetworkID": net.map(|n| n.id.clone()).unwrap_or_default(),
+                "NetworkID": c.network_ids.get(name).map(String::as_str).unwrap_or_default(),
                 "EndpointID": if attached { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
                 "Gateway": gateway,
                 "IPAddress": ip.map(super::network::ip_str).unwrap_or_default(),
@@ -2349,14 +2349,17 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
             return None;
         }
         let labels = if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) };
-        let net = networks.iter().find(|n| n.name == c.spec.network_mode || n.id == c.spec.network_mode || (c.spec.network_mode == "default" && n.name == "bridge"));
+        let eps = std::cell::OnceCell::new();
         let keep = f.any("id", |v| c.id.starts_with(v))
             && f.container_name(&c.name)
             && f.labels(&labels)
             && f.any("status", |v| v == state_word(c))
             && f.any("exited", |v| c.status == Status::Exited && v.parse() == Ok(c.exit_code))
             && f.any("ancestor", |v| reference_matches(v, &c.spec.image) || c.spec.image == v || c.spec.image_id.trim_start_matches("sha256:").starts_with(v.trim_start_matches("sha256:")))
-            && f.any("network", |v| net.is_some_and(|n| n.name == v || n.id.starts_with(v)))
+            && f.any("network", |v| {
+                let attached = eps.get_or_init(|| endpoints(c, &networks)).as_object().expect("endpoint map");
+                attached.contains_key(v) || attached.values().any(|ep| ep["NetworkID"].as_str().is_some_and(|id| id.starts_with(v)))
+            })
             && f.any("volume", |v| c.spec.volumes.iter().chain(&c.spec.anon_volumes).any(|n| n == v) || c.spec.mount_info.iter().any(|m| m["Destination"] == v || m["Source"] == v))
             && f.any("health", |v| v == health.get(&c.id).map_or("none", |h| h.status.as_str()));
         if !keep {
@@ -2383,7 +2386,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
                 "Ports": ports_list(c),
                 "Labels": if c.spec.labels.is_object() { c.spec.labels.clone() } else { json!({}) },
                 "HostConfig": {"NetworkMode": c.spec.network_mode},
-                "NetworkSettings": {"Networks": endpoints(c, &networks)},
+                "NetworkSettings": {"Networks": eps.get_or_init(|| endpoints(c, &networks))},
                 "Mounts": c.spec.mount_info,
             }),
         ))
@@ -3985,6 +3988,240 @@ mod network_option_tests {
         assert_eq!(endpoint_address(&json!({})).unwrap(), (String::new(), String::new(), String::new()));
         assert!(endpoint_address(&json!({"IPAMConfig": {"IPv4Address": "10.5.0.300"}})).is_err());
         assert!(endpoint_address(&json!({"MacAddress": "02:42:0a"})).is_err());
+    }
+
+    mod network_filter_tests {
+        use super::*;
+        use asagiri_image::{Image, Store};
+        use std::path::PathBuf;
+
+        struct Fixture {
+            root: PathBuf,
+            engine: Arc<Engine>,
+            id: String,
+            front: String,
+            back: String,
+        }
+
+        impl Fixture {
+            fn new(mode: &str) -> Self {
+                let root = std::env::temp_dir().join(format!("asagiri-network-filter-{}", super::super::super::engine::random_hex(8)));
+                std::fs::create_dir(&root).unwrap();
+                let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+                let (front, back) = {
+                    let mut networks = engine.lock_net();
+                    let front = networks.create("front", Default::default()).unwrap().id;
+                    let back = networks.create("back", Default::default()).unwrap().id;
+                    (front, back)
+                };
+                // No layers, guest, listener or native container is needed to
+                // exercise the real create, inspect, list and saved-record paths.
+                let image: Image = serde_json::from_value(json!({
+                    "name": "test:network-filter", "digest": "", "config_digest": "",
+                    "layers": [], "size": 0, "platform": "linux/amd64", "pulled_at": 0, "config": {},
+                })).unwrap();
+                let spec: Spec = serde_json::from_value(json!({
+                    "image": image.name, "image_id": "", "entrypoint": [], "cmd": ["true"],
+                    "env": [], "cwd": "/", "user": "", "auto_remove": false,
+                    "network_mode": mode, "labels": {},
+                })).unwrap();
+                let id = engine.create(Some("filter-test".into()), spec, &image).unwrap();
+                Self { root, engine, id, front, back }
+            }
+
+            fn connect_back(&self) {
+                self.engine.connect("back", &self.id, Vec::new(), String::new(), String::new(), String::new()).unwrap();
+                assert!(!self.engine.is_awake());
+            }
+
+            fn endpoint(&self, name: &str) -> Value {
+                container_inspect(&self.engine, &self.id).unwrap()["NetworkSettings"]["Networks"][name].clone()
+            }
+
+            fn filtered(&self, values: &[&str]) -> Vec<String> {
+                let encoded = json!({"network": values}).to_string();
+                let req = Request::internal("GET", "/containers/json", &[("all", "1"), ("filters", &encoded)], Vec::new());
+                list(&req, &self.engine).unwrap().as_array().unwrap().iter().map(|row| row["Id"].as_str().unwrap().to_owned()).collect()
+            }
+
+            fn assert_matches(&self, value: &str, expected: bool) {
+                let wanted = if expected { vec![self.id.clone()] } else { Vec::new() };
+                assert_eq!(self.filtered(&[value]), wanted, "network filter {value:?}");
+            }
+
+            fn reload(&mut self) {
+                self.engine = Engine::boot(Store::open(&self.root).unwrap()).unwrap();
+                assert!(!self.engine.is_awake());
+            }
+
+            fn restore_exited(&mut self, network_ids: Option<Value>) {
+                let path = self.root.join("containers.json");
+                let mut rows: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                rows[0]["status"] = json!("exited");
+                rows[0]["started_ns"] = json!(1);
+                rows[0]["finished_ns"] = json!(2);
+                if let Some(ids) = network_ids {
+                    rows[0]["network_ids"] = ids;
+                } else {
+                    rows[0].as_object_mut().unwrap().remove("network_ids");
+                }
+                std::fs::write(path, serde_json::to_vec(&rows).unwrap()).unwrap();
+                self.reload();
+            }
+        }
+
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                assert!(!self.engine.is_awake());
+                std::fs::remove_dir_all(&self.root).unwrap();
+            }
+        }
+
+        #[test]
+        fn a_created_primary_matches_its_name_but_has_no_network_id() {
+            let f = Fixture::new("front");
+            f.assert_matches("front", true);
+            f.assert_matches(&f.front, false);
+            f.assert_matches(&f.front[..12], false);
+            assert_eq!(f.endpoint("front")["NetworkID"], "");
+            assert_eq!(f.endpoint("front")["EndpointID"], "");
+            let req = Request::internal("GET", "/containers/json", &[("all", "1")], Vec::new());
+            assert_eq!(list(&req, &f.engine).unwrap()[0]["NetworkSettings"]["Networks"]["front"], f.endpoint("front"));
+        }
+
+        #[test]
+        fn an_extra_network_connected_before_start_matches_only_its_name() {
+            let f = Fixture::new("front");
+            f.connect_back();
+            f.assert_matches("back", true);
+            f.assert_matches(&f.back, false);
+            f.assert_matches(&f.back[..12], false);
+            assert_eq!(f.endpoint("back")["NetworkID"], "");
+            assert_eq!(f.endpoint("front")["NetworkID"], "");
+        }
+
+        #[test]
+        fn stopped_primary_and_extra_networks_keep_their_recorded_ids() {
+            let mut f = Fixture::new("front");
+            f.connect_back();
+            f.restore_exited(Some(json!({"front": f.front, "back": f.back})));
+            for (name, id) in [("front", &f.front), ("back", &f.back)] {
+                f.assert_matches(name, true);
+                f.assert_matches(id, true);
+                f.assert_matches(&id[..12], true);
+                assert_eq!(f.endpoint(name)["NetworkID"], *id);
+                assert_eq!(f.endpoint(name)["EndpointID"], "");
+                assert_eq!(f.endpoint(name)["IPAddress"], "");
+            }
+            let req = Request::internal("GET", "/containers/json", &[], Vec::new());
+            assert_eq!(list(&req, &f.engine).unwrap(), json!([]));
+        }
+
+        #[test]
+        fn an_extra_network_added_after_stop_does_not_inherit_start_history() {
+            let mut f = Fixture::new("front");
+            f.restore_exited(Some(json!({"front": f.front})));
+            f.connect_back();
+            f.reload();
+            f.assert_matches(&f.front, true);
+            f.assert_matches("back", true);
+            f.assert_matches(&f.back, false);
+            assert_eq!(f.endpoint("back")["NetworkID"], "");
+        }
+
+        #[test]
+        fn disconnect_then_stopped_reconnect_clears_only_that_endpoint_id() {
+            let mut f = Fixture::new("front");
+            f.connect_back();
+            f.restore_exited(Some(json!({"front": f.front, "back": f.back})));
+            f.engine.disconnect("back", &f.id).unwrap();
+            f.assert_matches("back", false);
+            f.assert_matches(&f.back, false);
+            f.connect_back();
+            f.reload();
+            f.assert_matches("back", true);
+            f.assert_matches(&f.back, false);
+            f.assert_matches(&f.front, true);
+            assert_eq!(f.endpoint("back")["NetworkID"], "");
+        }
+
+        #[test]
+        fn recorded_ids_are_not_replaced_by_a_network_with_the_same_name() {
+            let mut f = Fixture::new("front");
+            let previous_id = "f".repeat(64);
+            assert_ne!(previous_id, f.front);
+            f.restore_exited(Some(json!({"front": previous_id})));
+            f.assert_matches("front", true);
+            f.assert_matches(&previous_id, true);
+            f.assert_matches(&previous_id[..12], true);
+            f.assert_matches(&f.front, false);
+            assert_eq!(f.endpoint("front")["NetworkID"], previous_id);
+        }
+
+        #[test]
+        fn old_started_records_preserve_the_ids_previously_reported() {
+            let mut f = Fixture::new("front");
+            f.connect_back();
+            // Before per-endpoint history, started records reported all
+            // configured network IDs. Preserve that legacy view on upgrade.
+            f.restore_exited(None);
+            f.assert_matches(&f.front, true);
+            f.assert_matches(&f.back, true);
+            assert_eq!(f.endpoint("front")["NetworkID"], f.front);
+            assert_eq!(f.endpoint("back")["NetworkID"], f.back);
+        }
+
+        #[test]
+        fn old_created_records_do_not_gain_attachment_history_on_reload() {
+            let mut f = Fixture::new("front");
+            let path = f.root.join("containers.json");
+            let mut rows: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            rows[0].as_object_mut().unwrap().remove("network_ids");
+            std::fs::write(path, serde_json::to_vec(&rows).unwrap()).unwrap();
+            f.reload();
+            f.assert_matches("front", true);
+            f.assert_matches(&f.front, false);
+            assert_eq!(f.endpoint("front")["NetworkID"], "");
+        }
+
+        #[test]
+        fn an_explicit_empty_record_is_not_treated_as_legacy_history() {
+            let mut f = Fixture::new("front");
+            f.restore_exited(Some(json!({})));
+            f.assert_matches("front", true);
+            f.assert_matches(&f.front, false);
+            assert_eq!(f.endpoint("front")["NetworkID"], "");
+        }
+
+        #[test]
+        fn container_namespace_mode_has_no_endpoint_of_its_own() {
+            let f = Fixture::new("container:peer");
+            f.assert_matches("container:peer", false);
+            f.assert_matches("bridge", false);
+            f.assert_matches("front", false);
+            assert_eq!(container_inspect(&f.engine, &f.id).unwrap()["NetworkSettings"]["Networks"], json!({}));
+        }
+
+        #[test]
+        fn new_builtin_endpoints_match_names_without_resolved_ids() {
+            for name in ["bridge", "host", "none"] {
+                let f = Fixture::new(name);
+                let id = f.engine.lock_net().find(name).unwrap().id.clone();
+                f.assert_matches(name, true);
+                f.assert_matches(&id, false);
+                assert_eq!(f.endpoint(name)["NetworkID"], "");
+            }
+        }
+
+        #[test]
+        fn network_values_are_or_combined_and_names_are_exact() {
+            let f = Fixture::new("front");
+            f.connect_back();
+            assert_eq!(f.filtered(&["missing", "back"]), vec![f.id.clone()]);
+            assert_eq!(f.filtered(&["front", "back"]), vec![f.id.clone()]);
+            f.assert_matches("fron", false);
+            f.assert_matches("unrelated", false);
+        }
     }
 
     #[test]

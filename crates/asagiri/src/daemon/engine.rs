@@ -486,6 +486,9 @@ pub struct Container {
     pub status: Status,
     pub started: Option<SystemTime>,
     pub finished: Option<SystemTime>,
+    /// IDs learned when each endpoint attached, kept after stop. A
+    /// configured endpoint that has never attached has no ID yet.
+    pub network_ids: HashMap<String, String>,
     pub exit_code: i32,
     /// Its last run ended with the kernel killing it for memory.
     pub oom_killed: bool,
@@ -594,6 +597,9 @@ struct Saved {
     status: Status,
     started_ns: Option<u64>,
     finished_ns: Option<u64>,
+    /// None only for records written before per-endpoint history.
+    #[serde(default)]
+    network_ids: Option<HashMap<String, String>>,
     exit_code: i32,
     #[serde(default)]
     oom_killed: bool,
@@ -603,6 +609,24 @@ struct Saved {
     restart_count: u32,
     #[serde(default)]
     health: Option<super::health::Health>,
+}
+
+impl Saved {
+    fn restored_network_ids(&self, networks: &Networks) -> HashMap<String, String> {
+        if let Some(ids) = &self.network_ids {
+            return ids.clone();
+        }
+        // Old records cannot distinguish an endpoint added after stop.
+        // Preserve the IDs those already-started records reported before
+        // the upgrade; every newly saved record keeps explicit history.
+        if self.started_ns.is_none() {
+            return HashMap::new();
+        }
+        std::iter::once(&self.spec.network_mode)
+            .chain(self.spec.extra_networks.iter().map(|n| &n.name))
+            .filter_map(|name| networks.find(name).map(|n| (n.name.clone(), n.id.clone())))
+            .collect()
+    }
 }
 
 /// A container's healthcheck while it has one: its `State.Health`, and
@@ -1410,6 +1434,7 @@ impl Engine {
             let mut st = self.lock();
             for s in saved {
                 let was_running = s.status == Status::Running;
+                let network_ids = s.restored_network_ids(&self.lock_networks());
                 let mut c = Container {
                     lifecycle: Arc::new(Mutex::new(0)),
                     id: s.id.clone(),
@@ -1419,6 +1444,7 @@ impl Engine {
                     status: if was_running { Status::Exited } else { s.status },
                     started: s.started_ns.map(from_ns),
                     finished: if was_running { Some(now) } else { s.finished_ns.map(from_ns) },
+                    network_ids,
                     exit_code: if was_running { 255 } else { s.exit_code },
                     oom_killed: !was_running && s.oom_killed,
                     vm_stopped: was_running || s.vm_stopped,
@@ -1512,6 +1538,7 @@ impl Engine {
                     status: c.status,
                     started_ns: c.started.map(ns),
                     finished_ns: c.finished.map(ns),
+                    network_ids: Some(c.network_ids.clone()),
                     exit_code: c.exit_code,
                     oom_killed: c.oom_killed,
                     vm_stopped: c.vm_stopped,
@@ -1957,6 +1984,7 @@ impl Engine {
                 status: Status::Created,
                 started: None,
                 finished: None,
+                network_ids: HashMap::new(),
                 exit_code: 0,
                 oom_killed: false,
                 vm_stopped: false,
@@ -2264,8 +2292,15 @@ impl Engine {
         }
         match vm.run(&id, &layers, &argv, &spec.env, &spec.cwd, &spec.user, &hostname, flags, net_args, &spec.mounts, &spec.limits.wire(), spec.caps, &host_opts) {
             Ok(pid) => {
-                if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
-                    c.pid = pid;
+                if let Some(c) = self.lock().containers.get_mut(&id) {
+                    if c.status == Status::Running {
+                        c.pid = pid;
+                    }
+                    // A short command may already have exited. Its endpoint
+                    // still attached, so retain the ID just as for a later stop.
+                    if let Some(net) = &net {
+                        c.network_ids.insert(net.name.clone(), net.id.clone());
+                    }
                 }
             }
             Err(e) => {
@@ -2933,6 +2968,7 @@ impl Engine {
         }
         if let Some(c) = self.lock().containers.get_mut(id) {
             c.extra_ips.push((net.name.clone(), ip));
+            c.network_ids.insert(net.name.clone(), net.id.clone());
             if let Some(a) = ip6 {
                 c.extra_ip6s.push((net.name.clone(), a));
             }
@@ -2968,16 +3004,16 @@ impl Engine {
             c.spec.extra_networks.push(extra.clone());
             c.status == Status::Running
         };
-        self.save();
         if running {
-            let vm = self.vm()?;
-            if let Err(e) = self.attach_extra(&vm, &id, &extra) {
+            let attached = self.vm().map_err(Error::Io).and_then(|vm| self.attach_extra(&vm, &id, &extra));
+            if let Err(e) = attached {
                 if let Some(c) = self.lock().containers.get_mut(&id) {
                     c.spec.extra_networks.retain(|x| x.name != net.name);
                 }
                 return Err(e);
             }
         }
+        self.save();
         self.emit_network("connect", &net, &id);
         Ok(())
     }
@@ -2996,6 +3032,7 @@ impl Engine {
                 return Err(Error::NotFound(format!("container {} is not connected to network {}", &id[..12], net.name)));
             };
             c.spec.extra_networks.remove(pos);
+            c.network_ids.remove(&net.name);
             // The interface it was plugged in as, which is not its place in
             // the list once an earlier network has left. The number stays
             // taken until the guest has let the interface go: a network that
