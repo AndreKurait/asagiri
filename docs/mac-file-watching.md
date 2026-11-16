@@ -26,4 +26,9 @@ This preserves the authorship of
 protocol message 80 because 78 and 79 already carry cleanup results.
 Native Mac tests exercise FSEvents and individual-file filtering; protocol
 tests cover message encoding, and guest queue tests cover scope and bounds.
-Those tests are separate from verification inside the booted guest.
+The guest kernel workflow also boots both actual kernels with
+`tests/kernel-fsnotify.py`. Its synthetic FUSE share exists entirely in
+guest RAM. It checks real directory and file notifications, unchanged
+contents, rejection of paths outside the share, symlinks and nested mounts,
+and denial of writes from another mount namespace. The generated initramfs
+artifacts can be reused with older kernels as a negative control.
