@@ -410,9 +410,6 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 None => veths.push(host_if),
             }
             if embedded_dns {
-                if let Some(name) = net_opts::values(spec.net.opts, net_opts::NETWORK).next() {
-                    net.dns.name_network(spec.net.bridge, name);
-                }
                 // An IPv6-only network's bridge has no IPv4 address to serve on,
                 // and its containers no A records. A macvlan or ipvlan network
                 // has no gateway to serve on: its containers ask 127.0.0.11.
@@ -437,6 +434,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 // `--dns`: names the network does not know go to these instead.
                 let servers: Vec<[u8; 4]> = net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect();
                 net.dns.set_upstream(spec.net.ip, servers);
+                net.dns.describe_network(pid, spec.net);
             }
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".
