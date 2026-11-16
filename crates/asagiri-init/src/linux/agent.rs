@@ -711,7 +711,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     }
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::FsStatRequest { id, path }) => match running_rootfs(&procs, paths, id) {
+                Ok(Msg::FsStatRequest { id, path }) => match running_rootfs(&procs, id) {
                     Some(root) => match super::fsview::stat(&root, path) {
                         Ok(meta) => {
                             let name = path.rsplit('/').next().unwrap_or("");
@@ -721,7 +721,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::FsListRequest { id, path }) => match running_rootfs(&procs, paths, id) {
+                Ok(Msg::FsListRequest { id, path }) => match running_rootfs(&procs, id) {
                     Some(root) => match super::fsview::list(&root, path) {
                         Ok(list) => {
                             let entries: Vec<_> = list.iter().map(|(n, m)| super::fsview::entry(n, *m)).collect();
@@ -731,7 +731,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::FsRead { id, path, offset, len }) => match running_rootfs(&procs, paths, id) {
+                Ok(Msg::FsRead { id, path, offset, len }) => match running_rootfs(&procs, id) {
                     Some(root) => match super::fsview::read(&root, path, offset, len as usize, &mut fs_buf) {
                         Ok(()) => Msg::FsData(&fs_buf).encode(&mut out),
                         Err(e) => Msg::Error(&format!("read {path}: {e}")).encode(&mut out),
@@ -790,9 +790,11 @@ fn extra_veth(id: &str, n: u32) -> String {
     format!("kx{}{n}", &id[..id.len().min(9)])
 }
 
-/// The mounted root of a running container (not an exec).
-fn running_rootfs(procs: &Procs, paths: &Paths, id: &str) -> Option<std::path::PathBuf> {
-    procs.values().any(|p| p.run.container.is_none() && p.run.id == id && p.exited.is_none()).then(|| paths.containers.join(id).join("rootfs"))
+/// The init's mounted view, including volumes and binds in its private mount
+/// namespace. fsview still resolves every requested path inside this root.
+/// Reaped entries remain unavailable while their asynchronous cleanup runs.
+fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
+    running_pid(procs, id).map(|pid| std::path::PathBuf::from(format!("/proc/{pid}/root")))
 }
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
