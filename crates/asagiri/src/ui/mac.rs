@@ -13,7 +13,7 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2::sel;
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSMenu, NSMenuDelegate, NSMenuItem,
+    NSAlert, NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSMenu, NSMenuDelegate, NSMenuItem,
     NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
@@ -73,6 +73,24 @@ pub fn run(autostart: bool, view: Option<String>) -> io::Result<()> {
     app.activateIgnoringOtherApps(true);
     app.run();
     Ok(())
+}
+
+/// Finder cannot display stderr or relay the app process's exit status.
+/// Keep an essential setup or window failure visible before the process exits.
+pub fn launch_error(error: &io::Error) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    set_dock_icon(&app);
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str("Asagiri could not finish opening"));
+    alert.setInformativeText(&NSString::from_str(&format!(
+        "{error}\n\nFix the reported problem, then open Asagiri again. Details are also recorded in ~/{}/logs/ui.log.",
+        crate::flavor::STATE.get())));
+    alert.addButtonWithTitle(&NSString::from_str("Quit"));
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+    alert.runModal();
 }
 
 fn make_window(mtm: MainThreadMarker, tx: Sender<Cmd>, autostart: bool, view: Option<String>) -> io::Result<Retained<NSWindow>> {
@@ -541,12 +559,17 @@ define_class!(
             if let Some(engine) = self.ivars().engine.borrow_mut().take() {
                 let _ = engine.join();
             }
-            // Later: a downloaded update goes in as the window quits. The
-            // engine moves to it the next time it starts.
-            if crate::update::staged().is_some()
-                && let Err(e) = crate::update::install_staged()
-            {
-                diag::error!("the update did not install", error = e);
+            // Later: a downloaded update goes in as the window quits, and
+            // the engine moves to it now, not at the next login.
+            if crate::update::staged().is_some() {
+                match crate::update::install_staged() {
+                    Ok(version) => {
+                        if let Err(e) = crate::update::restart_engine(&version) {
+                            diag::error!("the engine did not restart on the update", version = version, error = e);
+                        }
+                    }
+                    Err(e) => diag::error!("the update did not install", error = e),
+                }
             }
         }
     }

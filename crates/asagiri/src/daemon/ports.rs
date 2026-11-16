@@ -959,9 +959,11 @@ fn socket_timeouts(fd: std::os::fd::RawFd) -> io::Result<()> {
 pub const HOST_ADDR: &str = "198.19.248.254";
 /// vsock port the guest dials for host-bound connections.
 pub const HOST_BOUND_PORT: u32 = 1026;
+/// One deadline for both loopback families, including a busy listener.
+const HOST_CONNECT: Duration = Duration::from_secs(2);
 
 /// One host-bound connection from a container: the guest sends
-/// `ip[4] port[2]` (always 127.0.0.1 today), and we connect there on the Mac.
+/// `ip[4] port[2]` (always 127.0.0.1 today), naming a Mac loopback service.
 pub fn serve_host_bound(stream: asagiri_vmm::VsockStream) {
     let _ = std::thread::Builder::new().name("asa-host-bound".into()).spawn(move || {
         let _ = host_bound(stream);
@@ -974,15 +976,9 @@ fn host_bound(stream: asagiri_vmm::VsockStream) -> io::Result<()> {
     from_guest.read_exact(&mut header)?;
     let ip = std::net::Ipv4Addr::new(header[0], header[1], header[2], header[3]);
     let port = u16::from_be_bytes([header[4], header[5]]);
-    // The guest's relay only ever asks for the Mac's loopback; anything else
-    // is a guest process speaking the protocol itself, which gets nothing.
-    if ip != std::net::Ipv4Addr::LOCALHOST {
-        crate::diag::warn!("refused a host-bound connection; only 127.0.0.1 is relayed", to = format!("{ip}:{port}"));
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "not loopback"));
-    }
     // Refused or unreachable: dropping closes the container's connection,
     // which is what it would see from a real host too.
-    let target = TcpStream::connect((ip, port))?;
+    let target = connect_host_loopback(ip, port)?;
     target.set_nodelay(true)?;
     let mut to_guest = std::fs::File::from(stream.fd.try_clone()?);
     let mut target_read = target.try_clone()?;
@@ -997,6 +993,29 @@ fn host_bound(stream: asagiri_vmm::VsockStream) -> io::Result<()> {
     let _ = down.join();
     drop(stream);
     Ok(())
+}
+
+fn connect_host_loopback(ip: std::net::Ipv4Addr, port: u16) -> io::Result<TcpStream> {
+    // The wire protocol only permits this exact address, even when the
+    // service turns out to listen on IPv6. Never resolve a guest-supplied
+    // hostname or use its address to reach the Mac's LAN.
+    if ip != std::net::Ipv4Addr::LOCALHOST {
+        crate::diag::warn!("refused a host-bound connection; only 127.0.0.1 is relayed", to = format!("{ip}:{port}"));
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "not loopback"));
+    }
+    let start = Instant::now();
+    match TcpStream::connect_timeout(&SocketAddr::from((ip, port)), HOST_CONNECT) {
+        // Keep existing IPv4 services preferred. Only an absent IPv4
+        // listener falls back; do not retry policy denials or timeouts.
+        Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+            let remaining = HOST_CONNECT.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "host loopback connection timed out"));
+            }
+            TcpStream::connect_timeout(&SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)), remaining)
+        }
+        result => result,
+    }
 }
 
 /// vsock port the guest dials for SSH agent connections.
@@ -1107,6 +1126,82 @@ mod tests {
     use super::{MAX_PEER_SESSIONS, MAX_REMOTE_SESSIONS, MAX_TCP_SESSIONS, NAT_PORTS, REMOTE_SESSIONS, TCP_SESSIONS, kernel_forwards, kernel_host_ip, listening, nat_port, relays_too, tcp_permit};
     use std::net::IpAddr;
     use std::sync::atomic::Ordering;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn host_loopback_prefers_ipv4_and_falls_back_to_ipv6() {
+        use std::io::{Read, Write};
+        use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
+        let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = v4.local_addr().unwrap().port();
+        let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port)).unwrap();
+        // Real data must reach the selected listener, not just an open relay.
+        let mut client = super::connect_host_loopback(Ipv4Addr::LOCALHOST, port).unwrap();
+        assert!(client.peer_addr().unwrap().is_ipv4());
+        let (mut server, _) = v4.accept().unwrap();
+        client.set_read_timeout(Some(super::HOST_CONNECT)).unwrap();
+        server.write_all(b"ipv4").unwrap();
+        let mut response = [0; 4];
+        client.read_exact(&mut response).unwrap();
+        assert_eq!(&response, b"ipv4");
+        v6.set_nonblocking(true).unwrap();
+        assert_eq!(v6.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        drop((client, server, v4));
+
+        let mut client = super::connect_host_loopback(Ipv4Addr::LOCALHOST, port).unwrap();
+        assert_eq!(client.peer_addr().unwrap().ip(), IpAddr::V6(Ipv6Addr::LOCALHOST));
+        let deadline = std::time::Instant::now() + super::HOST_CONNECT;
+        let (mut server, _) = loop {
+            match v6.accept() {
+                Ok(connection) => break connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && std::time::Instant::now() < deadline =>
+                    std::thread::sleep(std::time::Duration::from_millis(1)),
+                Err(error) => panic!("IPv6 listener did not accept the connection: {error}"),
+            }
+        };
+        client.set_read_timeout(Some(super::HOST_CONNECT)).unwrap();
+        server.write_all(b"ipv6").unwrap();
+        client.read_exact(&mut response).unwrap();
+        assert_eq!(&response, b"ipv6");
+    }
+
+    #[test]
+    fn host_loopback_ipv4_only_service_still_works() {
+        use std::net::{Ipv4Addr, TcpListener};
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let target = listener.local_addr().unwrap();
+        let client = super::connect_host_loopback(Ipv4Addr::LOCALHOST, target.port()).unwrap();
+        assert_eq!(client.peer_addr().unwrap(), target);
+    }
+
+    #[test]
+    fn host_loopback_rejects_other_wire_addresses() {
+        use std::net::{Ipv4Addr, TcpListener};
+        // A wildcard listener would accept 127.0.0.2 too, if validation
+        // accidentally broadened to any loopback or any IPv4 address.
+        let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        for address in ["0.0.0.0", "127.0.0.2", "127.255.255.255", "192.0.2.1", "255.255.255.255"] {
+            let error = super::connect_host_loopback(address.parse().unwrap(), port).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied, "{address}");
+        }
+        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn host_loopback_absent_service_returns_an_error() {
+        use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
+        let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = v4.local_addr().unwrap().port();
+        let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port)).unwrap();
+        drop((v4, v6));
+        let start = std::time::Instant::now();
+        assert_eq!(super::connect_host_loopback(Ipv4Addr::LOCALHOST, port).unwrap_err().kind(),
+                   std::io::ErrorKind::ConnectionRefused);
+        assert!(start.elapsed() < super::HOST_CONNECT, "closed loopback ports should fail immediately");
+    }
 
     #[test]
     fn wsl_host_addresses_fail_clearly_and_wildcards_warn() {

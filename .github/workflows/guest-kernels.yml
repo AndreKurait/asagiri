@@ -1,0 +1,90 @@
+name: Guest kernel tests
+
+on:
+  pull_request:
+    paths:
+      - 'guest/kernel/**'
+      - 'tests/kernel-loop*'
+      - 'tests/kernel-config-regressions.py'
+      - '.github/workflows/guest-kernels.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'guest/kernel/**'
+      - 'tests/kernel-loop*'
+      - 'tests/kernel-config-regressions.py'
+      - '.github/workflows/guest-kernels.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guest-kernels-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: 1.99.1
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  boot:
+    name: Boot ARM64 and x86_64 guest loop devices
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchain and diskless guest test tools
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            qemu-system-arm qemu-system-x86 e2fsprogs
+      - name: Restore kernels for these source and toolchain inputs
+        id: kernels
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/kernel-tests
+          key: guest-loop-kernels-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('guest/kernel/**', 'xtask/**', 'Cargo.lock', 'scripts/ci/images.json') }}
+      - name: Build both guest kernels from the checked-out source
+        if: steps.kernels.outputs.cache-hit != 'true'
+        run: |
+          export ASAGIRI_CI_GUEST_IMAGE
+          ASAGIRI_CI_GUEST_IMAGE=$(python3 -c 'import json; print(json.load(open("scripts/ci/images.json"))["guest"]["image"])')
+          python3 tests/kernel-config-regressions.py
+          cargo xtask kernel --arch arm64
+          cargo xtask kernel --arch x86_64
+          mkdir -p target/kernel-tests
+          tar -czf target/kernel-tests/kernels.tar.gz -C guest/out Image x86_64/bzImage
+          sha256sum guest/out/Image guest/out/x86_64/bzImage > target/kernel-tests/SHA256SUMS
+      - name: Preserve compiled kernels before running the boot tests
+        if: steps.kernels.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/kernel-tests
+          key: ${{ steps.kernels.outputs.cache-primary-key }}
+      - name: Verify restored kernel bytes and the current configuration
+        run: |
+          python3 tests/kernel-config-regressions.py
+          mkdir -p guest/out
+          tar -xzf target/kernel-tests/kernels.tar.gz -C guest/out Image x86_64/bzImage
+          sha256sum --check target/kernel-tests/SHA256SUMS
+      - name: Attach, mount, write and reattach a loop image in both guests
+        run: python3 tests/kernel-loop.py --output "$RUNNER_TEMP/guest-loop"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: guest-loop
+          path: ${{ runner.temp }}/guest-loop
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve the exact kernels used by the boot tests
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && hashFiles('target/kernel-tests/kernels.tar.gz') != ''
+        with:
+          name: guest-loop-kernels
+          path: target/kernel-tests
+          if-no-files-found: error
+          retention-days: 7

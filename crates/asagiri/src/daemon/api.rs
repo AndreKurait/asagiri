@@ -274,8 +274,8 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
                     Err(e) => return reply(w, Err(e), 204),
                     _ => {}
                 }
-                super::builder::before_start(engine, id);
-                return reply(w, engine.start(id).map(|()| Value::Null), 204);
+                let result = super::builder::start(engine, id);
+                return reply(w, result.map(|()| Value::Null), 204);
             }
             ("POST", "stop") => {
                 let t = stop_timeout(req, engine, id);
@@ -294,8 +294,7 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
                 let r = engine.stop(id, t).and_then(|_| {
                     // Wait for the exit to be recorded before starting again.
                     engine.wait(id, "not-running")?;
-                    super::builder::before_start(engine, id);
-                    engine.start(id)
+                    super::builder::start(engine, id)
                 });
                 return reply(w, r.map(|()| Value::Null), 204);
             }
@@ -482,15 +481,20 @@ pub(super) fn filters(req: &Request, known: &[&str]) -> Result<Filters, Error> {
 }
 
 /// Docker's reference filter: `alpine`, `alpine:3`, `library/*`, `*:latest`.
+/// A colon followed by a `/` is a registry's port (`localhost:5000/app`),
+/// not a tag, in the pattern and in the name alike.
 pub(super) fn reference_matches(pattern: &str, name: &str) -> bool {
-    let (repo, tag) = name.rsplit_once(':').unwrap_or((name, "latest"));
+    fn tagged(s: &str) -> Option<(&str, &str)> {
+        s.rsplit_once(':').filter(|(_, t)| !t.contains('/'))
+    }
+    let (repo, tag) = tagged(name).unwrap_or((name, "latest"));
     let glob = |p: &str, s: &str| match p.split_once('*') {
         Some((a, b)) => s.len() >= a.len() + b.len() && s.starts_with(a) && s.ends_with(b),
         None => p == s,
     };
-    match pattern.rsplit_once(':') {
-        Some((p, t)) if !p.contains('/') || !t.contains('/') => glob(p, repo) && glob(t, tag),
-        _ => glob(pattern, repo) || glob(pattern, name),
+    match tagged(pattern) {
+        Some((p, t)) => glob(p, repo) && glob(t, tag),
+        None => glob(pattern, repo) || glob(pattern, name),
     }
 }
 
@@ -846,7 +850,7 @@ fn set_registry_mirrors(req: &Request, engine: &Arc<Engine>) -> Result<Value, Er
     // BuildKit reads its mirrors from buildkitd.toml at each start; an
     // unchanged save leaves a running builder alone.
     if super::registry_mirrors::list() != before {
-        super::builder::refresh(engine);
+        super::builder::refresh(engine)?;
     }
     Ok(report)
 }
@@ -856,13 +860,7 @@ fn set_daemon_config(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error
         return Err(Error::BadRequest("daemon config exceeds 64 KiB".into()));
     }
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
-    let before = super::registry_config::snapshot();
-    let report = super::registry_config::set(&body).map_err(Error::BadRequest)?;
-    let after = super::registry_config::snapshot();
-    if before.mirrors != after.mirrors || before.settings.insecure_registries() != after.settings.insecure_registries() {
-        super::builder::refresh(engine);
-    }
-    Ok(report)
+    super::builder::set_registry_config(engine, &body)
 }
 
 fn set_domain_ports(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error> {
@@ -1498,15 +1496,43 @@ fn volumes(req: &Request, engine: &Engine) -> Result<Value, Error> {
     Ok(json!({"Volumes": list, "Warnings": []}))
 }
 
-/// The TCP ports an image declares (EXPOSE) plus `--expose`.
-fn exposed_ports(body: &Value, image_cfg: &Value) -> Vec<u16> {
+/// The image's EXPOSE declarations plus `--expose`, including UDP and SCTP.
+fn exposed_port_keys(body: &Value, image_cfg: &Value) -> Vec<String> {
     let mut keys: Vec<String> = body["ExposedPorts"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
     if let Some(m) = image_cfg["config"]["ExposedPorts"].as_object() {
         keys.extend(m.keys().cloned());
     }
-    let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp") || !k.contains('/')).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
+    for key in &mut keys {
+        if !key.contains('/') {
+            key.push_str("/tcp");
+        }
+    }
+    keys.sort_unstable();
+    keys.dedup();
+    keys
+}
+
+/// Only TCP declarations are candidates for the HTTP domain router.
+fn exposed_ports(keys: &[String]) -> Vec<u16> {
+    let mut ports: Vec<u16> = keys.iter().filter(|k| k.ends_with("/tcp")).filter_map(|k| k.split('/').next()?.parse().ok()).collect();
     ports.sort_unstable();
     ports.dedup();
+    ports
+}
+
+fn inspect_exposed_ports(spec: &Spec) -> serde_json::Map<String, Value> {
+    let mut ports = serde_json::Map::new();
+    for key in &spec.exposed_port_keys {
+        ports.insert(key.clone(), json!({}));
+    }
+    // Preserve declarations from records written before protocol metadata
+    // was retained. Published ports are exposed even without an EXPOSE.
+    for port in &spec.exposed {
+        ports.insert(format!("{port}/tcp"), json!({}));
+    }
+    for binding in &spec.ports {
+        ports.insert(format!("{}/{}", binding.container_port, binding.proto), json!({}));
+    }
     ports
 }
 
@@ -1991,6 +2017,8 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         Some(s) if !s.is_empty() => s.to_owned(),
         _ => fallback.to_owned(),
     };
+    let exposed_port_keys = exposed_port_keys(&body, &image_cfg);
+    let exposed = exposed_ports(&exposed_port_keys);
     let spec = Spec {
         engine_service,
         image: image_name.to_owned(),
@@ -2036,7 +2064,8 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         aliases,
         extra_hosts,
         ports,
-        exposed: exposed_ports(&body, &image_cfg),
+        exposed,
+        exposed_port_keys,
         host_opts,
         mounts: mounts.guest,
         mount_info: mounts.info,
@@ -2395,7 +2424,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
 fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
     let when = |t: Option<std::time::SystemTime>| t.map_or_else(|| time::ZERO.to_owned(), time::rfc3339);
     let argv = c.argv();
-    json!({
+    let mut value = json!({
         "Id": c.id,
         "Created": time::rfc3339(c.created),
         "Path": argv.first().cloned().unwrap_or_default(),
@@ -2471,7 +2500,12 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
         },
         "NetworkSettings": network_settings(c, nets),
         "Mounts": c.spec.mount_info,
-    })
+    });
+    let exposed = inspect_exposed_ports(&c.spec);
+    if !exposed.is_empty() {
+        value["Config"]["ExposedPorts"] = Value::Object(exposed);
+    }
+    value
 }
 
 fn network_settings(c: &Container, nets: &[super::network::Network]) -> Value {
@@ -2840,7 +2874,13 @@ fn exec_start(req: &Request, engine: &Arc<Engine>, id: &str, w: &mut UnixStream,
         engine.exec_console(id, size);
     }
     let stdin = engine.with_exec(id, |e| e.config.stdin).unwrap_or(false);
-    let (tty, rx) = match engine.exec_start(id) {
+    let admission = match super::builder::before_exec(engine, id) {
+        Ok(guard) => guard,
+        Err(e) => { error(w, e)?; return Ok(Next::KeepAlive); }
+    };
+    let started = engine.exec_start(id);
+    drop(admission);
+    let (tty, rx) = match started {
         Ok(v) => v,
         Err(e) => {
             error(w, e)?;
@@ -3328,8 +3368,36 @@ mod tests {
             "443/tcp": [{"HostIp": "", "HostPort": "0"}],
             "5353/udp": [{"HostIp": "", "HostPort": "0"}],
         }));
-        assert_eq!(exposed_ports(&body, &image_cfg), vec![80, 443]);
-        assert_eq!(exposed_ports(&body, &Value::Null), vec![443]);
+        let keys = exposed_port_keys(&body, &image_cfg);
+        assert_eq!(keys, vec!["443/tcp", "5353/udp", "80/tcp"]);
+        assert_eq!(exposed_ports(&keys), vec![80, 443]);
+        assert_eq!(exposed_ports(&exposed_port_keys(&body, &Value::Null)), vec![443]);
+    }
+
+    #[test]
+    fn inspection_preserves_exposed_protocols_and_legacy_records() {
+        use super::super::ports::Binding;
+        let mut spec: Spec = serde_json::from_value(json!({
+            "image": "ports:test", "image_id": "", "entrypoint": [], "cmd": [], "env": [],
+            "cwd": "", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            "exposed": [80],
+        })).unwrap();
+        assert_eq!(json!(inspect_exposed_ports(&spec)), json!({"80/tcp": {}}));
+        let image = json!({"config": {"ExposedPorts": {"80/tcp": {}, "53/udp": {}, "90/sctp": {}}}});
+        let body = json!({"ExposedPorts": {"80": {}, "53/udp": {}, "443/tcp": {}}});
+        spec.exposed_port_keys = exposed_port_keys(&body, &image);
+        spec.exposed = exposed_ports(&spec.exposed_port_keys);
+        spec.ports = vec![Binding {
+            container_port: 53, proto: "tcp".into(), host_ip: "127.0.0.1".into(), host_port: 5353,
+        }];
+        let restored: Spec = serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        assert_eq!(json!(inspect_exposed_ports(&restored)),
+            json!({"53/tcp": {}, "53/udp": {}, "80/tcp": {}, "90/sctp": {}, "443/tcp": {}}));
+        assert_eq!(restored.exposed, vec![80, 443]);
+        spec.exposed.clear();
+        spec.exposed_port_keys.clear();
+        spec.ports.clear();
+        assert!(inspect_exposed_ports(&spec).is_empty());
     }
 
     #[test]
@@ -3849,6 +3917,33 @@ mod tests {
         let (_tx, rx) = std::sync::mpsc::channel::<()>();
         drop(client);
         assert_eq!(receive_connected(&rx, &server), None);
+    }
+
+    /// `docker images REPO` sends `{"reference":{"REPO":true}}`; a registry
+    /// with a port must not have its port read as a tag.
+    #[test]
+    fn reference_filter_keeps_a_registry_port() {
+        let listed = |pattern: &str| -> Vec<String> {
+            let filters = json!({"reference": {pattern: true}}).to_string();
+            let req = Request::internal("GET", "/images/json", &[("filters", &filters)], Vec::new());
+            let f = super::filters(&req, &["reference", "dangling", "label"]).unwrap();
+            ["alpine", "bitnami/redis:7", "localhost:5000/app", "registry.example.com:5000/team/app:1"]
+                .iter()
+                .map(|n| Reference::parse(n).unwrap().short())
+                .filter(|n| f.any("reference", |p| reference_matches(p, n)))
+                .collect()
+        };
+        assert_eq!(listed("alpine"), ["alpine:latest"]);
+        assert_eq!(listed("bitnami/redis:7"), ["bitnami/redis:7"]);
+        assert_eq!(listed("localhost:5000/app:latest"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("localhost:5000/app"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("localhost:5000/*"), ["localhost:5000/app:latest"]);
+        assert_eq!(listed("registry.example.com:5000/team/app"), ["registry.example.com:5000/team/app:1"]);
+        assert!(listed("localhost:5000/other").is_empty());
+        // `docker ps --filter ancestor=`: the image as it was typed at create.
+        assert!(reference_matches("localhost:5000/app:latest", "localhost:5000/app"));
+        assert!(reference_matches("localhost:5000/app", "localhost:5000/app"));
+        assert!(!reference_matches("localhost:5000/app:2", "localhost:5000/app"));
     }
 
     /// Reads a socket as `forward_stdin` does, reporting each read's length.

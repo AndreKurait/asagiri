@@ -9,6 +9,15 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+mod health;
+#[path = "../../asagiri/src/client/health_response.rs"]
+mod health_response;
+
+/// A small background GET with one deadline for pipe connection and I/O.
+pub fn probe(path: &str, timeout: Duration) -> io::Result<Response> {
+    health::request_at(&pipe(), path, timeout)
+}
+
 /// Product version for updates and About; older engines used Version alone.
 pub fn engine_version(version: &Value) -> Option<&str> {
     version["AsagiriVersion"].as_str().or_else(|| version["Version"].as_str())

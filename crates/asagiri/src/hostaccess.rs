@@ -11,11 +11,13 @@
 //! 4. The socket's access list, with `user` on it (crate::daemon::access), so
 //!    the change applies now, without signing in again.
 //!
+//! `--restart` restarts a running engine as well (the window's Restart
+//! engine, after the package was upgraded), and waits for it to answer.
+//!
 //! Exit status: 0 done; 10 done, but this system keeps no access lists, so
 //! `user` must log out and back in once before Asagiri lets them in.
 
 use std::io;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -26,10 +28,14 @@ const SOCKET: &str = crate::client::SERVICE_SOCKET;
 pub const SIGN_IN_AGAIN: u8 = 10;
 
 pub fn run(args: &[String]) -> io::Result<u8> {
-    let [user] = args else { return Err(io::Error::other("usage: asagiri host-access USER")) };
+    let (restart, args) = match args {
+        [flag, rest @ ..] if flag == "--restart" => (true, rest),
+        _ => (false, args),
+    };
+    let [user] = args else { return Err(io::Error::other("usage: asagiri host-access [--restart] USER")) };
     // SAFETY: geteuid has no preconditions.
     if unsafe { libc::geteuid() } != 0 {
-        return Err(io::Error::other(format!("needs root: sudo asagiri host-access {user}")));
+        return Err(io::Error::other(format!("needs root: sudo asagiri host-access {}{user}", if restart { "--restart " } else { "" })));
     }
     if crate::daemon::access::uid(user).is_none() {
         return Err(io::Error::other(format!("no account named {user}")));
@@ -46,7 +52,7 @@ pub fn run(args: &[String]) -> io::Result<u8> {
         println!("{user} is in the {GROUP} group");
     }
     install_from_appimage()?;
-    engine()?;
+    engine(restart)?;
     match crate::daemon::access::grant(Path::new(SOCKET), GROUP) {
         Ok(_) => {
             println!("{user} can use Asagiri now");
@@ -93,11 +99,18 @@ fn install_appimage_files(appdir: &Path, bin: &Path, unit: &Path) -> io::Result<
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     // Preflight both inputs and destinations before creating installed files.
     // Never follow a source link or replace an existing, different executable.
+    let readonly_fuse = validate_appimage_source(appdir)?;
     let mut inputs = Vec::new();
     for name in ["asagiri", "asagiri-init"] {
         let mut source = OpenOptions::new().read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(appdir.join("usr/bin").join(name))?;
-        if !source.metadata()?.is_file() { return Err(io::Error::other("AppImage engine input is not a regular file")); }
+        let metadata = source.metadata()?;
+        // SAFETY: geteuid has no preconditions.
+        if !metadata.is_file() || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o100 == 0
+            || (!readonly_fuse && metadata.uid() != unsafe { libc::geteuid() }) {
+            return Err(io::Error::other("AppImage engine input is not an owned, regular executable"));
+        }
         let mut bytes = Vec::new();
         source.read_to_end(&mut bytes)?;
         let existing = if let Ok(metadata) = std::fs::symlink_metadata(bin.join(name)) {
@@ -130,6 +143,54 @@ fn install_appimage_files(appdir: &Path, bin: &Path, unit: &Path) -> io::Result<
     install_new_file(unit, contents.as_bytes(), 0o644)
 }
 
+fn validate_appimage_source(appdir: &Path) -> io::Result<bool> {
+    use std::fs;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let dir = fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(appdir)?;
+    let mut filesystem = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    let mut flags = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: both outputs point to valid writable storage and dir is open.
+    if unsafe { libc::fstatfs(dir.as_raw_fd(), filesystem.as_mut_ptr()) } != 0
+        || unsafe { libc::fstatvfs(dir.as_raw_fd(), flags.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // A real read-only FUSE mount can legitimately report the image builder's
+    // UID. Environment variables and a ".mount_" name do not prove a mount.
+    // SAFETY: the successful calls above initialized both outputs.
+    let readonly_fuse = unsafe { filesystem.assume_init() }.f_type as u64 == 0x6573_5546
+        && unsafe { flags.assume_init() }.f_flag & libc::ST_RDONLY != 0;
+    if !readonly_fuse {
+        // SAFETY: geteuid has no preconditions.
+        let owner = unsafe { libc::geteuid() };
+        let metadata = dir.metadata()?;
+        if metadata.uid() != owner || metadata.mode() & 0o7777 != 0o700 {
+            return Err(io::Error::other("AppImage extraction must be private and owned by the installing user"));
+        }
+        // The runtime creates this directory after elevation. A private child
+        // is unsafe if another user can rename or replace an ancestor.
+        let absolute = appdir.canonicalize()?;
+        for parent in absolute.ancestors().skip(1) {
+            let metadata = fs::symlink_metadata(parent)?;
+            if !metadata.is_dir() || (metadata.uid() != 0 && metadata.uid() != owner)
+                || (metadata.mode() & 0o022 != 0 && !(metadata.uid() == 0 && metadata.mode() & 0o1000 != 0)) {
+                return Err(io::Error::other("AppImage extraction has an untrusted parent directory"));
+            }
+        }
+    }
+    for child in ["usr", "usr/bin"] {
+        let metadata = fs::symlink_metadata(appdir.join(child))?;
+        // SAFETY: geteuid has no preconditions.
+        if !metadata.is_dir() || metadata.mode() & 0o022 != 0
+            || (!readonly_fuse && metadata.uid() != unsafe { libc::geteuid() }) {
+            return Err(io::Error::other("AppImage executable directory is not an owned, regular directory"));
+        }
+    }
+    Ok(readonly_fuse)
+}
+
 fn install_new_file(destination: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     use std::fs::{File, OpenOptions};
     use std::io::Write;
@@ -149,9 +210,10 @@ fn install_new_file(destination: &Path, bytes: &[u8], mode: u32) -> io::Result<(
     result
 }
 
-/// The engine running and answering on its socket.
-fn engine() -> io::Result<()> {
-    if answers() {
+/// The engine running and answering on its socket; with `restart`, a
+/// running one restarted (on the binary the package installed).
+fn engine(restart: bool) -> io::Result<()> {
+    if !restart && answers(Duration::from_millis(250)) {
         return Ok(());
     }
     let active = Command::new("systemctl").args(["is-active", "--quiet", "asagiri"]).status().is_ok_and(|s| s.success());
@@ -161,17 +223,19 @@ fn engine() -> io::Result<()> {
         must(Command::new("systemctl").args(["enable", "--now", "asagiri"]), "systemctl enable --now asagiri")?;
     }
     let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        if answers() {
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if answers(remaining.min(Duration::from_millis(250))) {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(200));
+        if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            std::thread::sleep(remaining.min(Duration::from_millis(200)));
+        }
     }
     Err(io::Error::other("Asagiri's engine didn't start: journalctl -u asagiri says why"))
 }
 
-fn answers() -> bool {
-    UnixStream::connect(SOCKET).is_ok()
+fn answers(timeout: Duration) -> bool {
+    crate::client::probe_socket(Path::new(SOCKET), "/_ping", timeout).is_ok_and(|r| r.ok() && r.body == b"OK")
 }
 
 fn must(cmd: &mut Command, what: &str) -> io::Result<()> {
@@ -192,8 +256,10 @@ mod tests {
             let root = std::env::temp_dir().join(format!("asagiri-appimage-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             std::fs::create_dir(&root).unwrap();
             std::fs::create_dir_all(root.join("app/usr/bin")).unwrap();
+            std::fs::set_permissions(root.join("app"), std::fs::Permissions::from_mode(0o700)).unwrap();
             for name in ["asagiri", "asagiri-init", "asagiri-window"] {
                 std::fs::write(root.join("app/usr/bin").join(name), name).unwrap();
+                std::fs::set_permissions(root.join("app/usr/bin").join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
             }
             Self(root)
         }
@@ -249,6 +315,27 @@ mod tests {
         assert_eq!(f.install().unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read_to_string(f.0.join("bin/asagiri")).unwrap(), "existing engine");
         assert!(!f.0.join("bin/asagiri-init").exists());
+        assert!(!f.0.join("units").exists());
+    }
+
+    #[test]
+    fn writable_bundle_paths_are_rejected_before_installation() {
+        for path in ["app", "app/usr", "app/usr/bin", "app/usr/bin/asagiri-init", "."] {
+            let f = Fixture::new();
+            std::fs::set_permissions(f.0.join(path), std::fs::Permissions::from_mode(0o777)).unwrap();
+            assert!(f.install().is_err(), "accepted writable {path}");
+            assert!(!f.0.join("bin").exists());
+            assert!(!f.0.join("units").exists());
+        }
+    }
+
+    #[test]
+    fn a_linked_bundle_directory_cannot_supply_installed_executables() {
+        let f = Fixture::new();
+        std::fs::rename(f.0.join("app/usr/bin"), f.0.join("substitute")).unwrap();
+        symlink(f.0.join("substitute"), f.0.join("app/usr/bin")).unwrap();
+        assert!(f.install().is_err());
+        assert!(!f.0.join("bin").exists());
         assert!(!f.0.join("units").exists());
     }
 }

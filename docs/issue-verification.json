@@ -383,11 +383,14 @@
       "issue": 93,
       "title": "After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
       "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
-      "coverage": "platform-gap",
+      "coverage": "partial",
       "checks": [
+        "crates/asagiri-win/src/daemon_start.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "tests/native-window-regressions.md",
         "tests/wsl.sh"
       ],
-      "remaining": "Native Windows sleep/wake and WSL disappearance cannot be reproduced by Linux unit tests."
+      "remaining": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
     },
     {
       "issue": 94,
@@ -905,6 +908,19 @@
         "crates/asagiri-init/src/linux/container.rs"
       ],
       "remaining": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+    },
+    {
+      "issue": 250,
+      "title": "macOS: launching Kiri from Finder/Dock exits silently (open returns 0), and the log records command=\"\" instead of what failed",
+      "body_sha256": "408452731af103e31938c696d86e5f294551a302e61df7c5774d9101e368edd9",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/setup.rs",
+        "crates/asagiri/src/diag/mod.rs",
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Pure filesystem tests reproduce and fix dangling and unreadable shell-profile failures; command-label and setup-context tests cover diagnostics. The exact reported Finder/Dock failure, LaunchAgent creation and native error alert require a disposable Mac desktop account and remain unverified."
     }
   ]
 }

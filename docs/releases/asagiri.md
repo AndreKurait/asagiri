@@ -1,5 +1,11 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+On macOS, unavailable shell profiles no longer interrupt the app's first
+setup. Existing profile contents are preserved when they cannot be read.
+Fatal setup errors identify the failing operation, and opening the app
+from Finder or the Dock presents an error alert if setup or the window fails.
+The log identifies these launches as `app-launch`.
+
 Dense IPv4 and IPv6 networks find free addresses by merging occupied and
 excluded hosts in order. A Verus proof checks the production gap search's
 bounds, lowest-free result, exhaustion and overflow behavior. CI also compares
@@ -88,6 +94,16 @@ download/upload limits. TLS verification remains enabled by default;
 exceptions apply only to the configured authorities or literal IP ranges.
 Real HTTP, authenticated HTTP, self-signed HTTPS, policy revocation, and
 parallel transfer checks run against private registry fixtures.
+
+Private HTTPS registries can also use `registry-ca-certificates` to trust an
+explicit certificate authority while retaining chain, hostname and expiry
+verification. The engine and managed BuildKit receive the same certificate
+bytes, and a changed policy replaces the engine's connection pools. Trust
+changes are rejected before persistence while builds are active. A failed
+BuildKit configuration update remains pending until installation and startup
+succeed. Invalid or oversized bundles are rejected before changing the builder
+or saved settings. See [registry CA certificates](../registry-ca-certificates.md) for
+the authority scope, accepted PEM format and client boundaries.
 
 Stopped-container archive requests now finish after their worker releases
 its mounts. Linux service recovery also reclaims stale and stacked mounts

@@ -176,6 +176,10 @@ pub struct Spec {
     /// TCP ports the image (or `--expose`) declares; picks the domain's port.
     #[serde(default)]
     pub exposed: Vec<u16>,
+    /// All declared port/protocol pairs, retained for Docker inspection.
+    /// Older records keep their TCP declarations in `exposed`.
+    #[serde(default)]
+    pub exposed_port_keys: Vec<String>,
     /// Bind mounts as the guest takes them: `source\ttarget\tflags`, where
     /// `source` is a path inside the VM.
     #[serde(default)]
@@ -1159,16 +1163,22 @@ impl Engine {
         let _ = std::thread::Builder::new().name("asagiri-sleeper".into()).spawn(move || loop {
             std::thread::sleep(Duration::from_secs(5));
             let Some(engine) = me.upgrade() else { return };
+            // Native BuildKit connections have no dial-stdio exec to count.
+            // Keep admission excluded through pausing, stopping and VM sleep;
+            // a new connection resumes or starts its backend after this guard.
+            let Some(_builder_idle) = super::builder::idle_guard() else { continue };
             let quiet_for = now_secs().saturating_sub(engine.last_activity.load(std::sync::atomic::Ordering::Relaxed));
+            let managed = super::builder::container_name();
             // BuildKit containers (buildx's docker-container driver) run until
             // paused, which keeps the VM's state without using CPU. Between
-            // builds they are paused; the next build resumes them.
+            // builds they are paused; the next build resumes them. The managed
+            // backend has its own watch, using its settings and last build time.
             let idle_builders: Vec<String> = {
                 let st = engine.lock();
                 let building = st.execs.values().any(|e| e.running);
                 let running: Vec<&Container> = st.containers.values().filter(|c| c.status == Status::Running).collect();
-                if !building && quiet_for >= builder_idle && !running.is_empty() && running.iter().all(|c| is_builder(c)) {
-                    running.iter().filter(|c| !c.paused).map(|c| c.id.clone()).collect()
+                if builder_idle != 0 && !building && quiet_for >= builder_idle && !running.is_empty() && running.iter().all(|c| is_builder(c)) {
+                    running.iter().filter(|c| !c.paused && c.name != managed).map(|c| c.id.clone()).collect()
                 } else {
                     Vec::new()
                 }
@@ -4686,5 +4696,63 @@ mod start_exit_tests {
         assert_eq!(super::start_exit_code(&io("exec /app: Permission denied (os error 13)")), 126);
         assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::Conflict("no free address left on network n".into()))), 128);
         assert_eq!(super::start_exit_code(&format!("{:?}", super::Error::NotFound("network x not found".into()))), 128);
+    }
+}
+
+#[cfg(test)]
+mod builder_trust_tests {
+    use super::*;
+
+    #[test]
+    fn running_builder_noop_start_cannot_clear_pending_trust() {
+        let dir = std::env::temp_dir().join(format!("asagiri-builder-trust-{}-{}", std::process::id(), random_hex(8)));
+        std::fs::create_dir(&dir).unwrap();
+        let engine = Engine::boot(Store::open(&dir).unwrap()).unwrap();
+        // Match the existing synthetic engine tests: no restart records,
+        // no real guest, and any attempted guest boot is disabled.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "test:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true, config_digest: "sha256:test".into(),
+            layers: Vec::new(), size: 0, platform: "linux/arm64".into(), created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image":"test:local", "image_id":"sha256:test", "entrypoint":[], "cmd":["true"],
+            "env":[], "cwd":"/", "user":"", "auto_remove":false, "network_mode":"none", "labels":{},
+            "restart":{"name":"no", "max_retries":0}
+        })).unwrap();
+        let name = super::super::builder::container_name();
+        let id = engine.create(Some(name.clone()), spec.clone(), &image).unwrap();
+        engine.lock().containers.get_mut(&id).unwrap().status = Status::Running;
+        // Exercise the real behavior that made the bug possible, not a fake
+        // start callback: start_inner succeeds without touching the guest.
+        assert!(engine.start(&id).is_ok());
+        let pending = std::sync::atomic::AtomicBool::new(true);
+        let mut aliases = vec![id.clone(), format!("/{id}"), name.clone(), format!("/{name}"), id[..12].to_owned()];
+        for length in 1..6 {
+            aliases.push(id[..length].to_owned());
+            aliases.push(format!("/{}", &id[..length]));
+        }
+        for key in &aliases {
+            assert_eq!(engine.resolve(key).unwrap(), id);
+            assert!(matches!(super::super::builder::start_with_trust(&engine, key, &pending), Err(Error::Conflict(_))), "{key}");
+            assert!(pending.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(engine.with(&id, |c| c.status).unwrap(), Status::Running);
+        }
+        pending.store(false, std::sync::atomic::Ordering::Release);
+        for key in &aliases {
+            assert!(super::super::builder::start_with_trust(&engine, key, &pending).is_ok());
+        }
+        // A container name wins over another container's ID prefix. Starting
+        // that unrelated container must not touch the builder's pending trust.
+        let other_name = &id[..6];
+        let other = engine.create(Some(other_name.into()), spec, &image).unwrap();
+        engine.lock().containers.get_mut(&other).unwrap().status = Status::Running;
+        pending.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(engine.resolve(other_name).unwrap(), other);
+        assert!(super::super::builder::start_with_trust(&engine, other_name, &pending).is_ok());
+        assert!(pending.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(engine);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

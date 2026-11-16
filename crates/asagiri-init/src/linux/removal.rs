@@ -44,6 +44,14 @@ impl Removals {
         }
     }
 
+    /// Admit shutdown retries only before the deadline. An active worker must
+    /// still be reaped after it, before its paths or mounts can be reused.
+    pub fn poll_shutdown(&mut self, now: Instant, deadline: Instant, spawn: impl FnOnce(&str) -> io::Result<libc::pid_t>) -> bool {
+        let retry = now < deadline;
+        if retry { self.start(now, spawn); }
+        self.active.is_some() || (retry && !self.is_empty())
+    }
+
     pub fn reaped(&mut self, pid: libc::pid_t, code: i32, now: Instant) -> bool {
         if !self.active.as_ref().is_some_and(|(_, worker)| *worker == pid) { return false; }
         let (id, _) = self.active.take().expect("worker matched");
@@ -123,6 +131,45 @@ mod tests {
         assert!(removals.contains("victim"));
         assert!(removals.reaped(43, 0, now + RETRY * 2));
         assert!(removals.is_empty());
+    }
+
+    #[test]
+    fn shutdown_stops_retrying_failed_forks_at_its_deadline() {
+        let mut removals = Removals::default();
+        let now = Instant::now();
+        let deadline = now + RETRY * 2;
+        removals.enqueue("victim");
+        removals.enqueue("next");
+        let mut attempts = 0;
+        assert!(removals.poll_shutdown(now, deadline, |_| {
+            attempts += 1;
+            Err(io::Error::from_raw_os_error(libc::EAGAIN))
+        }));
+        assert!(removals.poll_shutdown(now + RETRY / 2, deadline, |_| panic!("fork failure must back off")));
+        assert!(removals.poll_shutdown(now + RETRY, deadline, |_| {
+            attempts += 1;
+            Err(io::Error::from_raw_os_error(libc::EAGAIN))
+        }));
+        assert!(!removals.poll_shutdown(deadline, deadline, |_| panic!("the deadline must stop new workers")));
+        assert!(!removals.poll_shutdown(deadline + RETRY, deadline, |_| panic!("shutdown must not retry later")));
+        assert_eq!(attempts, 2);
+        assert_eq!(removals.ids().collect::<Vec<_>>(), ["victim", "next"]);
+    }
+
+    #[test]
+    fn shutdown_waits_for_an_active_worker_without_retrying_it_after_deadline() {
+        let mut removals = Removals::default();
+        let now = Instant::now();
+        let deadline = now + RETRY;
+        removals.enqueue("active");
+        removals.enqueue("next");
+        assert!(removals.poll_shutdown(now, deadline, |_| Ok(42)));
+        assert!(removals.poll_shutdown(deadline, deadline, |_| panic!("the active worker must be joined")));
+        assert!(!removals.reaped(41, 0, deadline));
+        assert!(removals.poll_shutdown(deadline + RETRY, deadline, |_| panic!("only the owned worker ends the wait")));
+        assert!(removals.reaped(42, 1, deadline + RETRY));
+        assert!(!removals.poll_shutdown(deadline + RETRY * 2, deadline, |_| panic!("failed workers must not restart after the deadline")));
+        assert_eq!(removals.ids().collect::<Vec<_>>(), ["active", "next"]);
     }
 
     #[test]

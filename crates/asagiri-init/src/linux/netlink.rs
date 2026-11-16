@@ -38,6 +38,7 @@ const IFA_LOCAL: u16 = 2;
 const RTA_DST: u16 = 1;
 const RTA_GATEWAY: u16 = 5;
 const RTA_OIF: u16 = 4;
+const RTA_PREFSRC: u16 = 7;
 
 /// One netlink message under construction.
 pub struct Msg {
@@ -366,6 +367,25 @@ pub fn add_default_route6(nl: &mut Netlink, index: i32, gateway: [u8; 16]) -> io
 
 pub fn add_default_route(nl: &mut Netlink, index: i32, gateway: [u8; 4]) -> io::Result<()> {
     default_route(nl, index, gateway, 0)
+}
+
+/// A single IPv4 address through loopback, without a gateway or default
+/// route. An explicit source also works before any other address exists.
+pub fn add_loopback_route(nl: &mut Netlink, address: [u8; 4]) -> io::Result<()> {
+    let mut m = Msg::new(RTM_NEWROUTE, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    let mut rt = [0u8; 12];
+    rt[0] = libc::AF_INET as u8;
+    rt[1] = 32;
+    rt[4] = libc::RT_TABLE_MAIN;
+    rt[5] = libc::RTPROT_BOOT;
+    rt[6] = libc::RT_SCOPE_LINK;
+    rt[7] = libc::RTN_UNICAST;
+    m.raw(&rt).attr(RTA_DST, &address).attr_u32(RTA_OIF, index_of("lo")? as u32)
+        .attr(RTA_PREFSRC, &[127, 0, 0, 1]);
+    match nl.request(&mut [m]) {
+        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+        r => r,
+    }
 }
 
 /// The IPv4 default route, unless the namespace already has one: without

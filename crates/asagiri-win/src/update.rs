@@ -40,6 +40,7 @@ use crate::engine::{emit, notice, trf};
 
 #[path = "../../asagiri/src/update_feed.rs"]
 mod feed;
+mod wsl;
 /// The biggest download accepted (the MSI is about 55 MB).
 const MAX_DOWNLOAD: u64 = 2 << 30;
 /// installer/windows/asagiri.wxs's UpgradeCode: what makes an MSI an Asagiri one.
@@ -271,26 +272,46 @@ pub fn restart_engine() -> io::Result<()> {
     let distro = crate::setup::saved_distro().ok_or_else(|| io::Error::other("Asagiri's Linux is not set up"))?;
     let asagiri = crate::setup::to_wsl(&distro, &dir().join("asagiri"))?;
     let init = crate::setup::to_wsl(&distro, &dir().join("asagiri-init"))?;
-    // The pkill patterns spell "asagiri" as "[k]iri": `sh -c` runs with this
+    // The pkill patterns spell "asagiri" as "[a]sagiri": `sh -c` runs with this
     // whole script on its command line, and a plain pattern would match
     // that too and kill the shell before it starts the daemon again.
+    let mut install = String::new();
     let script = if distro == crate::setup::ASAGIRI_DISTRO {
         // Asagiri Linux: busybox, no systemd; asagiri-start starts the daemon.
-        format!(
-            "cp -f '{asagiri}' /usr/local/bin/asagiri.new && cp -f '{init}' /usr/local/bin/asagiri-init.new && chmod 755 /usr/local/bin/asagiri.new /usr/local/bin/asagiri-init.new && mv -f /usr/local/bin/asagiri.new /usr/local/bin/asagiri && mv -f /usr/local/bin/asagiri-init.new /usr/local/bin/asagiri-init && pkill -f '/usr/local/bin/[k]iri daemon'; pkill -f '/usr/local/bin/[k]iri bridge'; sleep 1; /usr/local/bin/asagiri-start"
-        )
+        wsl::OWNED_DISTRO
     } else {
         // Ubuntu: install.sh installs the binaries and restarts the service.
-        let install = crate::setup::to_wsl(&distro, &dir().join("install.sh"))?;
-        format!("sh '{install}' && pkill -f '/usr/local/bin/[k]iri bridge'; true")
+        install = crate::setup::to_wsl(&distro, &dir().join("install.sh"))?;
+        wsl::PACKAGE_DISTRO
     };
     let mut cmd = crate::win::tool("wsl.exe");
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, CREATE_NO_WINDOW);
-    let out = cmd.args(["-d", &distro, "-u", "root", "--", "sh", "-c", &script]).stdin(Stdio::null()).output()?;
+    // File paths are arguments, so spaces and apostrophes in a Windows
+    // account name cannot change the shell program or its error handling.
+    let out = cmd.args(["-d", &distro, "-u", "root", "--", "sh", "-c", script, "asagiri-update", &asagiri, &init, &install]).stdin(Stdio::null()).output()?;
     if !out.status.success() {
         return Err(io::Error::other(first_line(&out.stderr, "the engine did not restart")));
     }
-    Ok(())
+    // Done only when the engine answers as this version: a restart that
+    // brought the old one back would ask again at the next check.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut last = None;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if let Some(v) = crate::client::probe("/version", remaining.min(Duration::from_secs(1)))
+            .ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned)) {
+            if v == CURRENT {
+                return Ok(());
+            }
+            last = Some(v);
+        }
+        if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            std::thread::sleep(remaining.min(Duration::from_millis(250)));
+        }
+    }
+    Err(io::Error::other(match last {
+        Some(v) => format!("the engine came back on {v}, not {CURRENT}"),
+        None => "the engine did not come back".to_owned(),
+    }))
 }
 
 /// Whether `msi` is an Asagiri installer of the version `promised`, newer than
@@ -444,9 +465,10 @@ fn update_state(state: &str, latest: Option<&str>, error: Option<String>) {
 /// check asks the feed.
 pub fn check_now(manual: bool) {
     std::thread::spawn(move || {
-        if let Some(v) = crate::client::request("GET", "/version", None).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
+        if let Some(v) = crate::client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
             && newer(CURRENT, &v)
         {
+            // Opening the window or checking updates must not stop containers.
             emit(json!({"type": "enginestale", "version": v}).to_string());
         }
         feed_check(manual);
@@ -591,7 +613,15 @@ pub fn restart_engine_now() {
                 // The page's engine toast, as the Mac's.
                 emit(json!({"type": "enginerestarted", "version": CURRENT, "ms": began.elapsed().as_millis() as u64}).to_string());
             }
-            Err(e) => emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)]))),
+            Err(e) => {
+                crate::serve::log(&format!("engine: did not restart ({e})"));
+                emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)])));
+                if let Some(v) = crate::client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
+                    && newer(CURRENT, &v)
+                {
+                    emit(json!({"type": "enginestale", "version": v}).to_string());
+                }
+            }
         }
         crate::engine::send(crate::engine::Cmd::Refresh);
     });

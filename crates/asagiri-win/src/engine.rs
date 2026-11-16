@@ -46,6 +46,8 @@ static LISTED: std::sync::LazyLock<std::sync::Mutex<std::time::Instant>> = std::
 pub(crate) enum Cmd {
     Start,
     Stop,
+    /// Restore daemon availability after WSL goes away, preserving Stop.
+    Revive,
     Refresh,
     Pull(String),
     RemoveImage(String),
@@ -133,6 +135,44 @@ fn state(name: &str, error: Option<&str>) -> String {
 
 fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
     watch(tx);
+    // Registration may wait on buildx. Give it a separate bounded worker
+    // so it cannot hold up daemon recovery, Start or Stop.
+    let builders = match crate::daemon_start::recovery(
+        "asagiri-builder",
+        || crate::daemon_start::builder_if_running(
+            client::get_background("/info").map(|info| info["AsagiriStopped"].as_bool()),
+            || crate::builds::restore_builder().map(drop),
+        ).map(drop),
+        |result| {
+            if let Err(e) = result {
+                crate::serve::log(&format!("docker build: {e}"));
+            }
+        },
+    ) {
+        Ok((builders, _worker)) => Some(builders),
+        Err(e) => {
+            crate::serve::log(&format!("docker build: could not start builder setup worker: {e}"));
+            None
+        }
+    };
+    let restored_builders = builders.clone();
+    let recovery = match crate::daemon_start::recovery(
+        "asagiri-revive",
+        || crate::daemon_start::Intent::Restore.run(ensure_daemon, wake),
+        move |result| {
+            match result {
+                Ok(()) => queue_builder(&restored_builders),
+                Err(e) => crate::serve::log(&format!("engine: could not restore the daemon: {e}")),
+            }
+            send(Cmd::Refresh);
+        },
+    ) {
+        Ok((recovery, _worker)) => Some(recovery),
+        Err(e) => {
+            crate::serve::log(&format!("engine: could not start daemon recovery worker: {e}"));
+            None
+        }
+    };
     // Windows' proxy for the daemon, now and every minute.
     std::thread::spawn(|| loop {
         send_windows_proxy();
@@ -147,9 +187,9 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
         match cmd {
             Ok(Cmd::Start) => {
                 emit(state("booting", None));
-                match ensure_daemon().and_then(|()| wake()) {
+                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
                     Ok(()) => {
-                        std::thread::spawn(ensure_builder);
+                        queue_builder(&builders);
                         refresh();
                     }
                     Err(e) => emit(state("stopped", Some(&e.to_string()))),
@@ -169,6 +209,13 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
                     emit(notice("error", &e.to_string()));
                 }
                 refresh();
+            }
+            Ok(Cmd::Revive) => {
+                if let Some(recovery) = &recovery
+                    && let Err(e) = recovery.request()
+                {
+                    crate::serve::log(&format!("engine: could not queue daemon recovery: {e}"));
+                }
             }
             Ok(Cmd::Refresh) => {
                 // Events come in bursts (create, start, …): one refresh per
@@ -270,9 +317,13 @@ fn wake() -> io::Result<()> {
 /// Makes sure the daemon answers: Ubuntu uses the `asagiri` systemd service;
 /// the small Asagiri Linux distro starts /usr/local/bin/asagiri-start instead.
 pub(crate) fn ensure_daemon() -> io::Result<()> {
-    if client::alive() {
-        return Ok(());
-    }
+    static STARTING: Mutex<()> = Mutex::new(());
+    crate::daemon_start::ensure(&STARTING, client::alive, start_daemon)
+}
+
+/// Called with the startup guard held, after checking that the daemon is
+/// absent. Settings, explicit Start and background recovery share the guard.
+fn start_daemon() -> io::Result<()> {
     crate::serve::log("engine: not answering; starting it in WSL");
     // The engine this app installed, not one an update left behind.
     match crate::update::sync_engine() {
@@ -304,12 +355,14 @@ pub(crate) fn ensure_daemon() -> io::Result<()> {
     Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
 }
 
-/// Share the Mac/Linux builder setup and preference restoration. Reopening
-/// the window must not silently reinstall a global alias or select a
-/// builder after the user chose Docker or another instance.
-fn ensure_builder() {
-    if let Err(e) = crate::builds::builder() {
-        crate::serve::log(&format!("docker build: {e}"));
+/// Share Mac/Linux registration and preference restoration after both
+/// explicit Start and automatic daemon recovery. The worker checks Stop
+/// immediately before setup and never calls the engine's wake endpoint.
+fn queue_builder(builders: &Option<crate::daemon_start::Recovery>) {
+    if let Some(builders) = builders
+        && let Err(e) = builders.request()
+    {
+        crate::serve::log(&format!("docker build: could not queue builder setup: {e}"));
     }
 }
 
@@ -834,6 +887,57 @@ mod tests {
         assert!(!allowed_url("https://evil.example/#.asagiri.localhost"));
         assert!(!allowed_url("ftp://localhost/"));
     }
+
+    #[test]
+    fn builder_setup_restores_saved_choices_only_for_a_running_engine() {
+        use crate::buildwith::{Places, With};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("asagiri-builder-restore-{}-{stamp}", std::process::id()));
+        for (index, choice) in [None, Some(With::Docker), Some(With::Asagiri)].into_iter().enumerate() {
+            for (state, stopped) in [Some(false), Some(true), None].into_iter().enumerate() {
+                let dir = root.join(format!("{index}-{state}"));
+                let docker = dir.join(".docker");
+                let places = Places {
+                    buildx: docker.join("buildx"), docker,
+                    state: dir.join(".asagiri/build.json"),
+                    builder: "asagiri-build".into(), context: "asagiri".into(),
+                };
+                if let Some(choice) = choice {
+                    places.choose(choice).unwrap();
+                }
+                places.apply(None).unwrap();
+                assert!(!places.ready());
+                assert!(!places.taken(), "a saved choice cannot register a missing builder");
+                let setups = AtomicUsize::new(0);
+                let registered = crate::daemon_start::builder_if_running(Ok(stopped), || {
+                    setups.fetch_add(1, Ordering::SeqCst);
+                    // The file buildx create leaves behind. Preference
+                    // restoration below is the actual production policy.
+                    let instance = serde_json::json!({
+                        "Name": "asagiri-build", "Driver": "docker-container",
+                        "Nodes": [{"Name": "asagiri-build0", "Endpoint": "asagiri",
+                                   "DriverOpts": {"default-load": "true"}}],
+                        "Dynamic": false,
+                    });
+                    std::fs::create_dir_all(places.buildx.join("instances"))?;
+                    std::fs::write(places.buildx.join("instances/asagiri-build"), instance.to_string())?;
+                    places.set_builtin(true)?;
+                    places.apply(None)
+                }).unwrap();
+                assert_eq!(registered, stopped == Some(false));
+                assert_eq!(setups.load(Ordering::SeqCst), usize::from(registered));
+                assert_eq!(places.ready(), registered);
+                assert_eq!(places.taken(), registered && choice != Some(With::Docker));
+                assert_eq!(places.saved(), Some(choice.unwrap_or(With::Asagiri)));
+                if registered {
+                    assert!(places.builtin());
+                }
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 /// Handles one message from the page, on the window's thread: quick things
@@ -873,12 +977,9 @@ pub fn on_message(msg: &str) {
                 emit(crate::buildwith::event());
             });
             send(Cmd::Refresh);
-            // Opening the window starts Asagiri, unless it was stopped: that waits for Start.
-            std::thread::spawn(|| {
-                if !client::get("/info").is_ok_and(|i| i["AsagiriStopped"] == true) {
-                    send(Cmd::Start);
-                }
-            });
+            // A missing daemon cannot answer /info. Restore it so it can
+            // read its stopped mark; never treat that failed read as Start.
+            send(Cmd::Revive);
             // Anything newer than this build, and a staged update not yet in.
             crate::update::check_now(false);
             // For checking the page by hand in a debug build.

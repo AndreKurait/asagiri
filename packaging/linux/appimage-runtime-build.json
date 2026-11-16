@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "version": "dd6cebed-asagiri-private-v2",
+  "compiler_image": "rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c",
+  "patched_runtime_sha256": "b3c413216cad10fb95b87c2f5689a8ac0671cb166f751365ff6deba3dd4f29f7",
+  "inputs": {
+    "appimage-runtime.patch": "e27f602019470a5c1f84858e523b79b7bb4ec8e9282e291f1f62baf3c9d81825",
+    "appimage-extraction.h": "2d9dd45b5f2c674f21a8ac0449166a51b93a9066bacea195eb4595ca17668ac5",
+    "appimage-runtime-build.sh": "5576c9c414658e055c0ff1ea6ff4a6ff00662c7e2b1a38cd498e5ab5d4aaa403"
+  },
+  "tools": [
+    {
+      "component": "meson",
+      "name": "meson-1.5.2.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/34/e8/bb0e264882a42f5d5acae869d5980f298ff9c298d844e18fd1ac009ce7e9/meson-1.5.2.tar.gz",
+      "sha256": "f955e09ab0d71ef180ae85df65991d58ed8430323de7d77a37e11c9ea630910b",
+      "licenses": [
+        "meson-1.5.2/COPYING"
+      ]
+    },
+    {
+      "component": "ninja",
+      "name": "ninja-1.12.1.tar.gz",
+      "url": "https://codeload.github.com/ninja-build/ninja/tar.gz/2daa09ba270b0a43e1929d29b073348aa985dfaa",
+      "sha256": "373bb33a8db2769b825a771e5d25b11d79ef5e41a934b870487257c27b187180",
+      "licenses": [
+        "ninja-2daa09ba270b0a43e1929d29b073348aa985dfaa/COPYING"
+      ]
+    }
+  ]
+}
