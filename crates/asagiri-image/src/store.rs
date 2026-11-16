@@ -935,6 +935,11 @@ mod tests {
         known.config.labels = Some(Default::default());
         fs::remove_file(reopened.blob_path(&digest).unwrap()).unwrap();
         assert!(reopened.image_labels(&known).unwrap().is_null());
+        // Cached nonempty labels also remain usable without rereading a blob.
+        known.config.labels = Some([("vendor.feature".into(), "cached".into())].into_iter().collect());
+        assert_eq!(reopened.image_labels(&known).unwrap(), serde_json::json!({"vendor.feature": "cached"}));
+        known.config.labels = None;
+        assert!(reopened.image_labels(&known).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

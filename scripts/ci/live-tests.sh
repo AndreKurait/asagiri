@@ -15,6 +15,7 @@ dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
 # The same read-only fixture runs against the runner's Docker daemon first.
 python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
