@@ -156,7 +156,8 @@ fn read_blob(engine: &Engine, id: &str, digest: &str, size: u64) -> Result<Value
 }
 
 fn empty_manifest_matches(manifest: &Value, images: &[asagiri_image::Image]) -> bool {
-    manifest["schemaVersion"] == 2 && manifest["layers"].as_array().is_some_and(Vec::is_empty)
+    manifest["schemaVersion"] == 2 && manifest.get("layers").is_some_and(|layers|
+        layers.is_null() || layers.as_array().is_some_and(Vec::is_empty))
         && manifest["config"]["digest"].as_str().is_some_and(|digest| images.iter()
             .any(|image| image.config_digest == digest && image.layers.is_empty()))
 }
@@ -337,6 +338,14 @@ mod tests {
         let manifest = json!({"schemaVersion": 2, "config": {"digest": digest}, "layers": []});
         assert!(empty_manifest_matches(&manifest, std::slice::from_ref(&image)));
         assert!(!empty_manifest_matches(&manifest, &[]));
+        let mut native_empty = manifest.clone(); native_empty["layers"] = Value::Null;
+        assert!(empty_manifest_matches(&native_empty, std::slice::from_ref(&image)));
+        for invalid in [json!({}), json!(""), json!(0), json!([null])] {
+            native_empty["layers"] = invalid;
+            assert!(!empty_manifest_matches(&native_empty, std::slice::from_ref(&image)));
+        }
+        native_empty.as_object_mut().unwrap().remove("layers");
+        assert!(!empty_manifest_matches(&native_empty, std::slice::from_ref(&image)));
         let mut changed = manifest.clone(); changed["config"]["digest"] = json!("sha256:other");
         assert!(!empty_manifest_matches(&changed, std::slice::from_ref(&image)));
         changed = manifest; changed["layers"] = json!([{"digest": "sha256:layer"}]);
