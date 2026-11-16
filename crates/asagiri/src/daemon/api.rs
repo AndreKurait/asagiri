@@ -539,6 +539,9 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
                 }));
         }
     }
+    // Both Docker image stores list newest-created images first, regardless
+    // of tag order or when the image was pulled into this store.
+    rows.sort_by_key(|row| std::cmp::Reverse(row["Created"].as_i64().unwrap_or(0)));
     Ok(Value::Array(rows))
 }
 
