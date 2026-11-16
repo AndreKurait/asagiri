@@ -120,6 +120,14 @@ jobs:
         # in tests/ against it: containers, archives, attach, networks,
         # limits and seccomp, on busybox and alpine.
         run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Preserve Docker-to-Asagiri import evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: engine-import-${{ runner.arch }}
+          path: ${{ runner.temp }}/bin-engine-import
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Restart the daemon with orphaned container mounts
         run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Verify registry TLS trust and actual BuildKit admission

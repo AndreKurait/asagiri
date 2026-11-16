@@ -114,6 +114,14 @@ jobs:
           python3 tests/ci-runtime-probes.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Preserve Docker-to-Asagiri import evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: engine-import-${{ matrix.arch }}
+          path: ${{ runner.temp }}/bin-engine-import
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Verify registry TLS trust and actual BuildKit admission
         # Older release sources may predate this probe; package recovery keeps
         # its original evidence and already skips this entire build job.
