@@ -97,6 +97,13 @@ asagiri UI ────┘
 - **Images**: pulled and pushed on the Mac (`crates/asagiri-image`), streamed
   into the guest once and unpacked there.
 
+Host–agent control requests have a 1 MiB frame budget, including the header.
+Custom seccomp JSON shares that budget with arguments, environment variables,
+mounts and the other request fields. The daemon checks the complete encoded
+request before sending it or queuing its reply. An oversized request fails
+locally and leaves the shared connection available to other containers.
+Streamed layer bodies travel outside the control frame.
+
 ## Layout
 
 | Path | What |

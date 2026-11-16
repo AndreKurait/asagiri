@@ -391,13 +391,10 @@ fn seccomp_option(options: &[String]) -> Option<&str> {
     value.filter(|v| !v.is_empty() && *v != "builtin")
 }
 
-/// The largest profile sent to the agent; it travels in the run request,
-/// which has to stay well within one frame. Docker's own profile is 20 KiB.
-const MAX_SECCOMP_PROFILE: usize = asagiri_proto::MAX_FRAME / 4;
-
 /// A custom profile as one guest-option line, its JSON re-encoded so that it
 /// holds no newline. Checked when the container starts, like Docker: a
 /// profile that does not parse fails the start rather than run unconfined.
+/// The transport bounds the complete request, including its other fields.
 pub(super) fn seccomp_lines(options: &[String]) -> Result<Vec<String>, Error> {
     let Some(profile) = seccomp_option(options).filter(|v| *v != "unconfined") else { return Ok(Vec::new()) };
     let invalid = |why: String| Error::Io(io::Error::other(format!("Decoding seccomp profile failed: {why}")));
@@ -409,11 +406,7 @@ pub(super) fn seccomp_lines(options: &[String]) -> Result<Vec<String>, Error> {
     if !value.is_object() {
         return Err(invalid("the profile must be a JSON object".into()));
     }
-    let line = format!("seccomp\t{value}");
-    if line.len() > MAX_SECCOMP_PROFILE {
-        return Err(invalid(format!("the profile is larger than {} KiB", MAX_SECCOMP_PROFILE >> 10)));
-    }
-    Ok(vec![line])
+    Ok(vec![format!("seccomp\t{value}")])
 }
 
 #[cfg(test)]
@@ -439,8 +432,6 @@ mod seccomp_options_tests {
     fn an_invalid_profile_fails_the_start_and_names_seccomp() {
         let Err(Error::Io(e)) = lines(&["seccomp={\"defaultAction\":"]) else { panic!("accepted") };
         assert!(e.to_string().starts_with("Decoding seccomp profile failed: "), "{e}");
-        let big = format!("seccomp={{\"x\":\"{}\"}}", "a".repeat(MAX_SECCOMP_PROFILE));
-        assert!(lines(&[&big]).is_err());
     }
 
     #[test]
