@@ -15,9 +15,10 @@ passed all three platforms, eight independent artifact gates, real two-architect
 guest tests and the 6,000-sample [engine comparison](engine-comparison.md).
 That newly merged main's next release is still pending.
 
-The later published followup candidate is `9b86d751081161b2431642f77111945914fb8869`.
+The later published followup candidate is `d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8`.
 It adds reviewed group, route, clipboard, image-order, daemon-time, import-safety,
-default-filter and documentation work plus health/Compose fixtures. Its final
+default-filter, top-argument and documentation work plus health/Compose/import
+fixtures and Hyperfine report compatibility. Its final
 combined CI and release remain pending. The [JSON audit](upstream-pr-audit.json)
 separates ancestry, current-main membership and released-main membership.
 The [141-issue inventory](issue-verification.md) retains actual checks and

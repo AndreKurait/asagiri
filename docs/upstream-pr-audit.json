@@ -5,8 +5,8 @@
   "upstream_main": "260cf66b9b56963a0170857c2b4306c38814e108",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "9b86d751081161b2431642f77111945914fb8869",
-  "ancestry_target": "9b86d751081161b2431642f77111945914fb8869",
+  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "ancestry_target": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
   "counts": {
     "total": 214,
     "merged": 105,
@@ -3657,5 +3657,6 @@
       357
     ]
   },
-  "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b"
+  "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b",
+  "followup_updated_at": "2026-11-16T09:12:21.284179+00:00"
 }

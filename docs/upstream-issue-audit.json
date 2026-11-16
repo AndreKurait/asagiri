@@ -4,7 +4,7 @@
   "repository": "libracoder/kiri",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "9b86d751081161b2431642f77111945914fb8869",
+  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
   "count": 141,
   "issues": [
     {
@@ -1181,7 +1181,7 @@
       "updated_at": "2026-11-16T05:28:31Z",
       "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814",
       "disposition": "partial",
-      "reason": "Published source-volume guards reject missing, running, paused and restarting sources before helper/destination work and recheck idleness. Fourteen real subprocess scenarios pass. The new private Docker-to-Asagiri fixture initially failed root socket-directory ownership before any import case; both engines and all three stores were removed. Its root-client fixture correction is under hosted test. Exact real-engine imports remain unverified; copies are not atomic snapshots, and writers must stay stopped throughout."
+      "reason": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because Linux asagiri import is Docker rootfs import. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout."
     },
     {
       "number": 346,
@@ -1207,8 +1207,8 @@
       "state": "open",
       "updated_at": "2026-11-16T05:45:58Z",
       "body_sha256": "d3ae1ca73da7ed93a66593295713ce381e5472dcc0d561125b7303cdf01be8f1",
-      "disposition": "known-limitation",
-      "reason": "The current top handler discards ps_args and returns fixed default columns. Arbitrary ps column formats, including RSS, are unsupported and are not yet rejected explicitly. A visible error or implemented format still needs code and live regression coverage."
+      "disposition": "partial",
+      "reason": "Published 38393ab76ed4 accepts default, empty and -ef arguments and returns HTTP 400 for unsupported ps_args. A nine-case paired fixture is wired into CI. Installed dev.100 reproduced all four silently accepted custom/invalid queries while default, missing and stopped controls passed; its owned container was removed and original data preserved. Local compilation passes; the corrected engine's paired runtime result is pending. Arbitrary columns, including RSS, remain unsupported."
     },
     {
       "number": 349,
@@ -1280,7 +1280,7 @@
       "updated_at": "2026-11-16T07:13:51Z",
       "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d",
       "disposition": "partial",
-      "reason": "The report measures Kiri and OrbStack with unequal VM resources and background load; these are not Asagiri results or controlled general rankings. Asagiri's own five-workload Linux comparison retains 6000 samples and source/host identity. The report also identifies Hyperfine 2.0's changed JSON statistics layout; compatibility in the three legacy bench scripts remains unfixed. Native Mac application workloads remain unmeasured here."
+      "reason": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified."
     },
     {
       "number": 364,
@@ -1301,5 +1301,6 @@
     }
   ],
   "current_main_revision": "77444fd1239b9dda5049b234a5053fbb2958994b",
-  "qualification_note": "Released/native dev.100, newly merged PR50 main and the later published followup candidate are distinct. PR50's exact-source combined checks passed; its next release and the followup candidate's final combined qualification remain pending. Every public entry has a disposition; full compiler review for #357 and stated platform/application/feature gaps remain open."
+  "qualification_note": "Released/native dev.100, newly merged PR50 main and the later published followup candidate are distinct. PR50's exact-source combined checks passed; its next release and the followup candidate's final combined qualification remain pending. Every public entry has a disposition; full compiler review for #357 and stated platform/application/feature gaps remain open.",
+  "followup_updated_at": "2026-11-16T09:12:21.282561+00:00"
 }

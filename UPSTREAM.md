@@ -19,8 +19,10 @@ and [qualified PR50](docs/verification/public-integration-2026-11-16.json), and
 the later followup candidate. PR50 passed Windows/macOS/Linux, eight independent
 artifact gates, both guest architectures and 6,000 Docker/Podman/Asagiri samples.
 Its next release is pending. The new group, route, clipboard, image-order,
-daemon-time, import and default-filter changes still need final combined
-qualification. [Release/native evidence](docs/verification/native-release-100-2026-11-16.json)
+daemon-time, import, top-argument and default-filter changes still need final combined
+qualification. [Local followup evidence](docs/verification/public-followup-local-2026-11-16.json)
+records the Hyperfine 1/2 report checks, native top negative control and compiled
+desktop-import CI entrypoint, with their remaining runtime limits. [Release/native evidence](docs/verification/native-release-100-2026-11-16.json)
 and the [engine comparison](docs/engine-comparison.md) identify actual revisions
 and workloads. Native Windows, GTK/AppKit, VPN/NSS/Rosetta hosts and remaining
 application/feature gaps stay explicit.

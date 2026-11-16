@@ -1472,9 +1472,12 @@
       "checks": [
         "crates/asagiri/src/import.rs",
         "scripts/ci/engine-import.py",
-        "docs/engine-import.md"
+        "docs/engine-import.md",
+        "crates/asagiri/examples/import-fixture.rs",
+        "scripts/ci/build-linux.sh",
+        "docs/verification/public-followup-local-2026-11-16.json"
       ],
-      "remaining": "Published source-volume guards reject missing, running, paused and restarting sources before helper/destination work and recheck idleness. Fourteen real subprocess scenarios pass. The new private Docker-to-Asagiri fixture initially failed root socket-directory ownership before any import case; both engines and all three stores were removed. Its root-client fixture correction is under hosted test. Exact real-engine imports remain unverified; copies are not atomic snapshots, and writers must stay stopped throughout.",
+      "remaining": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because Linux asagiri import is Docker rootfs import. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout.",
       "issue": 345,
       "title": "kiri import copies a volume while a running container is writing to it, and reports done",
       "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814"
@@ -1504,11 +1507,14 @@
       "body_sha256": "32d6e9e5d2f2f1ce7ed29bbf5f724235bdb22e9aad7910181be90304996de633"
     },
     {
-      "coverage": "known-limitation",
+      "coverage": "partial",
       "checks": [
-        "crates/asagiri/src/daemon/ops.rs"
+        "crates/asagiri/src/daemon/ops.rs",
+        "tests/top-arguments.py",
+        "docs/features.md",
+        "docs/verification/public-followup-local-2026-11-16.json"
       ],
-      "remaining": "The current top handler discards ps_args and returns fixed default columns. Arbitrary ps column formats, including RSS, are unsupported and are not yet rejected explicitly. A visible error or implemented format still needs code and live regression coverage.",
+      "remaining": "Published 38393ab76ed4 accepts default, empty and -ef arguments and returns HTTP 400 for unsupported ps_args. A nine-case paired fixture is wired into CI. Installed dev.100 reproduced all four silently accepted custom/invalid queries while default, missing and stopped controls passed; its owned container was removed and original data preserved. Local compilation passes; the corrected engine's paired runtime result is pending. Arbitrary columns, including RSS, remain unsupported.",
       "issue": 348,
       "title": "API: `docker top` ignores the ps arguments (`ps_args`)",
       "body_sha256": "d3ae1ca73da7ed93a66593295713ce381e5472dcc0d561125b7303cdf01be8f1"
@@ -1596,9 +1602,13 @@
         "docs/engine-comparison.md",
         "bench/suite.sh",
         "bench/api.sh",
-        "bench/report.sh"
+        "bench/report.sh",
+        "bench/hyperfine.jq",
+        "tests/ci-hyperfine.py",
+        "tests/fixtures/hyperfine/provenance.json",
+        "docs/verification/public-followup-local-2026-11-16.json"
       ],
-      "remaining": "The report measures Kiri and OrbStack with unequal VM resources and background load; these are not Asagiri results or controlled general rankings. Asagiri's own five-workload Linux comparison retains 6000 samples and source/host identity. The report also identifies Hyperfine 2.0's changed JSON statistics layout; compatibility in the three legacy bench scripts remains unfixed. Native Mac application workloads remain unmeasured here.",
+      "remaining": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified.",
       "issue": 362,
       "title": "Workload numbers on Apple silicon (Kiri 0.2.1 vs OrbStack), and the three \"target\" rows",
       "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d"
@@ -1616,5 +1626,6 @@
     }
   ],
   "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
-  "candidate_revision": "9b86d751081161b2431642f77111945914fb8869"
+  "candidate_revision": "d1da7adf772c02fcbed9d1e1cb19f5a8b1bae6d8",
+  "followup_updated_at": "2026-11-16T09:12:21.282569+00:00"
 }
