@@ -745,7 +745,8 @@ fn verify(file: &Path, want: &str) -> io::Result<()> {
 fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     host(root, arch)?;
     let version = env!("CARGO_PKG_VERSION");
-    // Info.plist's versions are numbers only: a test build's 0.1.8-dev.42 is 0.1.8 there.
+    // Apple's version fields stay numeric. AsagiriVersion retains the full
+    // release identity for preview updates and package verification.
     let plain = version.split('-').next().unwrap_or(version);
     let app = root.join(arch.app_dir(lite));
     let _ = fs::remove_dir_all(&app);
@@ -834,6 +835,7 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>{plain}</string>
   <key>CFBundleVersion</key><string>{plain}</string>
+  <key>AsagiriVersion</key><string>{version}</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
