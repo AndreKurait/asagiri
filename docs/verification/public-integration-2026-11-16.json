@@ -1,0 +1,126 @@
+{
+  "schema": "asagiri.public-integration-qualification.v1",
+  "status": "passed",
+  "verified_at": "2026-11-16T08:59:16.942886+00:00",
+  "merge": "77444fd1239b9dda5049b234a5053fbb2958994b",
+  "head": "4377ea5c96f0d589501ee1c0096ee1be49baa6c8",
+  "base": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+  "tested_source": "2aadf0273a19552b3d4b4b3bc8a60cd9fa7a7196",
+  "tree": "4ff03c1427bb8b789b32adfa720756174ec2edaf",
+  "normal_protected_merge": true,
+  "github_signature_verified": true,
+  "signed_off": true,
+  "required_checks": [
+    "Boot ARM64 and x86_64 guest kernels",
+    "Docker, Podman and Asagiri",
+    "Linux",
+    "ShellCheck",
+    "Windows",
+    "cargo-deny (advisories)",
+    "cargo-deny (bans licenses sources)",
+    "limit",
+    "macOS",
+    "speed",
+    "ui",
+    "zizmor (workflow audit)"
+  ],
+  "new_limit_check_id": 133191622937,
+  "artifact_gates": 8,
+  "evidence_sha256": {
+    "platform": "353489006f9c1fd055c228fac1012816a67f18cd04cc2fd7f129f2e7055dc09e",
+    "comparison": "95fcba70356e0b446af15ffe06aed640125d0764897137d0507375c4f3a46c45",
+    "kernels": "0df33898a54f1aa6e9e400e7361793154df210e95421781b7a508615f95f23a5",
+    "release100": "eb369e17847b3e7d2fd00c7e0d675ecde2962debd23e610baad8e7ba804278fb",
+    "native100": "7c2a8e23d2640a724c10f2e4c4fc6ec1397cf4d1490a4d76b750fcaaf3f716e5",
+    "pages100": "d0e2175c3dfe1a25af321bdd197678e125dbbb6052d128b18b47ae1811e451b3"
+  },
+  "next_release": "Automatic Actions publication, provenance, Pages and native upgrade pending.",
+  "platform_run": 43831181720,
+  "platform_attempt": 1,
+  "gates": [
+    {
+      "name": "ddev",
+      "exit_code": 0
+    },
+    {
+      "name": "ipam",
+      "exit_code": 0
+    },
+    {
+      "name": "firewall-default",
+      "exit_code": 0
+    },
+    {
+      "name": "firewall-custom",
+      "exit_code": 0
+    },
+    {
+      "name": "firewall-diagnostics",
+      "exit_code": 0
+    },
+    {
+      "name": "retention",
+      "exit_code": 0
+    },
+    {
+      "name": "appimage",
+      "exit_code": 0
+    },
+    {
+      "name": "registry-tls",
+      "exit_code": 0
+    }
+  ],
+  "guest_kernels": {
+    "status": "passed",
+    "run": 43831181733,
+    "head": "4377ea5c96f0d589501ee1c0096ee1be49baa6c8",
+    "source": "2aadf0273a19552b3d4b4b3bc8a60cd9fa7a7196",
+    "verifier_sha256": "7cb3ae5b9761fffc87dce2a1c1260b85c7a81ba1726d5b92144d50e9c40b8afc",
+    "archive_sha256": {
+      "guest-fsnotify": "fa3958cfb7adf4b44ac64e587061023672638459af6ab070d4a577da17c42669",
+      "guest-loop": "52f0fbbf524c132d506a02c2d33e390c59d5486c8d2ab723048515537cdc35c0",
+      "guest-loop-kernels": "628c7686654f1b2b207c4b4cb214c7db5abec4ea8adb76bcb7028f2c6e69b68b"
+    },
+    "kernel_sha256": {
+      "Image": "bc775205cc8d601096f7cd0f3d7652612574e4ae5016e7d97e015179b0b3233e",
+      "x86_64/bzImage": "f073c0838615a8492013f19a7cfc29c8e8a3a5bce4b808bfc46547aa1c5aaefb"
+    },
+    "source_bound": true,
+    "real_inotify_masks_verified": true,
+    "scope_controls_verified": true,
+    "initramfs_contents_verified": true,
+    "loop_persistence_verified": true,
+    "verified_at": "2026-11-16T08:46:57.296442+00:00"
+  },
+  "comparison": {
+    "run": 43831181768,
+    "samples": 6000,
+    "metrics_recomputed": 15,
+    "artifact_sha256": "21697f4c06eed94346b6184394c516ac09bd79ef747c4f72fd48fe46e79af22b",
+    "result_sha256": "ffe39f0f4aa16a2e79fb221eaf500cec7040c0c089c6e170fe3435afaef74c3f"
+  },
+  "readiness": [
+    {
+      "reference_docker": true,
+      "rounds": 3,
+      "payload_bytes": 134217728,
+      "immediate_execs": 6,
+      "missing_user_rejected": true,
+      "owned_resources_verified_absent": 8,
+      "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597"
+    },
+    {
+      "reference_docker": false,
+      "rounds": 3,
+      "payload_bytes": 134217728,
+      "immediate_execs": 6,
+      "missing_user_rejected": true,
+      "owned_resources_verified_absent": 8,
+      "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597"
+    }
+  ],
+  "linux_job_log_sha256": "cf3394c5de5d99779709ec0db75ac50ac75b49d1aadf87ab629a8e4258d6337d",
+  "formal_scope": "Production-bound IPAM contract with six rejected mutants; not whole-program verification.",
+  "scope": "PR50's tested source and normal protected merge; later followup code is not qualified by these runs."
+}

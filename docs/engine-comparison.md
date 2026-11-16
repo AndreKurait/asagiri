@@ -31,6 +31,38 @@ regression gates and permanent raw history.
 
 ## Latest verified Linux result (workload v2)
 
+[GHA run 43831181768](https://github.com/AndreKurait/asagiri/actions/runs/43831181768)
+measured PR50 head `4377ea5c96f0d589501ee1c0096ee1be49baa6c8` through tested source
+`2aadf0273a19552b3d4b4b3bc8a60cd9fa7a7196`. Its tree equals merged main `77444fd1239b9dda5049b234a5053fbb2958994b`.
+The source-built CI binary reports `0.0.0`; this is not an installed-release
+measurement. The runner reported four CPUs, AMD EPYC 9V74, Linux
+`7.0.0-1017-azure` and Ubuntu image `20261111.370.1`.
+
+Each cell is **median / p95 in milliseconds**, from 400 samples:
+
+| Workload | Asagiri `4377ea5` | Docker 29.9.3 | Podman 6.1.3 |
+| --- | ---: | ---: | ---: |
+| Ping | 0.171 / 0.224 | 0.363 / 0.425 | 0.351 / 0.394 |
+| Empty filtered list | 0.141 / 0.196 | 0.250 / 0.305 | 0.339 / 0.386 |
+| Create/start/wait/remove | 6.394 / 14.508 | 100.798 / 250.753 | 35.763 / 88.930 |
+| Exec, output and exit check | 1.642 / 1.786 | 31.379 / 32.514 | 65.019 / 284.594 |
+| 64 KiB named-volume file round trip | 1.418 / 1.491 | 3.247 / 3.899 | 157.183 / 161.435 |
+
+The [raw record](benchmarks/engine-comparison-2026-11-16-4377.json) retains all
+6,000 samples. Its [independent verification](benchmarks/engine-comparison-2026-11-16-4377-verification.json)
+recomputes all 15 medians/p95s and checks artifact/source identity, matching
+platform and unpacked layers, payload bytes and recorded fixture cleanup.
+Executable hashes were checked by CI; the artifact does not include executable
+bytes for a separate local rehash.
+
+Dev.100's main [run 43827712984](https://github.com/AndreKurait/asagiri/actions/runs/43827712984)
+also passed, on an Intel Xeon 6975P-C/AWS host. It used a different host from
+PR50; comparing their timings does not isolate a code change. None of these
+results qualifies the later followup candidate, native Mac/Windows VMs or
+general application throughput.
+
+## Earlier PR49 Linux result (workload v2)
+
 [GHA run 43823750794](https://github.com/AndreKurait/asagiri/actions/runs/43823750794)
 measured PR #49 head `c610a2173463a35e3e3eac329d93b7c63b90c41b` through
 merge source `48a1c0c4cc6149e842f3054d780f60723c95bc83`. Their trees are

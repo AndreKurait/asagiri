@@ -12,7 +12,7 @@
     },
     {
       "issue": 13,
-      "title": "Security evaluation notes and questions — sandboxing untrusted agent workloads",
+      "title": "Security evaluation notes and questions \u2014 sandboxing untrusted agent workloads",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
       "coverage": "informational",
       "checks": [],
@@ -337,7 +337,7 @@
     },
     {
       "issue": 85,
-      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
+      "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar \u2014 cannot ingest local images",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
       "coverage": "automated",
       "checks": [
@@ -348,7 +348,7 @@
     },
     {
       "issue": 90,
-      "title": "【GUI】 图形界面能不能支持中文",
+      "title": "\u3010GUI\u3011 \u56fe\u5f62\u754c\u9762\u80fd\u4e0d\u80fd\u652f\u6301\u4e2d\u6587",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
       "coverage": "automated",
       "checks": [
@@ -370,7 +370,7 @@
     },
     {
       "issue": 92,
-      "title": "`setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
+      "title": "`setup.json` `done:false` leaves Kiri silently dead \u2014 no retry, engine never starts",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
       "coverage": "partial",
       "checks": [
@@ -416,7 +416,7 @@
     },
     {
       "issue": 98,
-      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr → EACCES), which breaks php-fpm and nginx images",
+      "title": "Non-root containers can't reopen stdout/stderr (/proc/self/fd/2, /dev/stderr \u2192 EACCES), which breaks php-fpm and nginx images",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
       "coverage": "automated",
       "checks": [
@@ -541,11 +541,13 @@
       "issue": 130,
       "title": "Container security: custom seccomp profiles without weakening Kiri host isolation",
       "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
-      "coverage": "automated",
+      "coverage": "partial",
       "checks": [
-        "tests/seccomp-profiles.py"
+        "tests/seccomp-profiles.py",
+        "crates/asagiri-init/tests/seccomp-default.rs",
+        "docs/verification/native-seccomp-default-2026-11-16.json"
       ],
-      "remaining": ""
+      "remaining": "Existing custom-profile and host-boundary regressions pass. Public #357 adds broader Docker/libseccomp rule-tree semantics that still require review against Asagiri's compiler. Its selected default personality/syscall restrictions have actual native process checks; a complete Docker default allowlist and seccomp formal proof are not claimed."
     },
     {
       "issue": 134,
@@ -570,7 +572,7 @@
     },
     {
       "issue": 170,
-      "title": "请看提交的报告",
+      "title": "\u8bf7\u770b\u63d0\u4ea4\u7684\u62a5\u544a",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
       "coverage": "partial",
       "checks": [
@@ -809,13 +811,14 @@
         "scripts/reference-bench.py",
         "tests/ci-reference-performance.py",
         ".github/workflows/reference-performance.yml",
-        "docs/engine-comparison.md"
+        "docs/engine-comparison.md",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The refreshed source-bound Linux comparison at c610a21 passed run 43823750794. All 6000 timings and 15 median/p95 pairs, image/payload identity and recorded cleanup were independently checked. The candidate workflow adds comparisons for engine/build-input PRs and every main push; its merge and release remain pending. Native Mac/Colima/WSL and full application performance remain unmeasured."
+      "remaining": "Dev.100 main comparison 43827712984 and final PR50 comparison 43831181768 each passed 6000 independently verified samples and 15 median/p95 results. Main publication now requires its exact-commit comparison automatically. The runs used different hosts; their timing difference is not a controlled code regression result. Native Mac/Colima/WSL and general application throughput remain unmeasured."
     },
     {
       "issue": 227,
-      "title": "Linux: every `docker build` fails — Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
+      "title": "Linux: every `docker build` fails \u2014 Kiri's internal builder container cannot start (mount rootfs: Resource busy)",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
       "coverage": "automated",
       "checks": [
@@ -830,17 +833,18 @@
       "issue": 228,
       "title": "Linux: `docker network create` without an explicit subnet always fails with \"no free subnet left\" (breaks kind)",
       "body_sha256": "3967ca2b74e1ef7408073e7a5b9bd48f55bd52162c855e0c78f8ecd140ae0783",
-      "coverage": "automated",
+      "coverage": "partial",
       "checks": [
         "tests/kind-network.py",
         "tests/kind-cluster.py",
-        "docs/linux-service-recovery.md"
+        "docs/linux-service-recovery.md",
+        "crates/asagiri/src/daemon/network.rs"
       ],
-      "remaining": "Automatic IPv4 and kind dual-stack creation pass with distinct free subnets. A real kind v0.27.0/Kubernetes v1.32.2 cluster boots on ce0eb4f. The reported pool exhaustion was not reproduced on this private Linux host. The reporter's exact CachyOS host with kernel 7.3.4 and systemd 262 remains unverified."
+      "remaining": "Existing automatic IPv4/dual-stack and actual kind/Kubernetes cluster checks pass. The new #351 route adaptation excludes off-link gateways while preserving custom pools; twenty network tests and an old-code negative control pass. The reporter's exact CachyOS/VPN host and gateway-only LAN conflict still need native qualification."
     },
     {
       "issue": 229,
-      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver — DNS inside the node times out",
+      "title": "Linux: kind node container gets the bridge gateway (172.20.0.1) as its resolver \u2014 DNS inside the node times out",
       "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
       "coverage": "automated",
       "checks": [
@@ -852,7 +856,7 @@
     },
     {
       "issue": 230,
-      "title": "Linux: container overlay mounts leak across a daemon restart — nothing can start until manually unmounted",
+      "title": "Linux: container overlay mounts leak across a daemon restart \u2014 nothing can start until manually unmounted",
       "body_sha256": "f047135b94ad69197a909e67ce03e6887f72ddd8f2d95bfba7c4df4e5aa8a53b",
       "coverage": "automated",
       "checks": [
@@ -906,9 +910,10 @@
       "coverage": "partial",
       "checks": [
         "tests/network-dns-reuse.py",
-        "crates/asagiri-init/src/linux/container.rs"
+        "crates/asagiri-init/src/linux/container.rs",
+        "tests/init-descriptors.py"
       ],
-      "remaining": "Normal network deletion and reuse of its subnet already pass. Rejected sysctl starts reproduced retained embedded-DNS sockets, stale aliases and stacked rootfs mounts in Asagiri, while the Docker reference cleaned up. The failed-start path now removes its own DNS registrations and parent mount. The live regression checks repeated failures, retained writable data, an unaffected peer, removed aliases and subnet reuse. The reported gateway-address bind failure on the exact kernel 7.3 host was not reproduced."
+      "remaining": "Owned failed-start DNS/link cleanup, unaffected peers, subnet reuse and actual init descriptor/stdin/EOF tests pass. Public #363's extra descriptor-close proposal is already covered by Asagiri's checked pre-filter close_range and bounded fallback. The reporter's exact kernel 7.3 gateway-address failure remains unverified."
     },
     {
       "issue": 250,
@@ -951,11 +956,12 @@
       "coverage": "automated",
       "checks": [
         "tests/many-layers.py",
-        "scripts/ci/live-tests.sh"
+        "scripts/ci/live-tests.sh",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "A 120-layer fixture passed the exact-topic Platform run and the old installed engine reproduced the failure. The fix is in the combined candidate, pending its CI and release.",
+      "remaining": "Final PR50 Platform 43831181720 passed the 120-layer image start, complete contents, precedence, stopped archive and restart fixture. The old installed version reproduced the failure. The fix is merged in current main; its next published release remains pending.",
       "issue": 253,
-      "title": "Images with 60 or more layers fail to start: \"mount …/rootfs: No such file or directory\"",
+      "title": "Images with 60 or more layers fail to start: \"mount \u2026/rootfs: No such file or directory\"",
       "body_sha256": "bd3fb68de8a7b50b9b32fe5b2b9d5160d91ef0ee1213680108c1fb8b267f2ef6"
     },
     {
@@ -973,9 +979,10 @@
       "coverage": "partial",
       "checks": [
         "tests/distribution.py",
-        "docs/registry-distribution.md"
+        "docs/registry-distribution.md",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The distribution topic passes live registry metadata/authentication and Docker-reference checks. Its Basic-auth error distinction is retained. The combined release and actual Watchtower/Arcane applications remain unverified.",
+      "remaining": "Final PR50 passed required live registry metadata/authentication and Docker-reference checks, retaining the Basic-auth error distinction. Actual Watchtower and Arcane applications remain unverified.",
       "issue": 257,
       "title": "GET /distribution/{name}/json is missing, so image-update checks in Docker tools fail",
       "body_sha256": "d06a3209d7bafcf4921115f37fc1dc41ee0204fc506dc2a9724c98037d39c205"
@@ -1073,7 +1080,7 @@
       ],
       "remaining": "The engine requires a usable cgroup v2 hierarchy; the reported hybrid WSL host remains unsupported/unverified. No global .wslconfig or controller reassignment was applied to other distros. A safe targeted remedy and native WSL validation remain required.",
       "issue": 277,
-      "title": "Windows: containers fail on a stock WSL2 — Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
+      "title": "Windows: containers fail on a stock WSL2 \u2014 Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
       "body_sha256": "eb90dd744b528d59cb3e95be97828a538390c3fc20f1d578100e22f39521ced1"
     },
     {
@@ -1136,11 +1143,12 @@
       "coverage": "automated",
       "checks": [
         "tests/ui/listhead.js",
-        "crates/asagiri/src/ui/index.html"
+        "crates/asagiri/src/ui/index.html",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The new real-page regression fails on the old implementation and passes with published/private port matching, null/missing port lists, state tabs and existing name/image search. All 65 local UI test files pass. Candidate release is pending.",
+      "remaining": "The old real page fails the port-search regression; published/private port matching, null/missing lists, tabs and existing name/image search pass. All 65 local UI test files and final PR50 UI CI pass. The fix is merged in current main, pending its next release.",
       "issue": 289,
-      "title": "UI: search and filter containers by port number in search bar (⌘K)",
+      "title": "UI: search and filter containers by port number in search bar (\u2318K)",
       "body_sha256": "ba05d01fc67a0414e4b9201b0ff03db4059fd543ff5e61ce795991bee78deba6"
     },
     {
@@ -1169,9 +1177,10 @@
       "coverage": "automated",
       "checks": [
         "tests/volume-owner.py",
-        "scripts/ci/live-tests.sh"
+        "scripts/ci/live-tests.sh",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The tmpfs ownership topic passed its actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population are documented as different behaviors. Combined CI/release remains required.",
+      "remaining": "Final PR50 passed actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population remain documented differences. The fix is merged in current main, pending its next release.",
       "issue": 296,
       "title": "Engine: a tmpfs volume loses its uid, gid and mode when the image doesn't have the mount target",
       "body_sha256": "c2857b84d28885e72d0f4a005f742de3ec95360edcd16affacc8a2846e1b2e65"
@@ -1192,9 +1201,10 @@
       "coverage": "automated",
       "checks": [
         "tests/layer-hardlinks.py",
-        "crates/asagiri-init/src/layer_tar.rs"
+        "crates/asagiri-init/src/layer_tar.rs",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The independently implemented archive-root hard-link fix passed topic Platform and local regressions; the old installed version reproduced the metadata failure. Combined qualification and release are pending.",
+      "remaining": "Final PR50 passed all eight archive-root hard-link Docker API cases and local layer regressions after the old installed version reproduced the failure. The independently implemented fix is merged in current main, pending its next release.",
       "issue": 302,
       "title": "Layers with an absolute hard-link target fail to unpack (failed to unpack usr/bin/perl5.38.2)",
       "body_sha256": "572e902e6b219be6ba24c82f44741c8c1aae7b335e3a075b028dd98ca93cd93d"
@@ -1215,9 +1225,12 @@
       "checks": [
         "tests/bind-inotify.py",
         "docs/mac-file-watching.md",
-        ".github/workflows/guest-kernels.yml"
+        ".github/workflows/guest-kernels.yml",
+        "tests/kernel-fsnotify-init.c",
+        "tests/native-window-regressions.md",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The filewatch topic passed Platform and independently checked actual two-architecture fsnotify/kernel tests. It is in the combined candidate; packaged native Mac save-to-inotify/hot-reload remains required after release.",
+      "remaining": "Final PR50 Platform and independently checked ARM64/x86_64 QEMU fsnotify/loop tests passed. Packaged native Mac save-to-inotify/hot-reload remains required after release.",
       "issue": 310,
       "title": "Files changed on the Mac send no inotify events into containers (hot reload doesn't fire)",
       "body_sha256": "fabaeba536ed2fb772497533d25249e39613bd197213a32f86e3af1d00ddf7a1"
@@ -1228,9 +1241,10 @@
         "tests/start-exec-readiness.py",
         "tests/start-exec-image-user.py",
         "scripts/ci/live-tests.sh",
-        "docs/verification/native-readiness-2026-11-16.json"
+        "docs/verification/native-readiness-2026-11-16.json",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "Released dev.99 passed three fresh 128 MiB named volumes on the native Mac guest, with immediate explicit and inherited non-root image-user execs, an unknown-user negative control and eight independently removed owned resources. The new paired Docker/Asagiri Linux fixture is required in CI; its first hosted result and the exact reporter's Ubuntu ARM host remain unverified. Existing 20-exec/100-tmpfs readiness checks remain.",
+      "remaining": "Native dev.99 and both Docker/private Asagiri in final PR50 Platform passed three fresh 128 MiB volumes, six immediate explicit/inherited image-user execs, a missing-user control and eight owned removals per engine. Existing 20-exec/100-tmpfs readiness checks remain. The reporter's exact Ubuntu ARM host remains unverified.",
       "issue": 311,
       "title": "Linux: immediate docker exec fails with unknown user after starting a container with a fresh named volume",
       "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba"
@@ -1329,9 +1343,10 @@
       "coverage": "automated",
       "checks": [
         "crates/asagiri-init/tests/clock-read.rs",
-        "crates/asagiri-init/src/linux/seccomp.rs"
+        "crates/asagiri-init/src/linux/seccomp.rs",
+        "docs/verification/public-integration-2026-11-16.json"
       ],
-      "remaining": "The read-only clock-state topic passed actual syscall/process and Platform checks, without changing host clocks. It remains pending the combined release.",
+      "remaining": "Final PR50 passed read-only clock-state syscall/process and Platform checks without changing host clocks. The behavior is merged in current main; the next release is pending.",
       "issue": 327,
       "title": "Default seccomp filter denies read-only adjtimex (modes=0)",
       "body_sha256": "df8b93d3491e3248dc9d7fee2fbf24f6b2dd9f5637ae1f69dd58c4d07de1dbe2"
@@ -1354,9 +1369,11 @@
         "tests/buildkit-driver.py",
         "tests/buildx-bootstrap.py",
         "tests/network-connect-dns.py",
-        "scripts/ci/ddev.py"
+        "scripts/ci/ddev.py",
+        "docs/buildkit.md",
+        "docs/features.md"
       ],
-      "remaining": "Default-bridge DNS and digest-aware BuildKit paths have required integration coverage. The exact Bun/Compose shop, bun install ConnectionRefused and shared-network alias ordering are not reproduced by those checks and remain outstanding.",
+      "remaining": "Default-bridge DNS and digest-aware BuildKit have required integration coverage. Public #361 documentation now separates single-platform loading, docker-container OCI export and cached local tags from registry platform metadata. The exact Bun/Compose shop, bun install connection failure and shared-network alias ordering remain unverified.",
       "issue": 330,
       "title": "Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused",
       "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456"
@@ -1421,14 +1438,183 @@
       "checks": [
         "crates/asagiri/src/ui/mac.rs",
         "tests/ui/parity.js",
-        "tests/native-window-regressions.md"
+        "tests/native-window-regressions.md",
+        "tests/ui/logselect.js"
       ],
-      "remaining": "The desktop candidate adds the native Mac Edit menu and shortcut actions with translated labels. Local UI/platform compilation passes; actual packaged AppKit clipboard shortcuts remain unverified.",
+      "remaining": "Current main has the translated native Mac Edit menu. The new public #352 followup also removes duplicate page-side Mac copying; nine headless cases across three platform modes pass. Actual packaged AppKit clipboard shortcuts remain unverified.",
       "issue": 340,
       "title": "Unable to copy & paste anything from/to textfield in setting panel",
       "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "A dashboard that creates/imports and stores Compose projects is a feature proposal. The existing Compose client/runtime and new health fixture do not implement project-file management.",
+      "issue": 342,
+      "title": "Manage compose yamls in Kiri dashboard",
+      "body_sha256": "92fc5069504a0352215da756ff7f80d63509a5b35243f80da17e106fc58ebbda"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/build.sh",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The report concerns macOS 14 Rosetta requiring the ARM vDSO DT_HASH table, distinct from the earlier auxiliary-vector fix. The proposed dual hash-table kernel change has not been implemented or tested on that OS/Rosetta version; current cross-architecture checks do not prove it.",
+      "issue": 344,
+      "title": "macOS 14 (Apple silicon): every linux/amd64 container aborts with Rosetta \"Failed to find vdso DT_HASH\"",
+      "body_sha256": "31c8d214b105b4713c46583655be0852e73104bf15dcefbb0eeb6793bf64c5a5"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "scripts/ci/engine-import.py",
+        "docs/engine-import.md"
+      ],
+      "remaining": "Published source-volume guards reject missing, running, paused and restarting sources before helper/destination work and recheck idleness. Fourteen real subprocess scenarios pass. The new private Docker-to-Asagiri fixture initially failed root socket-directory ownership before any import case; both engines and all three stores were removed. Its root-client fixture correction is under hosted test. Exact real-engine imports remain unverified; copies are not atomic snapshots, and writers must stay stopped throughout.",
+      "issue": 345,
+      "title": "kiri import copies a volume while a running container is writing to it, and reports done",
+      "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/daemon-time.py",
+        "tests/compose-health.py",
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": "The published followup returns RFC3339Nano SystemTime from the same daemon clock used for events, without waking the VM. The old native empty field was reproduced; real time/events tests are wired into CI. Compose 5.7.1 config parsing passes and build/wait runtime qualification is underway, but actual attached compose up and logs -f event subscription still need a dedicated positive check.",
+      "issue": 346,
+      "title": "`/info` returns an empty `SystemTime`, which breaks attached `docker compose up` and `docker compose logs -f` on Compose 5.7+",
+      "body_sha256": "64fc0a9039392af2e56c2dc1bbf2adfa74c1e279ce0e253cc719cb128b65922f"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/run-options.py",
+        "docs/unsupported-run-options.md",
+        "docs/verification/public-integration-2026-11-16.json"
+      ],
+      "remaining": "The #265 adaptation rejects host/container PID modes with a visible create error before volume side effects. Final PR50 Linux CI passed its run-options HTTP/log/cleanup fixture. This fixes silent acceptance; shared PID namespaces remain unsupported.",
+      "issue": 347,
+      "title": "Engine: `--pid container:NAME` and `--pid host` are dropped without an error",
+      "body_sha256": "32d6e9e5d2f2f1ce7ed29bbf5f724235bdb22e9aad7910181be90304996de633"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/daemon/ops.rs"
+      ],
+      "remaining": "The current top handler discards ps_args and returns fixed default columns. Arbitrary ps column formats, including RSS, are unsupported and are not yet rejected explicitly. A visible error or implemented format still needs code and live regression coverage.",
+      "issue": 348,
+      "title": "API: `docker top` ignores the ps arguments (`ps_args`)",
+      "body_sha256": "d3ae1ca73da7ed93a66593295713ce381e5472dcc0d561125b7303cdf01be8f1"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri/src/daemon/access.rs",
+        "crates/asagiri/src/setup.rs"
+      ],
+      "remaining": "Static musl account lookup cannot use the reported Fedora/Himmelblau NSS directory account. Setup and ongoing Gate admission/revocation both need a bounded trusted identity lookup and real NSS-module coverage. No SUDO_UID/PKEXEC_UID authorization shortcut, passwd/PAM edit or desktop-engine reinstall was used.",
+      "issue": 349,
+      "title": "Setup fails with \"no account named <user>\" for directory (non-/etc/passwd) users",
+      "body_sha256": "7d1f245edc8a7df8c6a9596bcf5393897c258082b2951f78f41c66eb6d938c01"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "The reported macOS InternetSharing no-df effect and large TLS 1.3 ClientHello loss on the corporate path remain unverified. Container network tests do not cover host-wide PF normalization. No PF, MTU, TLS-security or network-control bypass was applied.",
+      "issue": 350,
+      "title": "macOS: while the VM runs, host traffic loses the DF bit (pf 'scrub ... no-df' on the primary NIC), breaking large TLS 1.3 ClientHellos on some networks",
+      "body_sha256": "3a0d2860b2b5cdaef2c6506573a58dc94b4347cfa66381e38f58e26848b23d21"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/ui/parity.js",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The palette/font/squircle redesign is a proposal. Its narrow update-card button clipping and diagnostics-log column squeezing are separate usability defects still needing reproduction and responsive fixes; headless logic tests do not prove native layout.",
+      "issue": 354,
+      "title": "UI: squircle corners, rounded font and flat neutral palette (proposal)",
+      "body_sha256": "970d546009070e65d4da18c8ef9bea0dc9777b3e863ec192d464d2eb67d746a9"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "Storage relocation UI, sparse cross-volume migration, rollback, missing-drive behavior, shared-data locking and platform-specific WSL/Linux storage movement are not implemented by this review. User data was preserved in place; no USB or external-drive experiment was performed.",
+      "issue": 355,
+      "title": "Settings \u2192 Storage: choose where Kiri keeps images, containers and volumes (for example an external drive)",
+      "body_sha256": "9d6207b7b5edf8bd04f6a9c65dd6350d99e2cef8bec911d389e9ffadd399b871"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/unsupported-run-options.md"
+      ],
+      "remaining": "The proposed Apple GPU/MLX relay is not implemented or benchmarked here. Current GPU requests remain visibly unsupported. A per-container host-socket relay needs its own authorization, isolation, lifecycle and cross-platform design and tests.",
+      "issue": 356,
+      "title": "macOS on Apple silicon: `--gpus all` as a private channel to a GPU server on the Mac",
+      "body_sha256": "b431f454aeffdca32a80feef9a2a5cba451a50f271dfe8e42fa5e55b0eb75db8"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/healthchecks.py",
+        "tests/compose-health.py",
+        "tests/fixtures/compose/client.json",
+        "docs/verification/native-healthchecks-2026-11-16.json"
+      ],
+      "remaining": "Seven actual native health probe/status/filter cases passed, including retry failure, one-second timeout and 250ms start interval, with four owned containers removed. A checksum-pinned Compose 5.7.1 fixture adds eight paired build/wait/dependency/bind-volume/init/capability/read-only cases. Actual config parsing passed; full Docker/private-Asagiri runtime and CLI health-flag parsing still need verified results.",
+      "issue": 358,
+      "title": "e2e has no checks for healthchecks, Compose depends_on conditions, up --wait or up --build",
+      "body_sha256": "b6031bb86c60491291b7e7a88f1aa4b3973d5dc9846e90db331f6122fe66dd6c"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/release-qualification.md",
+        "docs/verification/native-release-100-2026-11-16.json"
+      ],
+      "remaining": "Verified Mac dev.100 manual activation and native inventory preservation do not reproduce the reported Windows update/restart popup loop. Native Windows GUI updater diagnosis and an actual old-to-new installation remain required.",
+      "issue": 359,
+      "title": "\u6709\u65b0\u7248\u672c\u63a8\u9001\uff080.2.1\uff09\uff0c\u6211\u4e0b\u8f7d\u4e4b\u540e\u6211\u9009\u62e9\u4e86\u7acb\u5373\u91cd\u542f\uff0c\u4f46\u662f\u7acb\u5373\u91cd\u542f\u4e4b\u540e\u4e00\u81f4\u5faa\u73af\u4e00\u4e0b\u7684\u9875\u9762",
+      "body_sha256": "4f431da151cb0471d16bca9223b6a4c3ebb3814143abb3ab504cee5944f9e8ae"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "scripts/reference-bench.py",
+        "docs/engine-comparison.md",
+        "bench/suite.sh",
+        "bench/api.sh",
+        "bench/report.sh"
+      ],
+      "remaining": "The report measures Kiri and OrbStack with unequal VM resources and background load; these are not Asagiri results or controlled general rankings. Asagiri's own five-workload Linux comparison retains 6000 samples and source/host identity. The report also identifies Hyperfine 2.0's changed JSON statistics layout; compatibility in the three legacy bench scripts remains unfixed. Native Mac application workloads remain unmeasured here.",
+      "issue": 362,
+      "title": "Workload numbers on Apple silicon (Kiri 0.2.1 vs OrbStack), and the three \"target\" rows",
+      "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/image-order.py",
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": "Published image ordering now sorts integer Created seconds descending, matching both reviewed Moby image stores. The old native engine failed four of five isolated list queries; all three owned images were removed and original inventory preserved. The fixed paired Docker/private-Asagiri runtime result is still pending.",
+      "issue": 364,
+      "title": "Image list order differs from Docker Engine: older images appear first",
+      "body_sha256": "b3db6688d51e64f3e62de5f3251fce551c55363493efc4a75af228ac1ff5b51c"
     }
   ],
-  "reviewed_at": "2026-11-16T07:45:40.214923+00:00",
-  "candidate_revision": "4debf1d0b331e19040cbc3a46a2528e16a7ce4a8"
+  "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
+  "candidate_revision": "9b86d751081161b2431642f77111945914fb8869"
 }

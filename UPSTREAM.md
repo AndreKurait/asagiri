@@ -7,22 +7,23 @@ The rename does not change the authorship of inherited code.
 Upstream `main` was reviewed on **2026-11-16** at
 `260cf66b9b56963a0170857c2b4306c38814e108`. Its complete history through
 `baa2d41` is merged; later changes have reviewed ports or explicit equivalence.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **205** public PRs
-in the retained snapshot: 105 merged, 59 closed without merging, and 41 open. Every
-PR has an inheritance, port, equivalence, supersession, or hold recorded
-with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all **126**
-reported issues to checks and remaining gaps. Closed upstream issues are not
-automatically considered verified on Asagiri.
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **214** public PRs
+in the frozen 07:55 UTC snapshot: 105 merged, 60 closed without merging
+and 49 open. Every reviewed head has a port, inheritance, equivalence or
+explicit open-work disposition. Full review of #357's compiler remains open.
+The [issue verification inventory](docs/issue-verification.md) maps all **141**
+issues to checks and remaining gaps, retaining previous evidence.
 
-The audit separates released main and the native-checked `v0.1.6-dev.99`
-from the additional published candidate. That candidate includes the reviewed
-storage, registry, desktop, WSL, filewatch, runtime-option and Persian-language
-follow-ups; its combined CI and release remain pending. The
-[engine comparison](docs/engine-comparison.md) and
-[native Mac observations](docs/verification/native-macos-2026-11-16.json)
-identify the exact revisions and workloads checked. Native Windows, GTK/AppKit
-interaction, VPNs and the remaining application/feature gaps stay explicit.
+The audit distinguishes published/native **v0.1.6-dev.100**, the newly merged
+and [qualified PR50](docs/verification/public-integration-2026-11-16.json), and
+the later followup candidate. PR50 passed Windows/macOS/Linux, eight independent
+artifact gates, both guest architectures and 6,000 Docker/Podman/Asagiri samples.
+Its next release is pending. The new group, route, clipboard, image-order,
+daemon-time, import and default-filter changes still need final combined
+qualification. [Release/native evidence](docs/verification/native-release-100-2026-11-16.json)
+and the [engine comparison](docs/engine-comparison.md) identify actual revisions
+and workloads. Native Windows, GTK/AppKit, VPN/NSS/Rosetta hosts and remaining
+application/feature gaps stay explicit.
 
 ## Integration policy
 
@@ -191,7 +192,7 @@ and measurement limits. These workloads also run in the versioned GHA history.
 | #50 | Guest console retention and #54 recovery are included. Private Linux agent-crash tests cover automatic recovery, policies, counters and writable layers. The reported macOS guest-kernel crash and recovery under its original load remain unverified. |
 | #168 | WebView2 suspend/unload behavior remains unverified and unchanged. |
 | #73, #74 | Implemented an explicitly enabled, password-protected loopback browser and a local stdio MCP server with bounded read tools and separate control permission. Real private Linux engine/Chromium checks and official MCP Python SDK 2.3.0 checks pass. Native Mac and Windows named-pipe execution remain unverified. The public website demo continues to use sample data. |
-| #226 | A pinned GHA comparison retains 3,600 raw samples for Asagiri, Docker 29.9.3 and Podman 6.1.3. The per-commit performance workflow tracks timings, memory and syscalls with a public history. Native Mac/Colima VM comparisons remain unmeasured. See [engine comparison](docs/engine-comparison.md). |
+| #226 | Each five-workload GHA comparison retains 6,000 raw samples and 15 median/p95 results for Asagiri, Docker 29.9.3 and Podman 6.1.3; exact-commit success gates every main release. The per-commit performance workflow tracks timings, memory and syscalls with a public history. Native Mac/Colima VM comparisons remain unmeasured. See [engine comparison](docs/engine-comparison.md). |
 | #230 | Private Linux tests restart the actual daemon in a persistent mount namespace and recover four orphaned mount layers after a crash, preserving writable data. They also verify Stop/Start policy retention and user cancellation across a daemon restart. The reporter's exact CachyOS kernel/systemd combination remains unverified. |
 | #245 | The reported `PG_VERSION` named-volume copy already works. A live regression now checks a volume populated by one container and read by a new container while created and after exit. Native Mac execution of Supabase CLI 3 remains unverified. |
 
