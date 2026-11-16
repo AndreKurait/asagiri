@@ -10,7 +10,7 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Containers**: `run` (`--rm`, `-d`, `-it`, `-e`, `-u`, `-w`, `--name`,
   `--restart`, `--entrypoint`), `exec`, `logs`, `attach`, `stop`, `kill`,
   `restart`, `rm`, `wait`, `rename`, `pause`/`unpause`, `update`, `stats`,
-  `top`, `diff`, `export`, `commit`, `cp` (both ways, running or not),
+  `top` (default `-ef` columns), `diff`, `export`, `commit`, `cp` (both ways, running or not),
   `container prune`; records survive a daemon restart; filters on every list;
   healthchecks (`--health-cmd`, `--health-*`, including
   `--health-start-interval`, and `ps --filter health=`)
@@ -131,6 +131,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 
 Kubernetes LoadBalancer services are published on `localhost`, and
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
+
+`docker top` accepts its default columns; other `ps_args`, such as `aux` or
+`-eo pid,rss,args`, return an explicit error. Custom process columns and RSS
+reporting through `top` are not implemented.
 
 Resource limits apply to individual containers. Buildx's default
 `/docker/buildx` parent groups its containers under `docker/buildx` inside

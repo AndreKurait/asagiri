@@ -33,6 +33,7 @@ python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 -
 python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
 python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/top-arguments.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 compose_evidence=$(python3 "$src/scripts/ci/compose-health-client.py" "${bin}-health-compose") || exit 2
 python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
   --output "$compose_evidence/health-docker.json" || exit 2
@@ -71,7 +72,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options|start-exec-image-user|daemon-time|image-order|healthchecks|compose-health)
+    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options|start-exec-image-user|daemon-time|image-order|top-arguments|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -102,6 +103,7 @@ run start-exec-image-user alpine:3.21
 run daemon-time
 run distribution
 run image-order
+run top-arguments alpine:3.21
 run image-label-inheritance
 run many-layers alpine:3.21
 run image-inspect-healthcheck
