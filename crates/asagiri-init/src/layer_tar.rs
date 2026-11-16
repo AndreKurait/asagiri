@@ -1,18 +1,19 @@
 //! OCI hard-link targets name paths in the layer, including when rooted.
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn unpack_hardlink<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path) -> io::Result<bool> {
     let Some(link) = entry.link_name()?.map(|p| p.into_owned()) else {
-        return entry.unpack_in(dest);
+        return unpack_link(entry, dest);
     };
     let Ok(relative) = link.strip_prefix("/") else {
-        return entry.unpack_in(dest);
+        return unpack_link(entry, dest);
     };
     // Entry exposes resolved GNU/PAX names, but does not allow editing them.
     // Re-encode this one link and retain tar-rs's canonical destination and
     // source checks. Do not use Entry::unpack, which omits those checks.
-    // Hard-link headers do not change the existing inode's attributes.
+    // The Linux layer extractor applies header attributes after creating
+    // the link; tar-rs only creates the shared inode reference here.
     let mut header = entry.header().clone();
     header.set_size(0);
     let mut builder = tar::Builder::new(Vec::new());
@@ -22,7 +23,31 @@ pub(crate) fn unpack_hardlink<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Pat
     let mut archive = tar::Archive::new(bytes.as_slice());
     let mut entries = archive.entries()?;
     let mut link = entries.next().ok_or_else(|| io::Error::other("normalized hard link is missing"))??;
-    link.unpack_in(dest)
+    unpack_link(&mut link, dest)
+}
+
+fn unpack_link<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path) -> io::Result<bool> {
+    match entry.unpack_in(dest) {
+        // tar-rs validates both paths before link(), but does not implement
+        // overwrite for hard links. Replace only this directory entry.
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let path = target_path(dest, &entry.path()?)?;
+            std::fs::remove_file(path)?;
+            entry.unpack_in(dest)
+        },
+        result => result,
+    }
+}
+
+pub(crate) fn target_path(dest: &Path, path: &Path) -> io::Result<PathBuf> {
+    let base = dest.canonicalize()?;
+    let path = dest.join(path.strip_prefix("/").unwrap_or(path));
+    let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hard link has no file name"))?;
+    let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hard link has no parent"))?.canonicalize()?;
+    if !parent.starts_with(base) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "hard link parent escapes the layer"));
+    }
+    Ok(parent.join(name))
 }
 
 #[cfg(test)]
@@ -88,7 +113,7 @@ mod tests {
         let linked = fs::metadata(linked).unwrap();
         assert_eq!((source.dev(), source.ino()), (linked.dev(), linked.ino()));
         assert_eq!((source.uid(), source.gid(), source.mode()), (linked.uid(), linked.gid(), linked.mode()));
-        assert_eq!(linked.mode() & 0o7777, 0o640, "link metadata must not change its source inode");
+        assert_eq!(linked.mode() & 0o7777, 0o640, "the link constructor leaves attributes to the layer extractor");
     }
 
     fn boundary_error(error: &io::Error) {
@@ -113,6 +138,25 @@ mod tests {
             assert_eq!(fs::read(&linked).unwrap(), b"inside");
             same_inode(&source, &linked);
         }
+    }
+
+    #[test]
+    fn existing_destinations_are_unlinked_without_following_them() {
+        let fixture = Fixture::new();
+        let source = fixture.file("layer/bin/tool", b"new");
+        let outside = fixture.file("outside", b"outside");
+        let layer = fixture.0.join("layer");
+        fixture.file("layer/bin/copy", b"old");
+        assert!(unpack(&archive("bin/copy", "/bin/tool"), &layer).unwrap());
+        same_inode(&source, &layer.join("bin/copy"));
+        symlink(&outside, layer.join("bin/link")).unwrap();
+        assert!(unpack(&archive("bin/link", "bin/tool"), &layer).unwrap());
+        same_inode(&source, &layer.join("bin/link"));
+        assert_eq!(fs::read(&outside).unwrap(), b"outside");
+        assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o7777, 0o640);
+        fs::create_dir(layer.join("bin/directory")).unwrap();
+        assert!(unpack(&archive("bin/directory", "/bin/tool"), &layer).is_err());
+        assert!(layer.join("bin/directory").is_dir());
     }
 
     #[test]

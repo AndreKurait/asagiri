@@ -24,7 +24,7 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def fixture(tag, architecture, source, destination, target, pax=False):
+def fixture(tag, architecture, source, destination, target, pax=False, replace=False):
     content = ("hard-link fixture " + tag + "\n").encode()
     layer = io.BytesIO()
     with tarfile.open(fileobj=layer, mode="w", format=tarfile.PAX_FORMAT if pax else tarfile.GNU_FORMAT) as archive:
@@ -34,7 +34,13 @@ def fixture(tag, architecture, source, destination, target, pax=False):
         node = tarfile.TarInfo(source)
         node.size, node.mode, node.uid, node.gid = len(content), 0o640, 1001, 1002
         archive.addfile(node, io.BytesIO(content))
+        if replace:
+            node = tarfile.TarInfo(destination)
+            node.size, node.mode = 3, 0o600
+            archive.addfile(node, io.BytesIO(b"old"))
         node = tarfile.TarInfo("ignored-path" if pax else destination)
+        # Deliberately different from the source entry. Docker applies these
+        # attributes to the shared inode, so both paths must report them.
         node.type, node.linkname, node.mode = tarfile.LNKTYPE, "ignored-target" if pax else target, 0o7777
         if pax:
             node.pax_headers = {"path": destination, "linkpath": target}
@@ -96,19 +102,20 @@ def main():
         prefix = "asagiri-hardlink-" + uuid.uuid4().hex
         long_name = "bin/" + "long-name-" * 20
         cases = [
-            ("relative", "bin/tool", "bin/copy", "bin/tool", False),
-            ("absolute", "bin/tool", "bin/copy", "/bin/tool", False),
-            ("rooted-destination", "bin/tool", "/bin/copy", "/bin/tool", False),
-            ("leading-slashes", "bin/tool", "bin/copy", "///bin/tool", False),
-            ("contained-parent", "bin/tool", "bin/copy", "/bin/../bin/tool", False),
-            ("gnu-long", long_name, "links/" + "long-copy-" * 20, "/" + long_name, False),
-            ("pax-override", long_name, "links/pax-copy", "/" + long_name, True),
+            ("relative", "bin/tool", "bin/copy", "bin/tool", False, False),
+            ("absolute", "bin/tool", "bin/copy", "/bin/tool", False, False),
+            ("rooted-destination", "bin/tool", "/bin/copy", "/bin/tool", False, False),
+            ("leading-slashes", "bin/tool", "bin/copy", "///bin/tool", False, False),
+            ("contained-parent", "bin/tool", "bin/copy", "/bin/../bin/tool", False, False),
+            ("gnu-long", long_name, "links/" + "long-copy-" * 20, "/" + long_name, False, False),
+            ("pax-override", long_name, "links/pax-copy", "/" + long_name, True, False),
+            ("replace-destination", "bin/tool", "bin/copy", "/bin/tool", False, True),
         ]
-        for name, source, destination, target, pax in cases:
+        for name, source, destination, target, pax, replace in cases:
             tag = prefix + ":" + name
             images.append(tag)
-            saved, content = fixture(tag, architecture, source, destination, target, pax)
-            result = {"name": name, "fixture_sha256": hashlib.sha256(saved).hexdigest(), "passed": False}
+            saved, content = fixture(tag, architecture, source, destination, target, pax, replace)
+            result = {"name": name, "fixture_sha256": hashlib.sha256(saved).hexdigest(), "passed": False, "files": []}
             record["cases"].append(result)
             messages = request("POST", "/images/load", saved)
             for line in messages.splitlines():
@@ -126,10 +133,11 @@ def main():
                     assert len(files) == 1, (name, path, [member.name for member in files])
                     member = files[0]
                     assert archive.extractfile(member).read() == content, (name, path, "file contents")
-                    assert (member.uid, member.gid, member.mode & 0o7777) == (1001, 1002, 0o640), (
+                    result["files"].append({"path": path, "uid": member.uid, "gid": member.gid, "mode": member.mode & 0o7777})
+                    assert (member.uid, member.gid, member.mode & 0o7777) == (0, 0, 0o7777), (
                         name, path, member.uid, member.gid, member.mode)
             result["passed"] = True
-            print("PASS", name, "loaded hard link has the source contents and metadata", flush=True)
+            print("PASS", name, "loaded hard link has source contents and link-header metadata", flush=True)
             request("DELETE", "/containers/" + cid + "?force=1", expected=204)
             containers.remove(cid)
             request("DELETE", "/images/" + tag)
@@ -151,6 +159,7 @@ def main():
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(record, indent=2) + "\n")
+        print(json.dumps(record), flush=True)
     assert record["status"] == "passed", record
     print("PASS", len(record["cases"]), "layer hard-link Docker API cases", flush=True)
 
