@@ -18,7 +18,11 @@ fn required() -> bool {
 }
 
 fn state(value: &str) {
-    std::fs::write(MODE, value).unwrap();
+    if value == "missing-backend" {
+        std::fs::remove_file(MODE).unwrap();
+    } else {
+        std::fs::write(MODE, value).unwrap();
+    }
 }
 
 fn passed(name: &str) {
@@ -39,6 +43,19 @@ impl Drop for Fixture {
         let _ = std::fs::write(MODE, "member");
         let _ = std::fs::remove_dir_all(&self.directory);
     }
+}
+
+#[test]
+fn directory_errors_are_not_missing_records() {
+    for code in [libc::ENOENT, libc::ESRCH, libc::EIO, libc::EAGAIN] {
+        // SAFETY: the group callback reports an error without reading or
+        // writing the record, buffer or result pointer.
+        let result = unsafe { nss::<libc::group>(|_, _, _, _| code) };
+        assert!(matches!(result, Err(e) if e.raw_os_error() == Some(code)));
+    }
+    // SAFETY: the initialized null result with a successful callback is
+    // exactly the GNU absent-record result.
+    assert!(unsafe { nss::<libc::group>(|_, _, _, _| 0) }.unwrap().is_none());
 }
 
 #[test]
@@ -76,7 +93,7 @@ fn directory_provider_controls_admission_and_revocation() {
     assert!(account_by_uid(700099).unwrap().is_none());
     assert_eq!(uid("bad\0name").unwrap_err().kind(), io::ErrorKind::InvalidInput);
     passed("missing-and-invalid-account");
-    assert_eq!(members(GROUP).unwrap(), ["directory-fixture"]);
+    assert_eq!(members(GROUP).unwrap().unwrap(), ["directory-fixture"]);
     assert_eq!(member_uids(&c_name(GROUP).unwrap()).unwrap(), [USER]);
     assert!(member(PRIMARY, &c_name(GROUP).unwrap()).unwrap());
     assert!(!member(700099, &c_name(GROUP).unwrap()).unwrap());
@@ -124,7 +141,9 @@ fn directory_provider_controls_admission_and_revocation() {
     assert_eq!(gate.open.lock().unwrap().len(), 1);
     passed("actual-peer-credentials-and-acl-admission");
 
-    for (value, code) in [("temporary", libc::EAGAIN), ("unavailable", libc::EIO)] {
+    for (value, code) in [
+        ("temporary", libc::EAGAIN), ("unavailable", libc::EIO), ("missing-backend", libc::ENOENT),
+    ] {
         state(value);
         assert_eq!(uid("directory-fixture").unwrap_err().raw_os_error(), Some(code));
         // PRIMARY has no cached Gate answer: a fresh admission needs a lookup.

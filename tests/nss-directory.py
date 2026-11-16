@@ -18,7 +18,7 @@ MODE = Path("/tmp/asagiri-nss-fixture")
 EXPECTED = [
     "provider-name-and-uid", "missing-and-invalid-account",
     "named-and-primary-group-membership", "actual-peer-credentials-and-acl-admission",
-    "temporary", "unavailable", "provider-recovery",
+    "temporary", "unavailable", "missing-backend", "provider-recovery",
     "live-revocation-and-acl-removal", "account-and-group-deletion",
 ]
 
@@ -146,7 +146,10 @@ def main():
                                  "ASAGIRI_NSS_GUARD_LOG": str(log)}
 
             def lookup(label, binary, state, account, message, expected_guard):
-                (MODE / "mode").write_text(state)
+                if state == "missing-backend":
+                    (MODE / "mode").unlink()
+                else:
+                    (MODE / "mode").write_text(state)
                 log.write_text("")
                 result = command(label, [binary, "host-access", account], env=env)
                 assert result.returncode != 0 and message in result.stdout + result.stderr
@@ -165,11 +168,13 @@ def main():
                    "member", "directory-fixture", "groupadd", True)
             lookup("native-CLI-rejects-absent-account", args.binary,
                    "member", "asagiri-nss-no-such-account", "no account named", False)
-            for state in ("temporary", "unavailable"):
+            for state in ("temporary", "unavailable", "missing-backend"):
                 lookup("native-CLI-preserves-" + state + "-account-error", args.binary,
                        state, "directory-fixture", "couldn't look up account", False)
             lookup("native-CLI-preserves-group-outage", args.binary,
                    "unavailable", "root", "couldn't look up group asagiri", False)
+            lookup("native-CLI-preserves-missing-backend-group-error", args.binary,
+                   "missing-backend", "root", "couldn't look up group asagiri", False)
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=repr(error))

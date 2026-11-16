@@ -45,13 +45,12 @@ pub fn run(args: &[String]) -> io::Result<u8> {
     }
     let lookup = || crate::daemon::access::members(GROUP)
         .map_err(|e| io::Error::new(e.kind(), format!("couldn't look up group {GROUP}: {e}")));
-    let members = match lookup() {
-        Ok(members) => members,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+    let members = match lookup()? {
+        Some(members) => members,
+        None => {
             must(Command::new("groupadd").args(["--system", GROUP]), "groupadd")?;
-            lookup()?
+            lookup()?.ok_or_else(|| io::Error::other(format!("groupadd succeeded but no group {GROUP} was found")))?
         }
-        Err(e) => return Err(e),
     };
     if !members.iter().any(|m| m == user) {
         // usermod everywhere we package for; gpasswd where it isn't.
