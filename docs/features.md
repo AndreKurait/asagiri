@@ -45,6 +45,8 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   `/usr/local` use the Mac's files. Other paths stay in the Linux VM.
   The Mac share uses 1 MiB read-ahead for sequential reads; cache coherence
   and read-only mounts are unchanged. Other filesystems keep their settings.
+  New named and anonymous `--mount` volumes keep requested labels and local
+  driver options. Existing volumes keep their own metadata.
 - **Images**: `pull` (with `docker login` credentials), `push`, `tag`,
   `save`, `load`, [`import`](docker-import.md) (tar/gzip root filesystems, from a file, stdin or an
   HTTP(S) URL), `history`, `search`, `image prune`, `system df`;

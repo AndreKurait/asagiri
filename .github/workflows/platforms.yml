@@ -172,6 +172,25 @@ jobs:
             ${{ runner.temp }}/ddev/*.json
             ${{ runner.temp }}/ddev/*.log
           retention-days: 90
+      - name: Build and install-test the Linux packages
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm
+          mkdir -p "$RUNNER_TEMP/package-checks"
+          test "$(cat "$RUNNER_TEMP/bin/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+          (cd "$RUNNER_TEMP/bin" && sha256sum -c SHA256SUMS)
+          cp "$RUNNER_TEMP/bin/SOURCE_COMMIT" "$RUNNER_TEMP/bin/SHA256SUMS" "$RUNNER_TEMP/package-checks/"
+          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs" 2>&1 | tee "$RUNNER_TEMP/package-checks/run.log"
+          (cd "$RUNNER_TEMP/packages" && sha256sum ./*.deb ./*.rpm) > "$RUNNER_TEMP/package-checks/package-sha256.txt"
+      - name: Preserve Linux package lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-checks-${{ runner.arch }}
+          path: ${{ runner.temp }}/package-checks
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Cache verified Java SDK dependencies from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.maven_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
