@@ -234,6 +234,107 @@ mod linux {
         assert!(!roots.unfinished().iter().any(|id| id == "never-started"));
         println!("PASS shared-root: never-started diff initializes an empty upper without an overlay or remaining lease");
 
+        // A completed archive must permit the next start to acquire its root.
+        // Reap the actual copy child while deliberately delaying root-worker
+        // admission. This is the same ordering as a slow overlay unmount,
+        // without relying on host I/O load or changing a production timeout.
+        for (id, op, path) in [
+            ("stat-completion", copy_op::STAT, "/image"),
+            ("upload-completion", copy_op::IN, "/"),
+        ] {
+            let mut client = request(&socket, &listener, &mut copies, &paths, &digest, id, op, path);
+            if op == copy_op::IN {
+                let body = archive("uploaded");
+                client.write_all(&body[..64 * 1024]).unwrap();
+                until(&roots, &mut copies, &paths, None, || paths.containers.join(id).join("upper/uploaded").exists());
+                client.write_all(&body[64 * 1024..]).unwrap();
+                client.shutdown(std::net::Shutdown::Write).unwrap();
+            }
+            let end = Instant::now() + Duration::from_secs(10);
+            let mut reaped = false;
+            while !reaped {
+                copies.advance(&paths, |_| copy::View::Stopped);
+                let mut fds = Vec::new();
+                copies.interest(&mut fds);
+                // SAFETY: valid descriptors owned by this test's copy broker.
+                assert!(unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, 5) } >= 0);
+                for fd in fds.iter().filter(|fd| fd.revents != 0) { copies.readable(fd.fd); }
+                let mut status = 0;
+                // No root worker was admitted for this ID. The sole child is
+                // the actual copy worker, owned and reaped by this fixture.
+                let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+                if pid > 0 {
+                    let code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 128 + libc::WTERMSIG(status) };
+                    assert!(copies.reaped(pid, code), "unexpected child {pid}");
+                    reaped = true;
+                }
+                assert!(Instant::now() < end, "copy worker did not finish");
+            }
+            let copied_device = fs::metadata(paths.containers.join(id).join("rootfs")).unwrap().dev();
+            copies.advance(&paths, |_| copy::View::Stopped);
+            client.set_nonblocking(true).unwrap();
+            let mut prefix = [0u8; 1];
+            let mut reply = Vec::new();
+            match client.read(&mut prefix) {
+                Ok(0) => panic!("archive EOF escaped without its final reply"),
+                Ok(n) => {
+                    assert!(!roots.cleaning(id), "archive reply escaped while the next start's root was still being cleaned up");
+                    reply.extend_from_slice(&prefix[..n]);
+                }
+                Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            }
+            reply.extend(response(&mut client, &roots, &mut copies, &paths));
+            assert!(match asagiri_proto::decode(&reply) {
+                Ok(Msg::CopyStat { .. }) => op == copy_op::STAT,
+                Ok(Msg::CopyDone) => op == copy_op::IN,
+                _ => false,
+            });
+            assert!(!roots.cleaning(id), "completed archive left the next start waiting on cleanup");
+            let ready = acquire(&roots, &paths, id, &digest);
+            assert_eq!(fs::metadata(&ready).unwrap().dev(), copied_device,
+                "the completed copy's overlay must be reused without an unmount/writeback");
+            assert_eq!(fs::read(ready.join("image")).unwrap(), b"image contents");
+            if op == copy_op::IN {
+                assert_eq!(fs::read(ready.join("uploaded")).unwrap(), vec![b'x'; 512 * 1024]);
+            }
+            roots.release(id);
+            until(&roots, &mut copies, &paths, None, || !roots.cleaning(id));
+        }
+        println!("PASS shared-root: archive metadata and upload completion reuse the same overlay immediately without cleanup");
+
+        // Ordinary process reap must leave a stopped container ready for
+        // restart, even when no copy still holds a lease. Exercise the same
+        // release_root path as the agent after reaping actual namespace
+        // children; delay cleanup admission to expose any queued unmount.
+        let stopped = acquire(&roots, &paths, "restart-idle", &digest);
+        let device = fs::metadata(&stopped).unwrap().dev();
+        fs::write(stopped.join("persisted"), b"across restarts").unwrap();
+        for _ in 0..3 {
+            let mut child = running(&stopped);
+            let process = container::Process::test_container("restart-idle", child.0.unwrap(), &paths, false);
+            child.stop();
+            container::release_root(&process, &roots);
+            assert!(!roots.cleaning("restart-idle"), "process reap left the next restart waiting on an unmount");
+            let restarted = acquire(&roots, &paths, "restart-idle", &digest);
+            assert_eq!(fs::metadata(&restarted).unwrap().dev(), device);
+            assert_eq!(fs::read(restarted.join("persisted")).unwrap(), b"across restarts");
+        }
+        roots.release_idle("restart-idle");
+        roots.remove("restart-idle");
+        assert!(roots.removing("restart-idle"));
+        until(&roots, &mut copies, &paths, None, || !roots.cleaning("restart-idle"));
+        assert!(!paths.containers.join("restart-idle").exists());
+
+        let automatic = acquire(&roots, &paths, "auto-remove", &digest);
+        let mut child = running(&automatic);
+        let process = container::Process::test_container("auto-remove", child.0.unwrap(), &paths, true);
+        child.stop();
+        container::release_root(&process, &roots);
+        assert!(roots.removing("auto-remove"), "auto-remove must override idle-root reuse");
+        until(&roots, &mut copies, &paths, None, || !roots.cleaning("auto-remove"));
+        assert!(!paths.containers.join("auto-remove").exists());
+        println!("PASS shared-root: reaped processes restart on the same overlay; explicit and automatic removal reclaim it");
+
         // A stopped copy and a start share a single actual overlay, including
         // its device identity. A long copy must not retain unrelated roots.
         let other = acquire(&roots, &paths, "other", &digest);
@@ -327,9 +428,9 @@ mod linux {
         assert!(streamed.len() > 4);
         let metadata = asagiri_proto::frame_len(streamed[..4].try_into().unwrap()).unwrap();
         assert!(matches!(asagiri_proto::decode(&streamed[..metadata]), Ok(Msg::CopyStat { .. })));
-        let mut archive = tar::Archive::new(&streamed[metadata..]);
+        let mut downloaded = tar::Archive::new(&streamed[metadata..]);
         let mut contents = Vec::new();
-        archive.entries().unwrap().next().unwrap().unwrap().read_to_end(&mut contents).unwrap();
+        downloaded.entries().unwrap().next().unwrap().unwrap().read_to_end(&mut contents).unwrap();
         assert_eq!(contents, b"image contents");
         assert!(response(&mut download, &roots, &mut copies, &paths).is_empty());
         until(&roots, &mut copies, &paths, None, || !roots.cleaning("shared"));
@@ -351,6 +452,71 @@ mod linux {
         assert!(!removed.exists());
         println!("PASS shared-root: removal waits for the last writer and its reaped namespace");
 
+        // An idle successful copy still belongs to its container. Explicit
+        // removal and host reconciliation must reclaim it, but retain keeps
+        // named containers and every active lease protected.
+        roots.remove("shared");
+        until(&roots, &mut copies, &paths, None, || !roots.cleaning("shared"));
+        assert!(!paths.containers.join("shared").exists());
+        acquire(&roots, &paths, "retained", &digest);
+        roots.release_idle("retained");
+        let active = acquire(&roots, &paths, "active", &digest);
+        let mut active_child = running(&active);
+        let active_process = container::Process::test_container("active", active_child.0.unwrap(), &paths, false);
+        let mut active_copy = request(&socket, &listener, &mut copies, &paths, &digest, "active-copy", copy_op::IN, "/");
+        let active_body = archive("copied");
+        active_copy.write_all(&active_body[..64 * 1024]).unwrap();
+        until(&roots, &mut copies, &paths, None, || paths.containers.join("active-copy/upper/copied").exists());
+        let mut frame = Vec::new();
+        asagiri_proto::encode_retain(&mut frame, &["retained"]);
+        let Msg::Retain(keep) = asagiri_proto::decode(&frame).unwrap() else { panic!("retain frame") };
+        roots.retain(keep);
+        until(&roots, &mut copies, &paths, None, || !roots.cleaning("running"));
+        assert!(!paths.containers.join("running").exists());
+        assert!(paths.containers.join("retained/rootfs/image").is_file());
+        assert!(paths.containers.join("active/rootfs/image").is_file());
+        assert!(!roots.removing("retained"));
+        assert!(!roots.removing("active"));
+        assert!(!roots.removing("active-copy"));
+        active_child.stop();
+        container::release_root(&active_process, &roots);
+        assert!(roots.removing("active"), "Retain omission must retire a process root when its last lease ends");
+        until(&roots, &mut copies, &paths, None, || !roots.cleaning("active"));
+        assert!(!paths.containers.join("active").exists());
+        active_copy.write_all(&active_body[64 * 1024..]).unwrap();
+        active_copy.shutdown(std::net::Shutdown::Write).unwrap();
+        assert!(matches!(asagiri_proto::decode(&response(&mut active_copy, &roots, &mut copies, &paths)), Ok(Msg::CopyDone)));
+        assert!(!paths.containers.join("active-copy").exists(), "Retain omission must retire a completed copy root");
+
+        // A later ownership snapshot can retain a still-active root again,
+        // but cannot revoke an explicit Remove already requested for it.
+        for (id, explicit) in [("re-retained", false), ("explicit-active", true)] {
+            let root = acquire(&roots, &paths, id, &digest);
+            let mut child = running(&root);
+            let process = container::Process::test_container(id, child.0.unwrap(), &paths, false);
+            roots.retain(keep);
+            if explicit { roots.remove(id); }
+            let mut renewed = Vec::new();
+            asagiri_proto::encode_retain(&mut renewed, &["retained", "re-retained", "explicit-active"]);
+            let Msg::Retain(renewed) = asagiri_proto::decode(&renewed).unwrap() else { panic!("retain frame") };
+            roots.retain(renewed);
+            child.stop();
+            container::release_root(&process, &roots);
+            assert_eq!(roots.removing(id), explicit);
+            until(&roots, &mut copies, &paths, None, || !roots.cleaning(id));
+            assert_eq!(root.join("image").exists(), !explicit);
+        }
+        println!("PASS shared-root: reconciliation protects active leases, retires omitted roots after completion, and respects renewed ownership and explicit removal");
+
+        // A malformed archive reports its real error and releases its root;
+        // it must not be mistaken for a successful idle copy.
+        let mut malformed = request(&socket, &listener, &mut copies, &paths, &digest, "malformed", copy_op::IN, "/");
+        malformed.write_all(&[b'!'; 512]).unwrap();
+        malformed.shutdown(std::net::Shutdown::Write).unwrap();
+        assert!(matches!(asagiri_proto::decode(&response(&mut malformed, &roots, &mut copies, &paths)), Ok(Msg::Error(_))));
+        assert!(!roots.unfinished().iter().any(|id| id == "malformed"));
+        println!("PASS shared-root: malformed upload returns an error and releases its root");
+
         // An abandoned upload releases its lease; shutdown joins workers
         // before root teardown and leaves no child able to touch these paths.
         let mut abandoned = request(&socket, &listener, &mut copies, &paths, &digest, "abandoned", copy_op::IN, "/");
@@ -362,7 +528,14 @@ mod linux {
         held.write_all(&body[..64 * 1024]).unwrap();
         until(&roots, &mut copies, &paths, None, || paths.containers.join("shutdown/upper/copy").exists());
         copies.shutdown();
-        until(&roots, &mut copies, &paths, None, || roots.unfinished().is_empty());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !roots.unfinished().is_empty() {
+            step(&roots, &mut copies, &paths, true, None);
+            roots.poll_shutdown(&paths, Instant::now(), deadline);
+            assert!(Instant::now() < deadline, "shutdown did not reclaim idle copy roots");
+        }
+        assert!(!fs::read_to_string("/proc/self/mountinfo").unwrap().lines()
+            .any(|line| line.contains(&paths.containers.display().to_string())));
         let mut status = 0;
         // SAFETY: this test owns every child. ECHILD also works on guest
         // kernels that omit the optional /proc/PID/task/TID/children file.

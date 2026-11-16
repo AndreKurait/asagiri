@@ -1,8 +1,8 @@
 //! One agent-owned overlay per container, shared by its process and copies.
-//! A lease ends only after its child is reaped. The last lease queues an
-//! asynchronous unmount; the ID stays reserved until that worker is reaped.
-//! Removal uses the same queue and waits for every lease, including copies
-//! of a running container that outlive its process.
+//! A lease ends only after its child is reaped. Completed copies and stopped
+//! processes leave an idle overlay ready for the next copy or start, without
+//! an intervening filesystem-wide flush. Removal, reconciliation and shutdown
+//! reclaim it asynchronously; its ID stays reserved through worker reap.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -19,6 +19,7 @@ struct Root {
     users: usize,
     mounted: bool,
     remove: bool,
+    discard_when_idle: bool,
     retired: Option<bool>,
 }
 
@@ -84,11 +85,24 @@ impl Roots {
     }
 
     pub fn release(&self, id: &str) {
+        self.release_lease(id, false);
+    }
+
+    /// A completed copy or stopped process may be followed immediately by a
+    /// start. Keep its exact overlay until removal, reconciliation or shutdown.
+    /// Failed/abandoned copies and failed starts use ordinary release.
+    pub fn release_idle(&self, id: &str) {
+        self.release_lease(id, true);
+    }
+
+    fn release_lease(&self, id: &str, keep_idle: bool) {
         let mut state = self.0.borrow_mut();
         let Some(root) = state.entries.get_mut(id) else { return };
         assert!(root.users > 0, "a filesystem lease must be released exactly once");
         root.users -= 1;
         if root.users == 0 {
+            root.remove |= root.discard_when_idle;
+            if keep_idle && root.mounted && !root.remove { return; }
             if root.mounted || root.remove {
                 state.workers.enqueue(id);
                 state.events.push((id.to_owned(), true));
@@ -108,6 +122,22 @@ impl Roots {
 
     pub fn removing(&self, id: &str) -> bool {
         self.0.borrow().entries.get(id).is_some_and(|root| root.remove)
+    }
+
+    /// Host reconciliation may forget a stopped container without a separate
+    /// Remove message. Retire idle roots through the same owned cleanup path.
+    /// Active processes and copies remain protected until their leases end,
+    /// but remember an omitted ID so their last release cannot cache it again.
+    /// A newer snapshot can retain an active root; explicit removal stays set.
+    pub fn retain(&self, keep: StrList<'_>) {
+        let mut state = self.0.borrow_mut();
+        let mut idle = Vec::new();
+        for (id, root) in &mut state.entries {
+            root.discard_when_idle = !keep.iter().any(|kept| kept == id.as_str());
+            if root.users == 0 && root.discard_when_idle { idle.push(id.clone()); }
+        }
+        drop(state);
+        for id in idle { self.remove(&id); }
     }
 
     pub fn cleaning(&self, id: &str) -> bool {
@@ -173,6 +203,11 @@ impl Roots {
     pub fn poll_shutdown(&self, paths: &Paths, now: Instant, deadline: Instant) -> bool {
         let mut state = self.0.borrow_mut();
         let State { entries, workers, active, .. } = &mut *state;
+        // Completed copies and stopped processes can leave mounted roots with
+        // no live user. Reclaim them before shutdown through the same queue.
+        for (id, root) in entries.iter() {
+            if root.users == 0 && root.retired.is_none() { workers.enqueue(id); }
+        }
         workers.poll_shutdown(now, deadline, |id| {
             let remove = entries[id].remove;
             let pid = container::begin_root_cleanup(paths, id, remove)?;
