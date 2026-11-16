@@ -1039,9 +1039,8 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
         Progress::Downloading { digest, got, size } => {
             line(json!({"status": "Downloading", "progressDetail": {"current": got, "total": size}, "id": short(&digest)}));
         }
-        Progress::LayerDone { digest, cached, .. } => {
-            let status = if cached { "Already exists" } else { "Pull complete" };
-            line(json!({"status": status, "progressDetail": {}, "id": short(&digest)}));
+        Progress::LayerDone { digest, .. } => {
+            line(json!({"status": "Download complete", "progressDetail": {}, "id": short(&digest)}));
         }
     };
     let began = std::time::Instant::now();
@@ -1065,6 +1064,17 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     }
     match result {
         Ok(image) => {
+            if let Err(e) = engine.prepare_image(&image, &|| job.cancel.is_cancelled()) {
+                crate::diag::warn!("image preparation failed", image = reference.short(), error = e);
+                if !job.cancel.is_cancelled() {
+                    let message = e.to_string();
+                    line(json!({"errorDetail": {"message": message}, "error": message}));
+                }
+                return;
+            }
+            for layer in &image.layers {
+                line(json!({"status": "Pull complete", "progressDetail": {}, "id": short(&layer.digest)}));
+            }
             // Docker reports the digest it was asked for: the index's, if any.
             line(json!({"status": format!("Digest: {}", image.index_digest.as_ref().unwrap_or(&image.digest))}));
             line(json!({"status": format!("Status: Downloaded newer image for {}", image.name)}));

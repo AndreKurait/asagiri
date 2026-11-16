@@ -32,10 +32,6 @@ until dock version >/dev/null 2>&1; do
   if [ "$i" -gt 240 ]; then docker logs "$name" 2>&1 | tail -30; echo "the engine did not start"; exit 2; fi
   sleep 0.5
 done
-for img in busybox:stable alpine:3.21; do
-  dock pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
-done
-
 failed=0
 run() { # run <script> [image] [options]
   test_script=$1
@@ -57,6 +53,9 @@ run() { # run <script> [image] [options]
 }
 
 run api-version --cold
+for img in busybox:stable alpine:3.21; do
+  dock pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
+done
 run engine-identity
 run engine-power alpine:3.21
 run exec-errors alpine:3.21
@@ -68,6 +67,7 @@ run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run image-load-completion
 run image-tag-retention alpine:3.21
+run pull-readiness
 run layer-concurrency
 run container-addresses
 run network-allocation alpine:3.21
