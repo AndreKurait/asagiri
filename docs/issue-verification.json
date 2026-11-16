@@ -811,7 +811,7 @@
         ".github/workflows/reference-performance.yml",
         "docs/engine-comparison.md"
       ],
-      "remaining": "A pinned private Linux comparison of Asagiri, Docker 29.9.3 and Podman 6.1.3 passed GHA run 43632761522. All 3,600 raw timings, summaries, artifact digest and source identities were independently checked and are retained in docs/benchmarks. The portable harness also accepts Colima sockets; native Mac/Colima VM performance remains unmeasured."
+      "remaining": "The refreshed source-bound Linux comparison at c610a21 passed run 43823750794. All 6000 timings and 15 median/p95 pairs, image/payload identity and recorded cleanup were independently checked. The candidate workflow adds comparisons for engine/build-input PRs and every main push; its merge and release remain pending. Native Mac/Colima/WSL and full application performance remain unmeasured."
     },
     {
       "issue": 227,
@@ -866,9 +866,10 @@
     {
       "coverage": "automated",
       "checks": [
-        "tests/archive-stopped-mounts.py"
+        "tests/archive-stopped-mounts.py",
+        "docs/verification/native-macos-2026-11-16.json"
       ],
-      "remaining": "The reported PG_VERSION sequence already passes on 5721ace and remains covered on 749c40c: one container writes a named volume, then a new container reads it through docker cp while created and after exit. Stopped bind/volume writes, export exclusion and read-only mounts also pass. Native Mac execution of Supabase CLI 3 remains unverified.",
+      "remaining": "The created/exited mounted-volume sequence also passed native dev.98, including an existing PG_VERSION marker, Mac binds, persisted bytes, export exclusion and read-only denial. Five owned containers and the volume were removed. This does not execute PostgreSQL or Supabase CLI 3.",
       "issue": 245,
       "title": "docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
       "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
@@ -921,6 +922,511 @@
         "tests/native-window-regressions.md"
       ],
       "remaining": "Pure filesystem tests reproduce and fix dangling and unreadable shell-profile failures; command-label and setup-context tests cover diagnostics. The exact reported Finder/Dock failure, LaunchAgent creation and native error alert require a disposable Mac desktop account and remain unverified."
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "packaging/README.md",
+        "tests/appimage.py",
+        "scripts/ci/appimage.sh"
+      ],
+      "remaining": "Native x86_64/aarch64 AppImages are released and checked for extraction, CLI/library identity and headless GTK launch. Host GTK/WebKit dependencies and real desktop/FUSE behavior remain; no Flatpak is implemented.",
+      "issue": 251,
+      "title": "AppImage or Flatpak Version",
+      "body_sha256": "1f459185e2e0ba2873897f93079af4c2ac97ac4358ea20034ad560a9950c65f3"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "packaging/linux/build.sh",
+        "packaging/README.md",
+        "scripts/ci/linux-packages.sh"
+      ],
+      "remaining": "Asagiri's published engine/agent are musl-static. The separate AppImage window is built on Debian 12 and requires glibc 2.36 plus host GTK/WebKit; this does not establish Ubuntu 22.04 desktop compatibility. An actual Ubuntu 22.04 install/launch remains unverified.",
+      "issue": 252,
+      "title": "Linux: 0.2.0 .deb fails to install on Ubuntu 22.04 (requires libc6 >= 2.39)",
+      "body_sha256": "9ef673b80f2c73c7561a8f67e7a9a10c5c43e5b10ed5edcacffa2f8b2b6fc7d7"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/many-layers.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "A 120-layer fixture passed the exact-topic Platform run and the old installed engine reproduced the failure. The fix is in the combined candidate, pending its CI and release.",
+      "issue": 253,
+      "title": "Images with 60 or more layers fail to start: \"mount …/rootfs: No such file or directory\"",
+      "body_sha256": "bd3fb68de8a7b50b9b32fe5b2b9d5160d91ef0ee1213680108c1fb8b267f2ef6"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        ".github/workflows/guest-kernels.yml",
+        "guest/kernel/build.sh"
+      ],
+      "remaining": "Loop support is released in dev.98 and later. Independently checked actual guest boots on both architectures cover loop attachment and ext4 data persistence; the reporter's exact tool stack was not rerun.",
+      "issue": 254,
+      "title": "losetup fails in privileged containers: the guest kernel has no loop devices",
+      "body_sha256": "7a1e0d8123ea5a6e708b2fc2844a4c810f10d211b742110da0bdd7246c37a0c8"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/distribution.py",
+        "docs/registry-distribution.md"
+      ],
+      "remaining": "The distribution topic passes live registry metadata/authentication and Docker-reference checks. Its Basic-auth error distinction is retained. The combined release and actual Watchtower/Arcane applications remain unverified.",
+      "issue": 257,
+      "title": "GET /distribution/{name}/json is missing, so image-update checks in Docker tools fail",
+      "body_sha256": "d06a3209d7bafcf4921115f37fc1dc41ee0204fc506dc2a9724c98037d39c205"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "docs/verification/native-macos-2026-11-16.json",
+        "tests/host-loopback.py",
+        "docs/mac-host-loopback.md"
+      ],
+      "remaining": "Native dev.98 reached real IPv4-only 127.0.0.1 and IPv6-only ::1 Mac servers through host.docker.internal, with three exact container responses plus a host control per family. Both owned containers were removed. This does not establish split-tunnel VPN routing.",
+      "issue": 258,
+      "title": "macOS: host.docker.internal reaches only the Mac's 127.0.0.1, not ::1, so localhost dev servers are unreachable",
+      "body_sha256": "5b02bb8e46345230abb48dbd9b0772e5b34b2b442247b10228ff166eeafd7b26"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "packaging/README.md",
+        "docs/install.md"
+      ],
+      "remaining": "The static engine/lite packages and AppImage are separate options, but the AppImage window still needs host WebKitGTK 4.1 and glibc 2.36. Rocky 9 native desktop installation has not been qualified; the missing-library report is not declared fixed.",
+      "issue": 260,
+      "title": "Linux: 0.2.1 rpm on Rocky 9 - cannot install",
+      "body_sha256": "6420e4814cd0b761cf5da06de57ae51c36388d3e81e31c73b6fc183e0c0ee025"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/linux-firewall.py",
+        "docs/linux-firewall.md"
+      ],
+      "remaining": "Existing 33-case private iptables-nft checks cover default/custom bridges and FORWARD DROP coexistence. They do not test Tailscale routes, non-default uplinks or firewalld zone integration. No host VPN/firewall changes were made.",
+      "issue": 261,
+      "title": "Linux: bridge containers can't reach Tailscale/VPN networks (NAT only on default-route NIC, bridges in no firewalld zone)",
+      "body_sha256": "5bbeba06b8dab95a06b066b344cd849f42f1702618fba72ad87face5edcb4059"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "A closed report about Kiri's website. Asagiri's own Pages deployment and browser checks are separate; no runtime fix is inferred from the closure.",
+      "issue": 262,
+      "title": "Website glitching",
+      "body_sha256": "1a3abf455fa7092a53b772adea84c1fca144ded678333d93a6e7b6f93484ddcf"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "issue": 266,
+      "title": "kiri import --list fails on a fresh machine when the default source context does not exist",
+      "body_sha256": "78be52f337544343a2a65dd39a4656b9af932e0be824d5d56ff2785c8f286023"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "issue": 268,
+      "title": "[Bug] Docker image/container import fails on Windows",
+      "body_sha256": "9176abd5b57a5a28d4b59b6a2e31b8c0c4b9630abae7dcb562d43eeb9bd284c4"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "SECURITY.md"
+      ],
+      "remaining": "Opt-in socket integration with other WSL distros is not implemented. It needs explicit distro/group ownership, persistent restart behavior, scoped bind-path semantics and native WSL tests; the API is not exposed over unauthenticated TCP.",
+      "issue": 269,
+      "title": "Windows: expose the engine socket to other WSL distros (WSL integration)",
+      "body_sha256": "f4fada6a51b45368f1e13a977995523c43571e872daf83772bf925aafcadf68a"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The public snapshot contains no actionable technical reproduction or implementation request for this entry. No passing runtime test or code fix is invented.",
+      "issue": 275,
+      "title": "Bdthhf",
+      "body_sha256": "d0d7c258be521ce552001b041bc60efabf897a94b344b994dfaa6734e696fb1a"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri-init/src/linux/mod.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "The engine requires a usable cgroup v2 hierarchy; the reported hybrid WSL host remains unsupported/unverified. No global .wslconfig or controller reassignment was applied to other distros. A safe targeted remedy and native WSL validation remain required.",
+      "issue": 277,
+      "title": "Windows: containers fail on a stock WSL2 — Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
+      "body_sha256": "eb90dd744b528d59cb3e95be97828a538390c3fc20f1d578100e22f39521ced1"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The public snapshot contains no actionable technical reproduction or implementation request for this entry. No passing runtime test or code fix is invented.",
+      "issue": 278,
+      "title": "Hffg",
+      "body_sha256": "eb13c8627ac12c60b9401337570adf01fd7a2aff168800b51d99664165a956eb"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The public snapshot contains no actionable technical reproduction or implementation request for this entry. No passing runtime test or code fix is invented.",
+      "issue": 280,
+      "title": "Wrong name?",
+      "body_sha256": "58e349eb64df58c4a7ec726a91a85e7651a0eaba5d3fc360eb758fc3b0bcd5a2"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/ui/ar.js",
+        "crates/asagiri-win/src/app.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "RTL/browser and all translation checks pass, including the Persian wording update. They cannot reproduce WebView2 startup after a native Windows quit/relaunch. The blank-window report remains open for native investigation.",
+      "issue": 281,
+      "title": "[Windows] RTL languages (Arabic and Persian) cause blank UI after restart",
+      "body_sha256": "c633d931023ed6ff16ade4465feefb7774deb61eab080ddd9aa418776b2e6473"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The public snapshot contains no actionable technical reproduction or implementation request for this entry. No passing runtime test or code fix is invented.",
+      "issue": 285,
+      "title": "Hfvn",
+      "body_sha256": "b7363e63101ec9a152fbd9bab51edb9eae90bf18c9898fb1bc11f4b2367a52f1"
+    },
+    {
+      "coverage": "informational",
+      "checks": [],
+      "remaining": "The public snapshot contains no actionable technical reproduction or implementation request for this entry. No passing runtime test or code fix is invented.",
+      "issue": 287,
+      "title": "Vvgyhjjg",
+      "body_sha256": "196b5627715f884a1b6711c9736226b2e11ac22bb23d880b39fb697617cc34dd"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/buildkit-driver.py",
+        "tests/buildx-bootstrap.py",
+        "docs/buildkit.md"
+      ],
+      "remaining": "Private Linux BuildKit tests pass, but the reported native Mac build/network environment has not been reproduced. The dogfood host's outbound PF/network limitation remains; no PF bypass or configuration change was made.",
+      "issue": 288,
+      "title": "Dockerfile build fails with 101: Network is unreachable",
+      "body_sha256": "57df30f4e263e141b1dcd3e28b9e272adb5b6d242fcfa5e693f79da43d535c0c"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/ui/listhead.js",
+        "crates/asagiri/src/ui/index.html"
+      ],
+      "remaining": "The new real-page regression fails on the old implementation and passes with published/private port matching, null/missing port lists, state tabs and existing name/image search. All 65 local UI test files pass. Candidate release is pending.",
+      "issue": 289,
+      "title": "UI: search and filter containers by port number in search bar (⌘K)",
+      "body_sha256": "ba05d01fc67a0414e4b9201b0ff03db4059fd543ff5e61ce795991bee78deba6"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/inspect-port-bindings.py",
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": "Released inspect changes retain explicit/ephemeral binding requests, protocols and exposed ports. The live HTTP regression remains required in Platform/release CI.",
+      "issue": 293,
+      "title": "docker inspect returns HostConfig.PortBindings: null for published ports",
+      "body_sha256": "d373d5d3654ec671c55c28b8f55dbcef9d4d6abdcf85726c0091351dded37089"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri-init/src/linux/dns.rs",
+        "tests/network-connect-dns.py"
+      ],
+      "remaining": "The current DNS lookup can prefer the first-joined network when aliases collide. Existing single-network/connect tests do not establish Docker's endpoint ordering for two Compose/DDEV projects on a shared network. A controlled Docker reference and an ordering fix remain outstanding.",
+      "issue": 294,
+      "title": "Embedded DNS answers from the first-joined network, so Compose service aliases resolve to another project's container",
+      "body_sha256": "82fb1e8f7f875e3a416b3d56c1e9a31c0de8ddc58b1e0b4b3efc873706cf5d5d"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/volume-owner.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "The tmpfs ownership topic passed its actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population are documented as different behaviors. Combined CI/release remains required.",
+      "issue": 296,
+      "title": "Engine: a tmpfs volume loses its uid, gid and mode when the image doesn't have the mount target",
+      "body_sha256": "c2857b84d28885e72d0f4a005f742de3ec95360edcd16affacc8a2846e1b2e65"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/windows-wsl-setup.ps1",
+        "docs/windows-wsl-setup.md",
+        "crates/asagiri-win/src/wslsync.rs"
+      ],
+      "remaining": "The setup follow-up handles missing WSL components and build-distro selection with portable/Windows CI coverage. Actual optional-feature enablement, reboot and first launch on native Windows remain unverified.",
+      "issue": 297,
+      "title": "Windows: setup fails with WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED - the \"Subsystem for Linux\" optional component is never enabled",
+      "body_sha256": "ca95e81a02bb30b7632e0952d07375a4f0a42c0dbca75459b8e60cff50cb718e"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/layer-hardlinks.py",
+        "crates/asagiri-init/src/layer_tar.rs"
+      ],
+      "remaining": "The independently implemented archive-root hard-link fix passed topic Platform and local regressions; the old installed version reproduced the metadata failure. Combined qualification and release are pending.",
+      "issue": 302,
+      "title": "Layers with an absolute hard-link target fail to unpack (failed to unpack usr/bin/perl5.38.2)",
+      "body_sha256": "572e902e6b219be6ba24c82f44741c8c1aae7b335e3a075b028dd98ca93cd93d"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/registry-ca.py",
+        "docs/registry-configuration.md"
+      ],
+      "remaining": "Released scoped registry CA support passes the 34-case TLS contract and independent artifact qualification. System trust and explicitly configured per-registry roots have documented scope. The reporter's corporate native host remains unverified.",
+      "issue": 303,
+      "title": "Trust the system certificate store for registries (corporate root CA, UnknownIssuer)",
+      "body_sha256": "143afbd1b35d127992d27eeb8897051eebcda24b3207b5c3d09a41229c4d823a"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/bind-inotify.py",
+        "docs/mac-file-watching.md",
+        ".github/workflows/guest-kernels.yml"
+      ],
+      "remaining": "The filewatch topic passed Platform and independently checked actual two-architecture fsnotify/kernel tests. It is in the combined candidate; packaged native Mac save-to-inotify/hot-reload remains required after release.",
+      "issue": 310,
+      "title": "Files changed on the Mac send no inotify events into containers (hot reload doesn't fire)",
+      "body_sha256": "fabaeba536ed2fb772497533d25249e39613bd197213a32f86e3af1d00ddf7a1"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/start-exec-readiness.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "The required readiness test performs 20 immediate execs after start, each with 100 tmpfs mounts, and checks that hostname setup is complete without sleeping before exec. Topic Linux runs pass. An existing image user with a large newly populated named volume, the reporter's Ubuntu ARM host and the combined candidate still require qualification.",
+      "issue": 311,
+      "title": "Linux: immediate docker exec fails with unknown user after starting a container with a fresh named volume",
+      "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "packaging/README.md",
+        "xtask/src/main.rs"
+      ],
+      "remaining": "The Mac bundle minimum remains macOS 14. A CLI deployment target alone does not prove the Virtualization.framework/AppKit APIs work on Ventura. Intel macOS 13 VM, bind and port tests have not run, so the plist floor was not lowered.",
+      "issue": 315,
+      "title": "Support macOS 13 (Ventura): 0.2.1 x86_64 app requires macOS 14 even though the binary targets 10.12",
+      "body_sha256": "0cbe67873d2972c00896aa32c9eac3876f29727f638dc20ed91d19e12eb7ff5d"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri/src/diag/console.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Startup/console diagnostics and optional-log failures have reviewed fixes; the report's cgroup/WSL root cause overlaps #277. The exact native failure and improved end-user cause propagation still need verification.",
+      "issue": 316,
+      "title": "guest stopped before connecting: Some(\"the agent exited: exit status: 1\")",
+      "body_sha256": "411125e01229033126d848b4e2598b3d10b2e2a133af7efa7321694fc599a51a"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/finder-mounted.py",
+        "docs/verification/native-macos-2026-11-16.json"
+      ],
+      "remaining": "Released dev.99 passed the real Mac NFS mount: named-volume, host-bind and container files, fresh volume updates, and stopped-container disappearance. The owned container/volume and temporary host directory were removed. Visual Finder clicks were not tested.",
+      "issue": 317,
+      "title": "macOS: a container's Files tab shows only the image's files; volumes, bind mounts and files written at runtime show \"This folder is empty\"",
+      "body_sha256": "a06778884dffdbe8c356ff8e86193985edcec22569bc271581ce9559849c370d"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "docs/linux-firewall.md"
+      ],
+      "remaining": "A Mac host relay or equivalent split-tunnel VPN integration is not implemented or qualified. IPv4/IPv6 localhost checks do not establish private VPN reachability, and the host PF policy was left intact.",
+      "issue": 319,
+      "title": "Mac: containers can't reach hosts behind a split-tunnel VPN",
+      "body_sha256": "7010aac4e137d77b4c1d8a1cb470160483de10203ea01ba79d229c6b66580a1d"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "docs/install.md",
+        "packaging/README.md",
+        "tests/installer.py"
+      ],
+      "remaining": "Asagiri documents its separate Homebrew tap/cask and package-manager update path. Pages advertises stable v0.1.5 and preview dev.99 with verified assets. Installing/upgrading a fresh Homebrew cask during this review was not repeated because the dogfood app intentionally uses the newer preview.",
+      "issue": 323,
+      "title": "Install through homebrew",
+      "body_sha256": "01af70790cd655eb64787ce72e6cd9c9c0d408d758c85f775be3bfc75eade40e"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/agent.rs",
+        "crates/asagiri-init/src/linux/container.rs"
+      ],
+      "remaining": "Kill/shutdown lookups already exclude exited processes. Resize lookup and the cgroup.procs signaling fallback on kernels without cgroup.kill still need targeted review and regression tests. No claim of complete pidfd-based signaling is made.",
+      "issue": 324,
+      "title": "Linux: a signal can reach a reused process ID after a container exits",
+      "body_sha256": "3641767ef87bcfeb9665dafac3e7cc2660a46771b39d3c5b8d63d2c3076b7513"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "tests/network-dns-reuse.py",
+        "tests/failed-start-veth.py"
+      ],
+      "remaining": "Released failed-start cleanup removes owned DNS registrations and links while preserving writable data and unrelated peers. Required regressions cover repeated invalid starts, alias absence and subnet/IP reuse.",
+      "issue": 325,
+      "title": "Linux: a failed start leaves the container's name in the embedded DNS",
+      "body_sha256": "713ab322e75192d5c3750bf4b6c38ce7a64320887a8801be75bbf93bd504a2bd"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "tests/resource-limits.py",
+        "docs/features.md"
+      ],
+      "remaining": "Per-container MemorySwap limits are implemented and tested. A configurable macOS guest swap allocation is a different feature and is not implemented or benchmarked.",
+      "issue": 326,
+      "title": "Adjust swap memory",
+      "body_sha256": "94324a40018213a9170688990b5fd3ae8d9e4094bdc7dcdd926510c57a5de06b"
+    },
+    {
+      "coverage": "automated",
+      "checks": [
+        "crates/asagiri-init/tests/clock-read.rs",
+        "crates/asagiri-init/src/linux/seccomp.rs"
+      ],
+      "remaining": "The read-only clock-state topic passed actual syscall/process and Platform checks, without changing host clocks. It remains pending the combined release.",
+      "issue": 327,
+      "title": "Default seccomp filter denies read-only adjtimex (modes=0)",
+      "body_sha256": "df8b93d3491e3248dc9d7fee2fbf24f6b2dd9f5637ae1f69dd58c4d07de1dbe2"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/registry-config.py",
+        "tests/registry-ca.py",
+        "docs/registry-configuration.md"
+      ],
+      "remaining": "Released daemon.json and scoped HTTP/self-signed registry policy pass private pull/push/TLS and real BuildKit checks. Authority/CIDR and separate worker trust limits are documented; the exact reporter's native environment remains unverified.",
+      "issue": 329,
+      "title": "Support insecure-registries (plain-HTTP and self-signed private registries), and read Docker's daemon.json",
+      "body_sha256": "7d30ac3015d319b7299052aa9b1fe3324197620d1a68936a06c8b36358a80b77"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/buildkit-driver.py",
+        "tests/buildx-bootstrap.py",
+        "tests/network-connect-dns.py",
+        "scripts/ci/ddev.py"
+      ],
+      "remaining": "Default-bridge DNS and digest-aware BuildKit paths have required integration coverage. The exact Bun/Compose shop, bun install ConnectionRefused and shared-network alias ordering are not reproduced by those checks and remain outstanding.",
+      "issue": 330,
+      "title": "Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused",
+      "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "Coolify application compatibility has not been qualified. Existing Docker API conformance and application fixtures are not evidence that Coolify's full install/deploy/upgrade workflow works.",
+      "issue": 333,
+      "title": "Coolify support",
+      "body_sha256": "23224b495a1d78e687617df1f7fccfda4049a354fd67fa784916d64e13615b96"
+    },
+    {
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "crates/asagiri-win/src/engine.rs"
+      ],
+      "remaining": "A libkrun/WHP backend is an architectural proposal, not an implemented Windows backend. Kernel, storage, networking, memory reclamation and Windows Arm behavior require a separate implementation and native validation.",
+      "issue": 336,
+      "title": "Windows: would you consider a libkrun/WHP VM backend instead of a WSL 2 distro?",
+      "body_sha256": "a5d7064f5532aaaddc90ff81b5f7bc05ce46142d107489a988ed04e4a2d83492"
+    },
+    {
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The reported macOS 26 window-border dragging behavior has not been reproduced in a native AppKit interaction. Browser geometry and traffic-light tests do not establish window movement.",
+      "issue": 337,
+      "title": "macOS 26: Cannot move the window",
+      "body_sha256": "d977a7a765ac10d49b294d1897e952ba6136018d48f110b2d70859d21f0285d5"
+    },
+    {
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/ui/index.html",
+        "tests/ui/terminal.js"
+      ],
+      "remaining": "The container command panel still runs individual shell commands and can misassociate concurrent completion. It is not a persistent interactive psql terminal. Command correlation, session lifecycle and native Windows interactive behavior remain outstanding.",
+      "issue": 338,
+      "title": "Can't execute commands properly inside built in container terminal",
+      "body_sha256": "9e3cdc24a55e5a413ff4f0ccf9075b32fef244f9807617b3b7349d6e272939fa"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "tests/registry-config.py",
+        "tests/ui/mirrors.js",
+        "docs/registry-configuration.md"
+      ],
+      "remaining": "Mirror configuration and bounded registry fallback already have UI/configuration and private registry coverage. The requested real mirror/network environment has not been independently exercised.",
+      "issue": 339,
+      "title": "Registry Mirror Support",
+      "body_sha256": "5385b59552a16fda05ed8663a0949a61fb3839cb9b8443bb181187dbdb776bfa"
+    },
+    {
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/ui/parity.js",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The desktop candidate adds the native Mac Edit menu and shortcut actions with translated labels. Local UI/platform compilation passes; actual packaged AppKit clipboard shortcuts remain unverified.",
+      "issue": 340,
+      "title": "Unable to copy & paste anything from/to textfield in setting panel",
+      "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397"
     }
-  ]
+  ],
+  "reviewed_at": "2026-11-16T07:45:40.214923+00:00",
+  "candidate_revision": "4debf1d0b331e19040cbc3a46a2528e16a7ce4a8"
 }
