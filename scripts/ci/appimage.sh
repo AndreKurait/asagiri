@@ -66,6 +66,7 @@ docker run --rm --tmpfs /tmp:exec,nosuid,nodev \
     cargo clean --locked -p asagiri -p asagiri-image -p asagiri-proto -p asagiri-vmm -p asagiri-share-proto
     cargo clean --locked --release -p asagiri -p asagiri-image -p asagiri-proto -p asagiri-vmm -p asagiri-share-proto
     cargo test --locked -p asagiri --features window hostaccess::tests::
+    cargo test --locked -p asagiri --features window ui::logins
     cargo build --locked --release -p asagiri --features window
     image=$(bash packaging/linux/appimage.sh /bin-input /cache/target/release/asagiri /out /cache/downloads)
     xvfb-run -a python3 tests/appimage.py "$image" /bin-input /cache/target/release/asagiri \

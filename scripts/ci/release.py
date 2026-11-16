@@ -11,7 +11,7 @@ import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUIRED = {"Platform builds", "UI tests", "Security", "Speed", "CodeQL"}
+REQUIRED = {"Platform builds", "UI tests", "Security", "Speed", "CodeQL", "Engine comparison"}
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-dev\.[1-9]\d*)?")
 RELEASE_WORKFLOW = ".github/workflows/release.yml"
 PUBLISH_JOB = "Verify uploads and publish"

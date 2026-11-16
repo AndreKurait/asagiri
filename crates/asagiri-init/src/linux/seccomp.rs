@@ -105,9 +105,11 @@ fn denied() -> Vec<(libc::c_long, Option<u32>)> {
         (SYS_kexec_load, Some(CAP_SYS_BOOT)),
         (SYS_KEXEC_FILE_LOAD, Some(CAP_SYS_BOOT)),
         (SYS_reboot, Some(CAP_SYS_BOOT)),
-        // The VM's clock and accounting.
+        // The VM's clock and accounting. adjtimex and clock_adjtime stay
+        // open, as in Docker's profile: glibc's adjtimex() and ntp_adjtime()
+        // are clock_adjtime, a read (modes 0) is harmless, and the kernel
+        // refuses any change without CAP_SYS_TIME itself.
         (SYS_clock_settime, Some(CAP_SYS_TIME)),
-        (SYS_clock_adjtime, Some(CAP_SYS_TIME)),
         (SYS_settimeofday, Some(CAP_SYS_TIME)),
         (SYS_acct, Some(CAP_SYS_PACCT)),
         // Swap, quotas, NUMA policy.
@@ -264,6 +266,21 @@ mod tests {
             // Other sockets fall through with the syscall number reloaded.
             assert_eq!((p[at + 4].code, p[at + 4].k), (LD_W_ABS, OFF_NR));
             assert_eq!(p[at].jf as usize, 4);
+        }
+    }
+
+    #[test]
+    fn clock_reads_pass_and_clock_sets_need_sys_time() {
+        let denies = |p: &[Insn], nr: libc::c_long| p.windows(2).any(|w| w[0].code == JEQ_K && w[0].k == nr as u32 && w[1].k == RET_ERRNO | libc::EPERM as u32);
+        let plain = program(0);
+        // ntp_adjtime() reads the clock's state; the kernel refuses changes.
+        for nr in [libc::SYS_adjtimex, libc::SYS_clock_adjtime] {
+            assert!(!denies(&plain, nr), "{nr} filtered");
+        }
+        let time = program(1 << CAP_SYS_TIME);
+        for nr in [libc::SYS_clock_settime, libc::SYS_settimeofday] {
+            assert!(denies(&plain, nr), "{nr} allowed without CAP_SYS_TIME");
+            assert!(!denies(&time, nr), "{nr} filtered with CAP_SYS_TIME");
         }
     }
 

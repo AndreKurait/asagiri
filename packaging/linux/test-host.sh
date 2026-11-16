@@ -78,7 +78,14 @@ host_test() { # name full(0|1)
   if [ "$access_status" -eq 0 ]; then
     check "ACL access also survives the restart" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
   fi
+  # The window's Restart engine after an upgrade: `asagiri host-access --restart`
+  # (through pkexec) restarts a running engine, not only a dead one.
+  check "asagiri host-access --restart restarts a running engine" "old=\$(systemctl show -p MainPID --value asagiri) && { /usr/bin/asagiri host-access --restart asagiri-acl-test; rc=\$?; [ \"\$rc\" = 0 ] || [ \"\$rc\" = 10 ]; } && new=\$(systemctl show -p MainPID --value asagiri) && [ \"\$new\" != 0 ] && [ \"\$new\" != \"\$old\" ] && curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
   userdel asagiri-acl-test >/dev/null 2>&1
+  # An upgrade (here the same package again) restarts the running engine on
+  # the new binary, as the Mac and Windows apps do after an update.
+  if [ "$fmt" = deb ]; then upgrade="dpkg -i '$deb'"; else upgrade="dnf reinstall -y -q '$deb'"; fi
+  check "upgrading restarts the running engine" "old=\$(systemctl show -p MainPID --value asagiri) && $upgrade >/dev/null && for i in \$(seq 30); do curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping 2>/dev/null | grep -q OK && break; sleep 1; done; new=\$(systemctl show -p MainPID --value asagiri) && [ \"\$new\" != 0 ] && [ \"\$new\" != \"\$old\" ]"
   check "/run/asagiri is root 755 (RuntimeDirectory; the socket itself is 660 root:asagiri)" "stat -c '%U %a' /run/asagiri | grep -q '^root 755'"
   check "/var/lib/asagiri-daemon (StateDirectory) exists" "test -d /var/lib/asagiri-daemon"
   if [ "$sock_free" = 1 ]; then

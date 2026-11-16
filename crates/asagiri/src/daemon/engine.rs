@@ -842,6 +842,8 @@ impl Engine {
         engine.start_sleeper();
         engine.start_clock();
         engine.start_k8s_lb();
+        #[cfg(target_os = "macos")]
+        super::watch::start(Arc::downgrade(&engine));
         Ok(engine)
     }
 
@@ -894,7 +896,9 @@ impl Engine {
         self.boot_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let guest = crate::guest::Guest::boot(&crate::guest::BootOptions {
             data_disk: true,
-            console_log: Some(crate::diag::console::path()?),
+            console_log: crate::diag::console::path().inspect_err(|e| {
+                crate::diag::warn!("guest console log has no location", error = e);
+            }).ok(),
             memory_mib: Some(ceiling >> 20),
             cpus: Some(cpus),
             ..Default::default()
@@ -1413,6 +1417,29 @@ impl Engine {
     /// containers run on its kernel, and the VM's elsewhere.
     pub fn container_cpus(&self) -> usize {
         if cfg!(target_os = "linux") { max_cpus() } else { self.cpus() }
+    }
+
+    /// The Mac folders and files that running containers bind-mount, as
+    /// the Mac keeps them (the guest sees them under /mnt/mac).
+    #[cfg(target_os = "macos")]
+    pub fn mac_bind_sources(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .lock()
+            .containers
+            .values()
+            .filter(|c| c.status == Status::Running)
+            .flat_map(|c| c.spec.mounts.iter())
+            .filter_map(|m| m.split('\t').next()?.strip_prefix("/mnt/mac").filter(|p| p.starts_with('/')).map(str::to_owned))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The VM's link while it runs, without waking it.
+    #[cfg(target_os = "macos")]
+    pub fn awake_link(&self) -> Option<Arc<VmLink>> {
+        self.awake()
     }
 
     /// Whether the VM is running right now.
@@ -3441,12 +3468,15 @@ impl Engine {
         // Keep the stopped container addressable if cleanup times out. The
         // lifecycle guard excludes a new start while the guest finishes, and
         // a failed removal can be retried without losing its writable layer.
-        // Lost containers are pruned by retain() on the next boot: removal
-        // must not boot a replacement or wait for a retiring VM.
-        let needs_cleanup = self.lock().containers.get(&id)
-            .is_some_and(|c| c.started.is_some() && !c.vm_stopped);
-        if needs_cleanup && let Some(vm) = self.awake() {
-            vm.remove(&id)?;
+        // Copies can create an upper before the first start. A replacement
+        // VM also retains layers for crash-stopped containers. Ask any awake
+        // VM to remove them; an asleep or lost VM defers this to retain().
+        // Never boot a replacement or wait for a retiring VM just for rm.
+        if let Some(vm) = self.awake() && let Err(error) = vm.remove(&id) {
+            if !vm.is_lost() {
+                return Err(error.into());
+            }
+            crate::diag::warn!("writable layer left for the next boot", id = id, error = error);
         }
         let mut st = self.lock();
         // The lifecycle guard excludes a new start until removal is complete.

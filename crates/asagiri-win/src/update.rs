@@ -270,25 +270,22 @@ pub fn install_staged() -> io::Result<String> {
 /// binary). Running containers stop; those with a restart policy start again.
 pub fn restart_engine() -> io::Result<()> {
     let distro = crate::setup::saved_distro().ok_or_else(|| io::Error::other("Asagiri's Linux is not set up"))?;
-    let asagiri = crate::setup::to_wsl(&distro, &dir().join("asagiri"))?;
-    let init = crate::setup::to_wsl(&distro, &dir().join("asagiri-init"))?;
-    // The pkill patterns spell "asagiri" as "[a]sagiri": `sh -c` runs with this
-    // whole script on its command line, and a plain pattern would match
-    // that too and kill the shell before it starts the daemon again.
-    let mut install = String::new();
-    let script = if distro == crate::setup::ASAGIRI_DISTRO {
-        // Asagiri Linux: busybox, no systemd; asagiri-start starts the daemon.
-        wsl::OWNED_DISTRO
+    sync_engine()?;
+    let source = |name: &str| crate::wslsync::sh_quote(&dir().join(name).to_string_lossy().replace('\\', "/"));
+    let (activation, installer) = if distro == crate::setup::ASAGIRI_DISTRO {
+        (wsl::OWNED_DISTRO, "install_src=''".to_owned())
     } else {
-        // Ubuntu: install.sh installs the binaries and restarts the service.
-        install = crate::setup::to_wsl(&distro, &dir().join("install.sh"))?;
-        wsl::PACKAGE_DISTRO
+        (wsl::PACKAGE_DISTRO, format!("install_src=$(wslpath -a {})", source("install.sh")))
     };
+    // Conversion shares the bounded WSL call with activation. Assignment
+    // failures stop under set -e; converted paths remain shell arguments.
+    let script = format!(
+        "set -eu\nasagiri_src=$(wslpath -a {})\ninit_src=$(wslpath -a {})\n{installer}\nset -- \"$asagiri_src\" \"$init_src\" \"$install_src\"\n{activation}",
+        source("asagiri"), source("asagiri-init"),
+    );
     let mut cmd = crate::win::tool("wsl.exe");
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, CREATE_NO_WINDOW);
-    // File paths are arguments, so spaces and apostrophes in a Windows
-    // account name cannot change the shell program or its error handling.
-    let out = cmd.args(["-d", &distro, "-u", "root", "--", "sh", "-c", script, "asagiri-update", &asagiri, &init, &install]).stdin(Stdio::null()).output()?;
+    let out = output_within(cmd.args(crate::wslsync::wsl_sh(&distro, &script)), RESTART_LIMIT)?;
     if !out.status.success() {
         return Err(io::Error::other(first_line(&out.stderr, "the engine did not restart")));
     }
@@ -465,10 +462,16 @@ fn update_state(state: &str, latest: Option<&str>, error: Option<String>) {
 /// check asks the feed.
 pub fn check_now(manual: bool) {
     std::thread::spawn(move || {
-        if let Some(v) = crate::client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
+        // An update went in and the engine in WSL still runs the old build:
+        // it is moved over (once, catch_up_engine), rather than asking. The
+        // card shows only if that fails, and on a manual check.
+        // What it tells the page before the window has opened (Asagiri started
+        // in the background) waits in app.rs's queue, and shows when it opens.
+        if !manual {
+            catch_up_engine();
+        } else if let Some(v) = engine_version()
             && newer(CURRENT, &v)
         {
-            // Opening the window or checking updates must not stop containers.
             emit(json!({"type": "enginestale", "version": v}).to_string());
         }
         feed_check(manual);
@@ -575,56 +578,111 @@ pub fn restart_now() {
 /// The card's "Finish updating": the engine in WSL moves to the installed
 /// binary. Off the window's thread; the page hears when it is done.
 /// Before the engine starts (engine::ensure_daemon), the engine binaries in
-/// WSL are made the ones this app installed, when they differ. Without it,
-/// declining "Restart engine" after an update left the old engine in WSL,
-/// and every later start (each login, each reboot) ran it again. Copying
-/// only: nothing running is stopped, so this is for an engine that isn't up.
-/// Returns whether anything was copied.
+/// WSL are made the ones this app installed, when they differ, and in Asagiri
+/// Linux this version's asagiri-start and wsl.conf (whose boot command starts
+/// the engine when WSL boots the distro), so a distro an older Asagiri set up
+/// gets them too. Without it, declining "Restart engine" after an update
+/// left the old engine in WSL, and every later start (each login, each
+/// reboot) ran it again. Copying only: nothing running is stopped, so this
+/// is for an engine that isn't up. One call into WSL, killed after
+/// WSL_LIMIT. Returns whether anything was copied.
 pub fn sync_engine() -> io::Result<bool> {
-    let (asagiri_src, init_src) = (dir().join("asagiri"), dir().join("asagiri-init"));
-    if !asagiri_src.is_file() || !init_src.is_file() {
+    if !dir().join("asagiri").is_file() || !dir().join("asagiri-init").is_file() {
         return Ok(false); // a development build run from elsewhere
     }
     let distro = crate::setup::saved_distro().ok_or_else(|| io::Error::other("Asagiri's Linux is not set up"))?;
-    let asagiri = crate::setup::to_wsl(&distro, &asagiri_src)?;
-    let init = crate::setup::to_wsl(&distro, &init_src)?;
-    // Both distros keep the engine in /usr/local/bin (asagiri-start, install.sh).
-    let script = format!(
-        "c=0; for f in asagiri asagiri-init; do if [ $f = asagiri ]; then s='{asagiri}'; else s='{init}'; fi; \
-         cmp -s \"$s\" /usr/local/bin/$f && continue; \
-         cp -f \"$s\" /usr/local/bin/$f.new && chmod 755 /usr/local/bin/$f.new && mv -f /usr/local/bin/$f.new /usr/local/bin/$f && c=1; done; \
-         [ $c = 1 ] && echo copied; true"
-    );
+    let script = crate::wslsync::sync_script(&dir(), "", distro == crate::setup::ASAGIRI_DISTRO);
     let mut cmd = crate::win::tool("wsl.exe");
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, CREATE_NO_WINDOW);
-    let out = cmd.args(["-d", &distro, "-u", "root", "--", "sh", "-c", &script]).stdin(Stdio::null()).output()?;
+    let out = output_within(cmd.args(crate::wslsync::wsl_sh(&distro, &script)), WSL_LIMIT)?;
     if !out.status.success() {
         return Err(io::Error::other(first_line(&out.stderr, "could not copy the engine into WSL")));
     }
     Ok(String::from_utf8_lossy(&out.stdout).contains("copied"))
 }
 
+/// The most one call into WSL to sync or start the engine may take: two
+/// binaries copied off the Windows disk, over WSL's file sharing, and a
+/// start.
+pub(crate) const WSL_LIMIT: Duration = Duration::from_secs(60);
+/// The most a restart's call into WSL may take: the sync (WSL_LIMIT), then
+/// asagiri-start --restart: up to 25 s for its lock, 140 s for the old
+/// daemon's stop (its shutdown waits up to 120 s for a container with a
+/// long --stop-timeout, then for SIGKILL and its VM: about 132 s), 5 s for
+/// the new one's socket. 60 + 25 + 140 + 5 = 230 s. Restarts run on
+/// threads of their own.
+const RESTART_LIMIT: Duration = Duration::from_secs(240);
+
+/// `cmd`'s output, as `Command::output`, but killed (Err TimedOut) when it
+/// runs past `limit`: a wsl.exe right after Windows wakes can hang.
+pub(crate) fn output_within(cmd: &mut Command, limit: Duration) -> io::Result<std::process::Output> {
+    let mut child = cmd.env("WSL_UTF8", "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let until = Instant::now() + limit;
+    while child.try_wait()?.is_none() {
+        if Instant::now() >= until {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(io::ErrorKind::TimedOut, format!("WSL did not finish in {} s", limit.as_secs())));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // It has exited: what it wrote (a line or two) is in the pipes.
+    child.wait_with_output()
+}
+
+/// The engine's own Asagiri version, when it answers.
+fn engine_version() -> Option<String> {
+    crate::client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
+}
+
+static CATCH_UP: crate::wslsync::CatchUp = crate::wslsync::CatchUp::new();
+
+/// Once the engine answers (engine::ensure_daemon, on a thread of its own,
+/// and the window's update check), an engine older than this app is
+/// restarted on this one's, once per run of asagiri-win (wslsync::CatchUp):
+/// after an update, Asagiri Linux's boot command or the bridge starts the old
+/// engine before anything here can copy the new one in, and with no window
+/// open nothing else would move it over. Waits for that restart; one asked
+/// while another runs returns at once. Never on the engine thread.
+pub fn catch_up_engine() {
+    if !dir().join("asagiri").is_file() {
+        return; // a development build run from elsewhere: nothing to copy
+    }
+    CATCH_UP.run(
+        engine_version,
+        |v| newer(CURRENT, v),
+        |v| {
+            crate::serve::log(&format!("update: the engine runs {v}, this Asagiri is {CURRENT}; restarting it"));
+            emit(json!({"type": "state", "state": "booting"}).to_string());
+            restart_and_report();
+        },
+    );
+}
+
 pub fn restart_engine_now() {
-    std::thread::spawn(|| {
-        let began = Instant::now();
-        match restart_engine() {
-            Ok(()) => {
-                emit(r#"{"type":"enginestale","version":null}"#.to_owned());
-                // The page's engine toast, as the Mac's.
-                emit(json!({"type": "enginerestarted", "version": CURRENT, "ms": began.elapsed().as_millis() as u64}).to_string());
-            }
-            Err(e) => {
-                crate::serve::log(&format!("engine: did not restart ({e})"));
-                emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)])));
-                if let Some(v) = crate::client::probe("/version", Duration::from_secs(1)).ok().filter(|r| r.ok()).and_then(|r| crate::client::engine_version(&r.json()).map(str::to_owned))
-                    && newer(CURRENT, &v)
-                {
-                    emit(json!({"type": "enginestale", "version": v}).to_string());
-                }
+    std::thread::spawn(restart_and_report);
+}
+
+/// `restart_engine`, with the page and the log told how it went.
+fn restart_and_report() {
+    let began = Instant::now();
+    match restart_engine() {
+        Ok(()) => {
+            emit(r#"{"type":"enginestale","version":null}"#.to_owned());
+            // The page's engine toast, as the Mac's.
+            emit(json!({"type": "enginerestarted", "version": CURRENT, "ms": began.elapsed().as_millis() as u64}).to_string());
+        }
+        Err(e) => {
+            crate::serve::log(&format!("engine: did not restart ({e})"));
+            emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)])));
+            if let Some(v) = engine_version()
+                && newer(CURRENT, &v)
+            {
+                emit(json!({"type": "enginestale", "version": v}).to_string());
             }
         }
-        crate::engine::send(crate::engine::Cmd::Refresh);
-    });
+    }
+    crate::engine::send(crate::engine::Cmd::Refresh);
 }
 
 #[cfg(test)]

@@ -61,6 +61,15 @@ pub fn open_root(root: &Path) -> io::Result<OwnedFd> {
 /// Looks `path` up inside `root` the way the container will see it once
 /// root is `/`: absolute symlinks and `..` never leave `root`.
 pub fn open(root: BorrowedFd<'_>, path: &Path, last: Last) -> io::Result<Found> {
+    walk(root, path, last, true)
+}
+
+/// Looks up an existing path without creating missing parent directories.
+pub fn lookup(root: BorrowedFd<'_>, path: &Path) -> io::Result<Found> {
+    walk(root, path, Last::Exists, false)
+}
+
+fn walk(root: BorrowedFd<'_>, path: &Path, last: Last, create_parents: bool) -> io::Result<Found> {
     let mut todo: VecDeque<OsString> = components(path.as_os_str());
     // Directories walked so far; [0] is the root, which `..` never pops.
     let mut dirs: Vec<OwnedFd> = vec![root.try_clone_to_owned()?];
@@ -78,7 +87,7 @@ pub fn open(root: BorrowedFd<'_>, path: &Path, last: Last) -> io::Result<Found> 
         let fd = match open_nofollow(dir, &name) {
             Ok(fd) => fd,
             Err(e) if e.raw_os_error() == Some(libc::ENOENT) => {
-                let kind = if is_last { last } else { Last::Dir };
+                let kind = if is_last || !create_parents { last } else { Last::Dir };
                 make(dir, &name, kind).map_err(|e| with_path(e, path))?;
                 created = is_last;
                 open_nofollow(dir, &name).map_err(|e| with_path(e, path))?
@@ -296,6 +305,23 @@ mod tests {
         let r = open_root(&root).unwrap();
         assert!(open(r.as_fd(), Path::new("/f/x"), Last::Dir).is_err());
         assert!(open(r.as_fd(), Path::new("/missing"), Last::Exists).is_err());
+    }
+
+    #[test]
+    fn existing_lookup_never_creates_missing_parents() {
+        let (_t, root, outside) = setup("lookup");
+        let r = open_root(&root).unwrap();
+        assert!(lookup(r.as_fd(), Path::new("/missing/child")).is_err());
+        assert!(!root.join("missing").exists());
+        symlink("/also-missing/child", root.join("link")).unwrap();
+        assert!(lookup(r.as_fd(), Path::new("/link/leaf")).is_err());
+        assert!(!root.join("also-missing").exists());
+        symlink(outside.join("secret"), root.join("outside-link")).unwrap();
+        assert!(lookup(r.as_fd(), Path::new("/outside-link/key.txt")).is_err());
+        assert_eq!(fs::read(outside.join("secret/key.txt")).unwrap(), b"mac");
+        fs::create_dir(root.join("real")).unwrap();
+        symlink("/real", root.join("real-link")).unwrap();
+        assert_eq!(rel(&root, &lookup(r.as_fd(), Path::new("/real-link")).unwrap()), Path::new("real"));
     }
 
     #[test]
