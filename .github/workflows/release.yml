@@ -394,11 +394,19 @@ jobs:
           cargo xtask dmg --arch "$ARCH"
           python3 scripts/ci/macos-signing.py finalize --app "$APP" --arch "$ARCH" --version "$VERSION"
           codesign --verify --deep --strict "$APP"
+          python3 scripts/ci/macos-package.py --app "$APP" --archive "target/Asagiri-$VERSION-$ARCH.tar.gz" --arch "$ARCH" --version "$VERSION" --output "$RUNNER_TEMP/macos-package-identity.json"
           hdiutil verify "target/Asagiri-$VERSION-$ARCH.dmg"
           if [ "$ARCH" = x86_64 ]; then
             python3 packaging/qemu/bundle.py verify --directory "$APP/Contents/Resources/qemu"
           fi
           cp "target/Asagiri-$VERSION-$ARCH.tar.gz" "target/Asagiri-$VERSION-$ARCH.dmg" "target/latest-mac-$ARCH.json" "$RUNNER_TEMP/packages/"
+      - name: Preserve the verified Mac package identity
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-package-identity-${{ matrix.arch }}
+          path: ${{ runner.temp }}/macos-package-identity.json
+          if-no-files-found: error
+          retention-days: 90
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-macos-${{ matrix.arch }}

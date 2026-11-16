@@ -113,6 +113,20 @@ class ReleaseTests(unittest.TestCase):
         rerun = {**runs[0], "id": 100, "conclusion": "failure"}
         self.assertEqual(release.checked_runs([*runs, rerun], COMMIT)[1], [rerun["name"]])
 
+    def test_release_waits_for_the_three_engine_comparison(self):
+        complete = self.checks()
+        absent = [run for run in complete if run["name"] != "Engine comparison"]
+        self.assertEqual(release.checked_runs(absent, COMMIT)[1], ["Engine comparison"])
+        comparison = next(run for run in complete if run["name"] == "Engine comparison")
+        for changed in (dict(comparison, status="in_progress", conclusion=None),
+                        dict(comparison, conclusion="failure"),
+                        dict(comparison, head_sha="b" * 40)):
+            self.assertEqual(release.checked_runs([*absent, changed], COMMIT)[1], ["Engine comparison"])
+        event = {**self.retry_event(), "workflow_run": {
+            **comparison, "head_repository": {"full_name": REPO},
+        }}
+        self.assertEqual(release.retry_source(event, REPO), COMMIT)
+
     def test_manual_speed_experiments_cannot_replace_the_main_push_gate(self):
         runs = self.checks()
         speed = next(item for item in runs if item["name"] == "Speed")
