@@ -582,6 +582,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Retain(keep)) => {
+                    roots.retain(keep);
                     let leased = roots.unfinished();
                     let running: Vec<&str> = procs.values().map(|p| p.run.id.as_str()).chain(leased.iter().map(String::as_str)).collect();
                     container::retain(paths, keep, &running);

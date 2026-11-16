@@ -106,6 +106,12 @@ impl Process {
     pub(super) fn test_process(id: &str, pid: libc::pid_t) -> Self {
         Self { id: id.to_owned(), pid, ..Self::default() }
     }
+
+    pub(super) fn test_container(id: &str, pid: libc::pid_t, paths: &Paths, remove: bool) -> Self {
+        Self { id: id.to_owned(), pid,
+            teardown: Some(Teardown { base: paths.containers.join(id), cgroup: paths.cgroup.join(id), remove }),
+            ..Self::default() }
+    }
 }
 
 #[derive(Debug)]
@@ -661,7 +667,7 @@ pub fn has_filesystem_teardown(p: &Process) -> bool { p.teardown.is_some() }
 pub fn release_root(p: &Process, roots: &super::roots::Roots) {
     if let Some(t) = &p.teardown {
         if t.remove { roots.remove(&p.id); }
-        roots.release(&p.id);
+        roots.release_idle(&p.id);
     }
 }
 
