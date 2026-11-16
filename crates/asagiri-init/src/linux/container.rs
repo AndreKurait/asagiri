@@ -1215,6 +1215,7 @@ fn tmpfs_flags(words: &[&str]) -> libc::c_ulong {
 /// target is looked up inside `root`, so an image's symlink cannot point
 /// the mount, the copy-up or the new directory outside the container.
 fn apply_mount(root: BorrowedFd<'_>, image: Option<BorrowedFd<'_>>, m: &Mount) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
     let t = Path::new(std::ffi::OsStr::from_bytes(m.target.to_bytes()));
     if let Some(opts) = &m.tmpfs_opts {
         let at = inroot::open(root, t, Last::Dir)?;
@@ -1229,20 +1230,31 @@ fn apply_mount(root: BorrowedFd<'_>, image: Option<BorrowedFd<'_>>, m: &Mount) -
         // `/app/node_modules` must get the image's node_modules, not the
         // host's): looked up in the image's own tree when there is one.
         let from = match image {
-            Some(img) => inroot::open(img, t, Last::Exists).ok(),
+            Some(img) => inroot::lookup(img, t).ok(),
+            None if !at.created => Some(inroot::Found { fd: at.fd.try_clone()?, created: false }),
             None => None,
         };
-        let from_path = match &from {
-            Some(f) => Some(f.proc_path()),
-            None if image.is_none() && !at.created => Some(target.clone()),
-            None => None,
-        };
-        if let Some(from_path) = from_path {
+        if let Some(from) = from {
+            let from_path = from.proc_path();
             let src_path = Path::new(std::ffi::OsStr::from_bytes(src.to_bytes()));
             let image_path = Path::new(std::ffi::OsStr::from_bytes(from_path.to_bytes()));
-            let empty = fs::read_dir(src_path).map(|mut d| d.next().is_none()).unwrap_or(false);
-            if empty && image_path.is_dir() {
-                copy_tree(image_path, src_path)?;
+            let meta = fs::metadata(image_path)?;
+            if meta.is_dir() {
+                if at.created && image.is_some() {
+                    let target_meta = fs::File::from(at.fd.try_clone()?).metadata()?;
+                    if (meta.dev(), meta.ino()) == (target_meta.dev(), target_meta.ino()) {
+                        // open_tree shares the writable layer: a target just
+                        // created there also appears in the image view. Its
+                        // default owner/mode must not overwrite volume options.
+                        // A target created inside a host bind has a different
+                        // identity, so never receives this persistent marker.
+                        mark_generated_mountpoint(&at)?;
+                    }
+                }
+                let empty = fs::read_dir(src_path).map(|mut d| d.next().is_none()).unwrap_or(false);
+                if empty && !is_generated_mountpoint(&from)? {
+                    copy_tree(image_path, src_path)?;
+                }
             }
         }
     }
@@ -1255,6 +1267,40 @@ fn apply_mount(root: BorrowedFd<'_>, image: Option<BorrowedFd<'_>>, m: &Mount) -
     }
     Ok(())
 }
+
+/// Reopens an owned O_PATH directory for descriptor-based xattr operations.
+fn mountpoint_dir(at: &inroot::Found) -> io::Result<OwnedFd> {
+    // SAFETY: the borrowed descriptor is live and "." stays in that directory.
+    let fd = unsafe { libc::openat(at.fd.as_raw_fd(), c".".as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if fd < 0 { return Err(io::Error::last_os_error()); }
+    // SAFETY: openat returned a new descriptor owned only here.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+fn mark_generated_mountpoint(at: &inroot::Found) -> io::Result<()> {
+    let fd = mountpoint_dir(at)?;
+    // SAFETY: valid owned directory, attribute name and one-byte value.
+    let result = unsafe { libc::fsetxattr(fd.as_raw_fd(), c"user.asagiri.mountpoint".as_ptr(), b"1".as_ptr().cast(), 1, 0) };
+    if result < 0 { return Err(io::Error::last_os_error()); }
+    Ok(())
+}
+
+fn is_generated_mountpoint(at: &inroot::Found) -> io::Result<bool> {
+    let fd = mountpoint_dir(at)?;
+    let mut value = [0u8; 1];
+    // SAFETY: valid owned directory and writable one-byte buffer.
+    let size = unsafe { libc::fgetxattr(fd.as_raw_fd(), c"user.asagiri.mountpoint".as_ptr(), value.as_mut_ptr().cast(), value.len()) };
+    if size >= 0 { return Ok(size == 1 && value == *b"1"); }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ENODATA | libc::EOPNOTSUPP | libc::ERANGE) => Ok(false),
+        _ => Err(error),
+    }
+}
+
+#[cfg(test)]
+#[path = "container_mount_tests.rs"]
+mod volume_mount_tests;
 
 /// A detached copy of the current directory's mount (the container's
 /// root) without the mounts on it: the image as it is under any bind.

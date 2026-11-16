@@ -48,6 +48,7 @@ if [ "$mode" = tests ]; then set -- "$@" --privileged; fi
     if [ "$mode" = tests ]; then
       export ASAGIRI_REQUIRE_MOUNTED_FILE_VIEW_TEST=1
       export ASAGIRI_REQUIRE_MANY_LAYER_TEST=1
+      export ASAGIRI_REQUIRE_VOLUME_OWNER_TEST=1
       cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
     fi
     cargo build --release --locked -p "$engine" -p "$engine-init"
