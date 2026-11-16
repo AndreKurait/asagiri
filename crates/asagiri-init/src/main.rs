@@ -8,6 +8,9 @@
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
+mod layer_tar;
+
 #[cfg(target_os = "linux")]
 fn main() {
     linux::main();

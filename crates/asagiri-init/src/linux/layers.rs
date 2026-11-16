@@ -281,6 +281,8 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
         let kind = entry.header().entry_type();
         if kind.is_fifo() || kind.is_character_special() || kind.is_block_special() {
             unpack_special(&mut entry, dest, &path)?;
+        } else if kind.is_hard_link() {
+            crate::layer_tar::unpack_hardlink(&mut entry, dest)?;
         } else {
             entry.unpack_in(dest)?;
         }
@@ -454,6 +456,25 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn absolute_hardlink_is_relative_to_the_layer_root() {
+        use std::os::unix::fs::MetadataExt;
+        let mut builder = tar::Builder::new(Vec::new());
+        builder.append_data(&mut header(4, 0o640), "bin/tool", &b"tool"[..]).unwrap();
+        let mut link = header(0, 0o777);
+        link.set_entry_type(tar::EntryType::Link);
+        builder.append_link(&mut link, "bin/tool-1.0", "/bin/tool").unwrap();
+        let bytes = builder.into_inner().unwrap();
+        let dest = scratch("absolute-hardlink");
+        untar(Capped { inner: &bytes[..], left: u64::MAX }, &dest).unwrap();
+        let original = fs::metadata(dest.join("bin/tool")).unwrap();
+        let linked = fs::metadata(dest.join("bin/tool-1.0")).unwrap();
+        assert_eq!(fs::read(dest.join("bin/tool-1.0")).unwrap(), b"tool");
+        assert_eq!((original.dev(), original.ino()), (linked.dev(), linked.ino()));
+        assert_eq!(linked.mode() & 0o7777, 0o640);
+        fs::remove_dir_all(dest).unwrap();
     }
 
     /// A layer whose first entry makes `foo` a symlink to `/` and whose
