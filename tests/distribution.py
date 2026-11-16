@@ -106,8 +106,11 @@ def check(socket_path, reference_docker=False):
             else:
                 code = 404
                 body = encoded({"errors": [{"code": "BLOB_UNKNOWN", "message": "blob unknown"}]})
+            # Header bytes come only from this fixture's fixed media types,
+            # even though the shared state also records incoming request paths.
+            content_type = next(kind for kind in ("application/json", INDEX, MANIFEST, CONFIG) if kind == media)
             self.send_response(code)
-            self.send_header("Content-Type", media)
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Docker-Distribution-Api-Version", "registry/2.0")
             self.send_header("Connection", "close")
