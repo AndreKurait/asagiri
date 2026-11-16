@@ -5,6 +5,7 @@ on:
     paths:
       - 'guest/kernel/**'
       - 'tests/kernel-loop*'
+      - 'tests/kernel-fsnotify*'
       - 'tests/kernel-config-regressions.py'
       - '.github/workflows/guest-kernels.yml'
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - 'guest/kernel/**'
       - 'tests/kernel-loop*'
+      - 'tests/kernel-fsnotify*'
       - 'tests/kernel-config-regressions.py'
       - '.github/workflows/guest-kernels.yml'
   workflow_dispatch:
@@ -29,7 +31,7 @@ env:
 
 jobs:
   boot:
-    name: Boot ARM64 and x86_64 guest loop devices
+    name: Boot ARM64 and x86_64 guest kernels
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -78,6 +80,15 @@ jobs:
         with:
           name: guest-loop
           path: ${{ runner.temp }}/guest-loop
+          if-no-files-found: error
+          retention-days: 14
+      - name: Inject real inotify events and exercise guest share boundaries
+        run: python3 tests/kernel-fsnotify.py --output "$RUNNER_TEMP/guest-fsnotify"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: guest-fsnotify
+          path: ${{ runner.temp }}/guest-fsnotify
           if-no-files-found: error
           retention-days: 14
       - name: Preserve the exact kernels used by the boot tests

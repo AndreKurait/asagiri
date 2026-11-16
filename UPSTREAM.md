@@ -4,16 +4,25 @@ Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
 The original Apache-2.0 license, copyright notices, and Git history are preserved.
 The rename does not change the authorship of inherited code.
 
-Upstream `main` was reviewed on **2026-11-15** at
-`b249eccc2ed708ce10d7feeb82b6c0869b112443`. Its complete history through
+Upstream `main` was reviewed on **2026-11-16** at
+`260cf66b9b56963a0170857c2b4306c38814e108`. Its complete history through
 `baa2d41` is merged; later changes have reviewed ports or explicit equivalence.
-The [complete PR audit](docs/upstream-pr-audit.md) covers all **161** public PRs
-as of that review: 93 merged, 40 closed without merging, and 27 open. Every
+The [complete PR audit](docs/upstream-pr-audit.md) covers all **205** public PRs
+in the retained snapshot: 105 merged, 59 closed without merging, and 41 open. Every
 PR has an inheritance, port, equivalence, supersession, or hold recorded
 with its reviewed head.
-The [issue verification inventory](docs/issue-verification.md) maps all 78
+The [issue verification inventory](docs/issue-verification.md) maps all **126**
 reported issues to checks and remaining gaps. Closed upstream issues are not
 automatically considered verified on Asagiri.
+
+The audit separates released main and the native-checked `v0.1.6-dev.99`
+from the additional published candidate. That candidate includes the reviewed
+storage, registry, desktop, WSL, filewatch, runtime-option and Persian-language
+follow-ups; its combined CI and release remain pending. The
+[engine comparison](docs/engine-comparison.md) and
+[native Mac observations](docs/verification/native-macos-2026-11-16.json)
+identify the exact revisions and workloads checked. Native Windows, GTK/AppKit
+interaction, VPNs and the remaining application/feature gaps stay explicit.
 
 ## Integration policy
 

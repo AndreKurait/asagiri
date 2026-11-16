@@ -7,6 +7,7 @@
 
 use std::io;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -126,6 +127,7 @@ pub fn notice(kind: &str, text: &str) -> String {
 }
 
 fn state(name: &str, error: Option<&str>) -> String {
+    SHOWN.store(true, Ordering::SeqCst);
     match error {
         Some(e) => json!({"type": "state", "state": name, "error": e}),
         None => json!({"type": "state", "state": name}),
@@ -281,7 +283,7 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
 /// the engine for a refresh. Reconnects when the daemon comes back.
 fn watch(tx: Sender<Cmd>) {
     let _ = std::thread::Builder::new().name("asa-ui-events".into()).spawn(move || loop {
-        if client::alive() {
+        if client::alive_quick() {
             if tx.send(Cmd::Refresh).is_err() {
                 return;
             }
@@ -318,7 +320,9 @@ fn wake() -> io::Result<()> {
 /// the small Asagiri Linux distro starts /usr/local/bin/asagiri-start instead.
 pub(crate) fn ensure_daemon() -> io::Result<()> {
     static STARTING: Mutex<()> = Mutex::new(());
-    crate::daemon_start::ensure(&STARTING, client::alive, start_daemon)
+    crate::daemon_start::ensure(&STARTING, client::alive, start_daemon)?;
+    std::thread::spawn(crate::update::catch_up_engine);
+    Ok(())
 }
 
 /// Called with the startup guard held, after checking that the daemon is
@@ -337,14 +341,15 @@ fn start_daemon() -> io::Result<()> {
         cmd.args(["-d", d]);
     }
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-    let started = cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
-    if !started.is_ok_and(|s| s.success()) {
+    // Each killed after WSL_LIMIT: a wsl.exe right after Windows wakes can hang.
+    let started = crate::update::output_within(cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]), crate::update::WSL_LIMIT);
+    if !started.is_ok_and(|o| o.status.success()) {
         let mut cmd = crate::win::tool("wsl.exe");
         if let Some(d) = &distro {
             cmd.args(["-d", d]);
         }
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-        let _ = cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        let _ = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
     }
     for _ in 0..100 {
         if client::alive() {
@@ -370,10 +375,11 @@ fn queue_builder(builders: &Option<crate::daemon_start::Recovery>) {
 fn refresh() {
     *LISTED.lock().unwrap_or_else(|e| e.into_inner()) = std::time::Instant::now();
     let lists = (|| -> io::Result<Value> {
-        let containers = client::get("/containers/json?all=1")?;
-        let images = client::get("/images/json")?;
-        let volumes = client::get("/volumes")?;
-        let networks = client::get("/networks")?;
+        // Quick: a refresh never holds the engine thread behind a start.
+        let containers = client::get_quick("/containers/json?all=1")?;
+        let images = client::get_quick("/images/json")?;
+        let volumes = client::get_quick("/volumes")?;
+        let networks = client::get_quick("/networks")?;
         let add_icon = |mut v: Value, name_of: &dyn Fn(&Value) -> String| {
             if let Some(list) = v.as_array_mut() {
                 for item in list {
@@ -398,17 +404,13 @@ fn refresh() {
             emit(v.to_string());
             vm_panel();
         }
-        Err(_) => {
-            RUNNING.lock().unwrap_or_else(PoisonError::into_inner).clear();
-            Handle.set_menu(Menu { vm: "Not running".into(), running: Vec::new() });
-            emit(state("stopped", None));
-        }
+        Err(e) => no_answer(&e),
     }
 }
 
 /// The sidebar's engine panel and the tray menu's state.
 fn vm_panel() {
-    match client::get("/info") {
+    match client::get_quick("/info") {
         Ok(info) => {
             // A Linux host has no VM to put to sleep: it is always awake.
             let awake = info["AsagiriVmAwake"].as_bool().unwrap_or(true);
@@ -430,10 +432,36 @@ fn vm_panel() {
             let running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner).clone();
             Handle.set_menu(Menu { vm: if awake { "Running" } else if stopped { "Stopped" } else { "Asleep" }.into(), running });
         }
-        Err(_) => {
+        Err(e) => no_answer(&e),
+    }
+}
+
+/// Whether the window has been told any state yet (`state`).
+static SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// What the window and the tray show when a list or the engine panel got
+/// no answer (`unanswered`).
+fn no_answer(e: &io::Error) {
+    match unanswered(e.kind(), SHOWN.load(Ordering::SeqCst)) {
+        Some("stopped") => {
+            RUNNING.lock().unwrap_or_else(PoisonError::into_inner).clear();
             Handle.set_menu(Menu { vm: "Not running".into(), running: Vec::new() });
             emit(state("stopped", None));
         }
+        Some(s) => emit(state(s, None)),
+        None => {}
+    }
+}
+
+/// The state to show for a request that failed with `kind`: "stopped"
+/// when the engine refused or is not there; when it was only slow (QUICK
+/// passed: a loaded engine, or one the bridge is starting), nothing, so
+/// the last state stays, or "booting" if none was shown yet.
+fn unanswered(kind: io::ErrorKind, shown: bool) -> Option<&'static str> {
+    match kind {
+        io::ErrorKind::TimedOut if shown => None,
+        io::ErrorKind::TimedOut => Some("booting"),
+        _ => Some("stopped"),
     }
 }
 
@@ -872,7 +900,19 @@ fn allowed_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::allowed_url;
+    use super::{allowed_url, unanswered};
+    use std::io::ErrorKind;
+
+    /// Only a refused or absent engine shows as stopped; a slow answer
+    /// keeps what the window shows, or shows booting at first.
+    #[test]
+    fn a_slow_engine_is_not_shown_stopped() {
+        assert_eq!(unanswered(ErrorKind::TimedOut, true), None);
+        assert_eq!(unanswered(ErrorKind::TimedOut, false), Some("booting"));
+        assert_eq!(unanswered(ErrorKind::NotFound, true), Some("stopped"));
+        assert_eq!(unanswered(ErrorKind::ConnectionRefused, false), Some("stopped"));
+        assert_eq!(unanswered(ErrorKind::Other, true), Some("stopped"));
+    }
 
     #[test]
     fn only_asagiris_own_urls_open() {
@@ -1280,10 +1320,49 @@ pub fn on_message(msg: &str) {
         cmd @ ("diaglogs" | "diagreport" | "diagsend" | "diagcrashes" | "diagsendcrash" | "diagfolder") => {
             crate::diag::handle(cmd, c.name, c.id, &c.value);
         }
-        "importsources" => emit(json!({"type": "importsources", "sources": []}).to_string()),
+        // Settings → Import, from Docker Desktop: as on the Mac and Linux.
+        "importsources" => {
+            std::thread::spawn(|| emit(json!({"type": "importsources", "sources": crate::import::sources()}).to_string()));
+        }
+        "inventory" => {
+            let source = c.name;
+            std::thread::spawn(move || {
+                let event = match crate::import::inventory(&source) {
+                    Ok(mut v) => {
+                        v["type"] = "inventory".into();
+                        v
+                    }
+                    Err(e) => json!({"type": "inventory", "source": source, "error": e.to_string()}),
+                };
+                emit(event.to_string());
+            });
+        }
+        "import" => {
+            let (source, picked) = (c.name, c.value);
+            std::thread::spawn(move || {
+                let (mut done, mut failed) = (0, 0);
+                for (kind, f) in [("images", crate::import::image as fn(&str, &str) -> std::io::Result<()>), ("volumes", crate::import::volume), ("containers", crate::import::container)] {
+                    for name in picked[kind].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
+                        emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "running"}).to_string());
+                        match f(&source, name) {
+                            Ok(()) => {
+                                done += 1;
+                                emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "done"}).to_string());
+                            }
+                            Err(e) => {
+                                failed += 1;
+                                emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "error", "error": e.to_string()}).to_string());
+                            }
+                        }
+                    }
+                }
+                emit(json!({"type": "importdone", "done": done, "failed": failed}).to_string());
+                send(Cmd::Refresh);
+            });
+        }
         "zoom" => Handle.run(crate::app::Ui::toggle_maximized),
         // The window has Windows' own title bar to drag.
-        "drag" | "toolsretry" | "inventory" | "import" => {}
+        "drag" | "toolsretry" => {}
         _ => {}
     }
 }

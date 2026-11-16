@@ -271,6 +271,37 @@ fn io_error(e: io::Error, reason: Timeout) -> Error {
     }
 }
 
+/// Windows cancellable pulls cannot depend on shutdown waking a blocking
+/// recv. Each poll spends the same full read budget, including interrupted
+/// reads. Restore blocking mode before returning so the pooled connection's
+/// next write or uncancellable request retains its normal socket semantics.
+#[cfg(any(windows, test))]
+fn cancellable_read(stream: &Arc<TcpStream>, input: &mut [u8], limit: Duration) -> io::Result<usize> {
+    crate::cancel::watch(stream)?;
+    stream.set_nonblocking(true)?;
+    let started = Instant::now();
+    let result = loop {
+        if crate::cancel::cancelled() {
+            break Err(io::Error::other("pull cancelled"));
+        }
+        let left = limit.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            break Err(io::ErrorKind::TimedOut.into());
+        }
+        match (&**stream).read(input) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(crate::cancel::POLL.min(limit.saturating_sub(started.elapsed())));
+            }
+            result => break if crate::cancel::cancelled() { Err(io::Error::other("pull cancelled")) } else { result },
+        }
+    };
+    // Attempt restoration on failures too, preserving the original read or
+    // cancellation error if both operations fail.
+    let restored = stream.set_nonblocking(false);
+    result.and_then(|amount| restored.map(|()| amount))
+}
+
 impl Transport for TcpTransport {
     fn buffers(&mut self) -> &mut dyn Buffers {
         &mut self.buffers
@@ -299,6 +330,12 @@ impl Transport for TcpTransport {
         crate::cancel::watch(&self.stream)?;
         let started = Instant::now();
         let input = self.buffers.input_append_buf();
+        #[cfg(windows)]
+        if crate::cancel::active() {
+            let amount = cancellable_read(&self.stream, input, limit.unwrap_or(self.stall)).map_err(|e| io_error(e, timeout.reason))?;
+            self.buffers.input_appended(amount);
+            return Ok(amount > 0);
+        }
         let amount = loop {
             match (&*self.stream).read(input) {
                 // A signal: Linux does not restart a socket read that has a
@@ -449,6 +486,77 @@ mod tests {
         let closed = TcpListener::bind("[::1]:0").ok().map(|l| l.local_addr().unwrap()).unwrap_or(addr("[::1]:9"));
         let stream = race(&[closed, open], ATTEMPT_DELAY, Some(Duration::from_secs(5)), Arc::new(|a, limit| connect_one(a, limit, true))).unwrap();
         assert_eq!(stream.peer_addr().unwrap(), open);
+    }
+
+    #[test]
+    fn cancellable_socket_read_ends_before_the_stall_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let (_server, _) = listener.accept().unwrap();
+        let cancel = crate::cancel::Cancel::new();
+        let (ready, waiting) = mpsc::channel();
+        let pull = cancel.clone();
+        let reader = thread::spawn(move || {
+            let _on = pull.enter();
+            let started = Instant::now();
+            ready.send(()).unwrap();
+            let result = cancellable_read(&client, &mut [0; 16], Duration::from_secs(5));
+            (result, started.elapsed())
+        });
+        waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        cancel.cancel();
+        let (result, elapsed) = reader.join().unwrap();
+        assert_eq!(result.unwrap_err().to_string(), "pull cancelled");
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+    }
+
+    #[test]
+    fn polling_keeps_the_read_budget_and_restores_blocking_after_data() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let (next, resume) = mpsc::channel();
+        let writer = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            server.write_all(b"a").unwrap();
+            resume.recv_timeout(Duration::from_secs(2)).unwrap();
+            thread::sleep(Duration::from_millis(300));
+            server.write_all(b"b").unwrap();
+        });
+        let cancel = crate::cancel::Cancel::new();
+        let _on = cancel.enter();
+        let started = Instant::now();
+        let mut first = [0; 1];
+        let amount = cancellable_read(&client, &mut first, Duration::from_secs(2)).unwrap();
+        assert_eq!((amount, first), (1, *b"a"));
+        // A leaked nonblocking mode would return WouldBlock before b arrives.
+        next.send(()).unwrap();
+        let mut second = [0; 1];
+        (&*client).read_exact(&mut second).unwrap();
+        assert_eq!(&second, b"b");
+        assert!(started.elapsed() >= Duration::from_millis(550), "{:?}", started.elapsed());
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn polling_timeout_uses_the_whole_budget_and_restores_blocking() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let (_server, _) = listener.accept().unwrap();
+        let cancel = crate::cancel::Cancel::new();
+        let _on = cancel.enter();
+        let started = Instant::now();
+        let result = cancellable_read(&client, &mut [0; 1], Duration::from_millis(250));
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(started.elapsed() >= Duration::from_millis(250), "{:?}", started.elapsed());
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        client.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        let started = Instant::now();
+        let error = (&*client).read(&mut [0; 1]).unwrap_err();
+        assert!(matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut), "{error}");
+        assert!(started.elapsed() >= Duration::from_millis(150), "socket stayed nonblocking");
     }
 }
 

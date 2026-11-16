@@ -2,15 +2,14 @@
 //! Source paths arrive as shell arguments, never interpolated shell code.
 
 pub(super) const OWNED_DISTRO: &str = "set -eu\n\
-    cp -f -- \"$1\" /usr/local/bin/asagiri.new\n\
-    cp -f -- \"$2\" /usr/local/bin/asagiri-init.new\n\
-    chmod 755 /usr/local/bin/asagiri.new /usr/local/bin/asagiri-init.new\n\
-    mv -f /usr/local/bin/asagiri.new /usr/local/bin/asagiri\n\
-    mv -f /usr/local/bin/asagiri-init.new /usr/local/bin/asagiri-init\n\
-    pkill -f '^/usr/local/bin/[a]sagiri daemon($| )' || [ \"$?\" -eq 1 ]\n\
+    trap 'rm -f -- /usr/local/bin/asagiri.new.$$ /usr/local/bin/asagiri-init.new.$$' EXIT\n\
+    cp -f -- \"$1\" /usr/local/bin/asagiri.new.$$\n\
+    cp -f -- \"$2\" /usr/local/bin/asagiri-init.new.$$\n\
+    chmod 755 /usr/local/bin/asagiri.new.$$ /usr/local/bin/asagiri-init.new.$$\n\
+    mv -f /usr/local/bin/asagiri.new.$$ /usr/local/bin/asagiri\n\
+    mv -f /usr/local/bin/asagiri-init.new.$$ /usr/local/bin/asagiri-init\n\
     pkill -f '^/usr/local/bin/[a]sagiri bridge($| )' || [ \"$?\" -eq 1 ]\n\
-    sleep 1\n\
-    exec /usr/local/bin/asagiri-start";
+    exec /usr/local/bin/asagiri-start --restart";
 
 pub(super) const PACKAGE_DISTRO: &str =
     "set -eu\nsh \"$3\"\npkill -f '^/usr/local/bin/[a]sagiri bridge($| )' || [ \"$?\" -eq 1 ]";
@@ -35,7 +34,7 @@ mod tests {
             let fixture = Self { root };
             std::fs::create_dir(fixture.root.join("engine")).unwrap();
             std::fs::create_dir(fixture.root.join("tools")).unwrap();
-            fixture.program("engine/asagiri-start", "#!/bin/sh\nprintf 'start\\n' >> \"$ASAGIRI_TEST_EVENTS\"\n");
+            fixture.program("engine/asagiri-start", "#!/bin/sh\nprintf 'start %s\\n' \"$*\" >> \"$ASAGIRI_TEST_EVENTS\"\n");
             fixture.program("tools/pkill", "#!/bin/sh\n\
                 [ \"$1\" = -f ] || exit 2\n\
                 [ \"${ASAGIRI_TEST_KILL_FAILURE:-0}\" = 0 ] || exit 2\n\
@@ -85,7 +84,7 @@ mod tests {
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         assert_eq!(std::fs::read(fixture.root.join("engine/asagiri")).unwrap(), b"new engine");
         assert_eq!(std::fs::read(fixture.root.join("engine/asagiri-init")).unwrap(), b"new init");
-        assert_eq!(fixture.events(), format!("{0}/engine/asagiri daemon\n{0}/engine/asagiri bridge --stdio\nstart\n", fixture.root.display()));
+        assert_eq!(fixture.events(), format!("{0}/engine/asagiri bridge --stdio\nstart --restart\n", fixture.root.display()));
     }
 
     #[test]
@@ -95,6 +94,9 @@ mod tests {
         assert_eq!(std::fs::read(fixture.root.join("engine/asagiri")).unwrap(), b"old engine");
         assert_eq!(std::fs::read(fixture.root.join("engine/asagiri-init")).unwrap(), b"old init");
         assert!(fixture.events().is_empty());
+        assert!(std::fs::read_dir(fixture.root.join("engine")).unwrap().all(|entry| {
+            !entry.unwrap().file_name().to_string_lossy().contains(".new.")
+        }));
     }
 
     #[test]
@@ -111,7 +113,7 @@ mod tests {
         let fixture = Fixture::new();
         std::fs::write(fixture.root.join("processes"), b"").unwrap();
         assert!(fixture.run(OWNED_DISTRO, &fixture.root.join("init's new; file"), Path::new(""), false).status.success());
-        assert_eq!(fixture.events(), "start\n");
+        assert_eq!(fixture.events(), "start --restart\n");
         std::fs::remove_file(fixture.root.join("events")).unwrap();
         assert!(!fixture.run(OWNED_DISTRO, &fixture.root.join("init's new; file"), Path::new(""), true).status.success());
         assert!(fixture.events().is_empty());

@@ -8871,7 +8871,8 @@ const BUILTIN_NETS = new Set(["bridge", "host", "none"]);
    is a remove, with Undo). */
 const LISTS = {
   containers: {
-    all: () => ui.containers, key: (c) => c.Id, name: cname, hit: (c) => match(c.Names[0], c.Image), noun: "containers",
+    all: () => ui.containers, key: (c) => c.Id, name: cname, hit: (c) => match(c.Names[0], c.Image,
+      ...(c.Ports || []).flatMap((p) => [p.PublicPort, p.PrivatePort])), noun: "containers",
     state: ctrState,
     tabs: [["running", "Running", "moss"], ["stopped", "Stopped", ""], ["failed", "Failed", "red", true]],
     // A folded Compose project's containers aren't on screen, so Select all leaves them.
