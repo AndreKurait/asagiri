@@ -7,6 +7,10 @@ The 0.1.6 changes include:
   codes 127 and 126; inspect retains the error across daemon restarts and
   clears it after a successful retry. Post-start exec and `--init` exits
   keep their process-exit behavior.
+- PATH lookup preserves permission failures and still tries later entries.
+  Cleanup errors retain the command-rejection type, and serialized state
+  snapshots prevent an older failure from overwriting a successful retry.
+  Non-regular passwd and group files no longer block account lookups.
 - Bounded cgroup shutdown with pinned process handles, nested and threaded
   group handling, and cleanup that recognizes an already removed group
   without targeting a replacement at the same path.

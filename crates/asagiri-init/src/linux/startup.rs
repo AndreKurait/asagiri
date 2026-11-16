@@ -20,6 +20,16 @@ pub fn rejected(error: &io::Error) -> bool {
     error.get_ref().is_some_and(|e| e.is::<Rejected>())
 }
 
+/// Cleanup context must not turn a rejected command into a transport failure.
+pub fn with_cleanup_error(error: io::Error, cleanup: &io::Error) -> io::Error {
+    let message = format!("{error}; {cleanup}; cleanup will retry");
+    if rejected(&error) {
+        io::Error::new(error.kind(), Rejected(message))
+    } else {
+        io::Error::new(error.kind(), message)
+    }
+}
+
 /// Only the cloned child owns this descriptor. A successful setup closes it;
 /// a failed child exits without running the parent's inherited destructors.
 #[derive(Debug)]
@@ -124,6 +134,12 @@ mod tests {
             let error = wait(read).unwrap_err();
             assert_eq!(error.to_string(), "exec: missing command");
             assert_eq!(rejected(&error), invalid);
+            let kind = error.kind();
+            let cleanup = io::Error::new(io::ErrorKind::TimedOut, "cgroup still populated");
+            let contextual = with_cleanup_error(error, &cleanup);
+            assert_eq!(rejected(&contextual), invalid);
+            assert_eq!(contextual.kind(), kind);
+            assert_eq!(contextual.to_string(), "exec: missing command; cgroup still populated; cleanup will retry");
         }
     }
 

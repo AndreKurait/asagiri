@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Failed starts retain their API error until a successful retry, including across daemon restart."""
 import argparse
+import base64
 import http.client
 import io
 import json
@@ -32,7 +33,7 @@ def check(args):
     owned = []
     retain = False
 
-    def request(method, route, body=None, statuses=(200,), raw=False):
+    def request(method, route, body=None, statuses=(200,), raw=False, path_stat=False):
         connection = Connection(args.socket)
         try:
             payload = body if isinstance(body, bytes) else None if body is None else json.dumps(body)
@@ -43,6 +44,8 @@ def check(args):
             if route == "/containers/create" and response.status == 201:
                 owned.append(json.loads(data)["Id"])
             assert response.status in statuses, (method, route, response.status, data)
+            if path_stat:
+                return json.loads(base64.b64decode(response.getheader("X-Docker-Container-Path-Stat"), validate=True))
             return data if raw else json.loads(data) if data else None
         finally:
             connection.close()
@@ -55,26 +58,44 @@ def check(args):
     def failed(cid, expected_exit, text):
         error = request("POST", "/containers/" + cid + "/start", statuses=(400,))["message"]
         state = inspect(cid)
-        assert text in error.lower(), error
         assert state["Error"] == error and state["ExitCode"] == expected_exit, (state, error)
+        assert text in error.lower(), error
         assert not state["Running"] and state["Pid"] == 0, state
         return error
+
+    def put_entry(cid, directory, name, mode, content=b"", kind=tarfile.REGTYPE):
+        path = Path(name)
+        assert not path.is_absolute() and ".." not in path.parts
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            for parent in reversed(path.parents):
+                if str(parent) == ".":
+                    continue
+                item = tarfile.TarInfo(str(parent))
+                item.type, item.mode = tarfile.DIRTYPE, 0o755
+                tar.addfile(item)
+            item = tarfile.TarInfo(str(path))
+            item.type, item.mode = kind, mode
+            item.size = len(content) if kind == tarfile.REGTYPE else 0
+            tar.addfile(item, io.BytesIO(content) if item.size else None)
+        request("PUT", "/containers/" + cid + "/archive?path=" + directory, archive.getvalue())
 
     def upload(cid, mode, content=None):
         if content is None:
             content = ("#!/bin/sh\nprintf '%s\\n' started-" + nonce + "\n").encode()
-        archive = io.BytesIO()
-        with tarfile.open(fileobj=archive, mode="w") as tar:
-            item = tarfile.TarInfo(Path(COMMAND).name)
-            item.size, item.mode = len(content), mode
-            tar.addfile(item, io.BytesIO(content))
-        request("PUT", "/containers/" + cid + "/archive?path=/tmp", archive.getvalue())
+        put_entry(cid, "/tmp", Path(COMMAND).name, mode, content)
 
-    def create(tty=False, init=False):
-        return request("POST", "/containers/create", {
-            "Image": args.image, "Cmd": [COMMAND], "Tty": tty, "Labels": {LABEL: nonce},
+    def create(tty=False, init=False, command=None, env=None, user=None):
+        body = {
+            "Image": args.image, "Cmd": command if command is not None else [COMMAND],
+            "Tty": tty, "Labels": {LABEL: nonce},
             "HostConfig": {"NetworkMode": "none", "Init": init, "RestartPolicy": {"Name": "no"}},
-        }, (201,))["Id"]
+        }
+        if env is not None:
+            body["Env"] = env
+        if user is not None:
+            body["User"] = user
+        return request("POST", "/containers/create", body, (201,))["Id"]
 
     def prepare(tty=False):
         cid = create(tty)
@@ -85,15 +106,18 @@ def check(args):
         assert permission != missing, "a later failure must replace the earlier error"
         return cid, permission
 
-    def recover(cid):
-        upload(cid, 0o755)
+    def successful(cid, marker):
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
         status = request("POST", "/containers/" + cid + "/wait")["StatusCode"]
         state = inspect(cid)
         assert status == 0 and state["ExitCode"] == 0 and not state["Running"], state
         assert state["Error"] == "", state
         logs = request("GET", "/containers/" + cid + "/logs?stdout=1", raw=True)
-        assert ("started-" + nonce).encode() in logs, logs
+        assert marker.encode() in logs, logs
+
+    def recover(cid):
+        upload(cid, 0o755)
+        successful(cid, "started-" + nonce)
         # A fast process exit must not keep the previous failed-start error.
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
         assert request("POST", "/containers/" + cid + "/wait")["StatusCode"] == 0
@@ -116,6 +140,34 @@ def check(args):
         request("POST", "/containers/" + supervised + "/start", statuses=(204,))
         assert request("POST", "/containers/" + supervised + "/wait")["StatusCode"] == 0
         assert inspect(supervised)["Error"] == ""
+
+    def path_and_account_files():
+        command = Path(COMMAND).name
+        cid = create(command=[command], env=["PATH=/tmp/first:/tmp/later"])
+        script = ("#!/bin/sh\nprintf '%s\\n' path-" + nonce + "\n").encode()
+        put_entry(cid, "/tmp", "first/" + command, 0o644, script)
+        failed(cid, 126, "permission denied")
+        put_entry(cid, "/tmp", "later/" + command, 0o755, script)
+        successful(cid, "path-" + nonce)
+        print("PASS PATH permission failures use exit126 and a later executable still starts", flush=True)
+        config = request("GET", "/images/" + args.image + "/json")["Config"]
+        assert not any(item.startswith("HOME=") for item in config.get("Env") or []), "fixture must exercise HOME lookup"
+        for user, home in (("", "/root"), ("12345:12345", "/"), ("12345", "/")):
+            marker = "home-" + nonce + ":"
+            cid = create(user=user, command=["/bin/sh", "-c", "printf '%s%s\\n' " + marker + ' "$HOME"'])
+            put_entry(cid, "/etc", "passwd", 0o644, kind=tarfile.FIFOTYPE)
+            stat = request("HEAD", "/containers/" + cid + "/archive?path=/etc/passwd", path_stat=True)
+            assert stat["mode"] & (1 << 25), stat  # Docker/Go ModeNamedPipe.
+            successful(cid, marker + home)
+        regular = create(user="12345:12345", command=["/bin/sh", "-c", 'printf "%s\\n" "$HOME"'])
+        put_entry(regular, "/etc", "passwd", 0o644, b"app:x:12345:12345::/home/from-passwd:/bin/sh\n")
+        successful(regular, "/home/from-passwd")
+        group = create(command=["/bin/sh", "-c", 'printf "%s\\n" "$HOME"'])
+        put_entry(group, "/etc", "group", 0o644, kind=tarfile.FIFOTYPE)
+        stat = request("HEAD", "/containers/" + group + "/archive?path=/etc/group", path_stat=True)
+        assert stat["mode"] & (1 << 25), stat
+        successful(group, "/root")
+        print("PASS FIFO passwd/group files do not block startup; default, numeric and regular HOME lookup stays correct", flush=True)
 
     try:
         if args.verify_restart:
@@ -148,6 +200,7 @@ def check(args):
                 terminal, _ = prepare(tty=True)
                 recover(terminal)
                 post_start_controls()
+                path_and_account_files()
                 print("PASS pipe/TTY failed starts expose the latest error; successful and fast-exit retries clear it", flush=True)
                 print("PASS post-start exec failures and init supervision keep their process-exit semantics", flush=True)
     finally:
@@ -159,6 +212,7 @@ def check(args):
                     if state["Running"]:
                         request("POST", "/containers/" + cid + "/stop?t=1", statuses=(204,))
                     request("DELETE", "/containers/" + cid + "?v=1", statuses=(204,))
+                    request("GET", "/containers/" + cid + "/json", statuses=(404,))
                 except Exception as error:
                     errors.append((cid, repr(error)))
         assert not errors, ("ordinary cleanup failed", errors)

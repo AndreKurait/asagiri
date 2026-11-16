@@ -1561,6 +1561,8 @@ impl Engine {
 
     /// Writes `containers.json`. `--rm` containers are left out.
     fn save(&self) {
+        // Snapshot and replacement must follow the same writer order.
+        let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let json = {
             let st = self.lock();
             let saved: Vec<Saved> = st
@@ -1588,7 +1590,6 @@ impl Engine {
             serde_json::to_vec(&saved)
         };
         let Ok(json) = json else { return };
-        let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = self.records.with_extension("json.tmp");
         if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.records)) {
             crate::diag::error!("saving containers failed", error = e);

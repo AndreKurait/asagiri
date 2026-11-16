@@ -491,7 +491,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             // attempts keep this ID reserved and are retried by Roots.
             if remove { roots.remove(spec.id); }
             roots.release(spec.id);
-            return io::Error::new(error.kind(), format!("{error}; {stop}; cleanup will retry"));
+            return super::startup::with_cleanup_error(error, &stop);
         }
         // The rejected child is not in the process table. Reap it before
         // releasing its root lease, just as the normal exit path does.
@@ -1705,10 +1705,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
         // with 126/127; that is a process exit, not a rejected container start.
         startup.ready().unwrap_or_else(|e| fail("init readiness", e));
     }
-    let exe = find_executable(p).unwrap_or_else(|| {
-        let why = format!("exec: {:?}: executable file not found in $PATH", p.argv[0].to_string_lossy());
-        startup.error(&why, true);
-        child_fail(2, "command", io::Error::new(io::ErrorKind::NotFound, why))
+    let exe = find_executable(&p.argv[0], &p.path_dirs).unwrap_or_else(|error| {
+        startup.error(&error.to_string(), true);
+        child_fail(2, "command", error)
     });
     if console && !p.init {
         check_executable(&exe).unwrap_or_else(|e| {
@@ -1904,7 +1903,7 @@ fn harden_proc() -> io::Result<()> {
 /// the container's /etc/passwd and /etc/group when not numeric.
 /// The home directory /etc/passwd gives `uid`.
 fn home_of(uid: u32) -> Option<String> {
-    let text = fs::read_to_string("/etc/passwd").ok()?;
+    let text = super::hostopts::account_file("/etc/passwd")?;
     text.lines().find_map(|l| {
         let f: Vec<&str> = l.split(':').collect();
         (f.len() >= 6 && f[2].parse() == Ok(uid)).then(|| f[5].to_owned()).filter(|h| !h.is_empty())
@@ -1963,8 +1962,8 @@ pub(super) fn resolve_user(user: &str) -> io::Result<(libc::uid_t, libc::gid_t)>
     if user.is_empty() {
         return Ok((0, 0));
     }
-    let passwd = fs::read_to_string("/etc/passwd").unwrap_or_default();
-    let group = fs::read_to_string("/etc/group").unwrap_or_default();
+    let passwd = super::hostopts::account_file("/etc/passwd").unwrap_or_default();
+    let group = super::hostopts::account_file("/etc/group").unwrap_or_default();
     resolve_user_in(user, &passwd, &group)
 }
 
@@ -2007,21 +2006,27 @@ fn resolve_user_in(user: &str, passwd: &str, group: &str) -> io::Result<(libc::u
     Ok((uid, gid))
 }
 
-fn find_executable(p: &Prepared) -> Option<CString> {
-    let name = p.argv[0].as_bytes();
-    if name.contains(&b'/') {
-        return Some(p.argv[0].clone());
+fn find_executable(name: &CStr, path_dirs: &[Vec<u8>]) -> io::Result<CString> {
+    if name.to_bytes().contains(&b'/') {
+        return Ok(name.to_owned());
     }
-    p.path_dirs.iter().find_map(|dir| {
-        let mut full = Vec::with_capacity(dir.len() + 1 + name.len());
+    let mut denied = None;
+    for dir in path_dirs {
+        let mut full = Vec::with_capacity(dir.len() + 1 + name.to_bytes().len());
         full.extend_from_slice(dir);
         full.push(b'/');
-        full.extend_from_slice(name);
-        let c = CString::new(full).ok()?;
-        // SAFETY: valid NUL-terminated path.
-        (unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0
-            && !Path::new(std::ffi::OsStr::from_bytes(c.as_bytes())).is_dir()).then_some(c)
-    })
+        full.extend_from_slice(name.to_bytes());
+        let Ok(candidate) = CString::new(full) else { continue };
+        match check_executable(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::IsADirectory) => {
+                if denied.is_none() { denied = Some(error); }
+            }
+            Err(_) => {}
+        }
+    }
+    Err(denied.unwrap_or_else(|| io::Error::new(io::ErrorKind::NotFound,
+        format!("exec: {:?}: executable file not found in $PATH", name.to_string_lossy()))))
 }
 
 /// runc's LookPath runs in the final root as the configured user, before its
@@ -2382,15 +2387,29 @@ mod tests {
         let missing = super::check_executable(&command).unwrap_err();
         assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
         assert!(missing.to_string().contains("no such file or directory"));
+        let paths = vec![super::sys::cstr(&root).unwrap().as_bytes().to_vec()];
+        assert_eq!(super::find_executable(c"command", &paths).unwrap_err().kind(), std::io::ErrorKind::NotFound);
         std::fs::write(&file, b"echo no-shebang\n").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
         let denied = super::check_executable(&command).unwrap_err();
         assert_eq!(denied.kind(), std::io::ErrorKind::PermissionDenied);
         assert!(denied.to_string().contains("permission denied"));
+        let denied = super::find_executable(c"command", &paths).unwrap_err();
+        assert_eq!(denied.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(denied.to_string().contains("permission denied"));
+        let later = root.join("later");
+        std::fs::create_dir(&later).unwrap();
+        let later_file = later.join("command");
+        std::fs::write(&later_file, b"echo later\n").unwrap();
+        std::fs::set_permissions(&later_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut more_paths = paths.clone();
+        more_paths.push(super::sys::cstr(&later).unwrap().as_bytes().to_vec());
+        assert_eq!(super::find_executable(c"command", &more_paths).unwrap(), super::sys::cstr(&later_file).unwrap());
         let directory = super::check_executable(&super::sys::cstr(&root).unwrap()).unwrap_err();
         assert!(directory.to_string().contains("is a directory: permission denied"));
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
         super::check_executable(&command).unwrap();
+        assert_eq!(super::find_executable(c"command", &more_paths).unwrap(), command);
         std::fs::write(&file, b"#!/missing-interpreter\n").unwrap();
         super::check_executable(&command).unwrap();
         std::fs::remove_dir_all(root).unwrap();

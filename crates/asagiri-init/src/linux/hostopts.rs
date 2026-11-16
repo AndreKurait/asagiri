@@ -275,8 +275,23 @@ pub fn errno_text(e: &io::Error) -> String {
 /// /etc/group as runc does, every group that lists the user, unless the run
 /// named a group (`user:group`), then `--group-add`.
 pub fn supplementary_groups(user: &str, uid: u32, gid: u32, add: &[String]) -> io::Result<Vec<libc::gid_t>> {
-    let group_file = fs::read_to_string("/etc/group").unwrap_or_default();
+    let group_file = account_file("/etc/group").unwrap_or_default();
     groups_from(&group_file, user, || user_name(uid), gid, add)
+}
+
+/// Account entries can come from an image or mount. FIFOs and devices are not
+/// account databases and must not hold up the child's startup reply.
+pub(super) fn account_file(path: &str) -> Option<String> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    if !fs::metadata(path).ok()?.is_file() { return None; }
+    let mut file = fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY).open(path).ok()?;
+    // Recheck the opened file: a replaced path must not make the read block.
+    if !file.metadata().ok()?.is_file() { return None; }
+    let mut text = String::new();
+    file.read_to_string(&mut text).ok()?;
+    Some(text)
 }
 
 /// [`supplementary_groups`] over `group_file`'s text; `uid_name` gives the
@@ -317,7 +332,7 @@ fn groups_from(group_file: &str, user: &str, uid_name: impl FnOnce() -> Option<S
 
 /// The name /etc/passwd gives `uid`.
 fn user_name(uid: u32) -> Option<String> {
-    let text = fs::read_to_string("/etc/passwd").ok()?;
+    let text = account_file("/etc/passwd")?;
     text.lines().find_map(|l| {
         let f: Vec<&str> = l.split(':').collect();
         (f.len() >= 3 && f[2].parse() == Ok(uid)).then(|| f[0].to_owned())
@@ -327,6 +342,33 @@ fn user_name(uid: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_files_ignore_non_regular_nodes_and_keep_regular_contents() {
+        use std::os::unix::fs::symlink;
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        }
+        let root = std::env::temp_dir().join(format!("asagiri-account-file-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let read = |name: &str| account_file(root.join(name).to_str().unwrap());
+        let content = "app:x:12345:12345::/home/app:/bin/sh\n";
+        fs::write(root.join("passwd"), content).unwrap();
+        assert_eq!(read("passwd").as_deref(), Some(content));
+        assert!(read("missing").is_none());
+        fs::create_dir(root.join("directory")).unwrap();
+        assert!(read("directory").is_none());
+        let fifo = std::ffi::CString::new(root.join("fifo").to_str().unwrap()).unwrap();
+        // SAFETY: an owned, previously absent path with no embedded NUL.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(read("fifo").is_none(), "a FIFO without a writer must not block");
+        symlink("fifo", root.join("fifo-link")).unwrap();
+        assert!(read("fifo-link").is_none());
+        symlink("passwd", root.join("passwd-link")).unwrap();
+        assert_eq!(read("passwd-link").as_deref(), Some(content));
+    }
 
     #[test]
     fn the_users_own_group_is_a_supplementary_group_as_with_docker() {
