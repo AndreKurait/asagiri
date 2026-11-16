@@ -281,6 +281,10 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
         let kind = entry.header().entry_type();
         if kind.is_fifo() || kind.is_character_special() || kind.is_block_special() {
             unpack_special(&mut entry, dest, &path)?;
+        } else if kind.is_hard_link() {
+            if crate::layer_tar::unpack_hardlink(&mut entry, dest)? {
+                hardlink_metadata(&mut entry, dest, &path)?;
+            }
         } else {
             entry.unpack_in(dest)?;
         }
@@ -289,6 +293,85 @@ fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
     // reaches its checksum or final member. Validate that tail as well.
     io::copy(&mut archive.into_inner(), &mut io::sink())?;
     Ok(total)
+}
+
+/// Docker applies a hard link's header to its shared inode. Pin that inode
+/// without opening a device or waiting on a FIFO, and never follow a final
+/// symlink while changing ownership, times or extended attributes.
+fn hardlink_metadata<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Path) -> io::Result<()> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid hard-link metadata");
+    let mut pax_mtime = None;
+    if let Some(extensions) = entry.pax_extensions()? {
+        for extension in extensions {
+            let extension = extension?;
+            match extension.key_bytes() {
+                b"uid" | b"gid" if !extension.value_bytes().is_empty() => {
+                    let owner: u32 = extension.value().map_err(|_| invalid())?.parse().map_err(|_| invalid())?;
+                    if owner == u32::MAX { return Err(invalid()); }
+                },
+                b"mtime" => {
+                    pax_mtime = if extension.value_bytes().is_empty() { None }
+                        else { Some(pax_node_time(extension.value_bytes())?) };
+                },
+                _ => {},
+            }
+        }
+    }
+    let header = entry.header();
+    let uid: libc::uid_t = header.uid()?.try_into().map_err(|_| invalid())?;
+    let gid: libc::gid_t = header.gid()?.try_into().map_err(|_| invalid())?;
+    if uid == libc::uid_t::MAX || gid == libc::gid_t::MAX { return Err(invalid()); }
+    let mode = header.mode()? & 0o7777;
+    let mtime = match pax_mtime {
+        Some(time) => time,
+        None => libc::timespec { tv_sec: header.mtime()?.try_into().map_err(|_| invalid())?, tv_nsec: 0 },
+    };
+    let target = crate::layer_tar::target_path(dest, path)?;
+    let parent = fs::File::open(target.parent().ok_or_else(invalid)?)?;
+    let name = sys::cstr(Path::new(target.file_name().ok_or_else(invalid)?))?;
+    // SAFETY: a validated parent in this private layer, a single file name,
+    // and O_PATH|O_NOFOLLOW to pin the inode without reading or following it.
+    let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+    sys::check(fd as _, "open hard-link inode")?;
+    // SAFETY: openat returned a new descriptor, owned from now on.
+    let file = unsafe { OwnedFd::from_raw_fd(fd) };
+    // SAFETY: stat is plain C output storage, initialized by fstat below.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat initializes the valid output for our owned descriptor.
+    sys::check(unsafe { libc::fstat(file.as_raw_fd(), &mut stat) } as _, "stat hard-link inode")?;
+    let empty = c"";
+    // SAFETY: AT_EMPTY_PATH addresses the pinned inode; no path is followed.
+    sys::check(unsafe {
+        libc::fchownat(file.as_raw_fd(), empty.as_ptr(), uid, gid, libc::AT_EMPTY_PATH | libc::AT_SYMLINK_NOFOLLOW)
+    } as _, "chown hard-link inode")?;
+    let target_c = sys::cstr(&target)?;
+    if let Some(extensions) = entry.pax_extensions()? {
+        for extension in extensions {
+            let extension = extension?;
+            if let Some(key) = extension.key_bytes().strip_prefix(b"SCHILY.xattr.") {
+                let key = std::ffi::CString::new(key).map_err(|_| invalid())?;
+                let value = extension.value_bytes();
+                // SAFETY: canonical in-layer parent and no final-link following.
+                // This layer is private until its one extraction worker publishes it.
+                sys::check(unsafe {
+                    libc::lsetxattr(target_c.as_ptr(), key.as_ptr(), value.as_ptr().cast(), value.len(), 0)
+                } as _, "restore hard-link xattr")?;
+            }
+        }
+    }
+    if stat.st_mode & libc::S_IFMT != libc::S_IFLNK {
+        let pinned = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd())).unwrap();
+        // SAFETY: procfs names our pinned non-symlink inode. chmod performs no
+        // device/FIFO I/O, and follows no archive-supplied path components.
+        sys::check(unsafe { libc::chmod(pinned.as_ptr(), mode) } as _, "chmod hard-link inode")?;
+    }
+    let times = [mtime; 2];
+    // SAFETY: an owned in-layer parent and its just-created directory entry.
+    // NOFOLLOW also handles a hard link to a symlink inode.
+    sys::check(unsafe {
+        libc::utimensat(parent.as_raw_fd(), name.as_ptr(), times.as_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+    } as _, "restore hard-link time")?;
+    Ok(())
 }
 
 /// tar-rs treats these POSIX types as regular files. Create the node without
@@ -456,6 +539,100 @@ mod tests {
         d
     }
 
+    #[test]
+    fn absolute_hardlink_is_relative_to_the_layer_root() {
+        use std::os::unix::fs::MetadataExt;
+        let mut builder = tar::Builder::new(Vec::new());
+        builder.append_data(&mut header(4, 0o640), "bin/tool", &b"tool"[..]).unwrap();
+        let mut link = header(0, 0o777);
+        link.set_entry_type(tar::EntryType::Link);
+        builder.append_link(&mut link, "bin/tool-1.0", "/bin/tool").unwrap();
+        let bytes = builder.into_inner().unwrap();
+        let dest = scratch("absolute-hardlink");
+        untar(Capped { inner: &bytes[..], left: u64::MAX }, &dest).unwrap();
+        let original = fs::metadata(dest.join("bin/tool")).unwrap();
+        let linked = fs::metadata(dest.join("bin/tool-1.0")).unwrap();
+        assert_eq!(fs::read(dest.join("bin/tool-1.0")).unwrap(), b"tool");
+        assert_eq!((original.dev(), original.ino()), (linked.dev(), linked.ino()));
+        assert_eq!(linked.mode() & 0o7777, 0o777);
+        fs::remove_dir_all(dest).unwrap();
+    }
+
+    #[test]
+    fn hardlink_headers_update_both_names_including_pax_metadata() {
+        use std::os::unix::fs::MetadataExt;
+        for (index, target) in ["bin/tool", "/bin/tool"].iter().enumerate() {
+            let mut builder = tar::Builder::new(Vec::new());
+            let mut source = header(4, 0o640);
+            source.set_uid(1001);
+            source.set_gid(1002);
+            source.set_mtime(1_700_000_000);
+            builder.append_data(&mut source, "bin/tool", &b"tool"[..]).unwrap();
+            builder.append_data(&mut header(3, 0o600), "bin/copy", &b"old"[..]).unwrap();
+            builder.append_pax_extensions([
+                ("uid", b"2001".as_slice()), ("gid", b"2002".as_slice()),
+                ("mtime", b"1712345689.125".as_slice()),
+                ("SCHILY.xattr.user.asagiri.hardlink", b"shared-value".as_slice()),
+            ]).unwrap();
+            let mut link = header(0, 0o2650);
+            link.set_uid(1003);
+            link.set_gid(1004);
+            link.set_entry_type(tar::EntryType::Link);
+            builder.append_link(&mut link, "bin/copy", target).unwrap();
+            let dest = scratch(&format!("hardlink-metadata-{index}"));
+            untar(builder.into_inner().unwrap().as_slice(), &dest).unwrap();
+            let original = fs::metadata(dest.join("bin/tool")).unwrap();
+            for path in ["bin/tool", "bin/copy"] {
+                let path = dest.join(path);
+                let meta = fs::metadata(&path).unwrap();
+                assert_eq!((meta.dev(), meta.ino()), (original.dev(), original.ino()));
+                assert_eq!((meta.uid(), meta.gid(), meta.mode() & 0o7777), (2001, 2002, 0o2650));
+                assert_eq!((meta.mtime(), meta.mtime_nsec()), (1_712_345_689, 125_000_000));
+                assert_eq!(fs::read(&path).unwrap(), b"tool");
+                let path = sys::cstr(&path).unwrap();
+                let mut bytes = [0u8; 32];
+                // SAFETY: owned file and a writable output of the supplied length.
+                let len = unsafe {
+                    libc::lgetxattr(path.as_ptr(), c"user.asagiri.hardlink".as_ptr(), bytes.as_mut_ptr().cast(), bytes.len())
+                };
+                assert_eq!(len, 12);
+                assert_eq!(&bytes[..12], b"shared-value");
+            }
+            fs::remove_dir_all(dest).unwrap();
+        }
+    }
+
+    #[test]
+    fn hardlink_to_symlink_changes_only_the_symlink_inode() {
+        use std::os::unix::fs::MetadataExt;
+        let outside = scratch("hardlink-symlink-outside");
+        fs::write(outside.join("inside"), b"host proof").unwrap();
+        let before = fs::metadata(outside.join("inside")).unwrap();
+        let dest = outside.join("layer");
+        fs::create_dir(&dest).unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        builder.append_data(&mut header(5, 0o640), "inside", &b"image"[..]).unwrap();
+        let mut symlink = header(0, 0o777);
+        symlink.set_entry_type(tar::EntryType::Symlink);
+        builder.append_link(&mut symlink, "bin/link", "../inside").unwrap();
+        let mut hardlink = header(0, 0o7777);
+        hardlink.set_entry_type(tar::EntryType::Link);
+        hardlink.set_uid(2001);
+        hardlink.set_gid(2002);
+        builder.append_link(&mut hardlink, "copy", "/bin/link").unwrap();
+        untar(builder.into_inner().unwrap().as_slice(), &dest).unwrap();
+        let first = fs::symlink_metadata(dest.join("bin/link")).unwrap();
+        let linked = fs::symlink_metadata(dest.join("copy")).unwrap();
+        assert!(linked.file_type().is_symlink());
+        assert_eq!((first.dev(), first.ino()), (linked.dev(), linked.ino()));
+        assert_eq!((linked.uid(), linked.gid()), (2001, 2002));
+        let after = fs::metadata(outside.join("inside")).unwrap();
+        assert_eq!((before.uid(), before.gid(), before.mode()), (after.uid(), after.gid(), after.mode()));
+        assert_eq!(fs::read(outside.join("inside")).unwrap(), b"host proof");
+        assert_eq!(fs::read(dest.join("inside")).unwrap(), b"image");
+        fs::remove_dir_all(outside).unwrap();
+    }
+
     /// A layer whose first entry makes `foo` a symlink to `/` and whose
     /// second writes `foo/x` must not write outside the layer directory.
     #[test]
@@ -598,6 +775,9 @@ mod tests {
         if hardlink {
             let mut h = header(0, 0o644);
             h.set_entry_type(tar::EntryType::Link);
+            h.set_uid(u64::from(unsafe { libc::geteuid() }));
+            h.set_gid(u64::from(unsafe { libc::getegid() }));
+            h.set_mtime(1_710_000_000);
             b.append_link(&mut h, "alias", path).unwrap();
         }
         b.into_inner().unwrap()
@@ -606,17 +786,23 @@ mod tests {
     #[test]
     fn special_fifo_preserves_type_metadata_and_hardlinks() {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let dest = scratch("special-fifo");
-        let bytes = special_layer(tar::EntryType::Fifo, "nested/pipe", true);
-        assert_eq!(untar(&bytes[..], &dest).unwrap(), 0);
-        let m = fs::symlink_metadata(dest.join("nested/pipe")).unwrap();
-        assert!(m.file_type().is_fifo(), "FIFO layer entry became a regular file");
-        assert_eq!(m.mode() & 0o7777, 0o2640);
-        assert_eq!(m.mtime(), 1_700_000_000);
-        assert_eq!(m.uid(), unsafe { libc::geteuid() });
-        assert_eq!(m.gid(), unsafe { libc::getegid() });
-        assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
-        fs::remove_dir_all(dest).unwrap();
+        for hardlink in [false, true] {
+            let dest = scratch("special-fifo");
+            let bytes = special_layer(tar::EntryType::Fifo, "nested/pipe", hardlink);
+            assert_eq!(untar(&bytes[..], &dest).unwrap(), 0);
+            let m = fs::symlink_metadata(dest.join("nested/pipe")).unwrap();
+            assert!(m.file_type().is_fifo(), "FIFO layer entry became a regular file");
+            // A later link header updates the shared inode, as Docker does.
+            assert_eq!(m.mode() & 0o7777, if hardlink { 0o644 } else { 0o2640 });
+            assert_eq!(m.mtime(), if hardlink { 1_710_000_000 } else { 1_700_000_000 });
+            assert_eq!(m.uid(), unsafe { libc::geteuid() });
+            assert_eq!(m.gid(), unsafe { libc::getegid() });
+            if hardlink {
+                assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+                assert_eq!(m.nlink(), 2);
+            }
+            fs::remove_dir_all(dest).unwrap();
+        }
     }
 
     #[test]
@@ -654,18 +840,25 @@ mod tests {
             return;
         }
         for (name, kind) in [("char", tar::EntryType::Char), ("block", tar::EntryType::Block)] {
-            let dest = scratch(&format!("special-{name}"));
-            let bytes = special_layer(kind, "node", true);
-            untar(&bytes[..], &dest).unwrap();
-            let m = fs::symlink_metadata(dest.join("node")).unwrap();
-            assert_eq!(m.file_type().is_char_device(), kind.is_character_special());
-            assert_eq!(m.file_type().is_block_device(), kind.is_block_special());
-            assert_eq!(libc::major(m.rdev()), 1);
-            assert_eq!(libc::minor(m.rdev()), 7);
-            assert_eq!(m.mode() & 0o7777, 0o2640);
-            assert_eq!(m.mtime(), 1_700_000_000);
-            assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
-            fs::remove_dir_all(dest).unwrap();
+            for hardlink in [false, true] {
+                let dest = scratch(&format!("special-{name}"));
+                let bytes = special_layer(kind, "node", hardlink);
+                untar(&bytes[..], &dest).unwrap();
+                let m = fs::symlink_metadata(dest.join("node")).unwrap();
+                assert_eq!(m.file_type().is_char_device(), kind.is_character_special());
+                assert_eq!(m.file_type().is_block_device(), kind.is_block_special());
+                assert_eq!(libc::major(m.rdev()), 1);
+                assert_eq!(libc::minor(m.rdev()), 7);
+                assert_eq!(m.mode() & 0o7777, if hardlink { 0o644 } else { 0o2640 });
+                assert_eq!(m.mtime(), if hardlink { 1_710_000_000 } else { 1_700_000_000 });
+                assert_eq!(m.uid(), unsafe { libc::geteuid() });
+                assert_eq!(m.gid(), unsafe { libc::getegid() });
+                if hardlink {
+                    assert_eq!(m.ino(), fs::symlink_metadata(dest.join("alias")).unwrap().ino());
+                    assert_eq!(m.nlink(), 2);
+                }
+                fs::remove_dir_all(dest).unwrap();
+            }
         }
     }
 

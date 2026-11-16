@@ -9,6 +9,8 @@
 set -u
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
+# Run the same archive cases on the runner's Docker engine for comparison.
+python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
@@ -66,6 +68,7 @@ run inspect-port-bindings alpine:3.21
 run image-label-inheritance
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
+run layer-hardlinks
 run image-load-completion
 run image-tag-retention alpine:3.21
 run layer-concurrency
