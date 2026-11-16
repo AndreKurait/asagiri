@@ -17,9 +17,13 @@ docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >
 python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
 # The production importer needs two engines. Give it fresh private stores,
 # exercise the actual Docker CLI contexts, and remove both hosts afterward.
-sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+failed=0
+if ! sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
   python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --fixtures "${bin}-fixtures" \
-    --out "${bin}-engine-import" || exit 2
+    --out "${bin}-engine-import"; then
+  echo "[FAIL] desktop engine migration; continuing the independent live checks"
+  failed=$((failed + 1))
+fi
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
@@ -65,7 +69,6 @@ for img in busybox:stable alpine:3.21; do
   dock pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
 done
 
-failed=0
 run() { # run <script> [image] [options]
   test_script=$1
   shift

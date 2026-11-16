@@ -214,12 +214,29 @@ def main():
                     assert cli_version["Version"] == record["hosts"][engine]["version"]["Version"]
                     record["hosts"][engine]["context_server_version"] = cli_version
 
-                # The separate fixture must not replace Linux's rootfs-import CLI.
-                help_result = command("docker", "exec", ids["destination"],
-                                      "/opt/asagiri/asagiri", "import", "--help", text=True)
+                # Bare `import` is reserved for the desktop migration command.
+                # Linux exposes Docker's rootfs command through `image import`.
+                record["linux_import_dispatch"] = []
+                def import_help(executable, *arguments):
+                    result = command("docker", "exec", ids["destination"], executable,
+                                     *arguments, "--help", text=True, check=False)
+                    record["linux_import_dispatch"].append({
+                        "arguments": [executable, *arguments, "--help"],
+                        "returncode": result.returncode,
+                        "stdout": result.stdout, "stderr": result.stderr,
+                    })
+                    save()
+                    return result
+
+                bare = import_help("/opt/asagiri/asagiri", "import")
+                assert bare.returncode == 1 and bare.stderr.startswith("usage: asagiri COMMAND"), bare
+                help_result = import_help("/opt/asagiri/asagiri", "image", "import")
+                assert help_result.returncode == 0, help_result
                 record["linux_rootfs_import_help"] = help_result.stdout
                 assert "--change" in help_result.stdout and "--message" in help_result.stdout, help_result.stdout
-                case("linux-rootfs-import-command-preserved")
+                desktop = import_help("/opt/asagiri-fixtures/asagiri-import-fixture")
+                assert desktop.returncode == 0 and "image|volume|container NAME" in desktop.stdout, desktop
+                case("linux-image-import-and-desktop-fixture-dispatch")
 
                 # Reuse the CI runner's existing seed bytes. The helper alias is
                 # fixture-local; it does not change any tag on the runner.
