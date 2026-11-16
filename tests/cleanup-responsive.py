@@ -1,9 +1,10 @@
 """Required cleanup must not block stop, unrelated exec/DNS, or reuse its paths early.
 
-Requires strace and a disposable privileged engine; injects a 15-second umount delay.
+Requires Linux 6.8+, strace and a disposable privileged engine; injects a 15-second umount delay.
 """
 import argparse,http.client,json,os,pathlib,platform,select,signal,socket,subprocess,tarfile,time,uuid
 from concurrent.futures import ThreadPoolExecutor
+from mount_identity import mount_id as statx_mount_id
 p=argparse.ArgumentParser();p.add_argument('socket');p.add_argument('image');p.add_argument('--expect-blocked',action='store_true');p.add_argument('--copy',action='store_true');p.add_argument('--crash-agent',action='store_true');a=p.parse_args()
 assert os.environ.get('ASAGIRI_TEST_ENGINE')=='1'
 if a.crash_agent:
@@ -47,6 +48,7 @@ try:
  roots={line.split()[4] for line in pathlib.Path('/proc',str(init[0]),'mountinfo').read_text().splitlines() if line.split()[4].endswith('/'+victim+'/rootfs')}
  assert len(roots)==1,roots
  rootfs=roots.pop()
+ rootfs_in_agent='/proc/'+str(init[0])+'/root'+rootfs
  # Successful process exit and copy now retain an idle root. Drain any old
  # exit cleanup before tracing; only the failed upload below must retire it.
  call('stop','-t','0',victim);call('diff',victim)
@@ -77,7 +79,9 @@ try:
  assert blocked, 'No traced umount2 entry barrier observed'
  observed=time.monotonic();mounted=mounts();assert len(mounted)==1,mounted
  mount_id=mounted[0][0];worker_fd=os.pidfd_open(blocked)
- report={'initPid':init[0],'blockedPid':blocked,'barrierSeconds':observed-began,'injectedDelaySeconds':15,'injectionPath':rootfs,'expectedBlocked':a.expect_blocked,'cleanupTrigger':'malformed archive','retiringMountId':mount_id}
+ assert statx_mount_id(rootfs_in_agent,False)==int(mount_id)
+ mount_unique_id=statx_mount_id(rootfs_in_agent,True)
+ report={'schema':'asagiri.cleanup-responsive.v1','initPid':init[0],'blockedPid':blocked,'barrierSeconds':observed-began,'injectedDelaySeconds':15,'injectionPath':rootfs,'expectedBlocked':a.expect_blocked,'cleanupTrigger':'malformed archive','retiringMountId':mount_id,'retiringMountUniqueId':mount_unique_id}
  # Stop a genuinely running process while the victim's required cleanup is
  # blocked, rather than issuing an idempotent stop on the already exited ID.
  stop_at=time.monotonic();stop=subprocess.Popen(d+['stop','-t','0',stopper],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -138,7 +142,15 @@ try:
     report['copyBytesAndEof']='passed'
    poll=select.poll();poll.register(worker_fd,select.POLLIN)
    assert poll.poll(0),'Lifecycle operation completed before cleanup worker exited'
-   assert all(row[0]!=mount_id for row in mounts()),'Retired overlay still mounted after lifecycle completion'
+   # mountinfo IDs can be reused immediately after umount. The restarted
+   # process or completed copy now retains a new overlay at this same path.
+   # A boot-unique statx ID distinguishes it from the retired mount.
+   replacement=mounts();assert len(replacement)==1,replacement
+   replacement_id=statx_mount_id(rootfs_in_agent,False)
+   assert replacement_id==int(replacement[0][0])
+   replacement_unique_id=statx_mount_id(rootfs_in_agent,True)
+   assert replacement_unique_id!=mount_unique_id,'Retired overlay still mounted after lifecycle completion'
+   report.update(replacementMountId=str(replacement_id),replacementMountUniqueId=replacement_unique_id,mountIdReused=replacement_id==int(mount_id))
    report['cleanupWorkerAndMountDrained']=True
  if a.expect_blocked:
   out,err=stop.communicate(timeout=25);report['stopSeconds']=time.monotonic()-stop_at;assert stop.returncode==0,(out,err)
