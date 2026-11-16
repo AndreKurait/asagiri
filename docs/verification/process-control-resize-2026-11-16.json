@@ -1,0 +1,52 @@
+{
+  "schema": "asagiri.process-control-resize.v1",
+  "recorded_at": "2026-11-16T09:43:37.076886+00:00",
+  "candidate_base": "77444fd1239b9dda5049b234a5053fbb2958994b",
+  "public_upstream": {
+    "issue": "https://github.com/libracoder/kiri/issues/324",
+    "pull_request": "https://github.com/libracoder/kiri/pull/341",
+    "commit": "6864aafba7c399dba65873dd06c47d4492c0d836",
+    "author": "Precious Okwu",
+    "merged_at": "2026-11-16T09:13:18Z"
+  },
+  "change": "Ignore terminal resize for a reaped process whose output descriptor is retained for draining or cleanup. The existing stable-ID process map remains in use.",
+  "checks": [
+    "An exited entry keeps its original terminal size.",
+    "A live entry with the same modeled numeric PID receives its requested size.",
+    "The old and live terminals remain independent.",
+    "A missing ID changes neither terminal.",
+    "A non-TTY entry is not resized.",
+    "An entry without an output descriptor is not resized."
+  ],
+  "local_verification": {
+    "architecture": "aarch64-unknown-linux-musl",
+    "compiler": "Rust 1.99.1",
+    "test_binary": "Actual asagiri-init unit-test executable; the two linux::agent::cleanup_tests tests ran inside an owned unprivileged native container.",
+    "before": {
+      "selection": "Original resize lookup extracted unchanged into the handler helper for the regression test.",
+      "status": "expected_failure_reproduced",
+      "exit_status": 101,
+      "agent_sha256": "85ec20d617f07367b87dae6bb7914303a4f74162d4936a4a5c036526a53d0de9",
+      "binary_sha256": "eb0bb3319ad4607fb613d55a4ec8d2ac38e4f21e6c9fbf0361fc4251dd8687f0",
+      "log_sha256": "5806bf39394150a5131a6d802f3257edb1459fa1ed596271c6be2786e8f7f0cd"
+    },
+    "after": {
+      "status": "passed",
+      "tests_passed": 2,
+      "agent_sha256": "f025884f8df55be722da51832aed8410da29d313597215930e6009742dd593b8",
+      "binary_sha256": "df3665afd1c37944a3fc97f5882e118250ec99bc2e36aa209d7bf41193e962d4",
+      "log_sha256": "3e9bfbc04af3900358d4c5482451ec87a93355c8abd7699f7bb18cad10cb8f91"
+    },
+    "native_version": "0.1.6-dev.100",
+    "cleanup": {
+      "owned_containers_removed": 2,
+      "api_status_after_removal": 404,
+      "original_inventory_preserved": true
+    },
+    "scope": "The PTYs and ioctl results are real. Process-table PID reuse is modeled; no host PID churn or signals to unrelated processes occur."
+  },
+  "remaining_issue_scope": [
+    "The pre-cgroup.kill raw-PID cleanup fallback still needs a separate fix.",
+    "Full current-source hosted platform qualification and live restart/PID-churn stress are pending."
+  ]
+}

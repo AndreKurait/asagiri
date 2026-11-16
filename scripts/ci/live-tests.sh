@@ -9,12 +9,22 @@
 set -u
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
+python3 "$src/tests/ci-engine-import.py" || exit 1
 # Run the same archive cases on the runner's Docker engine for comparison.
 python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
 # Establish Docker's allowed serialization behavior before testing the private
 # Asagiri build. The fixture itself never pulls or touches unowned containers.
 docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
 python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
+# The production importer needs two engines. Give it fresh private stores,
+# exercise the actual Docker CLI contexts, and remove both hosts afterward.
+failed=0
+if ! sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+  python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --fixtures "${bin}-fixtures" \
+    --out "${bin}-engine-import"; then
+  echo "[FAIL] desktop engine migration; continuing the independent live checks"
+  failed=$((failed + 1))
+fi
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
@@ -27,12 +37,22 @@ python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
 python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
+python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/top-arguments.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+compose_evidence=$(python3 "$src/scripts/ci/compose-health-client.py" "${bin}-health-compose") || exit 2
+python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
+  --output "$compose_evidence/health-docker.json" || exit 2
+python3 "$src/tests/compose-health.py" /var/run/docker.sock alpine:3.21 --reference-docker \
+  --compose-plugin "$compose_evidence/docker-compose" --output "$compose_evidence/compose-docker.json" || exit 2
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv6.conf.default.disable_ipv6=0 \
   -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
+  -v "$compose_evidence:/opt/compose-client:ro" \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
   "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c \
   'apk add -q --no-cache python3 py3-pip bash curl strace openssl util-linux &&
@@ -51,7 +71,6 @@ for img in busybox:stable alpine:3.21; do
   dock pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
 done
 
-failed=0
 run() { # run <script> [image] [options]
   test_script=$1
   shift
@@ -59,7 +78,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user)
+    failed-start-veth|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|daemon-time|image-order|top-arguments|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -71,6 +90,13 @@ run() { # run <script> [image] [options]
   if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); fi
 }
 
+keep_health_result() {
+  if ! docker cp "$name:$1" "$compose_evidence/$2"; then
+    failed=$((failed + 1))
+    echo "[1] missing health/Compose evidence: $2"
+  fi
+}
+
 run api-version --cold
 run engine-identity
 run engine-power alpine:3.21
@@ -80,10 +106,15 @@ run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
 run run-options alpine:3.21
 run start-exec-image-user alpine:3.21
+run daemon-time
 run distribution
+run image-order
+run top-arguments alpine:3.21
 run image-label-inheritance
 run many-layers alpine:3.21
 run image-inspect-healthcheck
+run healthchecks alpine:3.21 --output /tmp/health-asagiri.json
+keep_health_result /tmp/health-asagiri.json health-asagiri.json
 run image-rootfs-digests alpine:3.21
 run layer-hardlinks
 run image-load-completion
@@ -177,6 +208,8 @@ fi
 run buildx-bootstrap
 run registry-config
 run buildkit-driver alpine:3.21
+run compose-health alpine:3.21 --compose-plugin /opt/compose-client/docker-compose --output /tmp/compose-asagiri.json
+keep_health_result /tmp/compose-asagiri.json compose-asagiri.json
 run builder-idle alpine:3.21
 run kind-cluster alpine:3.21
 

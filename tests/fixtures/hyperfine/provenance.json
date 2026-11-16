@@ -1,0 +1,12 @@
+{
+  "asset": "hyperfine-v2.0.0-aarch64-apple-darwin.tar.gz",
+  "asset_sha256": "590b839cfea386b384ce0b42d16daf2910277cf30950656194bb3a5f20dea81e",
+  "binary_sha256": "dc9f035feaa4f5e25985c0d36a9c1b60985ebd159652908f0ba65a31645ac8dc",
+  "actual_json_sha256": "12d2b3d025da3d01d7cb1e7aa9eaa56ff4e1a395b7d3092399d9e8001069a33c",
+  "schema_version": 2,
+  "measurements": 3,
+  "time_unit": "second",
+  "scope": "Parser fixture for /bin/sleep; no container-engine benchmark was executed.",
+  "source": "sharkdp/hyperfine v2.0.0 official release",
+  "v1_fixture": "Synthetic three-sample seconds record for the legacy top-level layout."
+}

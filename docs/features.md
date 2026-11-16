@@ -10,8 +10,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 - **Containers**: `run` (`--rm`, `-d`, `-it`, `-e`, `-u`, `-w`, `--name`,
   `--restart`, `--entrypoint`), `exec`, `logs`, `attach`, `stop`, `kill`,
   `restart`, `rm`, `wait`, `rename`, `pause`/`unpause`, `update`, `stats`,
-  `top`, `diff`, `export`, `commit`, `cp` (both ways, running or not),
-  `container prune`; records survive a daemon restart; filters on every list
+  `top` (default `-ef` columns), `diff`, `export`, `commit`, `cp` (both ways, running or not),
+  `container prune`; records survive a daemon restart; filters on every list;
+  healthchecks (`--health-cmd`, `--health-*`, including
+  `--health-start-interval`, and `ps --filter health=`)
 - **Limits and security**: `--memory`, `--cpus`, `--cpu-shares`,
   `--pids-limit`, `--shm-size`; Docker's default capabilities and a default
   seccomp filter; `--cap-add`/`--cap-drop`, `--privileged`, `--read-only`,
@@ -40,7 +42,8 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   `~/.asagiri/tls`, whose name constraints allow only `*.asagiri.local` and
   `*.asagiri.localhost` (Settings → Domains → HTTPS asks macOS to trust it)
 - **Storage**: named and anonymous volumes, bind mounts of Mac paths
-  (virtiofs), `--tmpfs`, `--mount`, `volume` commands. Mac bind sources in
+  (virtiofs), `--tmpfs`, `--mount`, `volume` commands; local volumes that bind
+  a folder (`driver_opts: {type: none, o: bind, device: /path}`). Mac bind sources in
   `/Users`, `/Volumes`, `/private`, `/tmp`, `/var/folders`, `/opt` and
   `/usr/local` use the Mac's files. Other paths stay in the Linux VM.
   The Mac share uses 1 MiB read-ahead for sequential reads; cache coherence
@@ -64,8 +67,12 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
   [built-in Docker driver](buildkit.md), with direct image loading, secrets,
   caching, file exports and cancellation. The existing docker-container
   builder shares the managed BuildKit and cache. BuildKit stops when idle;
-  on Apple silicon, amd64 build steps run through Rosetta too
-- **Compose**: `up`, `down`, `ps`, `logs`, `exec`, multiple networks, events
+  image loading supports one platform per build. On Apple silicon, amd64
+  build steps run through Rosetta too
+- **Compose**: `up` (including `--build` and `--wait`), `down`, `ps`, `logs`,
+  `exec`, `build:`, healthchecks, `depends_on` conditions
+  (`service_healthy`, `service_completed_successfully`), `platform:`,
+  multiple networks, events
 - **USB devices (beta)**: the USB tab hands a device (a serial adapter, a
   Zigbee stick, a development board) to your containers on Mac, Windows and
   Linux, and shows where it is inside Linux with the `--device` line to
@@ -127,6 +134,10 @@ Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, thr
 Kubernetes LoadBalancer services are published on `localhost`, and
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
 
+`docker top` accepts its default columns; other `ps_args`, such as `aux` or
+`-eo pid,rss,args`, return an explicit error. Custom process columns and RSS
+reporting through `top` are not implemented.
+
 Resource limits apply to individual containers. Buildx's default
 `/docker/buildx` parent groups its containers under `docker/buildx` inside
 Asagiri's delegated cgroup tree. Its aggregate counters and limits are
@@ -178,3 +189,19 @@ published Mac release asset.
   `asagiri build --add-host name:host-gateway .` after setup, or explicitly
   select the Asagiri context's Docker builder. Buildx still rejects this
   special value for an explicitly selected docker-container builder.
+
+- **Multi-platform image loading is not supported.** Build and load each
+  platform separately with `--platform`. Multi-platform file exports require
+  a docker-container builder. An OCI-only archive cannot be read by Asagiri's
+  `docker load`; see [platforms and image loading](buildkit.md#platforms-and-image-loading).
+
+- **A build's `not found` error can require a network check.** The managed
+  builder tries Asagiri's local image mirror before the registry. A mirror
+  miss and an unreachable registry can hide the underlying network failure.
+  Pulling a base image does not guarantee an offline build: registry tags
+  and original registry digests can still require registry access. Use an
+  already cached image to check DNS on the builder's default bridge, for
+  example:
+  `docker --context asagiri run --rm --pull=never alpine:3.21 nslookup registry-1.docker.io`.
+  A successful DNS lookup alone does not establish registry HTTPS access
+  or valid credentials.

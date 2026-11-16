@@ -15,6 +15,12 @@ on:
       - scripts/ci/reference-run.py
       - scripts/ci/reference-images.json
       - tests/ci-reference-performance.py
+      - tests/ci-hyperfine.py
+      - tests/fixtures/hyperfine/**
+      - bench/hyperfine.jq
+      - bench/api.sh
+      - bench/suite.sh
+      - bench/report.sh
       - .github/workflows/reference-performance.yml
   push:
     branches: [main]
@@ -42,7 +48,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Check measurement and cleanup boundaries
-        run: python3 tests/ci-reference-performance.py
+        run: |
+          python3 tests/ci-reference-performance.py
+          python3 tests/ci-hyperfine.py
       - name: Restore Linux dependencies
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

@@ -952,12 +952,12 @@ impl Networks {
 }
 
 /// The first free subnet from the pool in Settings, skipping ones Asagiri
-/// already uses, ones the host routes and this computer's own networks.
+/// already uses, the host's on-link routes and this computer's own networks.
 fn free_subnet(taken: &[([u8; 4], u8)], default_bridge: bool) -> Option<([u8; 4], u8)> {
     pick(super::pool::custom(), taken, default_bridge, &avoided())
 }
 
-/// What new subnets keep clear of: the host's routes (a Linux host's) and
+/// What new subnets keep clear of: the host's on-link routes (a Linux host's) and
 /// this computer's networks and VPNs (pool.rs).
 fn avoided() -> Vec<(u32, u32)> {
     let mut routes = host_routes();
@@ -1013,22 +1013,32 @@ fn host_routes6() -> Vec<([u8; 16], u8)> {
     Vec::new()
 }
 
-/// The host's own routes as (network, mask), outside Asagiri's bridges and the
-/// default route. Only a Linux host shares its routing table with Asagiri.
+/// The host's on-link routes as (network, mask), outside Asagiri's bridges.
+/// Only a Linux host shares its routing table with Asagiri.
 #[cfg(target_os = "linux")]
 fn host_routes() -> Vec<(u32, u32)> {
-    let text = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+    on_link_routes(&std::fs::read_to_string("/proc/net/route").unwrap_or_default())
+}
+
+/// Reserve connected subnets, as Docker does, rather than every destination
+/// reachable through a gateway. Full-tunnel VPN routes can cover the whole
+/// address pool without putting those addresses on the host's own links.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn on_link_routes(text: &str) -> Vec<(u32, u32)> {
+    const RTF_GATEWAY: u32 = 0x2;
     text.lines()
         .skip(1)
         .filter_map(|l| {
             let f: Vec<&str> = l.split_whitespace().collect();
-            if f.len() < 8 || f[0].starts_with("asagiri") {
+            // Blackhole and unreachable routes have no interface: "*".
+            if f.len() < 8 || f[0].starts_with("asagiri") || f[0] == "*"
+                || u32::from_str_radix(f[3], 16).ok()? & RTF_GATEWAY != 0 {
                 return None;
             }
             // Little-endian hex, as the kernel prints them.
             let dest = u32::from_str_radix(f[1], 16).ok()?.swap_bytes();
             let mask = u32::from_str_radix(f[7], 16).ok()?.swap_bytes();
-            (mask != 0).then_some((dest & mask, mask))
+            (dest != 0 && mask != 0).then_some((dest & mask, mask))
         })
         .collect()
 }
@@ -1041,6 +1051,26 @@ fn host_routes() -> Vec<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_on_link_routes_reserve_subnets() {
+        let text = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+            eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n\
+            tun0\t00000000\t0100080A\t0003\t0\t0\t0\t00000080\t0\t0\t0\n\
+            tun0\t00000080\t0100080A\t0003\t0\t0\t0\t00000080\t0\t0\t0\n\
+            tun0\t0000080A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n\
+            wg0\t00000000\t00000000\t0001\t0\t0\t0\t00000080\t0\t0\t0\n\
+            *\t0000000A\t00000000\t0201\t0\t0\t0\t000000FF\t0\t0\t0\n\
+            *\t000010AC\t00000000\t0001\t0\t0\t0\t0000F0FF\t0\t0\t0\n\
+            eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n\
+            asagiri1\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n";
+        let lan = |a: [u8; 4]| (u32::from_be_bytes(a), u32::MAX << 8);
+        let routes = on_link_routes(text);
+        assert_eq!(routes, [lan([10, 8, 0, 0]), lan([192, 168, 1, 0])]);
+        assert_eq!(pick(None, &[], false, &routes), Some(([172, 18, 0, 0], 16)));
+        assert_eq!(pick(Some(([172, 16, 0, 0], 12)), &[], false, &routes), Some(([172, 17, 0, 0], 16)));
+        assert_eq!(pick(Some(([192, 168, 0, 0], 16)), &[], false, &routes), Some(([192, 168, 2, 0], 24)));
+    }
 
     fn net(ipam: Option<Ipam>) -> Network {
         let mut n = builtin("x", "bridge", "asagiri9", [10, 5, 0, 0], [10, 5, 0, 1]);
