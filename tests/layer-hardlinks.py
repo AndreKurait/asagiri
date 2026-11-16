@@ -26,6 +26,19 @@ class Connection(http.client.HTTPConnection):
 
 def fixture(tag, architecture, source, destination, target, pax=False, replace=False):
     content = ("hard-link fixture " + tag + "\n").encode()
+    layers = []
+    if replace:
+        # Replacement is across layers. A single OCI layer must not contain
+        # duplicate paths; Docker's containerd image store rejects that input.
+        previous = io.BytesIO()
+        with tarfile.open(fileobj=previous, mode="w") as archive:
+            node = tarfile.TarInfo("bin")
+            node.type, node.mode = tarfile.DIRTYPE, 0o755
+            archive.addfile(node)
+            node = tarfile.TarInfo(destination)
+            node.size, node.mode = 3, 0o600
+            archive.addfile(node, io.BytesIO(b"old"))
+        layers.append(previous.getvalue())
     layer = io.BytesIO()
     with tarfile.open(fileobj=layer, mode="w", format=tarfile.PAX_FORMAT if pax else tarfile.GNU_FORMAT) as archive:
         node = tarfile.TarInfo("bin")
@@ -34,10 +47,6 @@ def fixture(tag, architecture, source, destination, target, pax=False, replace=F
         node = tarfile.TarInfo(source)
         node.size, node.mode, node.uid, node.gid = len(content), 0o640, 1001, 1002
         archive.addfile(node, io.BytesIO(content))
-        if replace:
-            node = tarfile.TarInfo(destination)
-            node.size, node.mode = 3, 0o600
-            archive.addfile(node, io.BytesIO(b"old"))
         node = tarfile.TarInfo("ignored-path" if pax else destination)
         # Deliberately different from the source entry. Docker applies these
         # attributes to the shared inode, so both paths must report them.
@@ -45,19 +54,20 @@ def fixture(tag, architecture, source, destination, target, pax=False, replace=F
         if pax:
             node.pax_headers = {"path": destination, "linkpath": target}
         archive.addfile(node)
-    layer = layer.getvalue()
-    layer_digest = hashlib.sha256(layer).hexdigest()
+    layers.append(layer.getvalue())
+    digests = [hashlib.sha256(data).hexdigest() for data in layers]
     config = json.dumps({
         "architecture": architecture, "os": "linux", "config": {"Cmd": ["/unused"]},
-        "rootfs": {"type": "layers", "diff_ids": ["sha256:" + layer_digest]},
+        "rootfs": {"type": "layers", "diff_ids": ["sha256:" + digest for digest in digests]},
     }).encode()
     config_digest = hashlib.sha256(config).hexdigest()
     saved = io.BytesIO()
     with tarfile.open(fileobj=saved, mode="w") as archive:
         manifest = [{"Config": config_digest + ".json", "RepoTags": [tag],
-                     "Layers": [layer_digest + "/layer.tar"]}]
-        for name, data in [(layer_digest + "/layer.tar", layer), (config_digest + ".json", config),
-                           ("manifest.json", json.dumps(manifest).encode())]:
+                     "Layers": [digest + "/layer.tar" for digest in digests]}]
+        blobs = [(digest + "/layer.tar", data) for digest, data in zip(digests, layers)]
+        for name, data in blobs + [(config_digest + ".json", config),
+                                  ("manifest.json", json.dumps(manifest).encode())]:
             node = tarfile.TarInfo(name)
             node.size = len(data)
             archive.addfile(node, io.BytesIO(data))

@@ -19,6 +19,14 @@ and reproduced the former values. Its uniquely owned fixture was removed.
 The current test keeps these deliberately different headers and requires
 Docker's result; it does not accept both behaviors.
 
+The next Docker reference run passed the seven name and metadata cases but
+rejected the replacement fixture because it repeated a path in one layer.
+The replacement case now puts the old file in a lower layer and the new hard
+link in the next layer, with unique paths within each layer. This follows the
+OCI layer format and still checks that the visible destination is replaced.
+The Linux extraction tests separately exercise replacement of an existing
+directory entry.
+
 Validation includes seven real Mac filesystem tests for the portable link
 constructor, Linux layer tests for shared ownership/mode, PAX timestamps and
 xattrs, replacement, and symlink-inode containment, and eight Docker API cases
