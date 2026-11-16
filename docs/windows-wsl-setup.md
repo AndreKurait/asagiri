@@ -33,6 +33,10 @@ commands, their order, all three restart results and early failure handling.
 That test is required by the Windows platform job.
 
 The portable tests pass on macOS. The local Windows cross-check was stopped
-by the 3 GiB disk guard; native Windows compilation, the setup state tests and
-PowerShell execution remain pending in CI. Enabling features and completing
-a real Windows 10 reboot have not been exercised on this Mac.
+by the 3 GiB disk guard. Windows job 133110090370 then passed native compilation,
+178 Rust tests (two existing tests ignored), all eight prerequisite command
+cases and release packaging. The Linux job found a collision between parallel
+archive tests' timestamp-based temporary paths; those paths now include an
+atomic sequence number. The complete platform run must pass before merge.
+Enabling features and completing a real Windows 10 reboot have not been
+exercised on this Mac.
