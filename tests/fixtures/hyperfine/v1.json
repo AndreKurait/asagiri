@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "command": "synthetic legacy seconds fixture",
+      "mean": 0.25,
+      "stddev": 0.125,
+      "median": 0.25,
+      "user": 0.0,
+      "system": 0.0,
+      "min": 0.125,
+      "max": 0.375,
+      "times": [0.125, 0.25, 0.375],
+      "exit_codes": [0, 0, 0]
+    }
+  ]
+}

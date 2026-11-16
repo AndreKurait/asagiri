@@ -65,6 +65,7 @@ jobs:
       - name: Test and build
         run: |
           python3 tests/ci-runtime-probes.py
+          python3 tests/ci-hyperfine.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           ls -l "$RUNNER_TEMP/bin"
       - name: Verify WSL daemon startup and bridge recovery

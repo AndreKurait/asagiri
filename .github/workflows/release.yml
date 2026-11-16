@@ -112,6 +112,7 @@ jobs:
       - name: Build and test the release binaries
         run: |
           python3 tests/ci-runtime-probes.py
+          python3 tests/ci-hyperfine.py
           sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cargo-target" "$RUNNER_TEMP/cargo-registry" tests
           sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
       - name: Preserve Docker-to-Asagiri import evidence
