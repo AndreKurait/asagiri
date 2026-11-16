@@ -806,8 +806,11 @@ mod tests {
         fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
     }
     fn test_dir() -> TestDir {
-        let path = std::env::temp_dir().join(format!("asagiri-copy-replace-{}-{}", std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!("asagiri-copy-replace-{}-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir(&path).unwrap();
         TestDir(path)
     }

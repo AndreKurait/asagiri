@@ -49,6 +49,8 @@ mod win;
 mod usb;
 #[cfg(windows)]
 mod setup;
+#[cfg(any(windows, test))]
+mod wsl_text;
 // The built-in terminal's shells, on ConPTY.
 #[cfg(windows)]
 mod term;
@@ -105,6 +107,12 @@ mod integrations;
 mod share;
 #[cfg(windows)]
 mod update;
+// Settings → Import from Docker Desktop: the Mac's and Linux's own
+// crates/asagiri/src/import.rs, through the docker CLI's contexts.
+#[cfg(windows)]
+#[path = "../../asagiri/src/import.rs"]
+#[allow(dead_code)]
+mod import;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {

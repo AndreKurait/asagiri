@@ -19,14 +19,28 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-# -Wsl: setup step 1, in one elevated run: Virtual Machine Platform on, and
+# Kept as one function so the command order and restart results can be tested
+# without enabling features or installing anything on the test runner.
+function Install-WslPrerequisites([string]$Installer) {
+  $vmp = (Start-Process "$env:SystemRoot\System32\dism.exe" -ArgumentList '/online', '/enable-feature', '/featurename:VirtualMachinePlatform', '/all', '/norestart' -Wait -PassThru -WindowStyle Hidden).ExitCode
+  if ($vmp -ne 0 -and $vmp -ne 3010) { return 20 }
+  $wsl = (Start-Process "$env:SystemRoot\System32\dism.exe" -ArgumentList '/online', '/enable-feature', '/featurename:Microsoft-Windows-Subsystem-Linux', '/all', '/norestart' -Wait -PassThru -WindowStyle Hidden).ExitCode
+  if ($wsl -ne 0 -and $wsl -ne 3010) { return 24 }
+  $msi = (Start-Process "$env:SystemRoot\System32\msiexec.exe" -ArgumentList '/i', ('"' + $Installer + '"'), '/qn', '/norestart' -Wait -PassThru -WindowStyle Hidden).ExitCode
+  if ($msi -ne 0 -and $msi -ne 3010) { return 21 }
+  if ($vmp -eq 3010 -or $wsl -eq 3010 -or $msi -eq 3010) { return 3010 }
+  return 0
+}
+
+# -Wsl: setup step 1, in one elevated run: both Windows WSL features on, and
 # WSL installed from the MSI asagiri-win downloaded. That MSI lives in a
 # user-writable folder, so a process at the user's own integrity could swap
 # it between asagiri-win's SHA-256 check and this run: it is checked again
 # here, as admin, on a copy the user cannot touch, and must be signed by
 # Microsoft. setup.rs reads the exit code: 22 the copy does not match
 # -Sha256, 23 not validly signed by Microsoft, 20 Virtual Machine Platform
-# failed, 21 the WSL installer failed, 3010 done but Windows must restart.
+# failed, 24 the WSL optional component failed, 21 the WSL installer failed,
+# 3010 done but Windows must restart.
 if ($Wsl) {
   if (-not $Msi -or -not $Sha256) { throw "-Wsl needs -Msi and -Sha256" }
   $dst = Join-Path $env:windir ('Temp\asagiri-wsl-' + [guid]::NewGuid().ToString('N') + '.msi')
@@ -34,12 +48,9 @@ if ($Wsl) {
   if ((Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash.ToLower() -ne $Sha256.ToLower()) { Remove-Item -LiteralPath $dst -Force; exit 22 }
   $sig = Get-AuthenticodeSignature -LiteralPath $dst
   if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike '*Microsoft*') { Remove-Item -LiteralPath $dst -Force; exit 23 }
-  $vmp = (Start-Process "$env:SystemRoot\System32\dism.exe" -ArgumentList '/online', '/enable-feature', '/featurename:VirtualMachinePlatform', '/all', '/norestart' -Wait -PassThru -WindowStyle Hidden).ExitCode
-  if ($vmp -ne 0 -and $vmp -ne 3010) { Remove-Item -LiteralPath $dst -Force; exit 20 }
-  $msiexec = (Start-Process "$env:SystemRoot\System32\msiexec.exe" -ArgumentList '/i', ('"' + $dst + '"'), '/qn', '/norestart' -Wait -PassThru -WindowStyle Hidden).ExitCode
-  Remove-Item -LiteralPath $dst -Force
-  if ($msiexec -ne 0 -and $msiexec -ne 3010) { exit 21 }
-  if ($vmp -eq 3010 -or $msiexec -eq 3010) { exit 3010 } else { exit 0 }
+  try { $result = Install-WslPrerequisites -Installer $dst }
+  finally { Remove-Item -LiteralPath $dst -Force }
+  exit $result
 }
 
 # -Dns: the name-resolution policy (NRPT) rule that sends `.<suffix>`
