@@ -492,7 +492,7 @@ fn system_df(engine: &Engine) -> Result<Value, Error> {
                 "Size": size,
                 "SharedSize": shared,
                 "VirtualSize": size,
-                "Labels": null,
+                "Labels": engine.store.image_labels(i).unwrap_or(Value::Null),
                 "Containers": used.iter().filter(|u| **u == i.config_digest).count(),
             })
         })

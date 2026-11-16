@@ -237,6 +237,11 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         ("POST", "/volumes/prune") => return reply(w, volume_prune(req, engine), 200),
         _ => {}
     }
+    if let Some(name) = p.strip_prefix("/distribution/").and_then(|r| r.strip_suffix("/json")) {
+        if m == "GET" {
+            return reply(w, distribution(req, name), 200);
+        }
+    }
     if let Some(rest) = p.strip_prefix("/images/") {
         if let Some(name) = rest.strip_suffix("/json") {
             if m == "GET" {
@@ -922,6 +927,18 @@ fn set_env(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
 /// A registry client with the credentials the CLI sent, if any.
 fn client_for(req: &Request) -> Client {
     Client::new().with_credentials(req.header("x-registry-auth").and_then(asagiri_image::Credentials::from_header))
+}
+
+/// `GET /distribution/{name}/json`: what the registry serves for an image
+/// reference now (its digest and platforms), without pulling it. Update
+/// checkers (Watchtower, Arcane) ask this (#257).
+fn distribution(req: &Request, name: &str) -> Result<Value, Error> {
+    let reference = asagiri_image::Reference::parse(name).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
+    client_for(req).distribution(&reference).map_err(|e| match e {
+        asagiri_image::registry::Error::NotFound(m) => Error::NotFound(m),
+        asagiri_image::registry::Error::Status { status: 401 | 403, .. } => Error::Unauthorized(format!("{name}: authentication required")),
+        e => Error::Io(io::Error::other(e.to_string())),
+    })
 }
 
 /// `docker login`: the CLI asks the daemon to check the password, then

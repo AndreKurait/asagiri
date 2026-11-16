@@ -483,6 +483,8 @@ $D run -d --name pub -p 18180:80 nginx:alpine >/dev/null; ready http://localhost
 t port-curl "Welcome to nginx" curl -s -m 5 http://localhost:18180
 t port-ps "0.0.0.0:18180->80/tcp" $D ps --filter name=pub --format '{{.Ports}}'
 t port-cmd "18180" $D port pub
+t distribution '"Platforms":[{"architecture":' curl -s --unix-socket "$SOCK" http://d/v1.47/distribution/library/alpine:3.21/json
+t distribution-missing "404" curl -s -o /dev/null -w '%{http_code}' --unix-socket "$SOCK" http://d/v1.47/distribution/library/alpine:asagiri-missing-manifest-test/json
 t port-many "50" bash -c "for i in \$(seq 50); do curl -s -m 5 -o /dev/null -w '%{http_code}\n' http://localhost:18180; done | grep -c 200"
 t port-parallel "20" bash -c "for i in \$(seq 20); do curl -s -m 10 -o /dev/null -w '%{http_code}\n' http://localhost:18180 & done; wait"
 t port-big "10485760" bash -c "$D exec pub sh -c 'head -c 10485760 /dev/urandom > /usr/share/nginx/html/big.bin' && curl -s -m 30 -o /dev/null -w '%{size_download}' http://localhost:18180/big.bin"

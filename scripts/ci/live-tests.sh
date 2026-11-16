@@ -18,6 +18,9 @@ dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 # Run the identical many-layer fixture on the runner's Docker daemon.
 docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
 python3 "$src/tests/many-layers.py" /var/run/docker.sock alpine:3.21 || exit 2
+# The same read-only fixture runs against the runner's Docker daemon first.
+python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
@@ -69,6 +72,7 @@ run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
+run distribution
 run image-label-inheritance
 run many-layers alpine:3.21
 run image-inspect-healthcheck
