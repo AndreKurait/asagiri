@@ -453,6 +453,9 @@ fn info(engine: &Engine) -> Value {
         "Driver": "overlayfs",
         "ServerVersion": DOCKER_COMPAT_VERSION,
         "AsagiriVersion": env!("CARGO_PKG_VERSION"),
+        // Compose uses this to replay events emitted while it attaches.
+        // Engine::emit stamps events with this daemon's clock on every host.
+        "SystemTime": time::rfc3339(std::time::SystemTime::now()),
         "OperatingSystem": "Asagiri",
         "OSType": "linux",
         "Architecture": std::env::consts::ARCH,

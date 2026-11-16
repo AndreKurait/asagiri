@@ -2,6 +2,7 @@
 """Check the advertised API range and rejection before an upload body is sent."""
 import http.client
 import json
+import re
 import socket
 import sys
 
@@ -46,6 +47,7 @@ def check(path, cold=False):
         info = json.loads(info)
         assert status == 200 and info["ServerVersion"] == version["Version"], info
         assert info["AsagiriVersion"] == version["AsagiriVersion"], info
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{9}Z", info.get("SystemTime", "")), info
         assert version["Components"][0]["Details"]["AsagiriVersion"] == version["AsagiriVersion"], version
         print("PASS Docker compatibility and Asagiri product versions are separate")
         assert info["MemTotal"] > 0 and info["NCPU"] > 0, info
@@ -56,6 +58,7 @@ def check(path, cold=False):
             second = json.loads(second)
             assert status == 200 and not second["AsagiriVmAwake"], second
             assert second["MemTotal"] == info["MemTotal"], (info, second)
+            assert second["SystemTime"] > info["SystemTime"], (info["SystemTime"], second["SystemTime"])
         print("PASS nonzero engine capacity" + (" without waking the guest" if cold else ""))
     # Docker 28 and Asagiri start at 1.24, Docker 29 at 1.40.
     oldest, newest = version["MinAPIVersion"], version["ApiVersion"]
