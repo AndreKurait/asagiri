@@ -1,0 +1,205 @@
+{
+  "schema": "asagiri.cgroup-startup-local-proof.v1",
+  "recorded_at": "2026-11-16T11:52:27.781009+00:00",
+  "status": "local_kernel_regression_passed_hosted_qualification_pending",
+  "source_commit": "afdfd84e3880bf9fa5376031afb67637a5d415ba",
+  "integrated_main": "9ba59a7bd6ac650275a4449d51d6aafd8bad1c40",
+  "failure": {
+    "source": "fc8894d9d480b671a88335f9e3075445e7ff8811",
+    "platform_run": 43849651968,
+    "release_run": 43849652012,
+    "published": false,
+    "observed": [
+      "After daemon restart, Buildx bootstrap could not read its aggregate pids.current.",
+      "Kubernetes startup rejected a populated cgroup namespace root."
+    ],
+    "reference": "https://github.com/AndreKurait/asagiri/actions/runs/43849651968",
+    "scope": "The isolated reproduction confirms silently discarded delegation errors and partial threaded-domain conversion. Full-engine hosted tests must establish the corrected Buildx/Kubernetes outcome."
+  },
+  "implementation": {
+    "controllers": "Enable CPU, memory and PIDs plus available cpuset/io controllers in one atomic write; propagate directory and delegation errors.",
+    "startup": "Move only processes in a namespace root or the existing delegated ownership scope; retry EBUSY for at most three seconds and ignore only ESRCH for exited processes.",
+    "shared_scope": "Recheck exclusivity for custom cgroups and do not move unrelated login/WSL processes.",
+    "runtime_sha256": {
+      "crates/asagiri-init/src/linux/mod.rs": "fca688853eee28d491a1e388ba8bf687f02ecca4656a44e318d158670a13a529",
+      "crates/asagiri-init/src/linux/container.rs": "2a37efe6c001dbb2c947e32932a661aead2545a5db774bcfe852ba8131a688d0"
+    }
+  },
+  "baseline": {
+    "production_unchanged": true,
+    "production_sha256": "c77ca9669117baa8398f7ed80f262b2673614d7c59f6d0863271a2fa49e3c7d5",
+    "binary_sha256": "8181d4403cb02a7539e501ac8d79ba585620665ddc8bd0dabd61eab08444d6b0",
+    "exit_code": 101,
+    "report": {
+      "buildx_aggregate_memory_bytes": 1568768,
+      "buildx_aggregate_pids": 1,
+      "live_pid_limit_and_freezer": "passed",
+      "namespace_root_drained": true,
+      "occupied_parent_error": null,
+      "occupied_parent_missing_files": [
+        "memory.max"
+      ],
+      "owned_child_reaped": true,
+      "owned_worker_cgroups_removed": true,
+      "required_controllers_delegated": [
+        "cpu",
+        "memory",
+        "pids"
+      ],
+      "schema": "asagiri.cgroup-startup.v1",
+      "scope": "Actual Linux cgroup setup and accounting in this private namespace; full Buildx and Kubernetes run separately.",
+      "status": "failed"
+    },
+    "record_sha256": "232ae3bcf4c42209828532ab3bb92bd5eacb60aad6fecc57120181c2177f7009"
+  },
+  "corrected": {
+    "rust": "1.99.1",
+    "code_commit": "afdfd84e3880bf9fa5376031afb67637a5d415ba",
+    "source_manifest_sha256": "c84e6b1a86a1e547a4cd54fee33a1df1cbb3a2a5d868a3460019edfb7df17f67",
+    "static_binaries": [
+      {
+        "architecture": "aarch64",
+        "sha256": "0dc913d7ab35f9be9553c6d00478792713356f65ad16b6c732cbdf8877e73036",
+        "bytes": 1270736,
+        "has_interpreter": false,
+        "native_executed": true
+      },
+      {
+        "architecture": "x86_64",
+        "sha256": "e7e8818f4ea222a7233311c57c6a6ee3f2bf694247be3f4c7b28f1a25ce631b5",
+        "bytes": 1183880,
+        "has_interpreter": false,
+        "native_executed": false
+      }
+    ],
+    "native_kernel": "6.18-asagiri",
+    "native_architecture": "aarch64",
+    "host_app_version": "0.1.6-dev.100",
+    "host_app_unchanged": true,
+    "private_container_removed": true,
+    "effective_capabilities": [
+      "SYS_ADMIN"
+    ],
+    "no_new_privileges": true,
+    "report": {
+      "agent_restart_reused_parent": true,
+      "buildx_aggregate_memory_bytes": 1568768,
+      "buildx_aggregate_pids": 1,
+      "compiled_architecture": "aarch64",
+      "live_pid_limit_and_freezer": "passed",
+      "namespace_root_drained": true,
+      "occupied_parent_controllers_after_failure": [],
+      "occupied_parent_error": "delegate controllers under /sys/fs/cgroup: Resource busy (os error 16)",
+      "occupied_parent_missing_files": [
+        "cpu.max",
+        "memory.max",
+        "pids.max"
+      ],
+      "occupied_parent_type_after_failure": "domain",
+      "owned_child_reaped": true,
+      "owned_worker_cgroups_removed": true,
+      "required_controllers_delegated": [
+        "cpu",
+        "memory",
+        "pids"
+      ],
+      "schema": "asagiri.cgroup-startup.v1",
+      "scope": "Actual Linux cgroup setup and accounting in this private namespace; full Buildx and Kubernetes run separately.",
+      "source_commit": "afdfd84e3880bf9fa5376031afb67637a5d415ba",
+      "status": "passed"
+    },
+    "record_sha256": "64eadf92061f91d470ecbcb6aeba4562562ac43e84be1c4d852081d2bf1b74a4",
+    "compilation_records_sha256": {
+      "aarch64": "fc016046ab016e0ee1d7021b8686aea4bb775e2d3acc65af69d2e7d7185aef86",
+      "x86_64": "3d1ebe9cbbcf6d6552ce54020ea96258b0e657f81f0a46e9d4a8f7f38a3ba9b7"
+    }
+  },
+  "validation": {
+    "workflow_lint": "passed",
+    "shell_lint": "passed",
+    "existing_ci_runtime_probe_tests": 8,
+    "ci_report_negative_controls": [
+      {
+        "name": "wrong-schema",
+        "rejected": true
+      },
+      {
+        "name": "wrong-source",
+        "rejected": true
+      },
+      {
+        "name": "wrong-architecture",
+        "rejected": true
+      },
+      {
+        "name": "claimed-failure",
+        "rejected": true
+      },
+      {
+        "name": "missing-kernel-error",
+        "rejected": true
+      },
+      {
+        "name": "wrong-missing-files",
+        "rejected": true
+      },
+      {
+        "name": "partial-delegation",
+        "rejected": true
+      },
+      {
+        "name": "threaded-domain",
+        "rejected": true
+      },
+      {
+        "name": "undrained-root",
+        "rejected": true
+      },
+      {
+        "name": "nested-restart",
+        "rejected": true
+      },
+      {
+        "name": "missing-controller",
+        "rejected": true
+      },
+      {
+        "name": "zero-pids",
+        "rejected": true
+      },
+      {
+        "name": "boolean-pids",
+        "rejected": true
+      },
+      {
+        "name": "zero-memory",
+        "rejected": true
+      },
+      {
+        "name": "untested-limits",
+        "rejected": true
+      },
+      {
+        "name": "unreaped-child",
+        "rejected": true
+      },
+      {
+        "name": "unremoved-cgroups",
+        "rejected": true
+      }
+    ],
+    "ci_validator_sha256": "07e30920be599627f6950e09cc83e388d2ec22da03203a942aa85fdaa29509cd",
+    "local_checks_sha256": "65c698b7a32fc9256fa9117be27ab1e74fed432d89a92c3cf2ec903f5cab4c54"
+  },
+  "hosted_qualification": {
+    "status": "pending",
+    "required": [
+      "Standalone cgroup kernel regression with source and binary artifacts",
+      "Linux, macOS and Windows platform checks",
+      "Post-restart Buildx and Kubernetes live tests",
+      "Paired Docker and Podman engine comparison",
+      "ARM64 and x86_64 guest kernel checks"
+    ]
+  },
+  "formal_verification": "No cgroup or whole-engine formal proof is claimed. The existing IPAM proof workflow remains required."
+}
