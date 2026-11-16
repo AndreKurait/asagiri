@@ -201,6 +201,14 @@ def check(path, image):
         assert "chmod=1" in output, output
         print("PASS rules conditional on capabilities, kernel and architecture", flush=True)
 
+        for names, action in [(CHMOD, "SCMP_ACT_ALLOW"), (["asagiri_no_such_syscall"], "SCMP_ACT_ERRNO")]:
+            ignored = {"names": names, "action": action,
+                       "args": [{"index": 7, "op": "SCMP_CMP_EQ", "value": 0}]}
+            status, output = run([profile(ignored)], probe)
+            assert status == 0 and "chmod=0" in output, output
+            ignored["args"][0]["op"] = "SCMP_CMP_BOGUS"
+            assert "not a valid operator for seccomp" in refused([profile(ignored)])
+
         message = refused(['seccomp={"defaultAction":'])
         assert message.startswith("Decoding seccomp profile failed"), message
         assert refused(["seccomp=[]"]).startswith("Decoding seccomp profile failed")

@@ -240,17 +240,15 @@ fn selected(rule: &Value, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<b
     Ok(keep)
 }
 
-/// One syscall rule's argument conditions.
-fn conditions(rule: &Value) -> io::Result<Vec<Cond>> {
+/// Parse every argument field and operator, including those of ignored rules.
+/// runc checks positions only when adding a rule for a known, active syscall.
+fn conditions(rule: &Value, active: bool) -> io::Result<Vec<Cond>> {
     let mut conds = Vec::new();
     for a in array(field(rule, "args")?, "args")? {
         if !a.is_object() {
             return Err(bad("a syscall argument must be an object"));
         }
         let index = number(field(a, "index")?, "index")?.unwrap_or(0);
-        if index > 5 {
-            return Err(bad(format!("syscalls only have up to 6 arguments ({index} given)")));
-        }
         let op = match string(field(a, "op")?, "op")? {
             "SCMP_CMP_NE" => Op::Ne,
             "SCMP_CMP_LT" => Op::Lt,
@@ -263,9 +261,14 @@ fn conditions(rule: &Value) -> io::Result<Vec<Cond>> {
         };
         let value = number(field(a, "value")?, "value")?.unwrap_or(0);
         let two = number(field(a, "valueTwo")?, "valueTwo")?.unwrap_or(0);
-        // Only the masked comparison has a second value, and under Docker
-        // the mask applies to it as well.
-        conds.push(Cond { index: index as u32, op, value, two: if op == Op::MaskedEq { two & value } else { 0 } });
+        if active {
+            if index > 5 {
+                return Err(bad(format!("syscalls only have up to 6 arguments ({index} given)")));
+            }
+            // Only the masked comparison has a second value, and under Docker
+            // the mask applies to it as well.
+            conds.push(Cond { index: index as u32, op, value, two: if op == Op::MaskedEq { two & value } else { 0 } });
+        }
     }
     Ok(conds)
 }
@@ -507,7 +510,6 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
             return Err(bad("a syscall rule must be an object"));
         }
         let act = action(string(field(rule, "action")?, "action")?, number(field(rule, "errnoRet")?, "errnoRet")?)?;
-        let mut conds = conditions(rule)?;
         let mut names = strings(field(rule, "names")?, "names")?;
         let name = string(field(rule, "name")?, "name")?;
         if !name.is_empty() {
@@ -516,6 +518,8 @@ fn compile_for(json: &str, caps: u64, kernel: Option<(u32, u32)>) -> io::Result<
             }
             names.push(name);
         }
+        let active = act != default && names.iter().any(|name| syscall_table::number(name).is_some());
+        let mut conds = conditions(rule, active)?;
         if !selected(rule, caps, kernel)? {
             continue;
         }
@@ -1135,5 +1139,53 @@ mod tests {
             // SAFETY: getppid only reads this child's parent process ID.
             errno_of(unsafe { libc::syscall(libc::SYS_getppid) }) == libc::EACCES
         }));
+    }
+
+    #[test]
+    fn ignored_rules_do_not_require_a_valid_argument_position() {
+        let nr = syscall_table::number("getppid").unwrap();
+        for (name, action) in [("getppid", "SCMP_ACT_ALLOW"), ("asagiri_no_such_syscall", "SCMP_ACT_ERRNO")] {
+            for index in [6, 7, u64::from(u32::MAX) + 1, u64::MAX] {
+                let filter = compiled(json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                    {"names": [name], "action": action, "errnoRet": 13,
+                        "args": [{"index": index, "op": "SCMP_CMP_EQ", "value": 0}]},
+                ]})).unwrap().unwrap();
+                assert_eq!(verdict(&filter.insns, NATIVE.2, nr, [0; 6]), RET_ALLOW);
+            }
+        }
+    }
+
+    #[test]
+    fn ignored_rules_still_validate_operators_and_typed_fields() {
+        for (name, action) in [("getppid", "SCMP_ACT_ALLOW"), ("asagiri_no_such_syscall", "SCMP_ACT_ERRNO")] {
+            let profile = |arg: Value| json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                {"names": [name], "action": action, "errnoRet": 13, "args": [arg]},
+            ]});
+            let error = compiled(profile(json!({"index": 7, "op": "SCMP_CMP_BOGUS", "value": 0})))
+                .err().expect("invalid operator");
+            assert!(error.to_string().contains("not a valid operator for seccomp"), "{error}");
+            for (field, value) in [
+                ("index", json!(-1)), ("index", json!(true)), ("index", json!(1.5)),
+                ("value", json!(true)), ("valueTwo", json!("invalid")),
+            ] {
+                let mut arg = json!({"index": 7, "op": "SCMP_CMP_EQ", "value": 0, "valueTwo": 0});
+                arg[field] = value;
+                assert!(compiled(profile(arg)).is_err(), "ignored rule must validate {field}");
+            }
+        }
+    }
+
+    #[test]
+    fn active_rules_validate_positions_before_zero_mask_removal() {
+        for op in ["SCMP_CMP_EQ", "SCMP_CMP_MASKED_EQ"] {
+            for index in [6, 7, u64::from(u32::MAX) + 1, u64::MAX] {
+                let profile = json!({"defaultAction": "SCMP_ACT_ALLOW", "syscalls": [
+                    {"names": ["asagiri_no_such_syscall", "getppid"], "action": "SCMP_ACT_ERRNO",
+                        "args": [{"index": index, "op": op, "value": 0, "valueTwo": 99}]},
+                ]});
+                let error = compiled(profile).err().expect("invalid position in active rule");
+                assert!(error.to_string().contains("up to 6 arguments"), "{error}");
+            }
+        }
     }
 }
