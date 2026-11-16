@@ -18,7 +18,8 @@ python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference
 # The production importer needs two engines. Give it fresh private stores,
 # exercise the actual Docker CLI contexts, and remove both hosts afterward.
 sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
-  python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --out "${bin}-engine-import" || exit 2
+  python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --fixtures "${bin}-fixtures" \
+    --out "${bin}-engine-import" || exit 2
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }

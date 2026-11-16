@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the production importer between two disposable Linux engines."""
+"""Exercise the desktop migration module between two disposable Linux engines."""
 import argparse
 import hashlib
 import http.client
@@ -42,13 +42,14 @@ class Connection(http.client.HTTPConnection):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binaries", type=Path, required=True)
+    parser.add_argument("--fixtures", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     assert platform.system() == "Linux", "Use disposable Linux CI engines"
     # Both daemon sockets enforce Linux peer credentials. The test client and
     # its private runtime directories must have the daemon owner's identity.
     assert os.geteuid() == 0, "Run this private-engine fixture as root"
-    bins, output = args.binaries.resolve(), args.out.resolve()
+    bins, fixtures, output = args.binaries.resolve(), args.fixtures.resolve(), args.out.resolve()
     output.mkdir(mode=0o755)
     # This folder contains only generated CI evidence. Socket directories and
     # context files remain private; Actions uploads these results as its user.
@@ -59,16 +60,34 @@ def main():
     head = command("git", "-c", "safe.directory=" + str(ROOT), "-C", ROOT,
                    "rev-parse", "HEAD", text=True).stdout.strip()
     assert (bins / "SOURCE_COMMIT").read_text().strip() == head
+    assert (fixtures / "SOURCE_COMMIT").read_text().strip() == head
+    fixture_hashes = dict(line.split()[::-1] for line in (fixtures / "SHA256SUMS").read_text().splitlines())
+    assert set(fixture_hashes) == {"asagiri-daemon-fixture", "asagiri-import-fixture"}
+    assert all(checksum(fixtures / name) == digest for name, digest in fixture_hashes.items())
+    import_sources = dict(line.split()[::-1]
+                          for line in (fixtures / "IMPORT_SOURCES_SHA256SUMS").read_text().splitlines())
+    assert set(import_sources) == {
+        "crates/asagiri/examples/import-fixture.rs", "crates/asagiri/src/import.rs",
+        "crates/asagiri/src/client.rs", "crates/asagiri/src/client/health.rs",
+        "crates/asagiri/src/client/health_response.rs", "crates/asagiri/src/flavor.rs",
+    }
+    assert all(checksum(ROOT / name) == digest for name, digest in import_sources.items())
     images = json.loads((ROOT / "scripts/ci/reference-images.json").read_text())
     nonce = uuid.uuid4().hex
     names = {key: "asagiri-import-" + nonce + "-" + key for key in ("source", "destination")}
     record = {
-        "schema": "asagiri.engine-import.v1", "status": "running", "source": head,
+        "schema": "asagiri.engine-import.v2", "status": "running", "source": head,
         "client_uid": os.geteuid(),
         "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "binaries": hashes, "fixture_sha256": checksum(Path(__file__)),
+        "import_entrypoint": {
+            "kind": "CI example including the production desktop import module and Docker CLI resolver",
+            "binary_sha256": fixture_hashes["asagiri-import-fixture"],
+            "sources_sha256": import_sources,
+            "scope": "Real Docker CLI and engines; desktop app dispatch and diagnostic stack are not exercised.",
+        },
         "images_sha256": checksum(ROOT / "scripts/ci/reference-images.json"),
-        "hosts": {}, "cases": [], "cleanup": [],
+        "hosts": {}, "cases": [], "cleanup": [], "import_commands": [],
     }
     ids, sockets = {}, {"runner": Path("/var/run/docker.sock")}
 
@@ -100,8 +119,13 @@ def main():
     def imported(kind, name, success=True):
         result = command(
             "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
-            "/opt/asagiri/asagiri", "import", "desktop-linux", kind, name, check=False,
+            "/opt/asagiri-fixtures/asagiri-import-fixture", "desktop-linux", kind, name, check=False,
         )
+        record["import_commands"].append({
+            "arguments": ["desktop-linux", kind, name], "returncode": result.returncode,
+            "stdout": result.stdout.decode(errors="replace"), "stderr": result.stderr.decode(errors="replace"),
+        })
+        save()
         text = (result.stdout + result.stderr).decode(errors="replace")
         assert (result.returncode == 0) == success, (kind, name, result.returncode, text)
         return text
@@ -130,6 +154,7 @@ def main():
                     ],
                     "destination": [
                         *common, "-v", str(bins) + ":/opt/asagiri:ro",
+                        "-v", str(fixtures) + ":/opt/asagiri-fixtures:ro",
                         "-v", str(work / "destination") + ":/run/asagiri",
                         "-v", str(work / "source") + ":/source-socket:ro",
                         "-v", "/var/lib/asagiri", "-v", "/test-store",
@@ -180,6 +205,21 @@ def main():
                     command("docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config",
                             ids["destination"], "docker", "context", "create", context,
                             "--docker", "host=unix://" + path)
+                    version = command(
+                        "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config",
+                        ids["destination"], "docker", "--context", context, "version",
+                        "--format", "{{json .Server}}", text=True)
+                    engine = "source" if context == "desktop-linux" else "destination"
+                    cli_version = json.loads(version.stdout)
+                    assert cli_version["Version"] == record["hosts"][engine]["version"]["Version"]
+                    record["hosts"][engine]["context_server_version"] = cli_version
+
+                # The separate fixture must not replace Linux's rootfs-import CLI.
+                help_result = command("docker", "exec", ids["destination"],
+                                      "/opt/asagiri/asagiri", "import", "--help", text=True)
+                record["linux_rootfs_import_help"] = help_result.stdout
+                assert "--change" in help_result.stdout and "--message" in help_result.stdout, help_result.stdout
+                case("linux-rootfs-import-command-preserved")
 
                 # Reuse the CI runner's existing seed bytes. The helper alias is
                 # fixture-local; it does not change any tag on the runner.
@@ -195,7 +235,8 @@ def main():
                 volume = "asagiri-import-volume-" + nonce
                 missing = volume + "-missing"
                 assert request("source", "GET", "/volumes/" + missing)[0] == 404
-                assert "could not check volume" in imported("volume", missing, success=False)
+                error = imported("volume", missing, success=False)
+                assert "could not check volume" in error, error
                 assert request("destination", "GET", "/volumes/" + missing)[0] == 404
                 case("missing-source-does-not-create-a-destination")
 
