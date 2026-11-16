@@ -1,0 +1,77 @@
+{
+  "schema": "asagiri.volume-labels-native-negative.v1",
+  "runtime": "v0.1.6-dev.100",
+  "runtime_source": "2f9073bddd42454c26970bd21aad70dd6f39755f",
+  "baseline": {
+    "status": "passed",
+    "kind": "native negative baseline reproduced",
+    "at": "2026-11-16T09:19:32.169259+00:00",
+    "runtime": "0.1.6-dev.100",
+    "fixture_sha256": "89674fec65215c015bb975cde80970426d443fb63e91ee8d7ca512524ae1528b",
+    "cases": 6,
+    "original_failures": [
+      "anonymous-driver-options",
+      "anonymous-no-driver",
+      "invalid-target-no-side-effect",
+      "named-no-driver"
+    ],
+    "controls_passed": 2,
+    "owned_cleanup_verified": true,
+    "original_inventory_preserved": true,
+    "scope": "Real metadata creation/inspection/removal; no process started, no image pulled."
+  },
+  "cases": [
+    {
+      "name": "named-no-driver",
+      "status": "failed",
+      "errors": [
+        "requested or preexisting labels were not preserved"
+      ]
+    },
+    {
+      "name": "named-local-driver",
+      "status": "passed",
+      "errors": []
+    },
+    {
+      "name": "anonymous-no-driver",
+      "status": "failed",
+      "errors": [
+        "requested or preexisting labels were not preserved"
+      ],
+      "anonymous_removed_with_container": true
+    },
+    {
+      "name": "anonymous-driver-options",
+      "status": "failed",
+      "errors": [
+        "requested or preexisting labels were not preserved",
+        "requested or preexisting driver options were not preserved"
+      ],
+      "anonymous_removed_with_container": true
+    },
+    {
+      "name": "existing-keeps-metadata",
+      "status": "passed",
+      "errors": []
+    },
+    {
+      "name": "invalid-target-no-side-effect",
+      "status": "failed",
+      "errors": [
+        "invalid mount target created a volume"
+      ]
+    }
+  ],
+  "owned_containers_removed": 5,
+  "volume_targets_verified_absent": 6,
+  "fixed_engine_runtime": "Pending paired hosted CI; this is a native negative baseline.",
+  "primary_api_schema": {
+    "repository": "moby/moby",
+    "ref": "v27.5.1",
+    "path": "api/swagger.yaml",
+    "api_version": "1.47",
+    "blob": "142bb038a1cde3c84ffd4b9245bbc397acbd57a4",
+    "sha256": "f44c4514b5893e043cbe3e1675b67b9eed86fc26b6c15144bddcb02c46d2ca7e"
+  }
+}

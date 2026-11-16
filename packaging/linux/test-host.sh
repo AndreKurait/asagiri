@@ -15,7 +15,78 @@ ok() { echo "  [ok]   $1"; }
 bad() { echo "  [FAIL] $1"; fail=$((fail + 1)); }
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-check() { if eval "$2" >"$log" 2>&1; then ok "$1"; else bad "$1"; sed 's/^/         /' "$log" | tail -4; fi; }
+check_command() {
+  local description=$1
+  shift
+  if "$@" >"$log" 2>&1; then
+    ok "$description"
+    sed -n '/^asagiri-package-upgrade /p' "$log"
+  else
+    bad "$description"
+    sed 's/^/         /' "$log" | tail -4
+  fi
+}
+check() { check_command "$1" eval "$2"; }
+
+# Called by the lifecycle functions dispatched through check_command.
+# shellcheck disable=SC2329
+engine_ready() {
+  local _attempt
+  for _attempt in $(seq 30); do
+    if [ "$(curl -fs --max-time 2 --unix-socket /run/asagiri/docker.sock http://asagiri/_ping)" = OK ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "The packaged engine did not answer _ping within the deadline" >&2
+  return 1
+}
+
+# Passed as check_command's command, without eval.
+# shellcheck disable=SC2329
+reinstall_running_engine() { # format package
+  local old new invocation current started installed
+  old=$(systemctl show -p MainPID --value asagiri)
+  invocation=$(systemctl show -p InvocationID --value asagiri)
+  started=$(systemctl show -p ExecMainStartTimestampMonotonic --value asagiri)
+  [ "$old" -gt 1 ] && [ -n "$invocation" ] && engine_ready || return 1
+  # DEB and RPM upgrades deliberately keep the old engine running. Reinstalling
+  # the same package exercises that policy without inventing another version.
+  case "$1" in
+    deb) dpkg -i "$2" || return 1 ;;
+    rpm) dnf reinstall -y -q "$2" || return 1 ;;
+    *) return 1 ;;
+  esac
+  new=$(systemctl show -p MainPID --value asagiri)
+  current=$(systemctl show -p InvocationID --value asagiri)
+  installed=$(stat -Lc '%d:%i' /usr/bin/asagiri) || return 1
+  printf 'asagiri-package-upgrade phase=reinstall old_pid=%s new_pid=%s old_invocation=%s new_invocation=%s installed_inode=%s\n' \
+    "$old" "$new" "$invocation" "$current" "$installed"
+  [ "$new" = "$old" ] && [ "$current" = "$invocation" ] &&
+    [ "$(systemctl show -p ExecMainStartTimestampMonotonic --value asagiri)" = "$started" ] &&
+    engine_ready
+}
+
+# Passed as check_command's command, without eval.
+# shellcheck disable=SC2329
+activate_reinstalled_engine() { # account
+  local old new invocation current running installed rc=0
+  old=$(systemctl show -p MainPID --value asagiri)
+  invocation=$(systemctl show -p InvocationID --value asagiri)
+  [ "$old" -gt 1 ] && [ -n "$invocation" ] || return 1
+  # This is the window's explicit Restart engine action, through pkexec.
+  /usr/bin/asagiri host-access --restart "$1" || rc=$?
+  { [ "$rc" = 0 ] || [ "$rc" = 10 ]; } && engine_ready || return 1
+  new=$(systemctl show -p MainPID --value asagiri)
+  current=$(systemctl show -p InvocationID --value asagiri)
+  running=$(stat -Lc '%d:%i' "/proc/$new/exe") || return 1
+  installed=$(stat -Lc '%d:%i' /usr/bin/asagiri) || return 1
+  printf 'asagiri-package-upgrade phase=activate old_pid=%s new_pid=%s old_invocation=%s new_invocation=%s running_inode=%s installed_inode=%s\n' \
+    "$old" "$new" "$invocation" "$current" "$running" "$installed"
+  [ "$new" -gt 1 ] && [ "$new" != "$old" ] &&
+    [ -n "$current" ] && [ "$current" != "$invocation" ] &&
+    [ "$running" = "$installed" ]
+}
 [ -d /run/systemd/system ] || { echo "no systemd here; use test.sh"; exit 1; }
 command -v pgrep >/dev/null 2>&1 || { echo "pgrep is required (install procps/procps-ng)"; exit 1; }
 if pgrep -x asagiri >/dev/null; then
@@ -27,7 +98,7 @@ fi
 
 if command -v dpkg >/dev/null; then fmt=deb; else fmt=rpm; fi
 # The package file for asagiri or asagiri-lite (asagiri-[0-9]* so asagiri doesn't match asagiri-lite).
-pkgfile() { if [ "$fmt" = deb ]; then ls "$out"/${1}_*.deb 2>/dev/null; else ls "$out"/${1}-[0-9]*.rpm 2>/dev/null; fi; }
+pkgfile() { if [ "$fmt" = deb ]; then ls "$out"/"${1}"_*.deb 2>/dev/null; else ls "$out"/"${1}"-[0-9]*.rpm 2>/dev/null; fi; }
 
 host_test() { # name full(0|1)
   local name=$1 full=$2 deb cli='' slot_free=1 install remove
@@ -45,6 +116,7 @@ host_test() { # name full(0|1)
   local sock_free=1
   { [ -e /run/docker.sock ] || [ -L /run/docker.sock ]; } && sock_free=0
   echo
+  # shellcheck source=/dev/null
   echo "#### $name on $(. /etc/os-release; echo "$PRETTY_NAME")"
   check "${install%% *} install $(basename "$deb")" "$install"
   # Installing runs nothing: the engine starts when someone sets Asagiri up.
@@ -78,14 +150,9 @@ host_test() { # name full(0|1)
   if [ "$access_status" -eq 0 ]; then
     check "ACL access also survives the restart" "setpriv --reuid=asagiri-acl-test --regid=asagiri-acl-test --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
   fi
-  # The window's Restart engine after an upgrade: `asagiri host-access --restart`
-  # (through pkexec) restarts a running engine, not only a dead one.
-  check "asagiri host-access --restart restarts a running engine" "old=\$(systemctl show -p MainPID --value asagiri) && { /usr/bin/asagiri host-access --restart asagiri-acl-test; rc=\$?; [ \"\$rc\" = 0 ] || [ \"\$rc\" = 10 ]; } && new=\$(systemctl show -p MainPID --value asagiri) && [ \"\$new\" != 0 ] && [ \"\$new\" != \"\$old\" ] && curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping | grep -q OK"
+  check_command "package reinstall preserves the running engine and healthy API" reinstall_running_engine "$fmt" "$deb"
+  check_command "explicit restart activates the reinstalled engine" activate_reinstalled_engine asagiri-acl-test
   userdel asagiri-acl-test >/dev/null 2>&1
-  # An upgrade (here the same package again) restarts the running engine on
-  # the new binary, as the Mac and Windows apps do after an update.
-  if [ "$fmt" = deb ]; then upgrade="dpkg -i '$deb'"; else upgrade="dnf reinstall -y -q '$deb'"; fi
-  check "upgrading restarts the running engine" "old=\$(systemctl show -p MainPID --value asagiri) && $upgrade >/dev/null && for i in \$(seq 30); do curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping 2>/dev/null | grep -q OK && break; sleep 1; done; new=\$(systemctl show -p MainPID --value asagiri) && [ \"\$new\" != 0 ] && [ \"\$new\" != \"\$old\" ]"
   check "/run/asagiri is root 755 (RuntimeDirectory; the socket itself is 660 root:asagiri)" "stat -c '%U %a' /run/asagiri | grep -q '^root 755'"
   check "/var/lib/asagiri-daemon (StateDirectory) exists" "test -d /var/lib/asagiri-daemon"
   if [ "$sock_free" = 1 ]; then

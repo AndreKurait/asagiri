@@ -1,0 +1,55 @@
+{
+  "schema": "asagiri.linux-package-lifecycle.v1",
+  "recorded_at": "2026-11-16T09:27:32.322550+00:00",
+  "baseline": {
+    "run": 43835737574,
+    "attempt": 1,
+    "source": "77444fd1239b9dda5049b234a5053fbb2958994b",
+    "jobs": [
+      {
+        "id": 133192625347,
+        "architecture": "aarch64",
+        "log_sha256": "5f31dd01e203de2e94c19bbb2f096d6ef046fd6edb005bf3328506259c373c40"
+      },
+      {
+        "id": 133192625392,
+        "architecture": "x86_64",
+        "log_sha256": "3164e3d99b57b562b0bf973c277d4fdd98c2a8659597cf4e1e080441a4916f36"
+      }
+    ],
+    "result": "failed",
+    "failed_assertions_per_architecture": 2,
+    "assertion": "upgrading restarts the running engine",
+    "observed_controls": "Both full and lite packages passed initial installation, access controls, explicit host-access restart, container execution, networking and removal. Reinstall deliberately preserved the running service.",
+    "port_commit": "02babf8e36954a7b550993a4b05504006768c1b6"
+  },
+  "public_followup": "https://github.com/libracoder/kiri/pull/264",
+  "cause": "A ported same-package reinstall test expected an automatic restart, contradicting the preserved DEB postinst and RPM post scripts. Those scripts keep the running engine alive and ask the user to activate the new binary explicitly.",
+  "correction": {
+    "test": "packaging/linux/test-host.sh",
+    "reinstall": [
+      "same nonzero MainPID",
+      "same systemd InvocationID",
+      "same ExecMainStartTimestampMonotonic",
+      "healthy _ping after reinstall"
+    ],
+    "explicit_activation": [
+      "host-access --restart succeeds or requests new group login",
+      "healthy _ping within bounded deadline",
+      "different nonzero MainPID and InvocationID",
+      "running /proc/PID/exe device/inode matches /usr/bin/asagiri"
+    ],
+    "automation": "Platform builds now run the same Linux package and private Amazon Linux systemd checks used by Release, with pipeline failure propagation and retained source/binary/package hashes and full logs.",
+    "production_package_scripts_changed": false
+  },
+  "qualification": {
+    "local": "Bash syntax, ShellCheck, actionlint, 8 runtime-contract tests and 30 release-contract tests passed; production package scripts match main byte for byte.",
+    "corrected_real_systemd_runtime": "pending new exact-source PR CI",
+    "limits": [
+      "Reinstalls one package version; does not simulate a transition between two different release versions.",
+      "Process identity and API continuity do not establish uninterrupted application traffic under arbitrary workloads.",
+      "The added PR job runs x86_64; Release still requires both aarch64 and x86_64.",
+      "No change to the package activation policy or release success gates."
+    ]
+  }
+}
