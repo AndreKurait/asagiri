@@ -266,7 +266,10 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     let undo = Teardown { base: base.clone(), cgroup: cgroup.clone(), remove };
     // A restart that fails must not take the stopped container's files with it.
     let cleanup = |e: io::Error| {
-        undo_now(&undo);
+        let e = match undo_now(&undo) {
+            Ok(()) => e,
+            Err(stop) => io::Error::new(e.kind(), format!("{e}; {stop}; cleanup will retry")),
+        };
         if remove { roots.remove(spec.id); }
         roots.release(spec.id);
         e
@@ -380,7 +383,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         }
     };
     let mut veths = Vec::new();
-    let started = (|| {
+    let started: io::Result<Process> = (|| {
         let mut macvlans = Unplug(Vec::new());
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
@@ -468,10 +471,18 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         }
         // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
         // rmdir does not race the failed child (or any descendants) exiting.
-        kill_cgroup(&undo.cgroup);
+        let stopped = kill_cgroup(&undo.cgroup);
         // A held namespace can outlive the failed child. Retire only this
         // attempt's unique links before another attach reuses its address.
         net::retire(&veths);
+        if let Err(stop) = stopped {
+            // Preserve runtime files and the root until the asynchronous
+            // cleanup worker confirms that the cgroup is empty. Its failed
+            // attempts keep this ID reserved and are retried by Roots.
+            if remove { roots.remove(spec.id); }
+            roots.release(spec.id);
+            return io::Error::new(error.kind(), format!("{error}; {stop}; cleanup will retry"));
+        }
         // The rejected child is not in the process table. Reap it before
         // releasing its root lease, just as the normal exit path does.
         let mut status = 0;
@@ -648,7 +659,9 @@ pub fn teardown_network(p: &Process, netns_shared: bool) {
 pub fn teardown(p: &Process, netns_shared: bool) {
     teardown_network(p, netns_shared);
     if let Some(t) = &p.teardown {
-        undo_now(t);
+        if let Err(error) = undo_now(t) {
+            eprintln!("asagiri-init: cleanup {}: {error}; root cleanup will retry", p.id);
+        }
     }
 }
 
@@ -690,13 +703,21 @@ pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
         // Do not keep control sockets, container pipes or namespace FDs alive.
         // SAFETY: this affects only the child's descriptor table.
         unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0); }
-        undo_now(t);
+        let code = match undo_now(t) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("asagiri-init: cleanup {}: {error}", p.id);
+                1
+            }
+        };
         // SAFETY: leave this fork without running the parent's destructors.
-        unsafe { libc::_exit(0) }
+        unsafe { libc::_exit(code) }
     }
     if pid < 0 {
         eprintln!("asagiri-init: cleanup fork: {}; cleaning synchronously", io::Error::last_os_error());
-        undo_now(t);
+        if let Err(error) = undo_now(t) {
+            eprintln!("asagiri-init: cleanup {}: {error}; root cleanup will retry", p.id);
+        }
         None
     } else {
         Some(pid)
@@ -735,11 +756,13 @@ fn remove_cgroup(dir: &std::path::Path) {
     let _ = fs::remove_dir(dir);
 }
 
-fn undo_now(t: &Teardown) {
+fn undo_now(t: &Teardown) -> io::Result<()> {
+    kill_cgroup(&t.cgroup)?;
     if let Some(id) = t.base.file_name() {
         let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
     }
     remove_cgroup(&t.cgroup);
+    Ok(())
 }
 
 /// Deletes a stopped container's directory (its writable layer).
@@ -794,7 +817,10 @@ pub fn begin_root_cleanup(paths: &Paths, id: &str, remove_files: bool) -> io::Re
             }
             libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
         }
-        let result = if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) };
+        let result = stop_cgroups(&paths.cgroup, id).and_then(|()| {
+            let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+            if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) }
+        });
         let code = match result {
             Ok(()) => 0,
             Err(error) => {
@@ -848,22 +874,25 @@ fn unmount_root(path: &Path) -> io::Result<()> {
 /// runtime files and cgroups removed, and a veth something else kept alive
 /// deleted. Only containers of this data directory are touched: the
 /// cgroup and the network namespace may hold another engine's too.
-pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
-    let Ok(entries) = fs::read_dir(&paths.containers) else { return };
-    let ids: Vec<String> = entries.flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|id| valid_id(id).is_ok() && id.len() >= 12).collect();
-    for id in &ids {
-        for parent in [cgroup.to_path_buf(), cgroup.join("docker/buildx")] {
-            let cg = parent.join(id);
-            if !cg.is_dir() {
-                continue;
-            }
-            kill_cgroup(&cg);
-            remove_cgroup(&cg);
+pub fn sweep(paths: &Paths, cgroup: &std::path::Path) -> io::Result<()> {
+    let entries = match fs::read_dir(&paths.containers) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let mut ids = Vec::new();
+    let mut failures = Vec::new();
+    for entry in entries {
+        let Some(id) = entry?.file_name().into_string().ok() else { continue };
+        if valid_id(&id).is_err() || id.len() < 12 { continue; }
+        if let Err(error) = stop_cgroups(cgroup, &id) {
+            failures.push(error.to_string());
+            continue;
         }
         // A service manager may already have killed the old processes and
         // removed their cgroups. The overlay still belongs to this data
         // directory and must be reclaimed before its next start.
-        let rootfs = paths.containers.join(id).join("rootfs");
+        let rootfs = paths.containers.join(&id).join("rootfs");
         // Kernels that permit an overlay to be mounted more than once can
         // have stacked mounts from earlier failed recoveries.
         for _ in 0..64 {
@@ -871,43 +900,34 @@ pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
                 break;
             }
         }
-        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(&id));
+        ids.push(id);
     }
     // Host-side veths are kv<9 characters of the id><4 hex digits>.
-    let Ok(links) = fs::read_dir("/sys/class/net") else { return };
-    for link in links.flatten() {
-        let Ok(name) = link.file_name().into_string() else { continue };
-        let ours = name.strip_prefix("kv").and_then(|rest| rest.get(..9)).is_some_and(|p| ids.iter().any(|id| id.starts_with(p)));
-        if ours {
-            let _ = net::detach(&name);
+    if let Ok(links) = fs::read_dir("/sys/class/net") {
+        for link in links.flatten() {
+            let Ok(name) = link.file_name().into_string() else { continue };
+            let ours = name.strip_prefix("kv").and_then(|rest| rest.get(..9)).is_some_and(|p| ids.iter().any(|id| id.starts_with(p)));
+            if ours {
+                let _ = net::detach(&name);
+            }
         }
     }
+    if failures.is_empty() { Ok(()) } else { Err(io::Error::other(failures.join("; "))) }
 }
 
-/// Kills every process in a cgroup and below it, and waits (briefly) until
-/// it is empty.
-fn kill_cgroup(dir: &std::path::Path) {
-    // cgroup.kill is Linux 5.14+; before it, each process, deepest first.
-    if fs::write(dir.join("cgroup.kill"), "1").is_err() {
-        fn each(dir: &std::path::Path) {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for e in entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())) {
-                    each(&e.path());
-                }
-            }
-            for pid in fs::read_to_string(dir.join("cgroup.procs")).unwrap_or_default().lines().filter_map(|l| l.parse::<libc::pid_t>().ok()) {
-                // SAFETY: SIGKILL to a process of a container cgroup we own.
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-            }
-        }
-        each(dir);
+fn stop_cgroups(parent: &Path, id: &str) -> io::Result<()> {
+    for parent in [parent.to_path_buf(), parent.join("docker/buildx")] {
+        let group = parent.join(id);
+        kill_cgroup(&group)?;
+        remove_cgroup(&group);
     }
-    for _ in 0..300 {
-        if fs::read_to_string(dir.join("cgroup.events")).map_or(true, |e| e.lines().any(|l| l == "populated 0")) {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    Ok(())
+}
+
+/// Wait for an empty cgroup before releasing any of its filesystem state.
+fn kill_cgroup(dir: &Path) -> io::Result<()> {
+    super::cgroup_kill::kill(dir)
 }
 
 /// Deletes every container directory not in `keep` and not in `running`.
@@ -1975,7 +1995,7 @@ fn find_executable(p: &Prepared) -> Option<CString> {
 
 #[cfg(test)]
 mod removal_tests {
-    use super::{Paths, begin_root_cleanup, remove};
+    use super::{Paths, begin_root_cleanup, remove, sweep};
     use std::fs;
     use std::os::unix::fs::DirBuilderExt;
     use std::path::PathBuf;
@@ -2028,6 +2048,34 @@ mod removal_tests {
         assert_eq!(remove(&f.paths, "../outside").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
         assert!(begin_root_cleanup(&f.paths, "../outside", true).is_err());
         assert_eq!(fs::read(outside).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn failed_cgroup_cleanup_preserves_files_and_allows_a_repaired_retry() {
+        let f = Fixture::new();
+        let id = "0123456789abcdef";
+        let base = f.paths.containers.join(id);
+        let fake = f.paths.cgroup.join(id);
+        fs::create_dir_all(base.join("rootfs")).unwrap();
+        fs::create_dir_all(&fake).unwrap();
+        fs::write(base.join("payload"), b"keep until the processes are stopped").unwrap();
+        fs::write(fake.join("cgroup.kill"), b"untouched").unwrap();
+        assert!(sweep(&f.paths, &f.paths.cgroup).unwrap_err().to_string().contains("not a cgroup-v2 directory"));
+        assert_eq!(fs::read(fake.join("cgroup.kill")).unwrap(), b"untouched");
+        assert_eq!(fs::read(base.join("payload")).unwrap(), b"keep until the processes are stopped");
+        let worker = |expected| {
+            let pid = begin_root_cleanup(&f.paths, id, true).unwrap();
+            let mut status = 0;
+            // SAFETY: wait only for the cleanup worker created by this test.
+            assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+            assert!(libc::WIFEXITED(status));
+            assert_eq!(libc::WEXITSTATUS(status), expected);
+        };
+        worker(1);
+        assert!(base.join("payload").exists());
+        fs::remove_dir_all(&fake).unwrap();
+        worker(0);
+        assert!(!base.exists());
     }
 }
 
