@@ -1699,5 +1699,6 @@
   "Stop waiting": "停止等待",
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "设备回来后 Asagiri 会再次接入。停止等待即可把它留在这台电脑上。",
   "Waiting to come back": "等待重新接入",
-  "No languages match": "没有匹配的语言"
+  "No languages match": "没有匹配的语言",
+  "Cut": "剪切"
 }

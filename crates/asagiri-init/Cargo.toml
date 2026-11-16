@@ -16,6 +16,9 @@ serde_json = "1"
 ruzstd = "0.9"
 tar = "0.4"
 
+[dev-dependencies]
+tar = "0.4"
+
 [lints]
 workspace = true
 
@@ -25,4 +28,12 @@ harness = false
 
 [[test]]
 name = "removal-process"
+harness = false
+
+[[test]]
+name = "clock-read"
+harness = false
+
+[[test]]
+name = "shared-root-process"
 harness = false

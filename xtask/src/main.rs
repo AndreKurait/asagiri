@@ -39,6 +39,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod wsl;
+
 /// Which Mac a build is for. Asagiri ships one app per architecture rather
 /// than a universal one: the bundled docker CLI, Compose and buildx are most
 /// of the download, and a universal app would carry both builds of each.
@@ -403,14 +405,13 @@ impl WinArch {
 }
 
 /// The Windows bundle, in target/asagiri-windows-x86_64 (or -aarch64): what
-/// contrib/windows/asagiri.ps1 installs. On Windows the Linux half is built
-/// with cargo in WSL (the default distro, with Rust installed); elsewhere
-/// as `linux --arch amd64` is, and asagiri-win.exe needs the
-/// x86_64-pc-windows-gnu target and MinGW.
+/// contrib/windows/asagiri.ps1 installs. Local builds run the Linux half with
+/// cargo in a user WSL distro with Rust installed. Release CI can supply its
+/// prebuilt Linux inputs through ASAGIRI_WINDOWS_LINUX_DIR.
 fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
     // The static (musl) engine, which runs in Asagiri Linux and in Ubuntu, and
     // Asagiri Linux itself (scripts/asagiri-linux.sh), built in WSL: on Windows,
-    // the default distro, with Rust installed. zig cross-compiles, so
+    // a user distro with Rust installed. zig cross-compiles, so
     // either architecture builds in either WSL.
     // Release CI builds and tests the Linux engine on a native Linux runner.
     // Reuse that job's complete input bundle without needing WSL on the
@@ -428,13 +429,10 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
         }
     } else {
         fs::create_dir_all(&linux)?;
-        let wsl = |path: &Path| -> io::Result<String> {
-            let out = Command::new("wsl.exe").args(["wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")).output()?;
-            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        };
-        let (src, out_dir) = (wsl(root)?, wsl(&linux)?);
-        run(Command::new("wsl.exe").args(["--", "bash", &format!("{src}/scripts/windows-engine.sh"), &src, &out_dir, arch.linux()]))?;
-        run(Command::new("wsl.exe").args(["--", "sh", &format!("{src}/scripts/asagiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/asagiri-linux.tar.gz"), arch.linux()]))?;
+        let distro = wsl::distro()?;
+        let (src, out_dir) = (wsl::path(&distro, root)?, wsl::path(&distro, &linux)?);
+        run(wsl::command(&distro, "bash").args([&format!("{src}/scripts/windows-engine.sh"), &src, &out_dir, arch.linux()]))?;
+        run(wsl::command(&distro, "sh").args([&format!("{src}/scripts/asagiri-linux.sh"), &src, &out_dir, &format!("{out_dir}/asagiri-linux.tar.gz"), arch.linux()]))?;
     }
     // Assemble the bundle first: the engine, Asagiri Linux, the docker CLI,
     // Compose and buildx (pinned, checked, as Asagiri.app bundles them) and the
@@ -745,7 +743,8 @@ fn verify(file: &Path, want: &str) -> io::Result<()> {
 fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
     host(root, arch)?;
     let version = env!("CARGO_PKG_VERSION");
-    // Info.plist's versions are numbers only: a test build's 0.1.8-dev.42 is 0.1.8 there.
+    // Apple's version fields stay numeric. AsagiriVersion retains the full
+    // release identity for preview updates and package verification.
     let plain = version.split('-').next().unwrap_or(version);
     let app = root.join(arch.app_dir(lite));
     let _ = fs::remove_dir_all(&app);
@@ -834,6 +833,7 @@ fn app(root: &Path, arch: Arch, lite: bool) -> io::Result<PathBuf> {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>{plain}</string>
   <key>CFBundleVersion</key><string>{plain}</string>
+  <key>AsagiriVersion</key><string>{version}</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>

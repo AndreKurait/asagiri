@@ -26,6 +26,9 @@ t home "/root" "docker run --rm alpine sh -c 'echo \$HOME'"
 t internet "Example Domain" "docker run --rm alpine wget -qO- -T 10 http://example.com"
 t port "Welcome to nginx" "docker run -d --name web -p 18081:80 nginx:alpine >/dev/null; for i in \$(seq 30); do curl -s localhost:18081 && break; sleep 0.3; done"
 t exec "nginx version" "docker exec web nginx -v"
+# What the registry serves now, for update checkers (#257).
+t distribution '"mediaType":"application/vnd.oci.image.index.v1+json"' "curl -s --unix-socket /root/.asagiri/run/docker.sock http://d/v1.47/distribution/library/alpine:3.21/json"
+t distribution-missing "404" "curl -s -o /dev/null -w '%{http_code}' --unix-socket /root/.asagiri/run/docker.sock http://d/v1.47/distribution/library/alpine:asagiri-missing-manifest-test/json"
 # A container and an exec each lead their own session, so killpg from inside
 # never reaches the daemon (#191).
 t session-own "SID=1" "docker run --rm alpine sh -c 'echo SID=\$(cut -d\" \" -f6 /proc/1/stat)'"

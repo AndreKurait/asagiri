@@ -193,21 +193,19 @@ fn quiet(program: &str) -> Command {
     let mut c = crate::win::tool(program);
     std::os::windows::process::CommandExt::creation_flags(&mut c, CREATE_NO_WINDOW);
     c.stdin(Stdio::null());
+    if program.eq_ignore_ascii_case("wsl.exe") { crate::wsl_text::utf8(&mut c); }
     c
 }
 
-/// WSL's own output is UTF-16.
-fn wsl_text(bytes: &[u8]) -> String {
-    if bytes.len() >= 2 && bytes.iter().skip(1).step_by(2).take(8).all(|&b| b == 0) {
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-        String::from_utf16_lossy(&units).replace('\0', "")
-    } else {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
-}
+use crate::wsl_text::decode as wsl_text;
 
 fn wsl_installed() -> bool {
     quiet("wsl.exe").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+}
+
+fn wsl_component_missing() -> bool {
+    quiet("wsl.exe").arg("--status").output()
+        .is_ok_and(|output| crate::wsl_text::missing_component(&output.stdout, &output.stderr))
 }
 
 pub(crate) fn distros() -> Vec<String> {
@@ -249,10 +247,10 @@ fn setup_needed(s: &Saved, installed: &[String]) -> bool {
 
 /// The step to show now, from what is on this PC.
 fn current_step(s: &Saved) -> &'static str {
-    resume_step(s, wsl_installed(), restarted_since, distros, crate::client::alive)
+    resume_step(s, wsl_installed(), restarted_since, wsl_component_missing, distros, crate::client::alive)
 }
 
-fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, installed: impl FnOnce() -> Vec<String>, alive: impl FnOnce() -> bool) -> &'static str {
+fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, missing_component: impl FnOnce() -> bool, installed: impl FnOnce() -> Vec<String>, alive: impl FnOnce() -> bool) -> &'static str {
     if !wsl {
         return "welcome";
     }
@@ -261,6 +259,9 @@ fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, instal
             return "restart";
         }
     }
+    // The MSI can be installed while Windows' optional component is off.
+    // Offer the same installation/repair step, preserving an approved reboot.
+    if missing_component() { return "welcome"; }
     let installed = installed();
     match &s.distro {
         Some(d) if installed.contains(d) => {
@@ -477,7 +478,7 @@ fn elevated(args: &[&str]) -> io::Result<i32> {
 }
 
 /// Step 1: download WSL, then in one elevated run turn on Virtual Machine
-/// Platform and install WSL. Exit 3010 from either means a restart.
+/// Platform, enable the WSL component and install WSL. Any 3010 means a restart.
 fn install_wsl() -> io::Result<()> {
     update(|s| s.tasks = tasks(&[tr("Download WSL"), tr("Administrator approval"), tr("Turn on Virtual Machine Platform"), tr("Install WSL")]));
     // WSL_MSI is this build's architecture's; on another PC it would not install.
@@ -507,7 +508,16 @@ fn install_wsl() -> io::Result<()> {
             task(3, "error", "");
             return Err(io::Error::other("the WSL installer failed"));
         }
-        _ => {}
+        24 => {
+            task(2, "done", "");
+            task(3, "error", "");
+            return Err(io::Error::other("Windows could not enable the Windows Subsystem for Linux optional component"));
+        }
+        0 | 3010 => {}
+        code => {
+            task(3, "error", "");
+            return Err(io::Error::other(format!("WSL setup failed with exit code {code}")));
+        }
     }
     task(2, "done", "");
     task(3, "done", "");
@@ -605,9 +615,10 @@ fn install_linux(kind: &str) -> io::Result<()> {
     engine()
 }
 
-/// A Windows path as `distro` sees it.
+/// A Windows path as `distro` sees it. Killed after WSL_LIMIT, as the
+/// other calls into WSL to start or restart the engine.
 pub(crate) fn to_wsl(distro: &str, path: &Path) -> io::Result<String> {
-    let out = quiet("wsl.exe").args(["-d", distro, "--", "wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")).output()?;
+    let out = crate::update::output_within(quiet("wsl.exe").args(["-d", distro, "--", "wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")), crate::update::WSL_LIMIT)?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
@@ -915,16 +926,18 @@ mod tests {
         let saved: Saved = serde_json::from_str(r#"{"done":false,"distro":"asagiri","lastError":"pull failed"}"#).unwrap();
         let installed = vec!["asagiri".to_owned()];
         assert!(setup_needed(&saved, &installed));
-        assert_eq!(resume_step(&saved, true, |_| true, || installed.clone(), || false), "engine");
-        assert_eq!(resume_step(&saved, true, |_| true, || installed.clone(), || true), "tools");
-        assert_eq!(resume_step(&saved, true, |_| true, Vec::new, || panic!("no daemon probe without a distro")), "choose");
+        assert_eq!(resume_step(&saved, true, |_| true, || false, || installed.clone(), || false), "engine");
+        assert_eq!(resume_step(&saved, true, |_| true, || false, || installed.clone(), || true), "tools");
+        assert_eq!(resume_step(&saved, true, |_| true, || false, Vec::new, || panic!("no daemon probe without a distro")), "choose");
+        assert_eq!(resume_step(&saved, true, |_| true, || true, || panic!("repair the Windows component first"), || panic!("repair first")), "welcome");
         let complete = Saved { done: true, ..saved };
         assert!(!setup_needed(&complete, &installed));
         assert!(setup_needed(&complete, &[]));
         let restarting = Saved { restart_after: Some(123), ..complete };
-        assert_eq!(resume_step(&restarting, false, |_| panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent")), "welcome");
-        assert_eq!(resume_step(&restarting, true, |at| { assert_eq!(at, 123); false }, || panic!("restart is pending"), || panic!("restart is pending")), "restart");
-        assert_eq!(resume_step(&restarting, true, |_| true, || installed.clone(), || false), "engine");
+        assert_eq!(resume_step(&restarting, false, |_| panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent")), "welcome");
+        assert_eq!(resume_step(&restarting, true, |at| { assert_eq!(at, 123); false }, || panic!("restart is pending"), || panic!("restart is pending"), || panic!("restart is pending")), "restart");
+        assert_eq!(resume_step(&restarting, true, |_| true, || true, || panic!("component still missing after restart"), || panic!("repair first")), "welcome");
+        assert_eq!(resume_step(&restarting, true, |_| true, || false, || installed.clone(), || false), "engine");
     }
 
     #[test]

@@ -343,7 +343,7 @@ fn check(new_app: &Path, app: &Path, promised: &str) -> io::Result<()> {
     }
     let plist = std::fs::read_to_string(new_app.join("Contents/Info.plist"))?;
     let Some(version) = bundle_version(&plist) else {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "the update's Info.plist has no CFBundleShortVersionString"));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "the update's Info.plist has no Asagiri release version"));
     };
     let promised = promised.trim_start_matches('v');
     if version != promised {
@@ -408,14 +408,18 @@ pub fn run(args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-/// `CFBundleShortVersionString` from an Info.plist: the key, then the next
-/// `<string>`. The file is our own (xtask writes it as XML), so a scan does.
+/// The release version from an Info.plist's immediate string property.
+/// New bundles retain the full preview identity in AsagiriVersion;
+/// older stable bundles use CFBundleShortVersionString. The file is our own
+/// (xtask writes it as XML) and has already passed the signature checks.
 fn bundle_version(plist: &str) -> Option<String> {
-    const KEY: &str = "<key>CFBundleShortVersionString</key>";
-    let after = &plist[plist.find(KEY)? + KEY.len()..];
-    let start = after.find("<string>")? + "<string>".len();
-    let end = start + after[start..].find("</string>")?;
-    Some(after[start..end].trim().to_owned()).filter(|v| !v.is_empty())
+    const FULL: &str = "<key>AsagiriVersion</key>";
+    const LEGACY: &str = "<key>CFBundleShortVersionString</key>";
+    let key = if plist.contains(FULL) { FULL } else { LEGACY };
+    let after = plist.split_once(key)?.1.trim_start().strip_prefix("<string>")?;
+    let value = after.split_once("</string>")?.0.trim();
+    (!value.is_empty() && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+')))
+        .then(|| value.to_owned())
 }
 
 #[cfg(test)]
@@ -437,6 +441,26 @@ mod tests {
         assert_eq!(bundle_version(plist).as_deref(), Some("0.3.1"));
         assert_eq!(bundle_version("<plist><dict><key>CFBundleVersion</key><string>7</string></dict></plist>"), None);
         assert_eq!(bundle_version("<key>CFBundleShortVersionString</key><string></string>"), None);
+    }
+
+    #[test]
+    fn preview_bundles_keep_the_full_release_identity() {
+        let plist = "<key>CFBundleShortVersionString</key><string>0.1.6</string>\
+                     <key>AsagiriVersion</key><string>0.1.6-dev.98</string>";
+        assert_eq!(bundle_version(plist).as_deref(), Some("0.1.6-dev.98"));
+        assert!(newer(&bundle_version(plist).unwrap(), "0.1.6-dev.97"));
+        assert!(!newer(&bundle_version(plist).unwrap(), "0.1.6-dev.99"));
+    }
+
+    #[test]
+    fn malformed_explicit_versions_cannot_fall_back_to_another_property() {
+        for value in ["<true/>", "<string></string>", "<string>unfinished"] {
+            let plist = format!("<key>AsagiriVersion</key>{value}\
+                <key>CFBundleShortVersionString</key><string>0.1.6</string>");
+            assert_eq!(bundle_version(&plist), None, "{plist}");
+        }
+        assert_eq!(bundle_version("<key>CFBundleShortVersionString</key><true/>\
+            <key>Unrelated</key><string>0.1.6</string>"), None);
     }
 
     #[test]

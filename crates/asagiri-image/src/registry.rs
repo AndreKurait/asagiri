@@ -834,6 +834,14 @@ impl Client {
         if by_digest && let Some(hit) = MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Ok(hit);
         }
+        let (bytes, media_type) = self.manifest_uncached(r, reference)?;
+        if by_digest {
+            MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).put(&key, reference, &bytes, &media_type);
+        }
+        Ok((bytes, media_type))
+    }
+
+    fn manifest_uncached(&self, r: &Reference, reference: &str) -> Result<(Vec<u8>, String), Error> {
         let url = format!("{}/v2/{}/manifests/{reference}", self.api_base(r), r.repository);
         let mut resp = self.get(r, &url, Some(ACCEPT))?;
         let media_type = resp
@@ -843,9 +851,6 @@ impl Client {
             .unwrap_or_default()
             .to_owned();
         let bytes = resp.body_mut().with_config().limit(4 << 20).read_to_vec()?;
-        if by_digest {
-            MANIFESTS.lock().unwrap_or_else(|e| e.into_inner()).put(&key, reference, &bytes, &media_type);
-        }
         Ok((bytes, media_type))
     }
 
@@ -1105,6 +1110,41 @@ impl Client {
         Ok(tags)
     }
 
+    /// What the registry serves for `r` right now, for `GET
+    /// /distribution/{name}/json` (the update checks of Watchtower, Arcane,
+    /// Portainer): the manifest's or index's
+    /// descriptor, and the platforms it is for. Nothing is pulled; for a
+    /// single-platform manifest its config is read for the platform.
+    pub fn distribution(&self, r: &Reference) -> Result<serde_json::Value, Error> {
+        // Inspect the registry even for a previously pulled digest: a deleted
+        // manifest or revoked access must not be hidden by the pull cache.
+        let (bytes, media_type) = self.manifest_uncached(r, &r.reference).map_err(|e| match e {
+            Error::Status { status: 404, .. } => not_found(e, r),
+            e => e,
+        })?;
+        if r.is_digest() && sha256_digest(&bytes) != r.reference {
+            return Err(Error::Manifest("manifest failed digest check".into()));
+        }
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| Error::Manifest(e.to_string()))?;
+        // The platform of a single manifest is in its config. It is only a
+        // nicety: the descriptor is what update checks compare, so a config
+        // that can't be had (a cache without the blob, a rate limit) leaves
+        // the platforms empty instead of failing the answer, as on Docker.
+        // Only a well-formed digest goes into the URL.
+        let config = match manifest["config"]["digest"].as_str() {
+            Some(digest) if manifest["manifests"].is_null() && crate::store::digest_hex(digest).is_ok() => {
+                let url = format!("{}/v2/{}/blobs/{digest}", self.api_base(r), r.repository);
+                self.get(r, &url, None)
+                    .ok()
+                    .and_then(|mut resp| resp.body_mut().with_config().limit(4 << 20).read_to_vec().ok())
+                    .filter(|body| sha256_digest(body) == digest)
+                    .and_then(|body| serde_json::from_slice(&body).ok())
+            }
+            _ => None,
+        };
+        Ok(distribution_json(&bytes, &media_type, &manifest, config.as_ref()))
+    }
+
     /// `docker login`: checks the credentials against the registry at
     /// `server` (`https://index.docker.io/v1/`, `ghcr.io`, `localhost:5000`).
     pub fn login(&self, server: &str) -> Result<(), Error> {
@@ -1318,6 +1358,41 @@ struct ContainerConfig {
     labels: Option<std::collections::BTreeMap<String, String>>,
 }
 
+/// Docker's answer to `GET /distribution/{name}/json`: the descriptor of
+/// what the registry served (`bytes`), and its platforms, from the index's
+/// entries (all of them, as Docker lists them) or, for a single manifest,
+/// from its `config` blob. The manifest's own mediaType comes first, as
+/// Docker trusts it over a registry's Content-Type.
+fn distribution_json(bytes: &[u8], content_type: &str, manifest: &serde_json::Value, config: Option<&serde_json::Value>) -> serde_json::Value {
+    let header = content_type.split(';').next().unwrap_or_default().trim();
+    let media_type = manifest["mediaType"].as_str().filter(|m| !m.is_empty()).unwrap_or(header);
+    let platform = |p: &serde_json::Value| {
+        let text = |k: &str| p[k].as_str().unwrap_or_default().to_owned();
+        let mut out = serde_json::json!({"architecture": text("architecture"), "os": text("os")});
+        for k in ["variant", "os.version"] {
+            if let Some(v) = p[k].as_str().filter(|v| !v.is_empty()) {
+                out[k] = v.into();
+            }
+        }
+        if let Some(f) = p["os.features"].as_array().filter(|f| !f.is_empty()) {
+            out["os.features"] = f.clone().into();
+        }
+        out
+    };
+    let platforms: Vec<serde_json::Value> = match manifest["manifests"].as_array() {
+        Some(entries) => entries.iter().map(|m| platform(&m["platform"])).collect(),
+        None => config.filter(|c| {
+            ["os", "architecture"].iter().any(|k| c[k].as_str().is_some_and(|v| !v.is_empty()))
+        }).map(platform).into_iter().collect(),
+    };
+    // Docker leaves the nil platform slice as null when no platform is known.
+    let platforms = if platforms.is_empty() { serde_json::Value::Null } else { platforms.into() };
+    serde_json::json!({
+        "Descriptor": {"mediaType": media_type, "digest": sha256_digest(bytes), "size": bytes.len()},
+        "Platforms": platforms,
+    })
+}
+
 /// A registry answers a name that doesn't exist with 401 (Docker Hub hides
 /// private repositories that way) and a missing tag with 404. Say it as
 /// `docker pull` does, not as the raw registry reply; a wrong password stays as it is.
@@ -1347,6 +1422,191 @@ mod tests {
         let wrong = Error::Status { url: String::new(), status: 401, body: "unauthorized: incorrect username or password".into() };
         assert!(matches!(not_found(wrong, &r), Error::Status { status: 401, .. }));
         assert!(matches!(not_found(Error::Status { url: String::new(), status: 500, body: String::new() }, &r), Error::Status { status: 500, .. }));
+    }
+
+    #[test]
+    fn distribution_answers_as_docker_does() {
+        use serde_json::json;
+        // An index: every entry's platform, attestations too, as Docker lists them.
+        let index = json!({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [
+            {"digest": "sha256:a", "platform": {"architecture": "amd64", "os": "linux"}},
+            {"digest": "sha256:b", "platform": {"architecture": "arm64", "os": "linux", "variant": "v8"}},
+            {"digest": "sha256:c", "platform": {"architecture": "unknown", "os": "unknown"}}]});
+        let bytes = serde_json::to_vec(&index).unwrap();
+        let got = distribution_json(&bytes, "application/vnd.oci.image.index.v1+json", &index, None);
+        assert_eq!(got["Descriptor"], json!({"mediaType": "application/vnd.oci.image.index.v1+json", "digest": sha256_digest(&bytes), "size": bytes.len()}));
+        assert_eq!(got["Platforms"], json!([{"architecture": "amd64", "os": "linux"}, {"architecture": "arm64", "os": "linux", "variant": "v8"}, {"architecture": "unknown", "os": "unknown"}]));
+        // A single manifest: the platform comes from its config; its own
+        // mediaType wins over a registry's generic Content-Type.
+        let single = json!({"schemaVersion": 2, "mediaType": "application/vnd.docker.distribution.manifest.v2+json", "config": {"digest": "sha256:cfg"}});
+        let bytes = serde_json::to_vec(&single).unwrap();
+        let got = distribution_json(&bytes, "", &single, Some(&json!({"architecture": "arm64", "os": "linux", "rootfs": {}})));
+        assert_eq!(got["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
+        assert_eq!(got["Platforms"], json!([{"architecture": "arm64", "os": "linux"}]));
+        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Platforms"], json!(null));
+        assert_eq!(distribution_json(&bytes, "application/json; charset=utf-8", &single, None)["Descriptor"]["mediaType"], "application/vnd.docker.distribution.manifest.v2+json");
+        let bare = json!({"schemaVersion": 2, "config": {"digest": "sha256:cfg"}});
+        assert_eq!(distribution_json(&serde_json::to_vec(&bare).unwrap(), "application/vnd.oci.image.manifest.v1+json; x=1", &bare, None)["Descriptor"]["mediaType"], "application/vnd.oci.image.manifest.v1+json");
+    }
+
+    /// A loopback registry that answers by path: `answer` gives the status,
+    /// Content-Type and body for each request; every path asked is kept.
+    struct PathServer {
+        host: String,
+        asked: std::sync::Arc<Mutex<Vec<String>>>,
+        accepted: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for PathServer {
+        fn drop(&mut self) {
+            self.stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                thread.join().unwrap();
+            }
+        }
+    }
+
+    fn path_server(answer: impl Fn(&str) -> (u16, &'static str, Vec<u8>) + Send + 'static) -> PathServer {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connections = accepted.clone();
+        let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = stopped.clone();
+        listener.set_nonblocking(true).unwrap();
+        let thread = std::thread::spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let (mut c, _) = match listener.accept() {
+                    Ok(c) => c,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(e) => panic!("registry accept: {e}"),
+                };
+                // BSD sockets inherit the listener's nonblocking mode. A
+                // temporary lack of request bytes must not look like EOF.
+                c.set_nonblocking(false).unwrap();
+                connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                c.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                c.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+                let mut head = Vec::new();
+                let mut b = [0u8; 1];
+                while head.len() < 16384 && !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
+                    head.push(b[0]);
+                }
+                if !head.ends_with(b"\r\n\r\n") { continue; }
+                let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
+                let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+                seen.lock().unwrap().push(path.clone());
+                let (status, ct, body) = answer(&path);
+                let auth = if status == 401 { "WWW-Authenticate: Basic realm=\"distribution-test\"\r\n" } else { "" };
+                let _ = write!(c, "HTTP/1.1 {status} X\r\nContent-Type: {ct}\r\nContent-Length: {}\r\n{auth}Connection: close\r\n\r\n", body.len());
+                let _ = c.write_all(&body);
+            }
+        });
+        PathServer { host, asked, accepted, stopped, thread: Some(thread) }
+    }
+
+    #[test]
+    fn registry_fixture_waits_for_complete_request_headers() {
+        use std::sync::{atomic::Ordering, mpsc};
+        let (sent, received) = mpsc::channel();
+        let server = path_server(move |path| {
+            sent.send(path.to_owned()).unwrap();
+            (200, "application/octet-stream", b"complete".to_vec())
+        });
+        let mut connection = std::net::TcpStream::connect(&server.host).unwrap();
+        connection.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        connection.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while server.accepted.load(Ordering::Relaxed) == 0 {
+            assert!(Instant::now() < deadline, "registry did not accept the connection");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(matches!(received.recv_timeout(Duration::from_millis(100)), Err(mpsc::RecvTimeoutError::Timeout)),
+            "registry answered before any request bytes arrived");
+        connection.write_all(b"GET /v2/app/manifests/delayed").unwrap();
+        assert!(matches!(received.recv_timeout(Duration::from_millis(100)), Err(mpsc::RecvTimeoutError::Timeout)),
+            "registry answered a partial request header");
+        connection.write_all(b" HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n").unwrap();
+        assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap(), "/v2/app/manifests/delayed");
+        let mut response = Vec::new();
+        connection.read_to_end(&mut response).unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200 ") && response.ends_with(b"\r\n\r\ncomplete"));
+        let mut incomplete = std::net::TcpStream::connect(&server.host).unwrap();
+        incomplete.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        incomplete.write_all(b"GET /v2/app/manifests/aborted HTTP/1.1\r\n").unwrap();
+        incomplete.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = Vec::new();
+        incomplete.read_to_end(&mut response).unwrap();
+        assert!(response.is_empty(), "registry answered a request with incomplete headers");
+        assert_eq!(*server.asked.lock().unwrap(), ["/v2/app/manifests/delayed"]);
+    }
+
+    // The answer stands without the config: a cache missing the blob (or a
+    // rate limit on it) leaves the platforms empty, and a malformed config
+    // digest is never put in a URL.
+    #[test]
+    fn distribution_does_without_the_config() {
+        let config = br#"{"architecture":"arm64","os":"linux"}"#.to_vec();
+        let cfg_digest = sha256_digest(&config);
+        for (case, digest, serve_config) in [("present", cfg_digest.clone(), true), ("missing", cfg_digest.clone(), false), ("malformed", "sha256:../../x?".to_owned(), true)] {
+            let manifest = serde_json::to_vec(&serde_json::json!({"schemaVersion": 2, "mediaType": OCI_MANIFEST, "config": {"digest": digest}, "layers": []})).unwrap();
+            let (m, c) = (manifest.clone(), config.clone());
+            let server = path_server(move |path| {
+                if path.contains("/manifests/") {
+                    (200, OCI_MANIFEST, m.clone())
+                } else if path.contains("/blobs/") && serve_config {
+                    (200, "application/octet-stream", c.clone())
+                } else {
+                    (404, "application/json", b"{}".to_vec())
+                }
+            });
+            let r = Reference::parse(&format!("{}/app:1", server.host)).unwrap();
+            let got = test_client().distribution(&r).unwrap_or_else(|e| panic!("{case}: {e}"));
+            assert_eq!(got["Descriptor"]["digest"], sha256_digest(&manifest), "{case}");
+            assert_eq!(got["Descriptor"]["mediaType"], OCI_MANIFEST, "{case}");
+            let platforms = if case == "present" { serde_json::json!([{"architecture": "arm64", "os": "linux"}]) } else { serde_json::json!(null) };
+            assert_eq!(got["Platforms"], platforms, "{case}");
+            let blobs = server.asked.lock().unwrap().iter().filter(|p| p.contains("/blobs/")).count();
+            assert_eq!(blobs, usize::from(case != "malformed"), "{case}: blob requests");
+        }
+    }
+
+    #[test]
+    fn distribution_checks_the_registry_even_after_a_digest_is_cached() {
+        use std::sync::{Arc, atomic::{AtomicU16, Ordering}};
+        let manifest = br#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}"#.to_vec();
+        let digest = sha256_digest(&manifest);
+        let status = Arc::new(AtomicU16::new(200));
+        let current = status.clone();
+        let server = path_server(move |_| (current.load(Ordering::Relaxed), "application/vnd.oci.image.index.v1+json", manifest.clone()));
+        let r = Reference::parse(&format!("{}/app@{digest}", server.host)).unwrap();
+        let client = test_client();
+        client.manifest(&r, &r.reference).unwrap();
+        client.manifest(&r, &r.reference).unwrap();
+        assert_eq!(server.asked.lock().unwrap().len(), 1, "the pull populated the immutable cache");
+        for code in [401, 403, 404] {
+            status.store(code, Ordering::Relaxed);
+            let result = client.distribution(&r);
+            match code {
+                404 => assert!(matches!(result, Err(Error::NotFound(_))), "{result:?}"),
+                _ => assert!(matches!(result, Err(Error::Status { status, .. }) if status == code), "{result:?}"),
+            }
+        }
+        assert_eq!(server.asked.lock().unwrap().len(), 4, "every inspection contacted the registry");
+    }
+
+    #[test]
+    fn distribution_rejects_an_incorrect_manifest_digest() {
+        let server = path_server(|_| (200, "application/vnd.oci.image.index.v1+json", br#"{"schemaVersion":2,"manifests":[]}"#.to_vec()));
+        let r = Reference::parse(&format!("{}/app@sha256:{}", server.host, "a".repeat(64))).unwrap();
+        assert!(matches!(test_client().distribution(&r), Err(Error::Manifest(_))));
     }
 
     #[test]
@@ -1609,6 +1869,37 @@ mod tests {
         quit(&host);
         assert_eq!(served.join().unwrap(), [0]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_cancellable_download_allows_slow_headers_and_body_without_retry() {
+        let (data, digest) = blob();
+        let body = data.clone();
+        let (host, served) = blob_server(move |_, c| {
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = c.write_all(&body);
+        });
+        let root = std::env::temp_dir().join(format!("asagiri-slow-pull-{}-{}", std::process::id(), host.replace(':', "-")));
+        assert!(!root.exists());
+        let store = Store::open(&root).unwrap();
+        let r = Reference::parse(&format!("{host}/test/blob:1")).unwrap();
+        let cfg = ureq::Agent::config_builder().http_status_as_error(false).timeout_global(Some(Duration::from_secs(2))).build();
+        let agent = ureq::Agent::with_parts(cfg, crate::connect::connector_with(Duration::from_secs(2)), ureq::unversioned::resolver::DefaultResolver::default());
+        let client = Client { agent, ..Client::new() };
+        let cancel = Cancel::new();
+        let result = {
+            let _on = cancel.enter();
+            client.download_with(&store, &r, &digest, u64::MAX, &|_| {}, &cancel)
+        };
+        quit(&host);
+        let requests = served.join().unwrap();
+        let complete = store.has_blob(&digest, data.len() as u64);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(result.unwrap(), data.len() as u64);
+        assert!(complete, "the entire blob passed digest validation");
+        assert_eq!(requests, [0], "a poll must not turn an ordinary slow response into a retry");
     }
 
     #[test]

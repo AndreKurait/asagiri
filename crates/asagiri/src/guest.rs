@@ -49,11 +49,31 @@ pub struct BootOptions {
 
 fn console_output(opts: &BootOptions) -> io::Result<Option<OwnedFd>> {
     if let Some(path) = &opts.console_log {
-        crate::diag::console::capture(path).map(Some)
+        // Diagnostics must not prevent a boot when their file cannot be
+        // opened, including on a full or read-only filesystem.
+        match crate::diag::console::capture(path) {
+            Ok(fd) => Ok(Some(fd)),
+            Err(e) => {
+                crate::diag::warn!("guest console is not being saved", file = path.display(), error = e);
+                Ok(None)
+            }
+        }
     } else if opts.console {
         io::stdout().as_fd().try_clone_to_owned().map(Some)
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod console_tests {
+    #[test]
+    fn an_unwritable_console_log_does_not_stop_the_boot() {
+        let opts = super::BootOptions {
+            console_log: Some("/dev/null/guest-console.log".into()),
+            ..Default::default()
+        };
+        assert!(super::console_output(&opts).unwrap().is_none());
     }
 }
 

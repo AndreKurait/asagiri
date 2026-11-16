@@ -237,6 +237,11 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         ("POST", "/volumes/prune") => return reply(w, volume_prune(req, engine), 200),
         _ => {}
     }
+    if let Some(name) = p.strip_prefix("/distribution/").and_then(|r| r.strip_suffix("/json")) {
+        if m == "GET" {
+            return reply(w, distribution(req, name), 200);
+        }
+    }
     if let Some(rest) = p.strip_prefix("/images/") {
         if let Some(name) = rest.strip_suffix("/json") {
             if m == "GET" {
@@ -922,6 +927,18 @@ fn set_env(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
 /// A registry client with the credentials the CLI sent, if any.
 fn client_for(req: &Request) -> Client {
     Client::new().with_credentials(req.header("x-registry-auth").and_then(asagiri_image::Credentials::from_header))
+}
+
+/// `GET /distribution/{name}/json`: what the registry serves for an image
+/// reference now (its digest and platforms), without pulling it. Update
+/// checkers (Watchtower, Arcane) ask this (#257).
+fn distribution(req: &Request, name: &str) -> Result<Value, Error> {
+    let reference = asagiri_image::Reference::parse(name).map_err(|e| Error::BadRequest(format!("invalid reference format: {e}")))?;
+    client_for(req).distribution(&reference).map_err(|e| match e {
+        asagiri_image::registry::Error::NotFound(m) => Error::NotFound(m),
+        asagiri_image::registry::Error::Status { status: 401 | 403, .. } => Error::Unauthorized(format!("{name}: authentication required")),
+        e => Error::Io(io::Error::other(e.to_string())),
+    })
 }
 
 /// `docker login`: the CLI asks the daemon to check the password, then
@@ -1758,7 +1775,7 @@ pub(super) fn validate_limits(h: &Value, cpus: impl FnOnce() -> usize, update: b
     if memory > 0 && reservation > memory {
         return bad("Minimum memory limit can not be less than memory reservation limit, see usage");
     }
-    let mut warnings = Vec::new();
+    let mut warnings = super::hostopts::resource_warnings(h).map_err(Error::BadRequest)?;
     match &h["OomKillDisable"] {
         Value::Null | Value::Bool(false) => {}
         // cgroup v2 cannot switch the OOM killer off for one group: Docker
@@ -1889,7 +1906,9 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     }
     let host = &body["HostConfig"];
     validate_isolation(host)?;
-    let mut warnings = validate_limits(host, || engine.container_cpus(), false)?;
+    let mut warnings = super::hostopts::check_unsupported(host).map_err(Error::BadRequest)?;
+    warnings.extend(validate_limits(host, || engine.container_cpus(), false)?.into_iter().map(str::to_owned));
+    let log_config = super::logfile::LogConfig::from_host(&host["LogConfig"]).map_err(Error::BadRequest)?;
     let mut limits = super::engine::Limits { shm_size: host["ShmSize"].as_u64().unwrap_or(0), ..limits_from(host, super::engine::Limits::default()) };
     // Docker defaults the combined memory+swap limit to twice Memory; a
     // Memory too large to double is left without a swap limit.
@@ -1992,7 +2011,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
     let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
-        warnings.push(super::ports::WSL_PUBLISH_WARNING);
+        warnings.push(super::ports::WSL_PUBLISH_WARNING.to_owned());
     }
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
@@ -2046,7 +2065,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         shell: strings(&body["Shell"]).filter(|s| !s.is_empty()).or_else(|| strings(&image_cfg["config"]["Shell"])).unwrap_or_default(),
         init: host["Init"].as_bool(),
         extra_networks,
-        log_config: super::logfile::LogConfig::from_host(&host["LogConfig"]).map_err(Error::BadRequest)?,
+        log_config,
         network_mode,
         ipv4_address,
         ipv6_address,
@@ -3342,6 +3361,16 @@ mod tests {
         for host in [json!({"CgroupParent": "/tenant"}), json!({"CgroupParent": false}),
             json!({"UsernsMode": "private"}), json!({"UsernsMode": "auto"}), json!({"UsernsMode": 1})] {
             assert!(matches!(validate_isolation(&host), Err(Error::BadRequest(_))), "{host}");
+        }
+    }
+
+    #[test]
+    fn unsupported_resource_warnings_apply_to_create_and_update() {
+        for update in [false, true] {
+            assert_eq!(validate_limits(&json!({"OomScoreAdj": -1}), || 2, update).unwrap(),
+                ["Asagiri does not support --oom-score-adj; it was ignored"]);
+            assert!(validate_limits(&json!({"Memory": 67108864, "MemorySwap": 134217728,
+                "MemoryReservation": 16777216, "CpusetCpus": "0", "CpusetMems": "0"}), || 2, update).unwrap().is_empty());
         }
     }
 

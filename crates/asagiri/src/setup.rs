@@ -140,10 +140,11 @@ pub fn run(args: &[String]) -> io::Result<()> {
     setup_step("write the Docker context", context(&socket))?;
     println!("docker context `{CONTEXT}` → unix://{}", socket.display());
     if flag("--use") && !dev() {
-        let path = docker_dir()?.join("config.json");
-        let mut cfg = read_json(&path)?;
+        let operation = "make Asagiri Docker's current context";
+        let path = setup_step(operation, docker_dir())?.join("config.json");
+        let mut cfg = setup_step(operation, read_json(&path))?;
         cfg["currentContext"] = CONTEXT.get().into();
-        write_json(&path, &cfg)?;
+        setup_step(operation, write_json(&path, &cfg))?;
         println!("docker now uses Asagiri by default (`docker context use default` to switch back)");
     }
     if let Some(contents) = bundle_contents() {

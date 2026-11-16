@@ -203,16 +203,19 @@ mod tests {
 
     #[test]
     fn ca_bundles_keep_complete_pem_lines_for_engine_and_buildkit() {
-        let ca = include_str!("../tests/fixtures/registry-ca/ca.pem");
-        let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem");
-        for pem in [ca.to_owned(), ca.replace('\n', "\r\n"), format!("\n \t\n{other}\n{ca}\n")] {
+        // A Windows checkout may already use CRLF. Construct both input forms
+        // from LF so the valid CRLF case never accidentally contains CRCRLF.
+        let ca = include_str!("../tests/fixtures/registry-ca/ca.pem").replace("\r\n", "\n");
+        let other = include_str!("../tests/fixtures/registry-ca/other-ca.pem").replace("\r\n", "\n");
+        for pem in [ca.clone(), ca.replace('\n', "\r\n"), format!("\n \t\n{other}\n{ca}\n")] {
             let policy = RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem.clone())].into()).unwrap();
             assert_eq!(policy.ca_certificates()["registry.example"], pem);
         }
         // Go's PEM reader skips an indented BEGIN line. Accepting it here
         // would give the engine a root that BuildKit never loads.
         for pem in [format!(" {ca}"), format!("\t{ca}"), format!("{other} \t{ca}"),
-            format!("{}{ca}", other.trim_end()), ca.replace("\n-----END", "\n -----END")] {
+            format!("{}{ca}", other.trim_end()), ca.replace("\n-----END", "\n -----END"),
+            ca.replace('\n', "\r\r\n")] {
             assert!(RegistrySettings::default().with_ca_certificates(&[("registry.example".into(), pem)].into()).is_err());
         }
     }

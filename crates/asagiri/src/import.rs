@@ -13,11 +13,24 @@ use serde_json::{Value, json};
 
 use crate::client;
 
-/// The engines Asagiri can import from: docker context name, label.
-pub const SOURCES: [(&str, &str); 2] = [("orbstack", "OrbStack"), ("desktop-linux", "Docker Desktop")];
+/// The engines Asagiri can import from: docker context name, label. Docker
+/// Desktop's context has the same name on Windows; OrbStack is Mac-only.
+pub const SOURCES: &[(&str, &str)] = if cfg!(windows) { &[("desktop-linux", "Docker Desktop")] } else { &[("orbstack", "OrbStack"), ("desktop-linux", "Docker Desktop")] };
 
+// asagiri-win builds this file too, where docker_cli() gives a String.
+#[allow(clippy::useless_conversion)]
 fn docker() -> io::Result<PathBuf> {
-    client::docker_cli().ok_or_else(|| io::Error::other("no docker CLI found (Asagiri.app bundles one)"))
+    client::docker_cli().map(PathBuf::from).ok_or_else(|| io::Error::other("no docker CLI found (Asagiri bundles one)"))
+}
+
+/// The docker CLI, run without a console window of its own (Windows opens
+/// one for each console program a windowed one starts).
+fn cli() -> io::Result<Command> {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(docker()?);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+    Ok(cmd)
 }
 
 fn known(source: &str) -> io::Result<&'static str> {
@@ -26,7 +39,7 @@ fn known(source: &str) -> io::Result<&'static str> {
 
 /// `docker --context ctx <args>`, its output as JSON lines.
 fn json_lines(ctx: &str, args: &[&str]) -> io::Result<Vec<Value>> {
-    let out = Command::new(docker()?).arg("--context").arg(ctx).args(args).stderr(Stdio::piped()).output()?;
+    let out = cli()?.arg("--context").arg(ctx).args(args).stderr(Stdio::piped()).output()?;
     if !out.status.success() {
         return Err(io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_owned()));
     }
@@ -38,10 +51,7 @@ pub fn sources() -> Vec<Value> {
     SOURCES
         .iter()
         .map(|(ctx, label)| {
-            let running = docker().is_ok_and(|d| {
-                Command::new(d).args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
-            });
-            json!({"id": ctx, "label": label, "running": running})
+            json!({"id": ctx, "label": label, "running": answers(ctx)})
         })
         .collect()
 }
@@ -90,10 +100,9 @@ pub fn inventory(source: &str) -> io::Result<Value> {
 /// `docker --context src save IMAGE | docker --context asagiri load`.
 pub fn image(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
-    let d = docker()?;
-    let mut save = Command::new(&d).args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut save = cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let out = save.stdout.take().ok_or_else(|| io::Error::other("no output from docker save"))?;
-    let load = Command::new(&d).args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let load = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
     let saved = save.wait_with_output()?;
     if !saved.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&saved.stderr).trim())));
@@ -106,7 +115,7 @@ pub fn image(source: &str, name: &str) -> io::Result<()> {
 
 /// An image with `tar` that both engines have, for the volume helpers.
 fn helper_image(ctx: &str) -> io::Result<&'static str> {
-    let has = |c: &str, img: &str| Command::new(docker().ok()?).args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
+    let has = |c: &str, img: &str| cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
     for img in ["alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"] {
         if has(ctx, img) == Some(true) {
             if has(crate::flavor::CONTEXT.get(), img) != Some(true) {
@@ -122,18 +131,17 @@ fn helper_image(ctx: &str) -> io::Result<&'static str> {
 /// untar in a helper on Asagiri. Both helpers remove themselves.
 pub fn volume(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
-    let d = docker()?;
     let img = helper_image(ctx)?;
-    let _ = Command::new(&d).args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).stdout(Stdio::null()).stderr(Stdio::null()).status();
     let src_mount = format!("{name}:/from:ro");
     let dst_mount = format!("{name}:/to");
-    let mut read = Command::new(&d)
+    let mut read = cli()?
         .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
     let out = read.stdout.take().ok_or_else(|| io::Error::other("no output from the source helper"))?;
-    let write = Command::new(&d)
+    let write = cli()?
         .args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"])
         .stdin(out)
         .stdout(Stdio::null())
@@ -164,7 +172,7 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
     for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
         if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
-            let _ = Command::new(docker()?).args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
         }
         // The source's own short ID is no name in Asagiri.
         let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
@@ -194,23 +202,96 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Whether `ctx`'s engine answers.
+fn answers(ctx: &str) -> bool {
+    cli().is_ok_and(|mut c| c.args(["--context", ctx, "version", "--format", "{{.Server.Version}}"]).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success()))
+}
+
+/// The engine to import from: the one named, or else the first that
+/// answers. Only the engines that need it are asked (`answers` waits on
+/// each), and one that isn't there gets a plain message instead of docker's
+/// "context not found" (#266).
+fn pick(given: Option<&str>, answers: impl Fn(&str) -> bool) -> io::Result<&'static str> {
+    let label = |id: &'static str| SOURCES.iter().find(|(c, _)| *c == id).map_or(id, |(_, l)| *l);
+    match given {
+        Some(id) => {
+            let id = known(id)?;
+            if answers(id) {
+                Ok(id)
+            } else {
+                Err(io::Error::other(format!("{} isn't installed or running here (no docker context \"{id}\" answering)", label(id))))
+            }
+        }
+        None => SOURCES.iter().map(|(c, _)| *c).find(|c| answers(c)).ok_or_else(|| {
+            let names: Vec<&str> = SOURCES.iter().map(|(_, l)| *l).collect();
+            io::Error::other(format!("nothing to import from: {} isn't installed or running here", names.join(" or ")))
+        }),
+    }
+}
+
+const KINDS: [&str; 3] = ["image", "volume", "container"];
+const USAGE: &str = "usage: asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]";
+
+/// What `asagiri import` was asked to do.
+#[derive(Debug, PartialEq)]
+enum Ask<'a> {
+    Everything,
+    List,
+    One(&'a str, &'a str),
+}
+
+/// The source named (if any) and what to do. A kind without exactly one
+/// name, `--list` with an item, or a flag Asagiri doesn't know is a usage
+/// error, never "import everything".
+fn parse<'a>(args: &[&'a str]) -> io::Result<(Option<&'a str>, Ask<'a>)> {
+    let usage = || io::Error::other(USAGE);
+    let mut list = false;
+    let mut words = Vec::new();
+    for a in args {
+        match *a {
+            "--list" => list = true,
+            f if f.starts_with('-') => return Err(usage()),
+            w => words.push(w),
+        }
+    }
+    let (given, rest) = match words.split_first() {
+        Some((first, rest)) if !KINDS.contains(first) => (Some(*first), rest),
+        _ => (None, &words[..]),
+    };
+    let ask = match (rest, list) {
+        ([], false) => Ask::Everything,
+        ([], true) => Ask::List,
+        ([kind, name], false) if KINDS.contains(kind) => Ask::One(kind, name),
+        _ => return Err(usage()),
+    };
+    Ok((given, ask))
+}
+
 /// `asagiri import [orbstack|desktop-linux] [--list | image|volume|container NAME]`:
 /// one item, or every image, named volume and container Asagiri lacks.
 pub fn run(args: &[String]) -> io::Result<()> {
-    let words: Vec<&str> = args.iter().filter(|a| !a.starts_with('-')).map(String::as_str).collect();
-    let source = words.first().copied().unwrap_or("orbstack");
-    if let [_, kind, name] = words[..] {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("{USAGE}");
+        return Ok(());
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (given, ask) = parse(&args)?;
+    let source = pick(given, answers)?;
+    if given.is_none() {
+        let label = SOURCES.iter().find(|(c, _)| *c == source).map_or(source, |(_, l)| *l);
+        println!("from {label} ({source})");
+    }
+    if let Ask::One(kind, name) = ask {
         let r = match kind {
             "image" => image(source, name),
             "volume" => volume(source, name),
-            "container" => container(source, name),
-            _ => return Err(io::Error::other("import image, volume or container NAME")),
+            _ => container(source, name),
         };
         return r.map(|()| println!("{kind} {name}: done"));
     }
     let inv = inventory(source)?;
     let list = |k: &str| inv[k].as_array().cloned().unwrap_or_default();
-    if args.iter().any(|a| a == "--list") {
+    if ask == Ask::List {
         for k in ["images", "volumes", "containers"] {
             println!("{k}:");
             for v in list(k) {
@@ -248,5 +329,61 @@ mod tests {
     fn anonymous_volumes() {
         assert!(super::anonymous(&"a1".repeat(32)));
         assert!(!super::anonymous("pgdata"));
+    }
+
+    // #266: a fresh machine with neither engine gets a plain answer, not
+    // docker's "context not found"; with no source named, the first that
+    // answers is used, and only as many engines are asked as needed.
+    #[test]
+    fn picks_a_running_source() {
+        use super::pick;
+        let none = |_: &str| false;
+        let only_desktop = |c: &str| c == "desktop-linux";
+        if cfg!(windows) {
+            assert_eq!(pick(None, none).unwrap_err().to_string(), "nothing to import from: Docker Desktop isn't installed or running here");
+        } else {
+            assert_eq!(pick(None, none).unwrap_err().to_string(), "nothing to import from: OrbStack or Docker Desktop isn't installed or running here");
+            assert!(pick(Some("orbstack"), only_desktop).is_err());
+            // Named: only that engine is asked.
+            let asked = std::cell::RefCell::new(Vec::new());
+            assert_eq!(pick(Some("desktop-linux"), |c: &str| { asked.borrow_mut().push(c.to_owned()); true }).unwrap(), "desktop-linux");
+            assert_eq!(*asked.borrow(), ["desktop-linux"]);
+            // Not named: stops at the first that answers.
+            asked.borrow_mut().clear();
+            assert_eq!(pick(None, |c: &str| { asked.borrow_mut().push(c.to_owned()); true }).unwrap(), "orbstack");
+            assert_eq!(*asked.borrow(), ["orbstack"]);
+        }
+        assert_eq!(pick(None, only_desktop).unwrap(), "desktop-linux");
+        assert!(pick(Some("desktop-linux"), none).unwrap_err().to_string().starts_with("Docker Desktop isn't installed or running here"));
+        // An unknown source is refused before any engine is asked.
+        assert_eq!(pick(Some("podman"), |_: &str| panic!("asked")).unwrap_err().to_string(), "unknown source podman");
+    }
+
+    // A kind without exactly one name is a usage error, never "import
+    // everything"; the source may be left out before a kind.
+    #[test]
+    fn parses_what_to_import() {
+        use super::{Ask, parse};
+        assert_eq!(parse(&[]).unwrap(), (None, Ask::Everything));
+        assert_eq!(parse(&["orbstack"]).unwrap(), (Some("orbstack"), Ask::Everything));
+        assert_eq!(parse(&["--list"]).unwrap(), (None, Ask::List));
+        assert_eq!(parse(&["orbstack", "--list"]).unwrap(), (Some("orbstack"), Ask::List));
+        assert_eq!(parse(&["image", "nginx"]).unwrap(), (None, Ask::One("image", "nginx")));
+        assert_eq!(parse(&["desktop-linux", "volume", "pg"]).unwrap(), (Some("desktop-linux"), Ask::One("volume", "pg")));
+        for bad in [
+            &["orbstack", "image"][..],
+            &["image"],
+            &["orbstack", "image", "a", "b"],
+            &["orbstack", "photo", "a"],
+            // --list with an item would import it.
+            &["--list", "image", "nginx"],
+            &["image", "nginx", "--list"],
+            // An unknown flag must not start a full import.
+            &["--dry-run"],
+            &["orbstack", "-l"],
+        ] {
+            assert!(parse(bad).unwrap_err().to_string().starts_with("usage:"), "{bad:?}");
+        }
+        assert_eq!(parse(&["podman"]).unwrap(), (Some("podman"), Ask::Everything));
     }
 }
