@@ -200,8 +200,64 @@ impl Drop for Cgroups {
     }
 }
 
+struct Overmount(CString);
+
+impl Overmount {
+    fn new(source: &Path, target: &Path) -> Self {
+        let source = CString::new(source.as_os_str().as_bytes()).unwrap();
+        let target = CString::new(target.as_os_str().as_bytes()).unwrap();
+        // SAFETY: both paths belong to this disposable fixture. The test runs
+        // only in the isolated privileged CI container's mount namespace.
+        assert_eq!(unsafe {
+            libc::mount(source.as_ptr(), target.as_ptr(), std::ptr::null(), libc::MS_BIND, std::ptr::null())
+        }, 0, "overmount an owned test control: {}", io::Error::last_os_error());
+        Self(target)
+    }
+}
+
+impl Drop for Overmount {
+    fn drop(&mut self) {
+        // SAFETY: detach only the bind mount made by this guard.
+        if unsafe { libc::umount2(self.0.as_ptr(), libc::MNT_DETACH) } != 0 {
+            eprintln!("remove test control overmount: {}", io::Error::last_os_error());
+        }
+    }
+}
+
 mod live {
     use super::*;
+
+    #[test]
+    fn overmounted_regular_and_fifo_controls_are_refused_without_signals_or_writes() {
+        let Some(mut f) = Cgroups::new() else { return };
+        let scratch = Scratch::new();
+        let outside = f.outside();
+        for (name, control, fifo, force_pidfds) in [
+            ("kill-file", "cgroup.kill", false, false),
+            ("procs-file", "cgroup.procs", false, true),
+            ("procs-fifo", "cgroup.procs", true, true),
+        ] {
+            let path = f.group(name);
+            let victim = f.spawn(&path);
+            let source = scratch.0.join(name);
+            let contents = f.children[outside].pid().to_string();
+            if fifo {
+                let source_c = CString::new(source.as_os_str().as_bytes()).unwrap();
+                // SAFETY: creates a FIFO only inside this test's scratch directory.
+                assert_eq!(unsafe { libc::mkfifo(source_c.as_ptr(), 0o600) }, 0);
+            } else {
+                fs::write(&source, &contents).unwrap();
+            }
+            let mounted = Overmount::new(&source, &path.join(control));
+            assert_eq!(kill_mode(&path, force_pidfds).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+            f.children[victim].alive();
+            f.children[outside].alive();
+            assert_eq!(Group::open(&path).unwrap().read(c"cgroup.freeze").unwrap().trim(), "0");
+            if !fifo { assert_eq!(fs::read_to_string(&source).unwrap(), contents); }
+            drop(mounted);
+        }
+        f.finish();
+    }
 
     #[test]
     fn modern_kernel_kill_empties_nested_groups_and_preserves_an_outside_child() {

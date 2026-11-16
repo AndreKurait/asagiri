@@ -34,12 +34,26 @@ impl Group {
     }
 
     fn control(&self, name: &CStr, write: bool) -> io::Result<File> {
-        let flags = (if write { libc::O_WRONLY } else { libc::O_RDONLY }) | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+        // Nonblocking open also keeps an overmounted FIFO from hanging before
+        // its type and filesystem can be checked.
+        let flags = (if write { libc::O_WRONLY } else { libc::O_RDONLY })
+            | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
         // SAFETY: the name is NUL-terminated and relative to an owned directory.
         let fd = unsafe { libc::openat(self.0.as_raw_fd(), name.as_ptr(), flags) };
         if fd < 0 { return Err(io::Error::last_os_error()); }
         // SAFETY: openat returned a new descriptor owned by nobody else.
-        Ok(unsafe { File::from_raw_fd(fd) })
+        let file = unsafe { File::from_raw_fd(fd) };
+        let mut info = std::mem::MaybeUninit::<libc::statfs>::uninit();
+        // SAFETY: fstatfs writes the supplied structure for this owned fd.
+        if unsafe { libc::fstatfs(file.as_raw_fd(), info.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: fstatfs succeeded. A genuine directory can still have an
+        // ordinary file mounted over one control; verify the opened file.
+        if unsafe { info.assume_init() }.f_type as u64 != 0x6367_7270 || !file.metadata()?.is_file() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a cgroup-v2 control file"));
+        }
+        Ok(file)
     }
 
     fn read(&self, name: &CStr) -> io::Result<String> {

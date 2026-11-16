@@ -1,22 +1,22 @@
 {
   "schema": "asagiri.cgroup-stop-review.v1",
-  "recorded_at": "2026-11-16T09:58:03.575946+00:00",
-  "candidate_base": "203d5783a0b1a37b8af1c9fe6b6ffea1ea9ca049",
+  "recorded_at": "2026-11-16T10:12:37.102998+00:00",
+  "candidate_base": "6568d9733a2e5a723f1eb9acc72f2c6daca088e4",
   "public_sources": {
     "issue": "https://github.com/libracoder/kiri/issues/324",
     "pull_request": "https://github.com/libracoder/kiri/pull/341",
     "commit": "https://github.com/libracoder/kiri/commit/6864aafba7c399dba65873dd06c47d4492c0d836"
   },
   "implementation": [
-    "Open and verify real cgroup-v2 directory descriptors; refuse ordinary files and symlinked control paths.",
+    "Verify real cgroup-v2 directory descriptors and each opened regular control file. Refuse symlinks and ordinary overmounted controls; open controls nonblocking so a substituted FIFO cannot hang before validation.",
     "Prefer cgroup.kill. Only an absent or unsupported control permits the fallback; permission and read-only errors remain failures.",
     "For the fallback, freeze and wait, pin process identities with pidfd_open, read current membership again, and signal only the pinned handles in bounded batches. Restore only a requested freezer state changed by this operation.",
     "Read threaded-domain membership at the domain root; refuse independent cleanup of a populated threaded child.",
     "Propagate stop failures through startup/shutdown sweeps and cleanup workers, preserving container files until a repaired cleanup succeeds."
   ],
   "source_sha256": {
-    "crates/asagiri-init/src/linux/cgroup_kill.rs": "0ed16bf06cb9407a1ad6d8a18ceaa33aa9b646f38705368a60482c10340fd1f9",
-    "crates/asagiri-init/src/linux/cgroup_kill_tests.rs": "86566e02b8b2122fd3f7f83573b1686e7cb9a57b4511422af696bcb886508024",
+    "crates/asagiri-init/src/linux/cgroup_kill.rs": "e60b2cea11750e7c576d31b37634569a569abf301f22f855d6927b41d70602c7",
+    "crates/asagiri-init/src/linux/cgroup_kill_tests.rs": "2be7e6c78f44e7a7bfb5e76c10659126806c106884493b07f3cf26c18a321cfa",
     "crates/asagiri-init/src/linux/container.rs": "75774db3730c4c57dd7ed8e07024482d9af8eadb03b9170429c261dd2dd74871",
     "crates/asagiri-init/src/linux/mod.rs": "9c095775b0725ebc2d29b3defa01a73d3387346a8f4c28bb7f49a2c9830b8d32",
     "scripts/ci/build-linux.sh": "a80f48b69459c83eefadfdda46537de69fbf46d7033e4d33cddd70bea042902b"
@@ -24,8 +24,8 @@
   "local_verification": {
     "compiler": "Rust 1.99.1",
     "linux_test_binaries": {
-      "aarch64-unknown-linux-musl": "00234939f67e9cca192d6f5b192373ccd54bb21ccde191e8a071af8493a3cde5",
-      "x86_64-unknown-linux-musl": "7b74092a3e7b7f84bcb9adc692ee29cef4d00b5de8be11d824262bb026f9f5b1"
+      "aarch64-unknown-linux-musl": "a6f91f2d501998c6322ac6f0a52f319ae2ae1652fb052c63ab36f0b31cf12e84",
+      "x86_64-unknown-linux-musl": "b40fff788a9ff8ef2a49211f96520ddfd6452e03025d8777fe914f1f650b151f"
     },
     "native_engine": "0.1.6-dev.100",
     "native_target": "aarch64-unknown-linux-musl",
@@ -43,23 +43,32 @@
       "linux::container::removal_tests::failed_recursive_removal_keeps_its_files_until_a_repaired_retry_succeeds"
     ],
     "scope": "Actual init tests: five unprivileged cgroup-stop checks, three filesystem-removal checks including failed-cleanup retry, and two PTY/process-table checks. Signals target only children created inside this owned container. No privileged cgroup mount, host PID churn, or complete engine replacement is exercised.",
-    "log_sha256": "5238cd30affe058bf77796e22112030758c3be08c8108c1b48dbf49d20750aba",
-    "raw_log_sha256": "4013a7cb49909b19827c1a05dd063cadd394809190b279a391b45a2524deb6a3",
+    "log_sha256": "3d70c1299a43b61ba84da6509297d843d6dce68785b7512b5c662483ede70b75",
+    "raw_log_sha256": "21b5474bb67db46a5d33dfd5cc4ba762cd305e7c3b34b41967e817f73bd2dc9a",
     "cleanup_status": 404,
     "original_inventory_preserved": true,
-    "collector_correction": {
+    "compiler_failure_retained": "The first build required an explicit io::Result<Process> annotation at the failed-spawn boundary; the corrected source builds for both Linux architectures.",
+    "previous_collector_correction": {
+      "source_commit": "6568d9733a2e5a723f1eb9acc72f2c6daca088e4",
       "original_collection_status": "failed",
       "reason": "Its same-line test-name/ok assertion rejected an expected diagnostic between the test name and the passing result.",
       "test_process_exit": 0,
       "native_execution_repeated": false,
       "negative_log_controls_rejected": 4
     },
-    "compiler_failure_retained": "The first build required an explicit io::Result<Process> annotation at the failed-spawn boundary; the corrected source builds for both Linux architectures."
+    "collector": {
+      "status": "passed",
+      "all_expected_test_names_verified": true,
+      "all_summaries_zero_failed_and_zero_ignored": true,
+      "sha256": "c15dae3f5b39cb3e308b91391097879af0898b264bda0e7ae97c5f228338a94a",
+      "log_parser_sha256": "069244b170b5877067ddd54e06d03448e7c11e0f9e1373a3b6b06a5ddca914c6",
+      "native_execution_reason": "The control validation source changed; the ten unprivileged tests were run against the newly compiled binary."
+    }
   },
   "required_hosted_cases": {
     "status": "pending",
     "environment": "ASAGIRI_REQUIRE_CGROUP_KILL_TEST=1 in the privileged disposable Linux unit-test job; absence of a writable cgroup-v2 mount fails the job.",
-    "case_count": 7,
+    "case_count": 8,
     "cases": [
       "Modern nested cgroup.kill preserves a child outside the target subtree.",
       "Forced pidfd fallback handles nested groups and more than one batch.",
@@ -67,7 +76,8 @@
       "A timeout restores the freezer without signaling retained processes.",
       "Membership is read again after process handles are pinned and an owned child is moved.",
       "Threaded-domain cleanup avoids unsupported child process-list reads.",
-      "Independent cleanup of a populated threaded child fails without freezing or signaling it."
+      "Independent cleanup of a populated threaded child fails without freezing or signaling it.",
+      "Regular files over cgroup.kill/cgroup.procs and a FIFO over cgroup.procs are rejected without writes, blocked opens, or signals to retained children; every owned bind mount is removed."
     ]
   },
   "remaining_limits": [
