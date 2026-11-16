@@ -1001,7 +1001,7 @@
       "updated_at": "2026-11-15T18:38:47Z",
       "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba",
       "disposition": "partial",
-      "reason": "The required readiness test performs 20 immediate execs after start, each with 100 tmpfs mounts, and checks that hostname setup is complete without sleeping before exec. Topic Linux runs pass. An existing image user with a large newly populated named volume, the reporter's Ubuntu ARM host and the combined candidate still require qualification."
+      "reason": "Released dev.99 passed three fresh 128 MiB named volumes on the native Mac guest, with immediate explicit and inherited non-root image-user execs, an unknown-user negative control and eight independently removed owned resources. The new paired Docker/Asagiri Linux fixture is required in CI; its first hosted result and the exact reporter's Ubuntu ARM host remain unverified. Existing 20-exec/100-tmpfs readiness checks remain."
     },
     {
       "number": 315,
@@ -1155,6 +1155,14 @@
       "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397",
       "disposition": "partial",
       "reason": "The desktop candidate adds the native Mac Edit menu and shortcut actions with translated labels. Local UI/platform compilation passes; actual packaged AppKit clipboard shortcuts remain unverified."
+    }
+  ],
+  "additional_verification": [
+    {
+      "issue": 311,
+      "runtime_release": "v0.1.6-dev.99",
+      "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597",
+      "evidence": "docs/verification/native-readiness-2026-11-16.json"
     }
   ]
 }

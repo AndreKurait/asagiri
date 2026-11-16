@@ -1226,9 +1226,11 @@
       "coverage": "partial",
       "checks": [
         "tests/start-exec-readiness.py",
-        "scripts/ci/live-tests.sh"
+        "tests/start-exec-image-user.py",
+        "scripts/ci/live-tests.sh",
+        "docs/verification/native-readiness-2026-11-16.json"
       ],
-      "remaining": "The required readiness test performs 20 immediate execs after start, each with 100 tmpfs mounts, and checks that hostname setup is complete without sleeping before exec. Topic Linux runs pass. An existing image user with a large newly populated named volume, the reporter's Ubuntu ARM host and the combined candidate still require qualification.",
+      "remaining": "Released dev.99 passed three fresh 128 MiB named volumes on the native Mac guest, with immediate explicit and inherited non-root image-user execs, an unknown-user negative control and eight independently removed owned resources. The new paired Docker/Asagiri Linux fixture is required in CI; its first hosted result and the exact reporter's Ubuntu ARM host remain unverified. Existing 20-exec/100-tmpfs readiness checks remain.",
       "issue": 311,
       "title": "Linux: immediate docker exec fails with unknown user after starting a container with a fresh named volume",
       "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba"
