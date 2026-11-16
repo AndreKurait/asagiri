@@ -457,6 +457,14 @@ fn prepare_trust(pending: &std::sync::atomic::AtomicBool, mut running: bool, exe
     Ok(())
 }
 
+/// Excludes build admission while an idle watch changes backend power state.
+/// Busy is acquired before admission, so a new build either prevents this
+/// guard or waits in ensure_running and resumes the backend afterwards.
+pub(super) fn idle_guard() -> Option<std::sync::MutexGuard<'static, ()>> {
+    let guard = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
+    (BUILDS.load(Ordering::Relaxed) == 0).then_some(guard)
+}
+
 /// Pauses the builder once it has been idle [`idle_secs`]: no build here,
 /// no exec in it (buildx's dial-stdio while it builds). Never wakes the VM.
 pub fn watch(engine: Arc<Engine>) {
@@ -486,8 +494,10 @@ pub fn watch(engine: Arc<Engine>) {
         if now.saturating_sub(LAST_USE.load(Ordering::Relaxed)) < idle {
             continue;
         }
-        let _g = ENSURE.lock().unwrap_or_else(|e| e.into_inner());
-        if busy() {
+        let Some(_g) = idle_guard() else { continue };
+        // A build may have finished while admission was locked. Give that
+        // completed build its full idle interval too.
+        if busy() || now_secs().saturating_sub(LAST_USE.load(Ordering::Relaxed)) < idle {
             continue;
         }
         crate::diag::info!("builder idle, pausing it", secs = idle);
@@ -1198,6 +1208,31 @@ fn du_rows(text: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_power_changes_exclude_native_builds_and_new_admission() {
+        let first = Busy::new();
+        let second = Busy::new();
+        assert!(idle_guard().is_none());
+        drop(first);
+        assert!(idle_guard().is_none());
+        drop(second);
+        let idle = idle_guard().expect("all native connections have closed");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (admitted_tx, admitted_rx) = mpsc::channel();
+        let connection = std::thread::spawn(move || {
+            let _busy = Busy::new();
+            ready_tx.send(()).unwrap();
+            let _admission = ENSURE.lock().unwrap();
+            admitted_tx.send(()).unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(admitted_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        drop(idle);
+        admitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        connection.join().unwrap();
+        assert!(idle_guard().is_some());
+    }
 
     /// BuildKit looks the emulator up by name and skips it when it isn't
     /// executable, so the file taking its place must be a plain 0644 file.

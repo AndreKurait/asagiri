@@ -158,6 +158,7 @@ fi
 run buildx-bootstrap
 run registry-config
 run buildkit-driver alpine:3.21
+run builder-idle alpine:3.21
 run kind-cluster alpine:3.21
 
 if [ "$failed" -ne 0 ]; then
