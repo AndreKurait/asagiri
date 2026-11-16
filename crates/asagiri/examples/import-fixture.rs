@@ -13,14 +13,11 @@ mod flavor;
 #[path = "../src/import.rs"]
 mod import;
 
-// The importer uses client::docker_cli(), not the app's HTTP client. Reject an
-// unexpected direct HTTP call instead of substituting an app diagnostic stack.
+// Image and volume copies use the Docker CLI. Container creation uses the
+// production HTTP client, including its real operation-context header.
 #[cfg(target_os = "linux")]
-mod diag {
-    pub fn op_header() -> String {
-        panic!("the import fixture must communicate through the real Docker CLI");
-    }
-}
+#[path = "../src/diag/ops.rs"]
+mod diag;
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {

@@ -58,15 +58,15 @@ fi
       export ASAGIRI_REQUIRE_VOLUME_OWNER_TEST=1
       cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
       rustc --edition=2024 -C opt-level=1 -C panic=abort tests/wsl-daemon-fixture.rs -o /fixtures/asagiri-daemon-fixture
-      # Desktop migration is a separate module: Linux asagiri import forwards
-      # to the Docker rootfs importer. Compile the real migration module as a
+      # Desktop migration is a separate module: Linux asagiri image import
+      # forwards to the Docker rootfs importer. Compile the migration module as a
       # test-only entrypoint without changing the installed Linux command.
       cargo build --locked -p "$engine" --example import-fixture
       cp /t/debug/examples/import-fixture /fixtures/asagiri-import-fixture
       sha256sum "crates/$engine/examples/import-fixture.rs" \
         "crates/$engine/src/import.rs" "crates/$engine/src/client.rs" \
         "crates/$engine/src/client/health.rs" "crates/$engine/src/client/health_response.rs" \
-        "crates/$engine/src/flavor.rs" > /fixtures/IMPORT_SOURCES_SHA256SUMS
+        "crates/$engine/src/flavor.rs" "crates/$engine/src/diag/ops.rs" > /fixtures/IMPORT_SOURCES_SHA256SUMS
       (cd /fixtures && sha256sum asagiri-daemon-fixture asagiri-import-fixture > SHA256SUMS)
     fi
     cargo build --release --locked -p "$engine" -p "$engine-init"

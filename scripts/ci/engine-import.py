@@ -70,6 +70,7 @@ def main():
         "crates/asagiri/examples/import-fixture.rs", "crates/asagiri/src/import.rs",
         "crates/asagiri/src/client.rs", "crates/asagiri/src/client/health.rs",
         "crates/asagiri/src/client/health_response.rs", "crates/asagiri/src/flavor.rs",
+        "crates/asagiri/src/diag/ops.rs",
     }
     assert all(checksum(ROOT / name) == digest for name, digest in import_sources.items())
     images = json.loads((ROOT / "scripts/ci/reference-images.json").read_text())
@@ -81,10 +82,10 @@ def main():
         "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "binaries": hashes, "fixture_sha256": checksum(Path(__file__)),
         "import_entrypoint": {
-            "kind": "CI example including the production desktop import module and Docker CLI resolver",
+            "kind": "CI example including the production desktop importer, Docker CLI resolver and HTTP client",
             "binary_sha256": fixture_hashes["asagiri-import-fixture"],
             "sources_sha256": import_sources,
-            "scope": "Real Docker CLI and engines; desktop app dispatch and diagnostic stack are not exercised.",
+            "scope": "Real Docker CLI, HTTP client, operation headers and engines; desktop app dispatch and diagnostic logging are not exercised.",
         },
         "images_sha256": checksum(ROOT / "scripts/ci/reference-images.json"),
         "hosts": {}, "cases": [], "cleanup": [], "import_commands": [],
