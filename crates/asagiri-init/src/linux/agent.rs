@@ -583,6 +583,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     continue;
                 }
                 Ok(Msg::Retain(keep)) => {
+                    roots.retain(keep);
                     let leased = roots.unfinished();
                     let running: Vec<&str> = procs.values().map(|p| p.run.id.as_str()).chain(leased.iter().map(String::as_str)).collect();
                     container::retain(paths, keep, &running);
@@ -664,6 +665,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         });
                         match attached {
                             Ok(link) => {
+                                dns.describe_network(pid, n);
                                 if !plug.no_ipv4 {
                                     dns.register(n.bridge, n.dns_names.iter(), n.ip);
                                 }

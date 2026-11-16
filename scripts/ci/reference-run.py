@@ -33,6 +33,8 @@ def main():
     parser.add_argument("--binaries", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--runs", type=int, default=400)
+    parser.add_argument("--native", action="store_true",
+                        help="Measure the GNU package engine in the pinned GNU host image")
     args = parser.parse_args()
     if platform.system() != "Linux":
         raise RuntimeError("The private runner requires Linux; reference-bench.py also accepts macOS engine sockets")
@@ -51,6 +53,12 @@ def main():
                "rev-parse", "HEAD", text=True, capture_output=True).stdout.strip()
     if commit != head:
         raise RuntimeError("Compile the measured Asagiri binaries from this checkout")
+    if args.native:
+        elf = json.loads((bins / "native-elf.json").read_text())
+        assert (elf["schema"], elf["status"], elf["source"]) == (
+            "asagiri.native-linux-elf.v1", "passed", head)
+        assert elf["engine"]["sha256"] == checksum(bins / "asagiri") and elf["engine"]["interpreter"]
+        assert elf["init"]["sha256"] == checksum(bins / "asagiri-init") and not elf["init"]["interpreter"]
     images = json.loads((ROOT / "scripts/ci/reference-images.json").read_text())
     nonce = uuid.uuid4().hex[:16]
     names = {engine: "asagiri-reference-" + nonce + "-" + engine.lower()
@@ -75,7 +83,8 @@ def main():
                             "-v", "/var/lib/asagiri", "-v", "/test-store",
                             "-e", "ASAGIRI_SOCKET=/run/asagiri/docker.sock",
                             "-e", "ASAGIRI_DATA_DIR=/test-store", "-e", "ASAGIRI_TEST_ENGINE=1",
-                            "--entrypoint", "/opt/asagiri/asagiri", images["asagiri_host"], "daemon"],
+                            "--entrypoint", "/opt/asagiri/asagiri",
+                            images["asagiri_native_host" if args.native else "asagiri_host"], "daemon"],
                 "Docker": [*common, "-e", "DOCKER_TLS_CERTDIR=",
                            "-v", str(folders["Docker"]) + ":/sockets", "-v", "/var/lib/docker",
                            images["docker"], "dockerd", "--host=unix:///sockets/docker.sock"],
@@ -126,6 +135,7 @@ def main():
                 "repository": os.environ.get("GITHUB_REPOSITORY"), "commit": commit,
                 "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
                 "event": os.environ.get("GITHUB_EVENT_NAME"), "hosts": settings,
+                "asagiri_build_kind": "gnu-native" if args.native else "musl-portable",
                 "binaries": {name: checksum(bins / name) for name in ("asagiri", "asagiri-init")},
                 "harness_sha256": checksum(ROOT / "scripts/reference-bench.py"),
                 "runner_sha256": checksum(Path(__file__)), "images_sha256": checksum(ROOT / "scripts/ci/reference-images.json"),

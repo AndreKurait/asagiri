@@ -13,7 +13,8 @@ installation and runtime paths have been verified.
 | Windows | `cargo xtask msi` | per-user MSI |
 | Linux | `cargo xtask linux` | static engine and guest agent |
 | Linux | `scripts/ci/linux-packages.sh` | `.deb` and `.rpm` packages |
-| Linux | `bash scripts/ci/appimage.sh STATIC_BIN OUTPUT CACHE` | native x86_64 or aarch64 AppImage |
+| Linux | `bash scripts/ci/build-linux-native.sh STATIC_BIN NATIVE_BIN CACHE tests` | GNU host engine and NSS checks |
+| Linux | `bash scripts/ci/appimage.sh NATIVE_BIN OUTPUT CACHE` | native x86_64 or aarch64 AppImage |
 
 Add `--arch x86_64` for Intel Macs or `--arch arm64` for Windows on Arm.
 The guest and Linux packaging need Docker. WiX and the Windows SDK are required
@@ -30,7 +31,9 @@ builds the complete installer without starting WSL on the packaging runner.
 
 ```sh
 packaging/linux/fetch-cli.sh target/linux-cli
-packaging/linux/build.sh target/linux-x86_64-musl target/packages x86_64 target/linux-cli
+sh scripts/ci/build-linux.sh target/portable-bin target/portable-cache target/cargo-registry build
+bash scripts/ci/build-linux-native.sh target/portable-bin target/native-bin target/native-cache tests
+bash packaging/linux/build.sh target/native-bin target/packages x86_64 target/linux-cli
 ```
 
 `build.sh` needs `dpkg-deb` and `rpmbuild`. The full package includes the Docker
@@ -39,9 +42,30 @@ group, executable paths, socket, and data directories use Asagiri's identity.
 Installing the package does not start the engine. Set up host access explicitly
 with `sudo asagiri host-access "$USER"`. Membership grants host-level access.
 
+Native packages link the headless engine against the host's GNU C library so
+account and group lookups use its configured NSS providers. The ELF gate limits
+the engine to glibc 2.34 and standard GNU runtime libraries; packages declare
+glibc and libgcc dependencies. The pinned Debian builder runs a real NSS module
+with account lookup, actual Unix peer credentials, socket ACL admission,
+provider outages and live membership revocation. It restores the disposable
+builder's NSS configuration and verifies its account files remain unchanged.
+Real SSSD or Himmelblau service deployments still need their own integration
+coverage.
+
+Platform CI also measures both engine builds against pinned Docker and Podman
+on the same Linux runner: API ping, container listing, a complete container
+run, exec, and a checked 64 KiB copy round trip. It preserves 400 samples for
+each workload and engine in each build comparison. These workloads do not
+establish cold image-pull, full application or directory-service performance.
+
+The init executable, portable Linux archives and Windows/WSL inputs remain
+static. Portable musl builds do not load host GNU NSS modules. The package
+assembly and release scripts keep the two engine builds separate and check
+their source and binary digests.
+
 ## Linux AppImage
 
-The AppImage bundles the static engine, guest agent and GTK window. It uses the
+The AppImage bundles the GNU engine, static guest agent and GTK window. It uses the
 host's GTK 3 and WebKitGTK 4.1 libraries; the window is built on Debian 12 and
 requires glibc 2.36 or later. Docker's CLI, Compose and Buildx remain separate
 host tools. A compatible systemd service is required to run the engine.
@@ -54,7 +78,7 @@ chmod +x Asagiri-VERSION-x86_64.AppImage
 ```
 
 On a host without FUSE, use `APPIMAGE_EXTRACT_AND_RUN=1` with the same command.
-Passing CLI arguments, such as `--version`, runs the static engine instead of
+Passing CLI arguments, such as `--version`, runs the headless engine instead of
 opening the window. The onboarding password prompt can install the engine and
 agent in `/usr/local/bin` and create an Asagiri systemd service. Existing
 services and different installed executables are preserved. Host access grants
@@ -66,8 +90,9 @@ installed through AppImage onboarding, stop the service and explicitly replace
 both installed executables together when updating.
 
 `appimage.sh` builds and checks a native AppImage from source using the pinned
-Rust/Debian container. `STATIC_BIN` must contain this commit's static engine,
-agent and `SOURCE_COMMIT` file, as produced by `scripts/ci/build-linux.sh`.
+Rust/Debian container. `NATIVE_BIN` must contain this commit's GNU engine,
+static agent, `SHA256SUMS` and `SOURCE_COMMIT`, as produced by
+`scripts/ci/build-linux-native.sh`.
 CI checks the extracted executables, CLI version, desktop metadata, linked
 window libraries, runtime sources and a visible GTK window under a private X
 server. That launch check uses software rendering and disables WebKit's sandbox

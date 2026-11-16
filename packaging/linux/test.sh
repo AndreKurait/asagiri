@@ -17,6 +17,8 @@ fail=0
 # Scratch files of this run's own, not fixed names in /tmp another user could plant.
 tmp=$(mktemp -d)
 containers=()
+# Called by the EXIT trap.
+# shellcheck disable=SC2329
 cleanup() {
   for container in "${containers[@]}"; do $docker rm -fv "$container" >/dev/null 2>&1 || true; done
   rm -rf "$tmp"
@@ -31,7 +33,7 @@ step() { # container name command
 
 test_package() { # name full(0|1)
   local name=$1 full=$2
-  local deb rpm; deb=$(ls "$out"/${name}_*.deb) rpm=$(ls "$out"/${name}-[0-9]*.rpm)
+  local deb rpm; deb=$(ls "$out"/"${name}"_*.deb) rpm=$(ls "$out"/"${name}"-[0-9]*.rpm)
   echo
   echo "#### $name"
   echo "== packages"
@@ -46,7 +48,7 @@ test_package() { # name full(0|1)
   check "deb maintainer scripts" "rm -rf '$tmp/deb-ctl' && dpkg-deb -e '$deb' '$tmp/deb-ctl' && test -x '$tmp/deb-ctl/postinst' -a -x '$tmp/deb-ctl/prerm' -a -x '$tmp/deb-ctl/postrm'"
   rpm -qpi "$rpm" 2>/dev/null | grep -E '^(Name|Version|Release|Architecture|License|Size|Summary)' | sed 's/^/     /'
   check "rpm lists asagiri, asagiri-init, unit, licences" "rpm -qpl '$rpm' | grep -q '^/usr/bin/asagiri$' && rpm -qpl '$rpm' | grep -q /usr/bin/asagiri-init && rpm -qpl '$rpm' | grep -q /usr/lib/systemd/system/asagiri.service && rpm -qpl '$rpm' | grep -q LICENSE && rpm -qpl '$rpm' | grep -q NOTICE"
-  check "rpm needs nothing beyond rpmlib, shadow-utils, /bin/sh, update-alternatives" "! rpm -qp --requires '$rpm' | grep -v -E '^(rpmlib|shadow-utils|/bin/sh|/usr/sbin/update-alternatives|rtld)'"
+  check "rpm declares the bounded GNU engine dependencies" "rpm -qp --requires '$rpm' | grep -q '^glibc.* >= 2.34$' && rpm -qp --requires '$rpm' | grep -q '^libgcc' && ! rpm -qp --requires '$rpm' | grep -v -E '^(rpmlib|shadow-utils|/bin/sh|/usr/sbin/update-alternatives|rtld|glibc|libgcc)'"
   check "rpm scripts: pre, post, preun, postun" "rpm -qp --scripts '$rpm' | grep -q preinstall && rpm -qp --scripts '$rpm' | grep -q postinstall && rpm -qp --scripts '$rpm' | grep -q preuninstall && rpm -qp --scripts '$rpm' | grep -q postuninstall"
 
   echo "== .deb in a privileged Ubuntu container"

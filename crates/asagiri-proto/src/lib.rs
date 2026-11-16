@@ -480,6 +480,9 @@ pub mod net_opts {
     /// only the name the guest keeps it by: neither it nor the bridge gets
     /// one, and DNS has no A record for it.
     pub const NO_IPV4: &str = "noipv4";
+    /// `network=frontend`: the Docker network's name. The guest otherwise
+    /// only knows bridges; DNS uses the name to order equivalent networks.
+    pub const NETWORK: &str = "network";
     /// `mtu=1400`: the network's `com.docker.network.driver.mtu`, for the
     /// bridge and both ends of the container's link. Absent: 1500.
     pub const MTU: &str = "mtu";

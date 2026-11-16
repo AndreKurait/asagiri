@@ -1,6 +1,7 @@
 //! The agent owns copy leases and the client socket until the direct worker
-//! is reaped. Large archives stream in the child; only requests for a root
-//! and bounded final replies pass through this nonblocking broker.
+//! is reaped and its root is ready for reuse. Large archives stream in the
+//! child; only requests for a root and bounded final replies pass through
+//! this nonblocking broker.
 
 use std::fs::File;
 use std::io;
@@ -40,6 +41,7 @@ struct Worker {
     control: Option<OwnedFd>,
     phase: Phase,
     lease: Option<String>,
+    completion_root: Option<String>,
     reply: Option<Vec<u8>>,
     written: usize,
     exited: Option<i32>,
@@ -88,7 +90,7 @@ impl<'a> Broker<'a> {
         }
         drop(child);
         self.workers.push(Worker { pid, client, control: Some(ours), phase: Phase::Awaiting,
-            lease: None, reply: None, written: 0, exited: None, preparing: false });
+            lease: None, completion_root: None, reply: None, written: 0, exited: None, preparing: false });
         Ok(())
     }
 
@@ -98,7 +100,8 @@ impl<'a> Broker<'a> {
                 let events = libc::POLLIN | if matches!(worker.phase, Phase::Grant(_)) { libc::POLLOUT } else { 0 };
                 fds.push(libc::pollfd { fd: control.as_raw_fd(), events, revents: 0 });
             }
-            if worker.exited.is_some() && worker.reply.as_ref().is_some_and(|r| worker.written < r.len()) {
+            if worker.exited.is_some() && !worker.waiting_for_cleanup(self.roots)
+                && worker.reply.as_ref().is_some_and(|r| worker.written < r.len()) {
                 fds.push(libc::pollfd { fd: worker.client.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
             }
         }
@@ -132,11 +135,13 @@ impl<'a> Broker<'a> {
                     }
                 }
                 worker.send_grant();
-            } else {
+            } else if !worker.waiting_for_cleanup(self.roots) {
+                worker.completion_root = None;
                 worker.flush();
             }
         }
         self.workers.retain(|worker| worker.exited.is_none()
+            || worker.completion_root.is_some()
             || worker.reply.as_ref().is_some_and(|reply| worker.written < reply.len()));
     }
 
@@ -152,7 +157,15 @@ impl<'a> Broker<'a> {
             worker.reply = Some(error_reply("container filesystem copy worker did not complete"));
         }
         if std::mem::take(&mut worker.preparing) { self.roots.copy_ready(); }
-        if let Some(id) = worker.lease.take() { self.roots.release(&id); }
+        if let Some(id) = worker.lease.take() {
+            let completed = worker.reply.as_ref().is_some_and(|reply| reply.is_empty()
+                || matches!(asagiri_proto::decode(reply), Ok(Msg::CopyDone | Msg::CopyStat { .. })));
+            if completed { self.roots.release_idle(&id); } else { self.roots.release(&id); }
+            // The shared root may still be unmounting after the copy child's
+            // private namespace has gone if removal raced the copy or the
+            // upload failed. Keep its reply/EOF until that cleanup is complete.
+            worker.completion_root = Some(id);
+        }
         true
     }
 
@@ -172,6 +185,10 @@ impl Drop for Broker<'_> {
 }
 
 impl Worker {
+    fn waiting_for_cleanup(&self, roots: &Roots) -> bool {
+        self.completion_root.as_ref().is_some_and(|id| roots.cleaning(id))
+    }
+
     fn fail(&mut self, message: &str) {
         self.reply = Some(error_reply(message));
         self.phase = Phase::Finished;

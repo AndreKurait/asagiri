@@ -88,6 +88,12 @@ pub struct Image {
 }
 
 impl Image {
+    /// A repository tag, excluding an image ID or a registry digest reference.
+    /// Digest references belong in RepoDigests, never a save archive's RepoTags.
+    pub fn repo_tag(&self) -> Option<&str> {
+        (self.name != self.config_digest && !self.name.contains('@')).then_some(self.name.as_str())
+    }
+
     /// The repository part of `name`: `alpine`, `ghcr.io/o/r`.
     pub fn repo(&self) -> &str {
         if let Some((repo, _)) = self.name.split_once('@') {

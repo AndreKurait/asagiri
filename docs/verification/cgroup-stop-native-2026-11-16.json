@@ -1,0 +1,89 @@
+{
+  "schema": "asagiri.cgroup-stop-native-review.v1",
+  "recorded_at": "2026-11-16T12:17:18.257046+00:00",
+  "tested_source_commit": "8ac9d38679537311eb34d864c99f122e76b41a0f",
+  "public_sources": {
+    "issue": "https://github.com/libracoder/kiri/issues/324",
+    "pull_request": "https://github.com/libracoder/kiri/pull/341",
+    "commit": "https://github.com/libracoder/kiri/commit/6864aafba7c399dba65873dd06c47d4492c0d836"
+  },
+  "source_sha256": {
+    "crates/asagiri-init/src/linux/cgroup_kill.rs": "e60b2cea11750e7c576d31b37634569a569abf301f22f855d6927b41d70602c7",
+    "crates/asagiri-init/src/linux/cgroup_kill_tests.rs": "2be7e6c78f44e7a7bfb5e76c10659126806c106884493b07f3cf26c18a321cfa",
+    "crates/asagiri-init/src/linux/container.rs": "75774db3730c4c57dd7ed8e07024482d9af8eadb03b9170429c261dd2dd74871",
+    "crates/asagiri-init/src/linux/agent.rs": "f025884f8df55be722da51832aed8410da29d313597215930e6009742dd593b8",
+    "crates/asagiri-init/src/linux/mod.rs": "9c095775b0725ebc2d29b3defa01a73d3387346a8f4c28bb7f49a2c9830b8d32"
+  },
+  "actual_unit_binary": {
+    "architecture": "aarch64-unknown-linux-musl",
+    "sha256": "a6f91f2d501998c6322ac6f0a52f319ae2ae1652fb052c63ab36f0b31cf12e84",
+    "original_compilation_sha256": "6a1414d6c4bfbeba45ab77d152777a616d46a192344fb95d8affa26c0fdc8b3f",
+    "original_compilation_head": "6568d9733a2e5a723f1eb9acc72f2c6daca088e4",
+    "all_implementation_and_test_sources_unchanged": true,
+    "only_change_since_compilation": {
+      "docs/verification/cgroup-stop-2026-11-16.json": "2d420ef70f87ed551b37d4b53301000c0b6a05efb0a12eade613071206562759"
+    },
+    "x86_64_compile_only_sha256": "b40fff788a9ff8ef2a49211f96520ddfd6452e03025d8777fe914f1f650b151f"
+  },
+  "native_runtime": {
+    "engine": "0.1.6-dev.100",
+    "installed_executable_sha256": "2b0b4fa2b7ee82a696e56d326faab58fea1119bab9b7db1b6fe2c7b32ec3c905",
+    "actual_init_tests_passed": 8,
+    "cases": [
+      "linux::cgroup_kill::tests::live::a_populated_threaded_child_is_refused_without_freezing_or_signaling",
+      "linux::cgroup_kill::tests::live::expired_stop_restores_the_freezer_and_retains_live_processes",
+      "linux::cgroup_kill::tests::live::fallback_kills_a_threaded_domain_without_reading_child_process_lists",
+      "linux::cgroup_kill::tests::live::fallback_preserves_an_already_paused_groups_requested_state",
+      "linux::cgroup_kill::tests::live::forced_pidfd_fallback_handles_nested_groups_and_more_than_one_batch",
+      "linux::cgroup_kill::tests::live::membership_is_read_again_after_process_handles_are_pinned",
+      "linux::cgroup_kill::tests::live::modern_kernel_kill_empties_nested_groups_and_preserves_an_outside_child",
+      "linux::cgroup_kill::tests::live::overmounted_regular_and_fifo_controls_are_refused_without_signals_or_writes"
+    ],
+    "test_exit_code": 0,
+    "zero_failed_and_zero_ignored": true,
+    "required_cgroup_test_environment": "1",
+    "deadline_exceeded": false,
+    "temporary_supervisor_sha256": "f3d45d204f25d66e1991a67e836066b790bb385a0de3c52d7a2d6c847e431d86",
+    "temporary_supervisor_compilation_sha256": "247969ebb85b0cbb80dc91e43f485b76a79285aeb7beb7656c57dff3f3d0ceeb",
+    "temporary_supervisor_source_sha256": {
+      "Cargo.toml": "0cca17f903bcbb39bf4ad5ecff787e44b849cfc6f7742efa640563e92ede86c3",
+      "Cargo.lock": "0fbd69fad859c5483df2cefe1a52871d4e19cb249e547214f35318532fe087a6",
+      "src/main.rs": "ccfbbd20f80a9e54f1233ba53b656de293113e6b7681fc27469ba2b523d6ee5d"
+    },
+    "capabilities": [
+      "SYS_ADMIN"
+    ],
+    "effective_permitted_bounding_mask": "0000000000200000",
+    "no_new_privileges": true,
+    "network": "none",
+    "private_pid_mount_and_cgroup_namespaces": true,
+    "namespace_root_initially_contains_only_supervisor_pid_1": true,
+    "existing_private_cgroup_mount_remounted_writable": true,
+    "new_cgroup2_mount_created": false,
+    "owned_cgroups_and_processes_removed": true,
+    "owned_container_removed": true,
+    "cleanup_status": 404,
+    "original_inventory_and_app_preserved": true,
+    "independent_reader_sha256": "0279cbac957ccc25ddf7aca4757e8260d1802f79165b2c622599f1f80a8f73de",
+    "malformed_report_controls_rejected": 10,
+    "controls_scope": "Reader validation controls, not additional engine workloads.",
+    "native_receipt_sha256": "774e5991684aad4f9778718332f5877b446f123c7c1f2581b215770f5a5374f3",
+    "kernel_report_sha256": "a2b1e1400590e1fc0ed82eb9c72f89018f76cdd8ee295745ab6f79357ef16a1f",
+    "log_sha256": "671926945864a235009f923d10d8d940238d4ddeb26484f3ecf65b0f2f08acdb",
+    "raw_log_sha256": "e6f24cb63816de7254c1e9e8a0569647bb9cc2bbe4df27f41046a7ee9a0e1ce9"
+  },
+  "previous_unprivileged_coverage": {
+    "proof": "cgroup-stop-2026-11-16.json",
+    "sha256": "2d420ef70f87ed551b37d4b53301000c0b6a05efb0a12eade613071206562759",
+    "tests_passed": 10,
+    "execution_repeated": false
+  },
+  "retained_harness_failure": "The first local supervisor compilation rejected an unparenthesized array expression in json!. Its source and log were retained. Only the supervisor expression changed; no production code or actual test binary changed. No test execution preceded the correction.",
+  "remaining_limits": [
+    "This record covers actual native ARM Linux execution. Current-source hosted platform, package and Docker/Podman comparison gates remain pending.",
+    "The x86_64 actual test binary compiled but was not executed in this local run.",
+    "No host process churn, forced numeric PID reuse, or kernel predating cgroup.kill was exercised. The pidfd fallback was explicitly selected on the current guest kernel.",
+    "A privileged external migration after the membership recheck is not atomically excluded by the old-kernel fallback.",
+    "No formal proof of the process lifecycle or complete engine is claimed."
+  ]
+}

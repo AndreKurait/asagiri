@@ -106,6 +106,12 @@ impl Process {
     pub(super) fn test_process(id: &str, pid: libc::pid_t) -> Self {
         Self { id: id.to_owned(), pid, ..Self::default() }
     }
+
+    pub(super) fn test_container(id: &str, pid: libc::pid_t, paths: &Paths, remove: bool) -> Self {
+        Self { id: id.to_owned(), pid,
+            teardown: Some(Teardown { base: paths.containers.join(id), cgroup: paths.cgroup.join(id), remove }),
+            ..Self::default() }
+    }
 }
 
 #[derive(Debug)]
@@ -266,7 +272,10 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     let undo = Teardown { base: base.clone(), cgroup: cgroup.clone(), remove };
     // A restart that fails must not take the stopped container's files with it.
     let cleanup = |e: io::Error| {
-        undo_now(&undo);
+        let e = match undo_now(&undo) {
+            Ok(()) => e,
+            Err(stop) => io::Error::new(e.kind(), format!("{e}; {stop}; cleanup will retry")),
+        };
         if remove { roots.remove(spec.id); }
         roots.release(spec.id);
         e
@@ -275,15 +284,15 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     // Docker make them); its cgroup would then refuse processes.
     remove_cgroup(&cgroup);
     if !paths.cgroup.is_dir() {
-        super::containers_cgroup(&paths.cgroup);
+        super::containers_cgroup(&paths.cgroup).map_err(cleanup)?;
     }
     if host.buildx_parent {
         // Keep Buildx's aggregate counters/limits under our delegated tree,
         // so host-wide accounting and other services' cgroups stay separate.
-        super::containers_cgroup(&paths.cgroup.join("docker"));
-        super::containers_cgroup(&parent);
+        super::containers_cgroup(&paths.cgroup.join("docker")).map_err(cleanup)?;
+        super::containers_cgroup(&parent).map_err(cleanup)?;
     }
-    let _ = fs::create_dir(&cgroup);
+    super::make_cgroup(&cgroup).map_err(cleanup)?;
     if spec.limits != asagiri_proto::Limits::default() {
         super::cgroup::apply_limits(&cgroup, &spec.limits).map_err(cleanup)?;
     }
@@ -380,7 +389,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         }
     };
     let mut veths = Vec::new();
-    let started = (|| {
+    let started: io::Result<Process> = (|| {
         let mut macvlans = Unplug(Vec::new());
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
@@ -431,6 +440,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 // `--dns`: names the network does not know go to these instead.
                 let servers: Vec<[u8; 4]> = net_opts::values(spec.net.opts, net_opts::NAMESERVER).filter_map(net::parse_ip).collect();
                 net.dns.set_upstream(spec.net.ip, servers);
+                net.dns.describe_network(pid, spec.net);
             }
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".
@@ -471,10 +481,18 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         }
         // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
         // rmdir does not race the failed child (or any descendants) exiting.
-        kill_cgroup(&undo.cgroup);
+        let stopped = kill_cgroup(&undo.cgroup);
         // A held namespace can outlive the failed child. Retire only this
         // attempt's unique links before another attach reuses its address.
         net::retire(&veths);
+        if let Err(stop) = stopped {
+            // Preserve runtime files and the root until the asynchronous
+            // cleanup worker confirms that the cgroup is empty. Its failed
+            // attempts keep this ID reserved and are retried by Roots.
+            if remove { roots.remove(spec.id); }
+            roots.release(spec.id);
+            return io::Error::new(error.kind(), format!("{error}; {stop}; cleanup will retry"));
+        }
         // The rejected child is not in the process table. Reap it before
         // releasing its root lease, just as the normal exit path does.
         let mut status = 0;
@@ -651,7 +669,9 @@ pub fn teardown_network(p: &Process, netns_shared: bool) {
 pub fn teardown(p: &Process, netns_shared: bool) {
     teardown_network(p, netns_shared);
     if let Some(t) = &p.teardown {
-        undo_now(t);
+        if let Err(error) = undo_now(t) {
+            eprintln!("asagiri-init: cleanup {}: {error}; root cleanup will retry", p.id);
+        }
     }
 }
 
@@ -664,7 +684,7 @@ pub fn has_filesystem_teardown(p: &Process) -> bool { p.teardown.is_some() }
 pub fn release_root(p: &Process, roots: &super::roots::Roots) {
     if let Some(t) = &p.teardown {
         if t.remove { roots.remove(&p.id); }
-        roots.release(&p.id);
+        roots.release_idle(&p.id);
     }
 }
 
@@ -693,13 +713,21 @@ pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
         // Do not keep control sockets, container pipes or namespace FDs alive.
         // SAFETY: this affects only the child's descriptor table.
         unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0); }
-        undo_now(t);
+        let code = match undo_now(t) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("asagiri-init: cleanup {}: {error}", p.id);
+                1
+            }
+        };
         // SAFETY: leave this fork without running the parent's destructors.
-        unsafe { libc::_exit(0) }
+        unsafe { libc::_exit(code) }
     }
     if pid < 0 {
         eprintln!("asagiri-init: cleanup fork: {}; cleaning synchronously", io::Error::last_os_error());
-        undo_now(t);
+        if let Err(error) = undo_now(t) {
+            eprintln!("asagiri-init: cleanup {}: {error}; root cleanup will retry", p.id);
+        }
         None
     } else {
         Some(pid)
@@ -738,11 +766,13 @@ fn remove_cgroup(dir: &std::path::Path) {
     let _ = fs::remove_dir(dir);
 }
 
-fn undo_now(t: &Teardown) {
+fn undo_now(t: &Teardown) -> io::Result<()> {
+    kill_cgroup(&t.cgroup)?;
     if let Some(id) = t.base.file_name() {
         let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
     }
     remove_cgroup(&t.cgroup);
+    Ok(())
 }
 
 /// Deletes a stopped container's directory (its writable layer).
@@ -797,7 +827,10 @@ pub fn begin_root_cleanup(paths: &Paths, id: &str, remove_files: bool) -> io::Re
             }
             libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
         }
-        let result = if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) };
+        let result = stop_cgroups(&paths.cgroup, id).and_then(|()| {
+            let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+            if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) }
+        });
         let code = match result {
             Ok(()) => 0,
             Err(error) => {
@@ -851,22 +884,25 @@ fn unmount_root(path: &Path) -> io::Result<()> {
 /// runtime files and cgroups removed, and a veth something else kept alive
 /// deleted. Only containers of this data directory are touched: the
 /// cgroup and the network namespace may hold another engine's too.
-pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
-    let Ok(entries) = fs::read_dir(&paths.containers) else { return };
-    let ids: Vec<String> = entries.flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|id| valid_id(id).is_ok() && id.len() >= 12).collect();
-    for id in &ids {
-        for parent in [cgroup.to_path_buf(), cgroup.join("docker/buildx")] {
-            let cg = parent.join(id);
-            if !cg.is_dir() {
-                continue;
-            }
-            kill_cgroup(&cg);
-            remove_cgroup(&cg);
+pub fn sweep(paths: &Paths, cgroup: &std::path::Path) -> io::Result<()> {
+    let entries = match fs::read_dir(&paths.containers) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let mut ids = Vec::new();
+    let mut failures = Vec::new();
+    for entry in entries {
+        let Some(id) = entry?.file_name().into_string().ok() else { continue };
+        if valid_id(&id).is_err() || id.len() < 12 { continue; }
+        if let Err(error) = stop_cgroups(cgroup, &id) {
+            failures.push(error.to_string());
+            continue;
         }
         // A service manager may already have killed the old processes and
         // removed their cgroups. The overlay still belongs to this data
         // directory and must be reclaimed before its next start.
-        let rootfs = paths.containers.join(id).join("rootfs");
+        let rootfs = paths.containers.join(&id).join("rootfs");
         // Kernels that permit an overlay to be mounted more than once can
         // have stacked mounts from earlier failed recoveries.
         for _ in 0..64 {
@@ -874,43 +910,34 @@ pub fn sweep(paths: &Paths, cgroup: &std::path::Path) {
                 break;
             }
         }
-        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(&id));
+        ids.push(id);
     }
     // Host-side veths are kv<9 characters of the id><4 hex digits>.
-    let Ok(links) = fs::read_dir("/sys/class/net") else { return };
-    for link in links.flatten() {
-        let Ok(name) = link.file_name().into_string() else { continue };
-        let ours = name.strip_prefix("kv").and_then(|rest| rest.get(..9)).is_some_and(|p| ids.iter().any(|id| id.starts_with(p)));
-        if ours {
-            let _ = net::detach(&name);
+    if let Ok(links) = fs::read_dir("/sys/class/net") {
+        for link in links.flatten() {
+            let Ok(name) = link.file_name().into_string() else { continue };
+            let ours = name.strip_prefix("kv").and_then(|rest| rest.get(..9)).is_some_and(|p| ids.iter().any(|id| id.starts_with(p)));
+            if ours {
+                let _ = net::detach(&name);
+            }
         }
     }
+    if failures.is_empty() { Ok(()) } else { Err(io::Error::other(failures.join("; "))) }
 }
 
-/// Kills every process in a cgroup and below it, and waits (briefly) until
-/// it is empty.
-fn kill_cgroup(dir: &std::path::Path) {
-    // cgroup.kill is Linux 5.14+; before it, each process, deepest first.
-    if fs::write(dir.join("cgroup.kill"), "1").is_err() {
-        fn each(dir: &std::path::Path) {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for e in entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())) {
-                    each(&e.path());
-                }
-            }
-            for pid in fs::read_to_string(dir.join("cgroup.procs")).unwrap_or_default().lines().filter_map(|l| l.parse::<libc::pid_t>().ok()) {
-                // SAFETY: SIGKILL to a process of a container cgroup we own.
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-            }
-        }
-        each(dir);
+fn stop_cgroups(parent: &Path, id: &str) -> io::Result<()> {
+    for parent in [parent.to_path_buf(), parent.join("docker/buildx")] {
+        let group = parent.join(id);
+        kill_cgroup(&group)?;
+        remove_cgroup(&group);
     }
-    for _ in 0..300 {
-        if fs::read_to_string(dir.join("cgroup.events")).map_or(true, |e| e.lines().any(|l| l == "populated 0")) {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    Ok(())
+}
+
+/// Wait for an empty cgroup before releasing any of its filesystem state.
+fn kill_cgroup(dir: &Path) -> io::Result<()> {
+    super::cgroup_kill::kill(dir)
 }
 
 /// Deletes every container directory not in `keep` and not in `running`.
@@ -1429,6 +1456,21 @@ fn make_marker(root: BorrowedFd<'_>) -> io::Result<()> {
     }
 }
 
+/// A container start creates its working directory while the mounted root
+/// is still writable and the setup process is still root. Resolve image
+/// symlinks and `..` through the same scoped lookup used for mount targets.
+fn make_workdir(root: BorrowedFd<'_>, cwd: &CStr) -> io::Result<()> {
+    if cwd.to_bytes() == b"/" {
+        return Ok(()); // open_root already established this directory.
+    }
+    let path = Path::new(std::ffi::OsStr::from_bytes(cwd.to_bytes()));
+    let found = inroot::open(root, path, Last::Dir)?;
+    if !fs::File::from(found.fd).metadata()?.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+    }
+    Ok(())
+}
+
 /// Where the child reports a failure before it has execed: the stderr pipe,
 /// or the pty socket (the agent reads text there instead of a descriptor).
 fn report_fd(io: &ChildStdio) -> RawFd {
@@ -1475,6 +1517,7 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: Raw
         apply_mount(root, image.as_ref().map(|f| f.as_fd()), m).unwrap_or_else(|e| fail(&format!("mount {}", m.target.to_string_lossy()), e));
     }
     drop(image);
+    make_workdir(root, &p.cwd).unwrap_or_else(|e| fail("working directory", e));
 
     // pivot_root(".", ".") stacks the old root under the new one; detaching
     // it leaves only the container's filesystem visible.
@@ -1650,11 +1693,9 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
             fail("switch user", io::Error::last_os_error());
         }
         if libc::chdir(p.cwd.as_ptr()) != 0 {
-            // Docker creates the whole working directory path, like mkdir -p.
-            let _ = fs::create_dir_all(std::ffi::OsStr::from_encoded_bytes_unchecked(p.cwd.as_bytes()));
-            if libc::chdir(p.cwd.as_ptr()) != 0 {
-                fail("working directory", io::Error::last_os_error());
-            }
+            // Starts prepared this path before making the root read-only.
+            // An exec requires its requested working directory to exist.
+            fail("working directory", io::Error::last_os_error());
         }
     }
 
@@ -2008,8 +2049,92 @@ fn check_executable(exe: &CStr) -> io::Result<()> {
 }
 
 #[cfg(test)]
+mod workdir_tests {
+    use super::{inroot, make_workdir};
+    use std::fs;
+    use std::os::fd::AsFd;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt, symlink};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("asagiri-workdir-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+            fs::create_dir(path.join("root")).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn missing_workdir_parents_are_created_inside_the_container_root() {
+        let fixture = Fixture::new();
+        let root = inroot::open_root(&fixture.0.join("root")).unwrap();
+        make_workdir(root.as_fd(), c"/var/www/html/project").unwrap();
+        assert!(fixture.0.join("root/var/www/html/project").is_dir());
+        assert!(!fixture.0.join("var").exists());
+        make_workdir(root.as_fd(), c"/var/www/html/project").unwrap();
+    }
+
+    #[test]
+    fn existing_workdir_keeps_its_permissions_ownership_and_contents() {
+        let fixture = Fixture::new();
+        let directory = fixture.0.join("root/existing");
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o711)).unwrap();
+        fs::write(directory.join("payload"), b"preserve").unwrap();
+        let before = fs::metadata(&directory).unwrap();
+        let root = inroot::open_root(&fixture.0.join("root")).unwrap();
+        make_workdir(root.as_fd(), c"/existing").unwrap();
+        let after = fs::metadata(&directory).unwrap();
+        assert_eq!((after.ino(), after.uid(), after.gid(), after.mode()),
+                   (before.ino(), before.uid(), before.gid(), before.mode()));
+        assert_eq!(fs::read(directory.join("payload")).unwrap(), b"preserve");
+    }
+
+    #[test]
+    fn workdir_image_symlinks_and_parent_components_stay_in_the_root() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.0.join("outside")).unwrap();
+        fs::write(fixture.0.join("outside/keep"), b"outside").unwrap();
+        let path = fixture.0.join("root");
+        symlink("/outside", path.join("absolute")).unwrap();
+        symlink("../../outside", path.join("relative")).unwrap();
+        let root = inroot::open_root(&path).unwrap();
+        make_workdir(root.as_fd(), c"/absolute/first").unwrap();
+        make_workdir(root.as_fd(), c"/relative/second").unwrap();
+        make_workdir(root.as_fd(), c"/../../outside/third").unwrap();
+        for name in ["first", "second", "third"] {
+            assert!(path.join("outside").join(name).is_dir());
+            assert!(!fixture.0.join("outside").join(name).exists());
+        }
+        assert_eq!(fs::read(fixture.0.join("outside/keep")).unwrap(), b"outside");
+    }
+
+    #[test]
+    fn a_file_or_symlink_loop_cannot_be_a_workdir() {
+        let fixture = Fixture::new();
+        let path = fixture.0.join("root");
+        fs::write(path.join("file"), b"preserve").unwrap();
+        symlink("loop", path.join("loop")).unwrap();
+        let root = inroot::open_root(&path).unwrap();
+        assert_eq!(make_workdir(root.as_fd(), c"/file").unwrap_err().raw_os_error(), Some(libc::ENOTDIR));
+        assert!(make_workdir(root.as_fd(), c"/file/child").is_err());
+        assert!(make_workdir(root.as_fd(), c"/loop").is_err());
+        assert_eq!(fs::read(path.join("file")).unwrap(), b"preserve");
+    }
+}
+
+#[cfg(test)]
 mod removal_tests {
-    use super::{Paths, begin_root_cleanup, remove};
+    use super::{Paths, begin_root_cleanup, remove, sweep};
     use std::fs;
     use std::os::unix::fs::DirBuilderExt;
     use std::path::PathBuf;
@@ -2062,6 +2187,34 @@ mod removal_tests {
         assert_eq!(remove(&f.paths, "../outside").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
         assert!(begin_root_cleanup(&f.paths, "../outside", true).is_err());
         assert_eq!(fs::read(outside).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn failed_cgroup_cleanup_preserves_files_and_allows_a_repaired_retry() {
+        let f = Fixture::new();
+        let id = "0123456789abcdef";
+        let base = f.paths.containers.join(id);
+        let fake = f.paths.cgroup.join(id);
+        fs::create_dir_all(base.join("rootfs")).unwrap();
+        fs::create_dir_all(&fake).unwrap();
+        fs::write(base.join("payload"), b"keep until the processes are stopped").unwrap();
+        fs::write(fake.join("cgroup.kill"), b"untouched").unwrap();
+        assert!(sweep(&f.paths, &f.paths.cgroup).unwrap_err().to_string().contains("not a cgroup-v2 directory"));
+        assert_eq!(fs::read(fake.join("cgroup.kill")).unwrap(), b"untouched");
+        assert_eq!(fs::read(base.join("payload")).unwrap(), b"keep until the processes are stopped");
+        let worker = |expected| {
+            let pid = begin_root_cleanup(&f.paths, id, true).unwrap();
+            let mut status = 0;
+            // SAFETY: wait only for the cleanup worker created by this test.
+            assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+            assert!(libc::WIFEXITED(status));
+            assert_eq!(libc::WEXITSTATUS(status), expected);
+        };
+        worker(1);
+        assert!(base.join("payload").exists());
+        fs::remove_dir_all(&fake).unwrap();
+        worker(0);
+        assert!(!base.exists());
     }
 }
 

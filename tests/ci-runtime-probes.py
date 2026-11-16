@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check process identity in runtime probes without starting an engine."""
+"""Check runtime probe identity and output decoding without starting an engine."""
 import ast
 from pathlib import Path
 import re
@@ -11,6 +11,43 @@ PROBE = ROOT / "tests/network-dns-reuse.py"
 TREE = ast.parse(PROBE.read_text())
 FUNCTION = next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == "require_agent")
 CODE = compile(ast.Module(body=[FUNCTION], type_ignores=[]), str(PROBE), "exec")
+DNS_PROBE = ROOT / "tests/network-dns-order.py"
+DNS_TREE = ast.parse(DNS_PROBE.read_text())
+DNS_FUNCTION = next(node for node in DNS_TREE.body if isinstance(node, ast.FunctionDef) and node.name == "exec_output")
+DNS_CODE = compile(ast.Module(body=[DNS_FUNCTION], type_ignores=[]), str(DNS_PROBE), "exec")
+
+
+class DnsExecOutput(unittest.TestCase):
+    def setUp(self):
+        namespace = {}
+        exec(DNS_CODE, namespace)
+        self.decode = namespace["exec_output"]
+
+    @staticmethod
+    def frame(stream, body):
+        return bytes((stream, 0, 0, 0)) + len(body).to_bytes(4, "big") + body
+
+    def test_stdout_stderr_and_split_utf8_are_retained_in_order(self):
+        payload = (self.frame(1, b"Name: db\n") + self.frame(2, b"diagnostic: \xc3")
+                   + self.frame(2, b"\xa9\n") + self.frame(1, b"Address: 10.0.0.2\n"))
+        self.assertEqual(self.decode(payload), "Name: db\ndiagnostic: é\nAddress: 10.0.0.2\n")
+
+    def test_empty_frames_do_not_hide_later_output(self):
+        self.assertEqual(self.decode(self.frame(1, b"") + self.frame(2, b"answer")), "answer")
+
+    def test_invalid_headers_and_truncated_frames_are_rejected(self):
+        valid = self.frame(1, b"answer")
+        malformed = [valid[:7], valid[:-1], valid + b"\x01",
+                     self.frame(0, b"stdin"), self.frame(3, b"error"),
+                     b"\x01\x01\x00\x00" + valid[4:]]
+        for payload in malformed:
+            with self.subTest(payload=payload), self.assertRaises(AssertionError):
+                self.decode(payload)
+
+    def test_limit_applies_to_all_frames_together(self):
+        self.assertEqual(len(self.decode(self.frame(1, b"x" * 65536))), 65536)
+        with self.assertRaises(AssertionError):
+            self.decode(self.frame(1, b"x" * 65536) + self.frame(2, b"x"))
 
 
 class AgentIdentity(unittest.TestCase):

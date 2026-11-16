@@ -1,13 +1,15 @@
 #!/bin/bash
 # Build the native GTK window and package/test its AppImage in a private host.
-# Usage: appimage.sh STATIC_BIN OUTPUT CACHE_DIR|volume:NAME
+# Usage: appimage.sh NATIVE_BIN OUTPUT CACHE_DIR|volume:NAME
 set -euo pipefail
 if [ "$#" -ne 3 ]; then
-  echo "usage: $0 STATIC_BIN OUTPUT CACHE" >&2
+  echo "usage: $0 NATIVE_BIN OUTPUT CACHE" >&2
   exit 2
 fi
 root=$(cd "$(dirname "$0")/../.." && pwd)
 bin=$(cd "$1" && pwd)
+test "$(cat "$bin/SOURCE_COMMIT")" = "$(git -C "$root" rev-parse HEAD)"
+(cd "$bin" && sha256sum -c SHA256SUMS)
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
 cache=

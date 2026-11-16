@@ -1,0 +1,329 @@
+{
+  "schema": "asagiri.seccomp-equalities.v1",
+  "status": "local_native_verified_hosted_qualification_pending",
+  "verified_at": "2026-11-16T13:32:24.778737+00:00",
+  "code_commit": "1648bd5cbe474757cac7c40347ed05946c991b31",
+  "code_tree": "ea65b8d10a91636e58900c2b29dabbce86787e2e",
+  "qualification_base": "9e643d86eb1625bd2cd4b448758b85748aa227c2",
+  "integrated_main": "d95d85f164e3e638391f0087e093df3e129192be",
+  "source_sha256": {
+    "crates/asagiri-init/src/linux/custom_seccomp.rs": "7a57e0c94902df4ac599939c894e88715f178505408b4231e77b3c259f34154c",
+    "tests/seccomp-profiles.py": "faa0757f7f4f806bfd080c45074a4e9e38bb8c2fefb5b2f5a42ffe7504cab958"
+  },
+  "change": "Coalesce adjacent equality values with the same action only when every rule for a syscall tests equality on the same argument. Keep holes and action changes, use checked 64-bit adjacency, and emit each range through the existing condition compiler. Lazily index duplicate conditions after 64 retained rules while preserving rule order, unconditional precedence and conflict detection.",
+  "limits": {
+    "retained_distinct_rules": 4096,
+    "kernel_instructions": 4096,
+    "duplicate_inputs_count_against_retained_limit": false,
+    "new_production_dependencies": false,
+    "imported_rule_tree_code": false
+  },
+  "original_failure": {
+    "baseline_production_source_sha256": "f193636c77a7c8d8e04341de57484df4b1a77b870d11de2d39ba86d7dce2bd46",
+    "case": "1000 adjacent getppid equality rules with one errno action",
+    "actual_arm64_unit_result": "Compilation rejected the original 5008-instruction filter; the expected failing regression was observed before the fix.",
+    "receipt_sha256": "16af680f8154e4693b2dc43979739722ae52e9a818646b6fc1cabe69e3c55eed"
+  },
+  "actual_unit_tests": {
+    "target": "aarch64-unknown-linux-musl",
+    "toolchain": "1.99.1",
+    "passed": 25,
+    "failed": 0,
+    "ignored": 0,
+    "new_regressions": 3,
+    "binary_sha256": "c167b9f379aa5e23f2a0c66af04726a5efb93452e90298e74e35a0f0e7a5d8d2",
+    "final_compilation_receipt_sha256": "607fc3fa55c4a3f06ed3addfda7b0a12d782d180855571717dd0975dfab8d0f6",
+    "runtime_receipt_sha256": "44844ac56da909ac2a3f444d56346edb14c004ec661b0f23064b85af6286f10c",
+    "final_source_binding": "The lint-only condition collapse produces byte-identical final ARM64 unit and kernel executables. Full byte comparisons bind the existing successful runtime proofs; no additional executions are claimed.",
+    "coverage": [
+      "All six argument positions; unsigned 64-bit endpoints and the 2^32 boundary",
+      "Shuffled and repeated values; gaps and action changes",
+      "1000 adjacent equalities and actual kernel denials/allowed neighbors",
+      "Indexed duplicates and conflicting actions; first unconditional precedence",
+      "A real uncoalesced program near the 4096-instruction kernel boundary and refusal beyond it"
+    ]
+  },
+  "other_architecture": {
+    "target": "x86_64-unknown-linux-musl",
+    "status": "actual_init_unit_executable_compiled_not_executed",
+    "binary_sha256": "6b6825bfdd888848b2d8b424223e85ea9eeeace1a691aa84498b94c10a9f3029",
+    "receipt_sha256": "2b08e4961779af12307030cc49a26c864354808981bfb447cbc536d0d4a35288"
+  },
+  "actual_kernel_comparison": {
+    "profiles": 62,
+    "equality_boundary_profiles": 54,
+    "dense_equality_scale_profiles": 8,
+    "new_candidate_filters": 62,
+    "new_candidate_syscalls": 1432,
+    "retained_reference_profiles": 62,
+    "reference_processes_repeated": 0,
+    "different_profiles": 0,
+    "incomplete_children": 0,
+    "reference": "Actual runc v1.5.3 (46365c62967c76a765a5e347f48f0c7b3b571fe9), libseccomp 2.6.1, Go 1.26.3; exact retained kernel reports with a locked Go OS thread.",
+    "candidate_binary_sha256": "c3d90f7bcaa7964dcfff719c122820c3bcd8556b442bbd767a4bc69894c9b166",
+    "final_compilation_receipt_sha256": "f8f4f043362db98f1702dc1043d54bd2a466ad7b060f20e4e408c5bbc6111240",
+    "runtime_receipt_sha256": "a9d835d1411a2e4ba389d80003ca531a90967bb7c3c7aadabdd5244f95a9732f",
+    "raw_results_sha256": "53de711ddeb4d3a0511459edbf8e5a041512cc5957ba1daf21b5018f0e09ffe4",
+    "final_source_binding": "The lint-only condition collapse produces byte-identical final ARM64 unit and kernel executables. Full byte comparisons bind the existing successful runtime proofs; no additional executions are claimed.",
+    "every_accepted_filter_count_increased_by_one": true,
+    "parent_filter_state_preserved": true,
+    "report_verifier_negative_controls": 21,
+    "report_verifier_controls_receipt_sha256": "3e6894018fc0b5fb3fc443d7fbdafd7331ac6c8a7c5eb37efb84071a2b17a3b4"
+  },
+  "finite_compiler_comparison": {
+    "profiles": 803,
+    "argument_vectors": 196738,
+    "interpreted_decisions": 675096,
+    "changed_previously_accepted_decisions": 0,
+    "new_rejections": 0,
+    "decisions_outside_literal_policy": 0,
+    "new_admission_profiles": [
+      "unit-equality-scale-0512",
+      "unit-equality-scale-0700",
+      "unit-equality-scale-0800",
+      "unit-equality-scale-0900",
+      "unit-equality-scale-1000"
+    ],
+    "reference_scope": "Unchanged Asagiri compiler exports and a separate BPF interpreter/literal policy evaluator. This 803-case set is not an assertion of complete runc ordering parity.",
+    "final_binary_sha256": "8edc6e10615d8e35a94ee5002f1e297852d2380197d855b5b68914e177f66e3c",
+    "receipt_sha256": "4a4bdf4da8f34b4023078b1560b083c80c7458102f9395c4ce8f7b858f509cda",
+    "runtime_receipt_sha256": "e9190e29d39530abc902529db67da2c428241806f499ccb574038237427ab105",
+    "raw_results_sha256": "d2ed5e8d0375537390a0d36e31cf6e93f7ba4762a7f2b62ec85dad62c5990af7",
+    "interpreter_sha256": "bf7e2e7dca9e79b5838f298df4ef2530f72ce44c909726f1b5edee1c84723dbd"
+  },
+  "compiler_performance": {
+    "scope": "One optimized ARM64 executable, 9 workloads, 5 warmup pairs then 30 measured pairs per workload, alternating the original and new compiler. Includes JSON parsing; black-boxes inputs and confirms every compilation returns the same initial result. Local compiler timings, not whole-engine Docker or Podman speed.",
+    "measured_pairs": 270,
+    "confidence_interval": "Paired median baseline/candidate latency ratio; 10000 bootstrap resamples, seed 803270. Ratios are omitted when the baseline rejects the profile.",
+    "summary": "For 800 dense equalities, the ARM64 filter shrinks from 4008 to 13 instructions and median compile latency falls from 1.731 ms to 1.511 ms. Default and other small-workload intervals include parity; no universal speedup is claimed.",
+    "workloads": [
+      {
+        "workload": "default-profile",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 414,
+            "median_ns": 504458.0
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 414,
+            "median_ns": 512062.0
+          }
+        },
+        "median_time_speedup": 0.985150235713644,
+        "paired_median_speedup": 0.9858922798459845,
+        "paired_median_speedup_bootstrap_95": [
+          0.969371069909289,
+          1.0081475221573575
+        ]
+      },
+      {
+        "workload": "single-equality",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 12,
+            "median_ns": 2416.5
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 12,
+            "median_ns": 2354.5
+          }
+        },
+        "median_time_speedup": 1.0263325546825228,
+        "paired_median_speedup": 1.0177844906966143,
+        "paired_median_speedup_bootstrap_95": [
+          1.0,
+          1.0346437297214903
+        ]
+      },
+      {
+        "workload": "mixed-argument-indexes",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 127,
+            "median_ns": 59416.5
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 127,
+            "median_ns": 58333.5
+          }
+        },
+        "median_time_speedup": 1.018565661240968,
+        "paired_median_speedup": 1.0320401758281368,
+        "paired_median_speedup_bootstrap_95": [
+          0.9899980144819184,
+          1.0707123371795046
+        ]
+      },
+      {
+        "workload": "dense-equalities-128",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 648,
+            "median_ns": 447479.5
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 13,
+            "median_ns": 434583.0
+          }
+        },
+        "median_time_speedup": 1.029675574056049,
+        "paired_median_speedup": 1.0341298671800212,
+        "paired_median_speedup_bootstrap_95": [
+          0.9929794339905125,
+          1.0719495803708963
+        ]
+      },
+      {
+        "workload": "dense-equalities-800",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 4008,
+            "median_ns": 1731416.5
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 13,
+            "median_ns": 1511187.5
+          }
+        },
+        "median_time_speedup": 1.1457324124240043,
+        "paired_median_speedup": 1.1436726772808692,
+        "paired_median_speedup_bootstrap_95": [
+          1.1112727194425793,
+          1.1745997275658002
+        ]
+      },
+      {
+        "workload": "dense-equalities-1000",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": false,
+            "error": "seccomp profile: compiles to 5008 instructions; the kernel takes up to 4096",
+            "median_ns": 2081604.0
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 13,
+            "median_ns": 1790729.0
+          }
+        },
+        "comparison_scope": "Admission differs; rejecting and compiling times are not a speed comparison."
+      },
+      {
+        "workload": "dense-equalities-2000",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": false,
+            "error": "seccomp profile: compiles to 10008 instructions; the kernel takes up to 4096",
+            "median_ns": 4919854.0
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 13,
+            "median_ns": 3728271.0
+          }
+        },
+        "comparison_scope": "Admission differs; rejecting and compiling times are not a speed comparison."
+      },
+      {
+        "workload": "dense-equalities-4096",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": false,
+            "error": "seccomp profile: compiles to 20488 instructions; the kernel takes up to 4096",
+            "median_ns": 13170500.0
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 13,
+            "median_ns": 6764479.0
+          }
+        },
+        "comparison_scope": "Admission differs; rejecting and compiling times are not a speed comparison."
+      },
+      {
+        "workload": "duplicate-equalities-5000",
+        "measured_pairs": 30,
+        "engines": {
+          "baseline": {
+            "accepted": true,
+            "instructions": 12,
+            "median_ns": 8960625.0
+          },
+          "candidate": {
+            "accepted": true,
+            "instructions": 12,
+            "median_ns": 8933604.5
+          }
+        },
+        "median_time_speedup": 1.0030245910259403,
+        "paired_median_speedup": 0.9991177517151385,
+        "paired_median_speedup_bootstrap_95": [
+          0.9852597210627102,
+          1.0143527301737008
+        ]
+      }
+    ]
+  },
+  "lint": {
+    "status": "Both strict -D warnings runs fail on the same 24 inherited diagnostics; no new or removed diagnostics.",
+    "cargo_keep_going": true,
+    "raw_diagnostic_emissions_per_side": 77,
+    "unique_diagnostics_per_side": 24,
+    "new_diagnostics": 0,
+    "removed_diagnostics": 0,
+    "normalization": "Canonical source paths, exact source text and diagnostic codes; duplicates from compiling the same source in multiple targets do not create new findings.",
+    "receipt_sha256": "a7dbe91cbe10a6464a7334bcd46e5bc1172ea688a4b1d9e99b2811570f0f3871",
+    "suppressed_lints": false
+  },
+  "native_environment": {
+    "app_version": "0.1.6-dev.100",
+    "network": "none",
+    "uid": 65534,
+    "capabilities": 0,
+    "no_new_privileges": true,
+    "child_address_space_bytes": 50331648,
+    "container_memory_bytes": 134217728,
+    "per_kernel_child_deadline_seconds": 3,
+    "owned_containers_removed": true,
+    "original_images_volumes_metadata_containers_and_app_preserved": true
+  },
+  "hosted_api_fixture": {
+    "file": "tests/seccomp-profiles.py",
+    "rules": 2997,
+    "syscalls": [
+      "chmod",
+      "fchmodat",
+      "fchmodat2"
+    ],
+    "coverage": "A hole at mode 0600, errno action change at 01000, and an allowed value at 01777; check exit codes, errno messages and actual file modes.",
+    "status": "Syntax checked; execution and hosted candidate qualification remain pending before merge.",
+    "existing_eight_scenario_contract_preserved": true
+  },
+  "local_final_source_proof_sha256": "f16f86513bb643fbc44b3260de3d96ec3b56b730649c33f179354728f935206c",
+  "local_final_source_verifier_sha256": "52bf69b637fb50f2792e5ec2fe99fefd5699d4d2c60562b26dc248bed46442ef",
+  "retained_iterations": "The first optimization regressed small-profile compile time and was revised before commit. The first strict lint pass found one newly collapsible condition; it was corrected. A later lint reader exposed Cargo early-stop/path-alias differences; the complete --keep-going comparison retains both original failures and corrected evidence.",
+  "limitations": [
+    "Existing overlapping-condition ordering differences documented in seccomp-ignored-arguments-2026-11-16.json remain unresolved.",
+    "Actual kernel comparisons allow all syscalls by default and restrict getppid only; they do not execute runc containers.",
+    "No complete Docker default allowlist, whole-engine performance improvement, or seccomp formal proof is claimed.",
+    "The new API fixture, hosted PR qualification, merge, release assets and native installation of this change remain pending."
+  ]
+}

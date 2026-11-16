@@ -1,7 +1,7 @@
 # Asagiri on a Linux host as an RPM: `asagiri` (engine + docker CLI, Compose,
 # buildx) or `asagiri-lite` (engine only), chosen by packaging/linux/build.sh
-# through asagiri_name and with_cli. Static (musl) binaries: no runtime
-# dependencies, no debuginfo. With with_window, `asagiri` also carries the
+# through asagiri_name and with_cli. The GNU host engine uses host NSS; the
+# guest init remains static. With with_window, `asagiri` also carries the
 # window (asagiri built against GTK 3 and WebKitGTK 4.1), which needs those.
 %global debug_package %{nil}
 %global __strip /bin/true
@@ -46,8 +46,10 @@ Recommends:     polkit
 Conflicts:      asagiri
 %endif
 BuildArch:      %{asagiri_arch}
-# Static binaries: nothing to find by scanning them.
+# The native ELF gate bounds the engine's dependencies before packaging.
 AutoReq:        no
+Requires:       glibc%{?_isa} >= 2.34
+Requires:       libgcc%{?_isa}
 Requires(pre):  shadow-utils
 %if 0%{?with_cli}
 Requires(post): %{_sbindir}/update-alternatives

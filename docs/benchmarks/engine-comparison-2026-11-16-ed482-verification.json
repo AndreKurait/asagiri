@@ -1,0 +1,256 @@
+{
+  "status": "passed",
+  "verified_at": "2026-11-16T14:01:58.361501+00:00",
+  "head_commit": "ed482bd6e03354441e0396172d42bd175ab271e8",
+  "base_commit": "aa6c803072dd29fbeb06ed301e850a9a1ddb52ca",
+  "source_commit": "5b540a35b8371296768fb24fc5f56a6195ef26c3",
+  "source_tree": "2f8e249497b2c3b1872061260bcd39aa9cedbbd2",
+  "head_tree_equal": true,
+  "event": "pull_request",
+  "branch": "fix/cgroup-startup-20261116",
+  "workflow_run": 43878562486,
+  "workflow_attempt": 1,
+  "job": 133337996309,
+  "artifact_id": 14232941627,
+  "artifact_sha256": "ddf5ce689256b401264efa1a654a16fafa5c88252f198e9ea9d088ca2e349e7d",
+  "comparison_sha256": "f92ddc58df1a91f552698112293e5262a7d1e212e5ad12700e7b95dc539a1f3d",
+  "source_file_sha256": {
+    "scripts/reference-bench.py": "ad5f81bf76021c4e96e279b899591510e03fc016726d94fa47c57076e8cfdee1",
+    "scripts/ci/reference-run.py": "99005291560f3e1e47fa6e4383afef6f98aedc05717002aa14303bac59da5a47",
+    "scripts/ci/reference-images.json": "b29791a9e1ce06ffab8d74d27e34ed17f834ced30e2fcfab4417a895514c53fd"
+  },
+  "samples_verified": 6000,
+  "metrics_independently_recalculated": 15,
+  "identical_platform_and_unpacked_layers": true,
+  "payload_sha256_verified": true,
+  "fixture_cleanup_verified_from_run_record": true,
+  "binary_hash_scope": "The successful pinned workflow recorded compiled binary hashes; its comparison artifact does not include executable bytes for independent rehashing.",
+  "host": {
+    "system": "Linux",
+    "architecture": "x86_64",
+    "kernel": "7.0.0-1017-azure",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "cpus": 4,
+    "python": "3.12.3",
+    "runner_image": "ubuntu24",
+    "runner_version": "20261111.370.1"
+  },
+  "metrics_ms": [
+    {
+      "engine": "Asagiri",
+      "workload": "copy",
+      "median": 1.7535265,
+      "p95": 1.876315,
+      "samples": 400
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "exec",
+      "median": 1.9675829999999999,
+      "p95": 2.177326,
+      "samples": 400
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "list",
+      "median": 0.1905545,
+      "p95": 0.238793,
+      "samples": 400
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "ping",
+      "median": 0.20407550000000002,
+      "p95": 0.258943,
+      "samples": 400
+    },
+    {
+      "engine": "Asagiri",
+      "workload": "run",
+      "median": 7.8869454999999995,
+      "p95": 259.158355,
+      "samples": 400
+    },
+    {
+      "engine": "Docker",
+      "workload": "copy",
+      "median": 3.9838355,
+      "p95": 4.700419,
+      "samples": 400
+    },
+    {
+      "engine": "Docker",
+      "workload": "exec",
+      "median": 37.961725,
+      "p95": 39.699066,
+      "samples": 400
+    },
+    {
+      "engine": "Docker",
+      "workload": "list",
+      "median": 0.3005545,
+      "p95": 0.354496,
+      "samples": 400
+    },
+    {
+      "engine": "Docker",
+      "workload": "ping",
+      "median": 0.3963485,
+      "p95": 0.459836,
+      "samples": 400
+    },
+    {
+      "engine": "Docker",
+      "workload": "run",
+      "median": 116.0768205,
+      "p95": 122.916457,
+      "samples": 400
+    },
+    {
+      "engine": "Podman",
+      "workload": "copy",
+      "median": 194.222145,
+      "p95": 201.386186,
+      "samples": 400
+    },
+    {
+      "engine": "Podman",
+      "workload": "exec",
+      "median": 54.051505500000005,
+      "p95": 66.782816,
+      "samples": 400
+    },
+    {
+      "engine": "Podman",
+      "workload": "list",
+      "median": 0.3887535,
+      "p95": 0.457499,
+      "samples": 400
+    },
+    {
+      "engine": "Podman",
+      "workload": "ping",
+      "median": 0.3955475,
+      "p95": 0.475565,
+      "samples": 400
+    },
+    {
+      "engine": "Podman",
+      "workload": "run",
+      "median": 40.090876,
+      "p95": 46.997304,
+      "samples": 400
+    }
+  ],
+  "engines": {
+    "Asagiri": {
+      "Version": "27.5.1-asagiri",
+      "ApiVersion": "1.47",
+      "MinAPIVersion": "1.24",
+      "Os": "linux",
+      "Arch": "amd64",
+      "AsagiriVersion": "0.0.0",
+      "Components": [
+        {
+          "Details": {
+            "ApiVersion": "1.47",
+            "Arch": "amd64",
+            "AsagiriVersion": "0.0.0",
+            "MinAPIVersion": "1.24",
+            "Os": "linux"
+          },
+          "Name": "Engine",
+          "Version": "27.5.1-asagiri"
+        }
+      ]
+    },
+    "Docker": {
+      "Version": "29.9.3",
+      "ApiVersion": "1.56",
+      "MinAPIVersion": "1.40",
+      "Os": "linux",
+      "Arch": "amd64",
+      "AsagiriVersion": null,
+      "Components": [
+        {
+          "Name": "Engine",
+          "Version": "29.9.3",
+          "Details": {
+            "ApiVersion": "1.56",
+            "Arch": "amd64",
+            "BuildTime": "2026-11-03T21:44:43.000000000+00:00",
+            "Experimental": "false",
+            "GitCommit": "70efc0e",
+            "GoVersion": "go1.26.10",
+            "KernelVersion": "7.0.0-1017-azure",
+            "MinAPIVersion": "1.40",
+            "Module": "github.com/moby/moby/v2",
+            "ModuleVersion": "v2.0.0+unknown",
+            "Os": "linux"
+          }
+        },
+        {
+          "Name": "containerd",
+          "Version": "v2.4.2",
+          "Details": {
+            "GitCommit": ""
+          }
+        },
+        {
+          "Name": "runc",
+          "Version": "1.5.2",
+          "Details": {
+            "GitCommit": "v1.5.2-0-g29dd3dc"
+          }
+        },
+        {
+          "Name": "docker-init",
+          "Version": "0.19.0",
+          "Details": {
+            "GitCommit": "de40ad0"
+          }
+        }
+      ]
+    },
+    "Podman": {
+      "Version": "6.1.3",
+      "ApiVersion": "1.44",
+      "MinAPIVersion": "1.24",
+      "Os": "linux",
+      "Arch": "amd64",
+      "AsagiriVersion": null,
+      "Components": [
+        {
+          "Name": "Podman Engine",
+          "Version": "6.1.3",
+          "Details": {
+            "APIVersion": "6.1.3",
+            "Arch": "amd64",
+            "BuildTime": "2026-09-29T00:00:00Z",
+            "Experimental": "false",
+            "GitCommit": "85b994955e0b4e30fbce9c8351cab85676140ede",
+            "GoVersion": "go1.27.1-X:nodwarf5",
+            "KernelVersion": "7.0.0-1017-azure",
+            "MinAPIVersion": "4.0.0",
+            "Os": "linux"
+          }
+        },
+        {
+          "Name": "Conmon",
+          "Version": "conmon version 2.2.1, commit: ",
+          "Details": {
+            "Package": "conmon-2.2.1-2.fc45.x86_64"
+          }
+        },
+        {
+          "Name": "OCI Runtime (crun)",
+          "Version": "crun version 1.30.1\ncommit: 079ff6a7a16d029460af882f9ea44674e6a510b6\nrundir: /run/crun\nspec: 1.0.0\n+SYSTEMD +SELINUX +APPARMOR +CAP +SECCOMP +EBPF +CRIU +LIBKRUN +WASM:wasmedge +JSON_C",
+          "Details": {
+            "Package": "crun-1.30.1-1.fc45.x86_64"
+          }
+        }
+      ]
+    }
+  },
+  "verifier_sha256": "11ffb157bbfe4102643e6513f1a5c2597924bc0553dc18d5e92926619015166c"
+}

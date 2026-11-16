@@ -1,5 +1,6 @@
 mod agent;
 mod cgroup;
+mod cgroup_kill;
 mod container;
 mod devices;
 mod copy;
@@ -91,8 +92,13 @@ fn run(init_start_ns: u64) -> io::Result<()> {
     if transport::is_host_process() {
         // However the agent stops (Shutdown, its daemon gone, SIGTERM, an
         // error), nothing of the engine stays behind on a Linux host.
-        container::sweep(&paths, &paths.cgroup);
+        let cleaned = container::sweep(&paths, &paths.cgroup);
         net::remove_host_network();
+        return match (served, cleaned) {
+            (Err(serve), Err(cleanup)) => Err(io::Error::new(serve.kind(), format!("{serve}; cleanup: {cleanup}"))),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        };
     }
     served
 }
@@ -182,10 +188,10 @@ fn host_dirs() -> io::Result<container::Paths> {
     if let Ok(old) = std::fs::read_to_string(&record) {
         let old = PathBuf::from(old.trim());
         if old != paths.cgroup && old.starts_with("/sys/fs/cgroup") {
-            container::sweep(&paths, &old);
+            container::sweep(&paths, &old)?;
         }
     }
-    container::sweep(&paths, &paths.cgroup);
+    container::sweep(&paths, &paths.cgroup)?;
     std::fs::write(&record, paths.cgroup.as_os_str().as_encoded_bytes())?;
     std::env::set_current_dir(&paths.layers)?;
     Ok(paths)
@@ -289,35 +295,93 @@ fn host_cgroup() -> io::Result<PathBuf> {
     while base != root && base.file_name().is_some_and(|n| n == "asagiri-host") {
         base.pop();
     }
-    let procs = |dir: &std::path::Path| -> Vec<String> {
-        std::fs::read_to_string(dir.join("cgroup.procs")).unwrap_or_default().lines().map(str::to_owned).collect()
+    let procs = |dir: &std::path::Path| -> io::Result<Vec<String>> {
+        Ok(std::fs::read_to_string(dir.join("cgroup.procs"))?.lines().map(str::to_owned).collect())
     };
-    // Moves processes to the leaf beside the containers' cgroup.
-    let to_leaf = |pids: Vec<String>| {
-        let leaf = base.join("asagiri-host");
-        let _ = std::fs::create_dir(&leaf);
-        for pid in pids {
-            let _ = std::fs::write(leaf.join("cgroup.procs"), pid);
-        }
-    };
-    let base = if base == root {
+    let move_processes = if base == root {
         // Only the hierarchy's true root (which has no cgroup.type) may hold
         // processes and hand out controllers; a namespace's root is not it.
-        if root.join("cgroup.type").exists() {
-            to_leaf(procs(&root));
-        }
-        root
-    } else if delegated(&own, &procs(&own)) {
-        if own != base.join("asagiri-host") {
-            to_leaf(procs(&own));
-        }
-        base
+        root.join("cgroup.type").exists()
+    } else if delegated(&own, &procs(&own)?) {
+        true
     } else {
-        root
+        base = root.clone();
+        false
     };
     let asagiri = base.join("asagiri");
-    containers_cgroup(&asagiri);
-    Ok(asagiri)
+    let leaf = base.join("asagiri-host");
+    let to_leaf = |from: &std::path::Path| -> io::Result<()> {
+        let pids = procs(from)?;
+        // A custom cgroup can cease to be exclusive between snapshots. Do
+        // not pull unrelated login/WSL processes into Asagiri's leaf.
+        if base != root && !delegated(&base, &pids) {
+            return Err(io::Error::new(io::ErrorKind::ResourceBusy,
+                format!("{} now contains processes outside Asagiri", from.display())));
+        }
+        for pid in pids {
+            if let Err(error) = std::fs::write(leaf.join("cgroup.procs"), &pid) {
+                // A short-lived readiness probe may exit after the snapshot.
+                if error.raw_os_error() != Some(libc::ESRCH) {
+                    return Err(io::Error::new(error.kind(),
+                        format!("move process {pid} from {} to {}: {error}", from.display(), leaf.display())));
+                }
+            }
+        }
+        Ok(())
+    };
+    if move_processes {
+        make_cgroup(&leaf)?;
+        if own != base && own != leaf {
+            to_leaf(&own)?;
+        }
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        if move_processes {
+            to_leaf(&base)?;
+        }
+        match containers_cgroup(&asagiri) {
+            Ok(()) => return Ok(asagiri),
+            // Docker exec readiness probes can enter a namespace root just
+            // after its process snapshot. Retry only in our delegated scope;
+            // an atomic controller write leaves it a domain on failure.
+            Err(error) if move_processes && error.kind() == io::ErrorKind::ResourceBusy
+                && std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn make_cgroup(path: &std::path::Path) -> io::Result<()> {
+    match std::fs::create_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        Err(error) => Err(io::Error::new(error.kind(), format!("create cgroup {}: {error}", path.display()))),
+    }
+}
+
+fn enable_controllers(path: &std::path::Path) -> io::Result<()> {
+    let available = std::fs::read_to_string(path.join("cgroup.controllers"))?;
+    let mut controllers = String::from("+cpu +memory +pids");
+    for required in ["cpu", "memory", "pids"] {
+        if !available.split_whitespace().any(|name| name == required) {
+            return Err(io::Error::new(io::ErrorKind::Unsupported,
+                format!("{} is missing the delegated {required} controller", path.display())));
+        }
+    }
+    for optional in ["cpuset", "io"] {
+        if available.split_whitespace().any(|name| name == optional) {
+            controllers.push_str(" +");
+            controllers.push_str(optional);
+        }
+    }
+    // One write is all-or-nothing. Separate +cpu/+pids writes can turn an
+    // occupied domain into "domain threaded" before +memory fails, leaving
+    // newly created container cgroups invalid and accounting incomplete.
+    std::fs::write(path.join("cgroup.subtree_control"), controllers)
+        .map_err(|error| io::Error::new(error.kind(), format!("delegate controllers under {}: {error}", path.display())))
 }
 
 /// Makes the cgroup containers go under, with the controllers handed down
@@ -326,13 +390,11 @@ fn host_cgroup() -> io::Result<PathBuf> {
 /// restart that can land after the new agent made this one, still empty
 /// (Fedora 44's systemd 259 did); `asagiri-host`, which holds the daemon,
 /// stays, and every container start then failed with ENOENT.
-pub fn containers_cgroup(asagiri: &std::path::Path) {
-    let _ = std::fs::create_dir(asagiri);
-    let Some(base) = asagiri.parent() else { return };
-    for c in ["+cpu", "+memory", "+pids", "+cpuset", "+io"] {
-        let _ = std::fs::write(base.join("cgroup.subtree_control"), c);
-        let _ = std::fs::write(asagiri.join("cgroup.subtree_control"), c);
-    }
+pub fn containers_cgroup(asagiri: &std::path::Path) -> io::Result<()> {
+    let base = asagiri.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "cgroup has no parent"))?;
+    make_cgroup(asagiri)?;
+    enable_controllers(base)?;
+    enable_controllers(asagiri)
 }
 
 /// `ip netns exec` mounts a fresh /sys for its network namespace, without

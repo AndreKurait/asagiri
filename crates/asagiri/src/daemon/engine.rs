@@ -2260,6 +2260,7 @@ impl Engine {
                         if n.no_ipv4 {
                             net6_opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
                         }
+                        net6_opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, n.name));
                         if let Some(mtu) = n.mtu() {
                             net6_opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
                         }
@@ -3010,6 +3011,7 @@ impl Engine {
         if net.no_ipv4 {
             opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
         }
+        opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, net.name));
         if let Some(mtu) = net.mtu() {
             opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
         }
