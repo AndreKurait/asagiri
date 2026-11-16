@@ -1,9 +1,8 @@
-//! The default syscall filter, after Docker's: syscalls that reach outside
-//! the container's namespaces (kernel keyrings, modules, the clock, swap,
-//! new mount and user namespaces, io_uring, bpf) fail with EPERM unless the
-//! container holds the capability that would make them legitimate. A deny
-//! list rather than Docker's allow list: the same protection for a fraction
-//! of the program length, so every syscall pays fewer instructions.
+//! The default syscall filter follows selected restrictions in Docker's
+//! profile: kernel keyrings, modules, clock changes, swap, new mount and user
+//! namespaces, io_uring and bpf fail with EPERM unless their rule names a
+//! capability the container holds. This compact deny list leaves unlisted
+//! syscalls available; Docker's default profile uses an allow list.
 
 use std::io;
 
@@ -49,6 +48,9 @@ const OFF_ARG0: u32 = 16;
 
 // Capability numbers that relax the filter, as in Docker's profile.
 const CAP_SYS_MODULE: u32 = 16;
+#[cfg(target_arch = "x86_64")]
+const CAP_SYS_RAWIO: u32 = 17;
+const CAP_SYS_PTRACE: u32 = 19;
 const CAP_SYS_PACCT: u32 = 20;
 const CAP_SYS_ADMIN: u32 = 21;
 const CAP_SYS_BOOT: u32 = 22;
@@ -87,6 +89,21 @@ const fn stmt(code: u16, k: u32) -> Insn {
 const fn jump(code: u16, k: u32, jt: u8, jf: u8) -> Insn {
     Insn { code, jt, jf, k }
 }
+
+// Syscalls newer than the libc crate knows. The numbers are the same on
+// aarch64 and x86-64 (the shared table, from 424 on).
+const SYS_PROCESS_MADVISE: libc::c_long = 440;
+const SYS_QUOTACTL_FD: libc::c_long = 443;
+const SYS_SET_MEMPOLICY_HOME_NODE: libc::c_long = 450;
+const SYS_LSM_GET_SELF_ATTR: libc::c_long = 459;
+const SYS_LSM_SET_SELF_ATTR: libc::c_long = 460;
+const SYS_LSM_LIST_MODULES: libc::c_long = 461;
+const SYS_OPEN_TREE_ATTR: libc::c_long = 467;
+
+/// `personality` values Docker's profile allows: the default, UNAME26, and
+/// the 32-bit variants, plus 0xffffffff, the query. Anything else can turn
+/// off address randomisation or make readable memory executable.
+const PERSONALITIES: [u32; 5] = [0, 0x8, 0x2_0000, 0x2_0008, 0xffff_ffff];
 
 /// Denied syscalls, each with the capability that would allow it (or none).
 fn denied() -> Vec<(libc::c_long, Option<u32>)> {
@@ -144,6 +161,25 @@ fn denied() -> Vec<(libc::c_long, Option<u32>)> {
         (SYS_io_uring_setup, None),
         (SYS_io_uring_enter, None),
         (SYS_io_uring_register, None),
+        (SYS_sethostname, Some(CAP_SYS_ADMIN)),
+        (SYS_setdomainname, Some(CAP_SYS_ADMIN)),
+        (SYS_fanotify_init, Some(CAP_SYS_ADMIN)),
+        (SYS_QUOTACTL_FD, Some(CAP_SYS_ADMIN)),
+        // Absent from moby/profiles' default allow list (blob 9c0fcd1c2ab5),
+        // including its SYS_ADMIN rules. Keep it denied under this profile.
+        (SYS_OPEN_TREE_ATTR, None),
+        (SYS_LSM_GET_SELF_ATTR, Some(CAP_SYS_ADMIN)),
+        (SYS_LSM_SET_SELF_ATTR, Some(CAP_SYS_ADMIN)),
+        (SYS_LSM_LIST_MODULES, Some(CAP_SYS_ADMIN)),
+        (SYS_kcmp, Some(CAP_SYS_PTRACE)),
+        (SYS_pidfd_getfd, Some(CAP_SYS_PTRACE)),
+        (SYS_PROCESS_MADVISE, Some(CAP_SYS_PTRACE)),
+        (SYS_get_mempolicy, Some(CAP_SYS_NICE)),
+        (SYS_SET_MEMPOLICY_HOME_NODE, Some(CAP_SYS_NICE)),
+        #[cfg(target_arch = "x86_64")]
+        (SYS_ioperm, Some(CAP_SYS_RAWIO)),
+        #[cfg(target_arch = "x86_64")]
+        (SYS_iopl, Some(CAP_SYS_RAWIO)),
     ]
 }
 
@@ -168,6 +204,20 @@ fn head() -> Vec<Insn> {
 fn deny(p: &mut Vec<Insn>, nr: libc::c_long) {
     p.push(jump(JEQ_K, nr as u32, 0, 1));
     p.push(stmt(RET_K, RET_ERRNO | libc::EPERM as u32));
+}
+
+/// `personality` outside [`PERSONALITIES`] fails with EPERM. The kernel
+/// reads an `unsigned int`, so only the low half of the argument counts.
+/// Leaves the syscall number loaded.
+fn deny_personality(p: &mut Vec<Insn>) {
+    let n = PERSONALITIES.len();
+    p.push(jump(JEQ_K, libc::SYS_personality as u32, 0, n as u8 + 3));
+    p.push(stmt(LD_W_ABS, OFF_ARG0));
+    for (i, v) in PERSONALITIES.iter().enumerate() {
+        p.push(jump(JEQ_K, *v, (n - i) as u8, 0));
+    }
+    p.push(stmt(RET_K, RET_ERRNO | libc::EPERM as u32));
+    p.push(stmt(LD_W_ABS, OFF_NR));
 }
 
 /// vsock is not namespaced: with a socket a container could dial the
@@ -206,6 +256,7 @@ fn program(caps: u64) -> Vec<Insn> {
         }
         deny(&mut p, nr);
     }
+    deny_personality(&mut p);
     deny_vsock(&mut p);
     if !has(CAP_SYS_ADMIN) {
         // clone3 hides its flags in memory a filter cannot read: ENOSYS
@@ -238,6 +289,83 @@ pub fn install(caps: Option<u64>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Execute the BPF instructions this module emits against syscall inputs.
+    fn answer(p: &[Insn], nr: u32, arg0: u32) -> u32 {
+        let (mut pc, mut acc) = (0usize, 0u32);
+        loop {
+            let i = p[pc];
+            pc += 1;
+            match i.code {
+                LD_W_ABS => {
+                    acc = match i.k {
+                        OFF_NR => nr,
+                        OFF_ARCH => AUDIT_ARCH,
+                        OFF_ARG0 => arg0,
+                        other => panic!("offset {other}"),
+                    }
+                }
+                RET_K => return i.k,
+                JEQ_K => pc += if acc == i.k { i.jt } else { i.jf } as usize,
+                #[cfg(target_arch = "x86_64")]
+                JGE_K => pc += if acc >= i.k { i.jt } else { i.jf } as usize,
+                JSET_K => pc += if acc & i.k != 0 { i.jt } else { i.jf } as usize,
+                other => panic!("opcode {other:#x}"),
+            }
+        }
+    }
+
+    #[test]
+    fn only_dockers_personalities_pass() {
+        let nr = libc::SYS_personality as u32;
+        for v in PERSONALITIES {
+            assert_eq!(answer(&program(0), nr, v), RET_ALLOW, "{v:#x}");
+        }
+        for v in [0x0004_0000, 0x0040_0000, 0x1234_5678] {
+            for caps in [0, u64::MAX] {
+                assert_eq!(answer(&program(caps), nr, v), RET_ERRNO | libc::EPERM as u32, "{v:#x}");
+            }
+            assert_eq!(answer(&boundary(), nr, v), RET_ALLOW, "unconfined keeps only the host boundary");
+        }
+        assert_eq!(answer(&program(0), libc::SYS_write as u32, 0), RET_ALLOW);
+        assert_eq!(answer(&program(0), libc::SYS_mount as u32, 0), RET_ERRNO | libc::EPERM as u32);
+    }
+
+    #[test]
+    fn additional_default_rules_follow_dockers_capabilities() {
+        let eperm = RET_ERRNO | libc::EPERM as u32;
+        for (nr, cap) in [
+            (libc::SYS_sethostname, CAP_SYS_ADMIN),
+            (libc::SYS_setdomainname, CAP_SYS_ADMIN),
+            (libc::SYS_fanotify_init, CAP_SYS_ADMIN),
+            (SYS_QUOTACTL_FD, CAP_SYS_ADMIN),
+            (SYS_LSM_GET_SELF_ATTR, CAP_SYS_ADMIN),
+            (SYS_LSM_SET_SELF_ATTR, CAP_SYS_ADMIN),
+            (SYS_LSM_LIST_MODULES, CAP_SYS_ADMIN),
+            (libc::SYS_kcmp, CAP_SYS_PTRACE),
+            (libc::SYS_pidfd_getfd, CAP_SYS_PTRACE),
+            (SYS_PROCESS_MADVISE, CAP_SYS_PTRACE),
+            (libc::SYS_get_mempolicy, CAP_SYS_NICE),
+            (SYS_SET_MEMPOLICY_HOME_NODE, CAP_SYS_NICE),
+        ] {
+            assert_eq!(answer(&program(0), nr as u32, 0), eperm);
+            assert_eq!(answer(&program(1 << cap), nr as u32, 0), RET_ALLOW);
+            assert_eq!(answer(&boundary(), nr as u32, 0), RET_ALLOW);
+        }
+        for caps in [0, u64::MAX] {
+            assert_eq!(answer(&program(caps), SYS_OPEN_TREE_ATTR as u32, 0), eperm);
+        }
+        assert_eq!(answer(&boundary(), SYS_OPEN_TREE_ATTR as u32, 0), RET_ALLOW);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn port_io_needs_rawio() {
+        for nr in [libc::SYS_ioperm, libc::SYS_iopl] {
+            assert_eq!(answer(&program(0), nr as u32, 0), RET_ERRNO | libc::EPERM as u32);
+            assert_eq!(answer(&program(1 << CAP_SYS_RAWIO), nr as u32, 0), RET_ALLOW);
+        }
+    }
 
     #[test]
     fn capabilities_relax_the_filter() {

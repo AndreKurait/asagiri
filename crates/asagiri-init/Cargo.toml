@@ -35,5 +35,9 @@ name = "clock-read"
 harness = false
 
 [[test]]
+name = "seccomp-default"
+harness = false
+
+[[test]]
 name = "shared-root-process"
 harness = false

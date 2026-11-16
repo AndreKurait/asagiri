@@ -1,0 +1,47 @@
+{
+  "schema": "asagiri.native-seccomp-default.v1",
+  "recorded_at": "2026-11-16T08:35:56.858471+00:00",
+  "public_pr": 357,
+  "public_head": "3aef1a74ff71d387ba2de3e9fb1b7d6efe80ddad",
+  "candidate_base": "c7128f9a15b4e24ff56144176485bdbd74aad5a8",
+  "toolchain": "1.99.1",
+  "target": "aarch64-unknown-linux-musl",
+  "host": "native macOS Asagiri, Linux ARM64 guest",
+  "installed_engine_version": "0.1.6-dev.99",
+  "execution": "Compiled production filter applied inside an owned, unprivileged process with no network and zero capabilities. The installed engine itself retains its released filter.",
+  "harness": "crates/asagiri-init/tests/seccomp-default.rs",
+  "harness_sha256": "0da67a5504d570c59d76ed259c21b8ab600116a2ef1f70f10cfdb76042d64a08",
+  "baseline": {
+    "production_sha256": "771116410b4f5f3818d092470e9716b253bc7a3d862f5288de99581c1d0478ef",
+    "binary_sha256": "d80680e3d6af22d2720c26742f6ea17cae808dbfa55b251c7dc248b19327679e",
+    "result": "The actual syscall allowed ADDR_NO_RANDOMIZE; the new regression failed."
+  },
+  "candidate": {
+    "production_sha256": "948d23f4c8ade840e9b6aae2290f945d7849768737c13b62ab6f97fc83db8fe1",
+    "binary_sha256": "ffc85d8cb605cb626d2a58118fc5af3819c404cc24a80cf5d320f3f15ca7c720",
+    "unit_binary_sha256": "0452b8c6a79db3d3da9fa0823b9042c059ce215ba58fdbd72ae2abd4315393fd",
+    "result": "The same syscall failed with EPERM; query remained allowed and the calling process flags stayed unchanged.",
+    "unit_tests_passed": 6
+  },
+  "reference_policy": {
+    "repository": "moby/profiles",
+    "blob": "9c0fcd1c2ab524e1044af172b003b8b5563388f5",
+    "sha256": "3320527d4568265ac97a077609b1bfd4cfd0d789eeb9239b7e094b1526675406",
+    "open_tree_attr": "Absent from the published default allow list, so the candidate denies it even with SYS_ADMIN."
+  },
+  "syscall_numbers": {
+    "repository": "torvalds/linux",
+    "ref": "v6.18",
+    "blob": "04e0077fb4c97a4d565da86d3d0d1d243f32336e",
+    "sha256": "3e926f0eb23613d1293a8cae1db5a58dcdd575304e9ac75e5b492a8bf205c13f"
+  },
+  "cleanup": {
+    "both_owned_containers_absent": true,
+    "original_images_volumes_and_containers_preserved": true
+  },
+  "limits": [
+    "This is a targeted process test plus six BPF unit tests; the full installed engine was not replaced.",
+    "The default filter remains a deny list, with unlisted syscalls available.",
+    "Native x86_64 runtime and final combined PR/release qualification remain required."
+  ]
+}
