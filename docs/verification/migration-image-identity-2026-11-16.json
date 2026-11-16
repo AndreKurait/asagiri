@@ -1,0 +1,128 @@
+{
+  "status": "local_correction_verified_fresh_two_engine_ci_pending",
+  "recorded_at": "2026-11-16T10:31:33.173590+00:00",
+  "based_on": "1b90a11a0cf6eb8eff8172fe2451a0f612d1fc47",
+  "failed_platform": {
+    "run": 43843645924,
+    "attempt": 1,
+    "tested_source": "a0fe30374e9dd8ec7f9affebfc2a6e0d6ffd377c",
+    "conclusion": "failure",
+    "assertion": "original[\"Id\"] == copied[\"Id\"] == seed",
+    "migration_cases_completed": 5,
+    "source_docker_version": "29.9.3",
+    "source_docker_git_commit": "70efc0e31da3a115fc87574d1b786fa2b867c346",
+    "seed_config_image_id": "sha256:e50d940e9d2c4d81e5b3506b2ed87bfc7e91267b36ff016eb4b4cb21c39a3331",
+    "loaded_image_log_prefix": "e50d940e9d2c",
+    "all_owned_engine_hosts_and_three_store_volumes_removed": true,
+    "raw_log_sha256": "9ba0cd7d52e0fa41db9ab07daf0edd34252a034562840b73b2908fa2b5f1ec35",
+    "migration_artifact_sha256": "1eb65315021e5225560994f4dc900c6ec6341bc18b6fa04f4d8c7e52ca33856e",
+    "limitation": "The old failure report did not retain the compared inspect responses or export archives; their individual IDs cannot be reconstructed from it."
+  },
+  "source_analysis": [
+    {
+      "url": "https://github.com/moby/moby/blob/70efc0e31da3a115fc87574d1b786fa2b867c346/daemon/containerd/image_inspect.go",
+      "sha256": "d3e68cd67fd3ef9df2918c2bb9b95fc67692ba08aac8131573e2a24bab023d06",
+      "finding": "Containerd ImageInspect reports target.Digest as the image ID, independently of the selected config."
+    },
+    {
+      "url": "https://github.com/moby/moby/blob/70efc0e31da3a115fc87574d1b786fa2b867c346/daemon/server/router/image/image_routes.go",
+      "sha256": "a21be48325d2964cccbf76a9d13940e390dfccc8a51b13598383c1c2f6133d5c",
+      "finding": "The API compatibility path hides Descriptor below v1.48; it does not replace the image ID with a configuration digest."
+    }
+  ],
+  "correction": {
+    "schema": "asagiri.engine-import.v3",
+    "scope": "CI image identity oracle and retained diagnostics; production importer and image loading are unchanged.",
+    "contract": [
+      "Retain seed/source/destination image inspections and all three export archives.",
+      "Hash the actual saved configuration bytes; require the same configuration across the three archives.",
+      "Read each actual layer, decompress gzip if present, and require its SHA-256 to match its declared diff ID.",
+      "Require unchanged platform, diff IDs and unpacked lengths across seed/source/destination.",
+      "Require Asagiri to report the configuration digest and both APIs to report the expected platform and layers.",
+      "Retain distinct engine-local image IDs without treating a manifest/index digest as a configuration digest."
+    ],
+    "source_sha256": {
+      "scripts/ci/engine-import.py": "bcdf1265abae586624a9e2843d6e6eb598ecf5deec575736b7eef50a353d3bde",
+      "scripts/ci/live-tests.sh": "776183ae188136e74647a4dcc8325108aea966ea6bcde3557aa4f7a7d41eea12",
+      "tests/ci-engine-import.py": "9a0bda36fe887681bf45f793259f3526d97afd8c43120ca52745f2364a142680"
+    }
+  },
+  "local_validation": {
+    "identity_tests": 7,
+    "runtime_contract_tests": 8,
+    "release_contract_tests": 30,
+    "shellcheck": "passed",
+    "whitespace": "passed",
+    "receipt_sha256": "ea23ba26487eedb323753d5c989a4b649607b734c4ad82538cd72aa081252c6a"
+  },
+  "native_readonly_export": {
+    "version": "0.1.6-dev.100",
+    "executable_sha256": "2b0b4fa2b7ee82a696e56d326faab58fea1119bab9b7db1b6fe2c7b32ec3c905",
+    "image": "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee",
+    "archive_bytes": 3978752,
+    "identity": {
+      "archive_sha256": "96d55bb3eff928048d3891bb1f42c4556950e1d790e93a05ca06a35d379cd87a",
+      "config_sha256": "ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee",
+      "platform": {
+        "os": "linux",
+        "architecture": "arm64",
+        "variant": "v8"
+      },
+      "diff_ids": [
+        "sha256:c414b70900bff0fc663162f3cff355e6efe10fd87a218fbb99cec3bc8fb1ffa2"
+      ],
+      "layers": [
+        {
+          "path": "blobs/sha256/26089ff12bb135aa8812e1bf486b799444fdf6cac9f60bf694ac523fbb8ad19a",
+          "blob_sha256": "26089ff12bb135aa8812e1bf486b799444fdf6cac9f60bf694ac523fbb8ad19a",
+          "blob_bytes": 3974423,
+          "diff_id": "sha256:c414b70900bff0fc663162f3cff355e6efe10fd87a218fbb99cec3bc8fb1ffa2",
+          "uncompressed_bytes": 8417792
+        }
+      ]
+    },
+    "original_inventory_unchanged": true,
+    "resources_created_or_removed": false,
+    "receipt_sha256": "f3e83d793f0847da9ea65cb8e51def72d38ed8137c44f996bf1a087448fb0ba5"
+  },
+  "other_completed_failed_run_evidence": {
+    "scope": "Partial health/Compose evidence from the failed Platform run; does not qualify the run or this correction.",
+    "reports": {
+      "docker": {
+        "health": {
+          "cases": 7,
+          "owned_containers_removed": 4,
+          "start_interval_seconds": 0.36095614700002443
+        },
+        "compose": {
+          "cases": 8,
+          "owned_objects_removed": 7,
+          "healthy_dependency_start_delay_seconds": 3.1118760108947754,
+          "command_results_verified": 11,
+          "intentional_failed_commands": 2
+        }
+      },
+      "asagiri": {
+        "health": {
+          "cases": 7,
+          "owned_containers_removed": 4,
+          "start_interval_seconds": 0.2610693719999517
+        },
+        "compose": {
+          "cases": 8,
+          "owned_objects_removed": 7,
+          "healthy_dependency_start_delay_seconds": 3.0085349082946777,
+          "command_results_verified": 11,
+          "intentional_failed_commands": 2
+        }
+      }
+    },
+    "artifact_sha256": "ed6b6aab5dad391a1ebf441851bc3cb91c0be1f3a708afee6a0ad41f12341dc9",
+    "receipt_sha256": "95bdee3f04a1cd6eb15e9c77f4b426200da109415ae9aa9de4ad60eaf81ebde8"
+  },
+  "remaining": [
+    "Real two-engine migration, including image, idle-volume and container-definition cases, on the corrected source.",
+    "Fresh complete Platform, comparison, guest-kernel and artifact qualification on the new main base.",
+    "Protected merge and a complete Actions release before a native update."
+  ]
+}

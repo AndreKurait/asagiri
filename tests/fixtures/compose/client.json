@@ -1,0 +1,18 @@
+{
+  "version": "5.7.1",
+  "release": "https://github.com/docker/compose/releases/tag/v5.7.1",
+  "published_at": "2026-11-11T08:06:10Z",
+  "checksums_sha256": "faea103e645cf3a1fa0a0414a19835206b2d0f21e31dcc67e75fe63767481568",
+  "linux": {
+    "x86_64": {
+      "name": "docker-compose-linux-x86_64",
+      "size": 33952322,
+      "sha256": "af426722a8af5de812fcee30cc1c39f0639f5f723cbadefb25e5d4db054064cf"
+    },
+    "aarch64": {
+      "name": "docker-compose-linux-aarch64",
+      "size": 31694371,
+      "sha256": "f2f49f903240895fa764c0dca3a14548b754ad9426f6b609ccaf55ec5a3aa2a5"
+    }
+  }
+}

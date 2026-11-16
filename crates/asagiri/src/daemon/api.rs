@@ -453,6 +453,9 @@ fn info(engine: &Engine) -> Value {
         "Driver": "overlayfs",
         "ServerVersion": DOCKER_COMPAT_VERSION,
         "AsagiriVersion": env!("CARGO_PKG_VERSION"),
+        // Compose uses this to replay events emitted while it attaches.
+        // Engine::emit stamps events with this daemon's clock on every host.
+        "SystemTime": time::rfc3339(std::time::SystemTime::now()),
         "OperatingSystem": "Asagiri",
         "OSType": "linux",
         "Architecture": std::env::consts::ARCH,
@@ -536,6 +539,9 @@ fn images(req: &Request, engine: &Engine) -> Result<Value, Error> {
                 }));
         }
     }
+    // Both Docker image stores list newest-created images first, regardless
+    // of tag order or when the image was pulled into this store.
+    rows.sort_by_key(|row| std::cmp::Reverse(row["Created"].as_i64().unwrap_or(0)));
     Ok(Value::Array(rows))
 }
 
@@ -1056,20 +1062,19 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
         Progress::Downloading { digest, got, size } => {
             line(json!({"status": "Downloading", "progressDetail": {"current": got, "total": size}, "id": short(&digest)}));
         }
-        Progress::LayerDone { digest, cached, .. } => {
-            let status = if cached { "Already exists" } else { "Pull complete" };
-            line(json!({"status": status, "progressDetail": {}, "id": short(&digest)}));
+        Progress::LayerDone { digest, .. } => {
+            line(json!({"status": "Download complete", "progressDetail": {}, "id": short(&digest)}));
         }
     };
     let began = std::time::Instant::now();
     crate::diag::info!("image pull started", image = reference.short(), platform = wanted);
-    let mut result = client.pull_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
+    let mut result = client.fetch_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
     // An image built only for amd64 runs through Rosetta, as on Docker Desktop.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
         let amd64 = Platform { os: "linux".into(), architecture: "amd64".into() };
         if req.query("platform").is_none_or(str::is_empty) && wanted != amd64 && available.iter().any(|a| a == "linux/amd64") && asagiri_vmm::rosetta_installed() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/amd64 through Rosetta", reference.short())}));
-            result = client.pull_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
+            result = client.fetch_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
         }
     }
     // On an Intel Mac an arm64-only image runs through qemu, when shared in.
@@ -1077,11 +1082,24 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
         let arm64 = Platform { os: "linux".into(), architecture: "arm64".into() };
         if req.query("platform").is_none_or(str::is_empty) && wanted != arm64 && available.iter().any(|a| a == "linux/arm64") && crate::guest::emulator_dir().is_some() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/arm64 through qemu", reference.short())}));
-            result = client.pull_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);
+            result = client.fetch_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);
         }
     }
     match result {
         Ok(image) => {
+            if let Err(e) = engine.prepare_image(&image, &|| job.cancel.is_cancelled())
+                .and_then(|()| engine.store.put_image(image.clone()))
+            {
+                crate::diag::warn!("image pull failed", image = reference.short(), error = e);
+                if !job.cancel.is_cancelled() {
+                    let message = e.to_string();
+                    line(json!({"errorDetail": {"message": message}, "error": message}));
+                }
+                return;
+            }
+            for layer in &image.layers {
+                line(json!({"status": "Pull complete", "progressDetail": {}, "id": short(&layer.digest)}));
+            }
             // Docker reports the digest it was asked for: the index's, if any.
             line(json!({"status": format!("Digest: {}", image.index_digest.as_ref().unwrap_or(&image.digest))}));
             line(json!({"status": format!("Status: Downloaded newer image for {}", image.name)}));

@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+#[path = "client/health.rs"]
 mod health;
+#[path = "client/health_response.rs"]
 mod health_response;
 
 /// A small background GET with a deadline covering the entire exchange.
