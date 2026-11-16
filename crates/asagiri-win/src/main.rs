@@ -113,6 +113,10 @@ mod update;
 #[path = "../../asagiri/src/import.rs"]
 #[allow(dead_code)]
 mod import;
+#[cfg(any(windows, test))]
+mod wslsync;
+#[cfg(any(windows, test))]
+mod refuse;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {

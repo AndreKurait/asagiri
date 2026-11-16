@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::pipe::Pipe;
+use crate::refuse::{is_head, refusal, Arrival, REQUEST_WAIT};
 
 /// A frame: kind, connection id (u32 BE), length (u32 BE), then the data.
 /// The same as in crates/asagiri/src/bridge.rs.
@@ -18,7 +19,8 @@ const OPEN: u8 = 1;
 const DATA: u8 = 2;
 /// No more data from this side (a half-close).
 const EOF: u8 = 3;
-/// The connection is gone, both ways.
+/// The connection is gone, both ways. From a bridge, its data (when there
+/// is any) is why it could not reach the engine.
 const CLOSE: u8 = 4;
 /// Credit back: how many bytes of this connection the ACK's sender has
 /// handed on (u32 BE). For connection 0, the bridge's hello: it does flow
@@ -75,21 +77,33 @@ pub fn set_setup_pending(pending: bool) {
 
 const SETUP_UNFINISHED: &str = "Asagiri's setup isn't finished: open Asagiri to finish it";
 
-/// Answers a client that got nothing from the engine while setup is
-/// unfinished: docker prints "Error response from daemon: <message>".
-/// True if it answered.
-fn refuse_unfinished(pipe: &Pipe) -> bool {
-    if !SETUP_PENDING.load(Ordering::SeqCst) {
-        return false;
-    }
-    let body = serde_json::json!({ "message": SETUP_UNFINISHED }).to_string();
-    let reply = format!("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-    if pipe.write(reply.as_bytes()).is_err() {
+fn setup_pending() -> bool {
+    SETUP_PENDING.load(Ordering::SeqCst)
+}
+
+/// What a client the engine cannot serve is told (see `refuse::message`),
+/// unless setup is unfinished: then that is why.
+fn message(why: Option<&str>) -> String {
+    if setup_pending() { SETUP_UNFINISHED.to_owned() } else { crate::refuse::message(why) }
+}
+
+/// Answers a client the engine cannot serve. True if it answered.
+fn refuse(pipe: &Pipe, head: bool, message: &str) -> bool {
+    if pipe.write(&refusal(head, message)).is_err() {
         return false;
     }
     pipe.flush();
     let _ = pipe.write(&[]);
     true
+}
+
+/// `refuse`, for a client whose request has not been read: read first, as
+/// a reply that comes before the request is one Go's HTTP client calls
+/// unsolicited and drops.
+fn refuse_new(pipe: &Pipe, message: &str) -> bool {
+    let mut buf = vec![0u8; 64 * 1024];
+    let n = pipe.read_within(&mut buf, Some(REQUEST_WAIT)).unwrap_or(0);
+    refuse(pipe, is_head(&buf[..n]), message)
 }
 
 /// Docker's own pipe. docker-py, the Go and Java SDKs, Testcontainers and
@@ -271,7 +285,8 @@ fn other_engine() -> Option<&'static str> {
 enum Reply {
     Data(Vec<u8>),
     Eof,
-    Close,
+    /// With the bridge's reason, when it gave one.
+    Close(Option<String>),
 }
 
 /// One connection, as the bridge's reply reader sees it.
@@ -365,6 +380,9 @@ struct Bridge {
     /// The bridge said hello: it does flow control.
     credit: AtomicBool,
     started: Instant,
+    /// What clients were last told the engine could not do, logged once
+    /// until a client is served again.
+    said: Mutex<Option<String>>,
 }
 
 impl Bridge {
@@ -381,7 +399,7 @@ impl Bridge {
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()?;
         let (Some(input), Some(output)) = (child.stdin.take(), child.stdout.take()) else { return Err(io::Error::other("wsl.exe has no stdio")) };
-        let bridge = Arc::new(Bridge { input: Mutex::new(input), conns: Mutex::new(HashMap::new()), dead: AtomicBool::new(false), credit: AtomicBool::new(false), started: Instant::now() });
+        let bridge = Arc::new(Bridge { input: Mutex::new(input), conns: Mutex::new(HashMap::new()), dead: AtomicBool::new(false), credit: AtomicBool::new(false), started: Instant::now(), said: Mutex::new(None) });
         log("bridge started");
         let b = bridge.clone();
         thread::spawn(move || b.replies(output, child));
@@ -405,7 +423,7 @@ impl Bridge {
             let reply = match kind {
                 DATA => Reply::Data(data),
                 EOF => Reply::Eof,
-                _ => Reply::Close,
+                _ => Reply::Close((kind == CLOSE && !data.is_empty()).then(|| String::from_utf8_lossy(&data).into_owned())),
             };
             let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(c) = conns.get(&id) else { continue };
@@ -457,6 +475,18 @@ impl Bridge {
         r
     }
 
+    /// Logs what a client was told, unless it is what the last one was.
+    /// None: a client was served, so the next refusal is logged again.
+    fn told(&self, message: Option<&str>) {
+        let mut said = self.said.lock().unwrap_or_else(PoisonError::into_inner);
+        if said.as_deref() != message {
+            if let Some(m) = message {
+                log(&format!("engine: told docker clients: {m}"));
+            }
+            *said = message.map(str::to_owned);
+        }
+    }
+
     /// Whether this bridge does flow control, waiting for its hello while
     /// it has only just started.
     fn credit(&self) -> bool {
@@ -490,10 +520,13 @@ fn serve_shared(hub: &Hub, pipe: Arc<Pipe>) {
         let bridge = match hub.bridge() {
             Ok(b) => b,
             Err(e) => {
-                if e.kind() != io::ErrorKind::NotConnected {
+                let answered = if e.kind() == io::ErrorKind::NotConnected {
+                    setup_pending() && refuse_new(&pipe, SETUP_UNFINISHED)
+                } else {
                     log(&format!("bridge: {e}"));
-                }
-                if refuse_unfinished(&pipe) {
+                    refuse_new(&pipe, &message(Some(&format!("WSL did not start Asagiri's Linux ({e})"))))
+                };
+                if answered {
                     linger(&pipe);
                 }
                 return;
@@ -522,16 +555,23 @@ fn serve_shared(hub: &Hub, pipe: Arc<Pipe>) {
         tries += 1;
         if tries == 3 {
             log("bridge: died three times while a connection opened; giving up on it");
+            if refuse_new(&pipe, &message(Some("Asagiri's Linux in WSL stopped three times as the command came in"))) {
+                linger(&pipe);
+            }
             return;
         }
     };
-    let (p, b, w) = (pipe.clone(), bridge.clone(), window.clone());
-    let writer = thread::spawn(move || to_client(&p, &rx, &queued, w.as_deref().map(|w| (&*b, id, w))));
+    // Whether the client's request has come, and is a HEAD: a refusal
+    // waits for it (see `refuse_new`).
+    let request = Arc::new(Arrival::default());
+    let (p, b, w, r) = (pipe.clone(), bridge.clone(), window.clone(), request.clone());
+    let writer = thread::spawn(move || to_client(&p, &rx, &queued, w.as_deref().map(|w| (id, &*b, w)), &r, |why| b.told(why)));
     let mut buf = vec![0u8; 64 * 1024];
     let end = loop {
         match pipe.read(&mut buf) {
             Ok(0) => break EOF,
             Ok(n) => {
+                request.set(is_head(&buf[..n]));
                 // Out of credit with the client gone (nothing to read its
                 // reply), or the connection closed: stop.
                 if window.as_ref().is_some_and(|w| !w.take(n, || pipe.alive())) {
@@ -545,6 +585,8 @@ fn serve_shared(hub: &Hub, pipe: Arc<Pipe>) {
             Err(_) => break CLOSE,
         }
     };
+    // Gone before a word: nothing for a refusal to wait for.
+    request.set(false);
     let _ = bridge.send(end, id, &[]);
     let replies_ended = writer.join().unwrap_or(false);
     if end == EOF && replies_ended {
@@ -557,8 +599,9 @@ fn serve_shared(hub: &Hub, pipe: Arc<Pipe>) {
 
 /// Writes the bridge's replies to the client, acknowledging them to the
 /// bridge (`credit`) as they go when it does flow control. True if they
-/// ended with EOF.
-fn to_client(pipe: &Pipe, rx: &Receiver<Reply>, queued: &AtomicUsize, credit: Option<(&Bridge, u32, &Window)>) -> bool {
+/// ended with EOF, or the client was told why the engine could not serve
+/// it (once its `request` had come).
+fn to_client(pipe: &Pipe, rx: &Receiver<Reply>, queued: &AtomicUsize, credit: Option<(u32, &Bridge, &Window)>, request: &Arrival, told: impl Fn(Option<&str>)) -> bool {
     let mut done = 0usize;
     let mut answered = false;
     for reply in rx {
@@ -567,12 +610,15 @@ fn to_client(pipe: &Pipe, rx: &Receiver<Reply>, queued: &AtomicUsize, credit: Op
                 if pipe.write(&d).is_err() {
                     return false;
                 }
+                if !answered {
+                    told(None);
+                }
                 answered = true;
                 queued.fetch_sub(d.len(), Ordering::SeqCst);
                 done += d.len();
-                if let Some((b, id, _)) = credit
+                if let Some((id, bridge, _)) = credit
                     && done >= ACK_EVERY {
-                        let _ = b.send(ACK, id, &(done as u32).to_be_bytes());
+                        let _ = bridge.send(ACK, id, &(done as u32).to_be_bytes());
                         done = 0;
                     }
             }
@@ -583,10 +629,19 @@ fn to_client(pipe: &Pipe, rx: &Receiver<Reply>, queued: &AtomicUsize, credit: Op
                 pipe.flush();
                 return pipe.write(&[]).is_ok();
             }
-            // Closed before a word, with setup unfinished: no engine is
-            // listening in Asagiri's Linux yet. Say why.
-            Reply::Close if !answered && refuse_unfinished(pipe) => return true,
-            Reply::Close => break,
+            // Closed before a word: the bridge could not reach the engine
+            // (and says why), the daemon closed it unanswered (no reason),
+            // or setup is unfinished. Said to a client still there, after
+            // its request.
+            Reply::Close(why) if !answered && pipe.alive() => {
+                let message = message(why.as_deref());
+                if refuse(pipe, request.head(REQUEST_WAIT), &message) {
+                    told(Some(&message));
+                    return true;
+                }
+                break;
+            }
+            Reply::Close(_) => break,
         }
     }
     // The daemon closed the connection, or the bridge died with it open
@@ -726,7 +781,9 @@ try {
             drop(tx);
             let server = pipe.clone();
             let queued = AtomicUsize::new(response.len());
-            let writer = thread::spawn(move || to_client(&server, &rx, &queued, None));
+            let arrival = super::Arrival::default();
+            arrival.set(super::is_head(&request[..n]));
+            let writer = thread::spawn(move || to_client(&server, &rx, &queued, None, &arrival, |_| {}));
             let result = client.wait_with_output().unwrap();
             assert!(result.status.success(), "{status}: {}", String::from_utf8_lossy(&result.stderr));
             assert_eq!(result.stdout, response, "{status}: the response must precede EOF");

@@ -1,17 +1,63 @@
 #!/bin/sh
-# Starts Asagiri's engine after setup or when asagiri-win wakes the distro.
+# Starts Asagiri's engine: when WSL boots the distro (wsl.conf), after setup,
+# when asagiri-win starts, and when `asagiri bridge` finds no daemon on its socket.
 # The daemon serves its unix socket; asagiri-win carries the Windows docker CLI
-# to it over `asagiri bridge`.
+# to it over `asagiri bridge`. `--restart` (asagiri-win's Restart engine) stops the
+# daemon first. Exit 0: it runs; 1: no socket in time (it may still come
+# up), or the old one did not stop; 2: it exited as it started.
 export HOME=/var/lib/asagiri-daemon
+sock=$HOME/.asagiri/run/docker.sock
 mkdir -p "$HOME" /var/log
-pgrep -f '/usr/local/bin/asagiri daemon' >/dev/null 2>&1 && exit 0
-rm -f "$HOME/.asagiri/run/docker.sock"
-ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock" nohup /usr/local/bin/asagiri daemon >>/var/log/asagiri.log 2>&1 &
+# One at a time: the boot command, the bridge, asagiri-win and `asagiri`
+# (crates/asagiri/src/wsl.rs) can each start it at once, and two would each
+# remove the socket and start a daemon. busybox flock has no time limit of
+# its own: -n, tried for 25 s. A plain asagiri-start holds it at most 20 s, so
+# one waiting behind it gets it, and finds the daemon it started; the
+# bridge gives a start 25 s, enough for that. One that waits on a
+# --restart gives up, and the restart starts the daemon.
+exec 9>"$HOME/.asagiri-start.lock"
 i=0
-while [ "$i" -lt 50 ]; do
-  [ -S "$HOME/.asagiri/run/docker.sock" ] && exit 0
+until flock -n 9; do
+  [ "$i" -ge 250 ] && { echo "another asagiri-start has not finished in 25 s" >&2; exit 1; }
   sleep 0.1
   i=$((i + 1))
 done
-echo "asagiri daemon did not create its socket; see /var/log/asagiri.log" >&2
+running() { pgrep -f '^/usr/local/bin/[a]sagiri daemon($| )' >/dev/null 2>&1; }
+# On SIGTERM the daemon removes its socket, then stops its containers
+# (seconds; ~10 s for one that ignores SIGTERM, up to 120 s for one with a
+# long --stop-timeout: SHUTDOWN_WAIT_CAP, then 2 s after SIGKILL), powers
+# off its VM (up to 10 s), then exits: about 132 s at most. --restart waits
+# 140 s for that.
+if [ "${1:-}" = --restart ] && running; then
+  pkill -f '^/usr/local/bin/[a]sagiri daemon($| )' || [ "$?" -eq 1 ] || exit 1
+  i=0
+  while running; do
+    [ "$i" -ge 1400 ] && { echo "the asagiri daemon did not stop in 140 s; see /var/log/asagiri.log" >&2; exit 1; }
+    sleep 0.1
+    i=$((i + 1))
+  done
+fi
+# A daemon with its socket runs. One without is starting (its socket
+# comes) or stopping (it is gone soon, and one is started here): up to 15 s.
+i=0
+while running; do
+  [ -S "$sock" ] && exit 0
+  [ "$i" -ge 150 ] && { echo "a asagiri daemon runs without its socket for 15 s; see /var/log/asagiri.log" >&2; exit 1; }
+  sleep 0.1
+  i=$((i + 1))
+done
+rm -f "$sock"
+# The daemon does not keep the lock (fd 9).
+ASAGIRI_SOCKET="$sock" nohup /usr/local/bin/asagiri daemon >>/var/log/asagiri.log 2>&1 9>&- &
+pid=$!
+i=0
+while [ "$i" -lt 50 ]; do
+  [ -S "$sock" ] && exit 0
+  # Exit 2: it cannot start, and asagiri-win need not wait for it.
+  kill -0 "$pid" 2>/dev/null || { echo "asagiri daemon exited as it started; see /var/log/asagiri.log" >&2; exit 2; }
+  sleep 0.1
+  i=$((i + 1))
+done
+# Exit 1: it may still come up (a slow disk).
+echo "asagiri daemon did not create its socket in 5 s; see /var/log/asagiri.log" >&2
 exit 1

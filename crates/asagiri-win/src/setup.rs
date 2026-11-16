@@ -615,9 +615,10 @@ fn install_linux(kind: &str) -> io::Result<()> {
     engine()
 }
 
-/// A Windows path as `distro` sees it.
+/// A Windows path as `distro` sees it. Killed after WSL_LIMIT, as the
+/// other calls into WSL to start or restart the engine.
 pub(crate) fn to_wsl(distro: &str, path: &Path) -> io::Result<String> {
-    let out = quiet("wsl.exe").args(["-d", distro, "--", "wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")).output()?;
+    let out = crate::update::output_within(quiet("wsl.exe").args(["-d", distro, "--", "wslpath", "-a"]).arg(path.to_string_lossy().replace('\\', "/")), crate::update::WSL_LIMIT)?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
