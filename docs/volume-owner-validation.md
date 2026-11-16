@@ -33,10 +33,21 @@ It verifies the new start's output, compares root metadata and contents, checks
 that host files and metadata remain intact, and records cleanup. Linux CI
 runs it against Docker before the private Asagiri engine.
 
+The Docker 28.0.4 reference exposed a separate existing difference: its tmpfs
+volumes are empty at start even when the image has a directory to populate.
+[Moby populates volumes during container creation and then unmounts them](https://github.com/moby/moby/blob/v28.0.4/daemon/create_unix.go#L79-L130),
+discarding the temporary filesystem's copied contents. Asagiri populates real
+image directories when starting the container. The fixture records this
+difference and each observation's Docker parity explicitly; passing these
+regressions does not claim parity for image population into tmpfs volumes.
+Both engines must preserve the requested options for missing image directories
+and `volume-nocopy`, across both starts.
+
 The Linux unit fixture calls the production mount path using real overlays,
 tmpfs volumes and bind mounts in a disposable child mount namespace. It
 unmounts and remounts the overlay between rounds, checks all six cases, and
 requires the real fixture to run in CI. A separate filesystem test verifies
 that image lookup creates no missing parents. Linux ARM64 musl cross-checks
-of all init targets, Python syntax and shell checks pass on the Mac. Actual
-Linux execution and the full platform workflow remain required before merge.
+of all init targets, Python syntax and shell checks pass on the Mac. The real
+Linux mount fixtures passed in CI. The rebuilt-engine API comparison and full
+platform workflow remain required before merge.

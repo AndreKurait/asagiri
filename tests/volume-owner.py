@@ -102,8 +102,9 @@ def main():
 
     def remove_container(name):
         request("DELETE", "/containers/" + name + "?force=1", expected=(204, 404))
+        request("GET", "/containers/" + name + "/json", expected=(404,))
         containers.remove(name)
-        record["cleanup"].append({"kind": "container", "id": name, "passed": True})
+        record["cleanup"].append({"kind": "container", "id": name, "passed": True, "inspect_status": 404})
 
     try:
         version = json.loads(request("GET", "/version"))
@@ -147,11 +148,22 @@ def main():
                 mounts.append({"Type": "volume", "Source": volume, "Target": target, "VolumeOptions": {"NoCopy": nocopy}})
                 container = prefix + "-container-" + name
                 cid = create(container, target, mounts)
-                expected = baseline[source] if source else {"owner": [10001, 10050, 0o2750], "count": 0, "repositories_sha256": None}
+                configured = {"owner": [10001, 10050, 0o2750], "count": 0, "repositories_sha256": None}
+                # Docker 28 populates at create, then unmounts the tmpfs, which
+                # discards that population before start. Asagiri's existing
+                # start-time image population is a recorded compatibility
+                # difference, separate from the missing-target ownership bug.
+                expected = baseline[source] if source and not args.reference_docker else configured
+                value["contract"] = ("asagiri-image-copy-up" if source and not args.reference_docker
+                                     else "requested-tmpfs-options")
+                value["known_difference"] = ("Docker 28 starts with an empty tmpfs; Asagiri populates real image directories at start"
+                                             if source else None)
                 for iteration in range(2):
                     observed = observe(cid)
                     passed = all(observed[key] == expected[key] for key in ("owner", "count", "repositories_sha256"))
-                    value["rounds"].append({"iteration": iteration, "observed": observed, "expected": expected, "passed": passed})
+                    docker_parity = all(observed[key] == configured[key] for key in ("owner", "count", "repositories_sha256"))
+                    value["rounds"].append({"iteration": iteration, "observed": observed, "expected": expected,
+                                            "passed": passed, "matches_docker_28": docker_parity})
                     if not passed: record["failures"].append(f"{name} iteration {iteration}: metadata or contents differ")
                 remove_container(container)
                 value["passed"] = all(result["passed"] for result in value["rounds"])
@@ -177,7 +189,9 @@ def main():
             for identifier in identifiers:
                 try:
                     request("DELETE", "/" + kind + "s/" + identifier + "?force=1", expected=(204, 404))
-                    record["cleanup"].append({"kind": kind, "id": identifier, "passed": True})
+                    inspect = "/" + kind + "s/" + identifier + ("/json" if kind == "container" else "")
+                    request("GET", inspect, expected=(404,))
+                    record["cleanup"].append({"kind": kind, "id": identifier, "passed": True, "inspect_status": 404})
                 except Exception as error:
                     record["cleanup"].append({"kind": kind, "id": identifier, "passed": False, "error": repr(error)})
                     record["status"] = "failed"
