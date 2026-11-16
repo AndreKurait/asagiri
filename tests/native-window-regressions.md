@@ -38,6 +38,18 @@ WebView2 version on Windows, observations, and any failure.
 The pure `window_buttons_stay_centered_in_the_strip_in_both_directions`
 test checks the geometry. It does not verify AppKit's layout timing.
 
+## macOS: editing settings fields (#340)
+
+1. Focus a settings text field. Use temporary text and restore the original
+   value before leaving the page. Confirm ⌘A, ⌘C, ⌘V, ⌘X and ⌘Z select,
+   copy, paste, cut and undo in the focused field without beeping.
+2. Repeat using the Edit menu. Confirm its actions follow the focused
+   field and that pasting does not trigger another app command.
+3. Change the app language and repeat; the rebuilt Edit menu must retain
+   its shortcuts and show the selected language's labels.
+
+Compilation and browser tests do not exercise native shortcut dispatch.
+
 ## Windows: resume incomplete setup (#92)
 
 Use a disposable Windows account or VM; do not alter a real user's setup.
