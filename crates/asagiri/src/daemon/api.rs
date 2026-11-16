@@ -1317,7 +1317,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     };
     // One entry: kind is "bind" | "volume" | "tmpfs"; for binds `create_missing`
     // says whether a missing source directory is made (-v) or an error (--mount).
-    let add = |kind: &str, src: &str, dst: &str, ro: bool, extra: &str, create_missing: bool, out: &mut Mounts| -> Result<(), Error> {
+    let add = |kind: &str, src: &str, dst: &str, ro: bool, extra: &str, create_missing: bool, volume_options: &Value, out: &mut Mounts| -> Result<(), Error> {
         check_target(dst)?;
         let flag = |more: &str| {
             let mut f: Vec<&str> = more.split(',').filter(|x| !x.is_empty()).collect();
@@ -1364,7 +1364,21 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
             }
             "volume" => {
                 let (name, anonymous) = if src.is_empty() { (super::engine::random_hex(32), true) } else { (src.to_owned(), false) };
-                let v = engine.volume_ensure(&name, json!({}), anonymous)?;
+                // Labels do not require DriverConfig, and anonymous volumes
+                // accept the same options as named ones. Validate the target
+                // above before creating either kind; existing metadata stays.
+                let v = if !volume_options.is_null() && engine.volume_get(&name).is_none() {
+                    let driver = &volume_options["DriverConfig"];
+                    match driver["Name"].as_str().unwrap_or("") {
+                        "" | "local" => {}
+                        d => return Err(Error::BadRequest(format!("Asagiri supports only local volumes, not {d}"))),
+                    }
+                    let options = super::volumes::local_options(&driver["Options"]).map_err(Error::BadRequest)?;
+                    let labels = volume_options["Labels"].as_object().cloned().map(Value::Object).unwrap_or_else(|| json!({}));
+                    engine.volume_ensure_with(&name, labels, anonymous, options)?
+                } else {
+                    engine.volume_ensure(&name, json!({}), anonymous)?
+                };
                 let path = super::volumes::guest_path(&name);
                 let copy = if extra.contains("nocopy") { "create" } else { "create,copyup" };
                 // A volume with driver options (`type=nfs`, `o=bind` …) is
@@ -1396,7 +1410,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
         let ro = opts.split(',').any(|o| o == "ro");
         let kind = if src.starts_with('/') { "bind" } else { "volume" };
         let extra = if opts.split(',').any(|o| o == "nocopy") { "nocopy" } else { "" };
-        add(kind, src, dst, ro, extra, true, &mut out)?;
+        add(kind, src, dst, ro, extra, true, &Value::Null, &mut out)?;
     }
     for m in host["Mounts"].as_array().into_iter().flatten() {
         let kind = m["Type"].as_str().unwrap_or("bind");
@@ -1429,24 +1443,13 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
             }
             _ => String::new(),
         };
-        // `--mount type=volume,volume-opt=…` creates the volume with those
-        // options when it does not exist yet, as Docker does.
-        let driver_opts = &m["VolumeOptions"]["DriverConfig"];
-        if kind == "volume" && !src.is_empty() && engine.volume_get(src).is_none() && !driver_opts.is_null() {
-            match driver_opts["Name"].as_str().unwrap_or("") {
-                "" | "local" => {}
-                d => return Err(Error::BadRequest(format!("Asagiri supports only local volumes, not {d}"))),
-            }
-            let options = super::volumes::local_options(&driver_opts["Options"]).map_err(Error::BadRequest)?;
-            engine.volume_ensure_with(src, m["VolumeOptions"]["Labels"].clone(), options)?;
-        }
-        add(kind, src, dst, ro, &extra, false, &mut out)?;
+        add(kind, src, dst, ro, &extra, false, &m["VolumeOptions"], &mut out)?;
     }
     if let Some(map) = host["Tmpfs"].as_object() {
         for (dst, opts) in map {
             // `--tmpfs /x:noexec,size=64m`: flags and options alike.
             let opts = opts.as_str().unwrap_or("").split(',').filter(|o| !o.is_empty() && *o != "tmpfs").collect::<Vec<_>>().join(",");
-            add("tmpfs", "", dst, false, &opts, false, &mut out)?;
+            add("tmpfs", "", dst, false, &opts, false, &Value::Null, &mut out)?;
         }
     }
     // `-v /path` (no source) arrives in `Volumes`; the image's VOLUME lines
@@ -1459,7 +1462,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     for dst in anonymous {
         let taken = out.info.iter().any(|i| i["Destination"].as_str().map(|d| d.trim_end_matches('/')) == Some(dst.trim_end_matches('/')));
         if !taken {
-            add("volume", "", &dst, false, "", false, &mut out)?;
+            add("volume", "", &dst, false, "", false, &Value::Null, &mut out)?;
         }
     }
     Ok(out)
@@ -1488,7 +1491,7 @@ fn volume_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         n => n.to_owned(),
     };
     let options = super::volumes::local_options(&body["DriverOpts"]).map_err(Error::BadRequest)?;
-    let v = engine.volume_ensure_with(&name, body["Labels"].clone(), options)?;
+    let v = engine.volume_ensure_with(&name, body["Labels"].clone(), false, options)?;
     Ok(volume_json(&v))
 }
 

@@ -25,6 +25,7 @@ python3 "$src/tests/many-layers.py" /var/run/docker.sock alpine:3.21 || exit 2
 python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
 python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
@@ -54,7 +55,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options|start-exec-image-user)
+    failed-start-veth|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -86,6 +87,7 @@ run image-rootfs-digests alpine:3.21
 run layer-hardlinks
 run image-load-completion
 run volume-owner alpine:3.21
+run volume-labels alpine:3.21
 run image-tag-retention alpine:3.21
 run pull-readiness
 run layer-concurrency

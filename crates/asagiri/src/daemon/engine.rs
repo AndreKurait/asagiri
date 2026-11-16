@@ -3524,9 +3524,9 @@ impl Engine {
 
     /// [`Engine::volume_ensure`] with the local driver's options, which a
     /// new volume keeps (an existing one keeps its own).
-    pub fn volume_ensure_with(&self, name: &str, labels: serde_json::Value, options: std::collections::BTreeMap<String, String>) -> Result<super::volumes::Volume, Error> {
+    pub fn volume_ensure_with(&self, name: &str, labels: serde_json::Value, anonymous: bool, options: std::collections::BTreeMap<String, String>) -> Result<super::volumes::Volume, Error> {
         let new = self.volume_get(name).is_none();
-        let v = self.lock_volumes().ensure_with(name, labels, false, options).map_err(Error::BadRequest)?;
+        let v = self.lock_volumes().ensure_with(name, labels, anonymous, options).map_err(Error::BadRequest)?;
         if new {
             self.emit_volume("create", name);
         }
