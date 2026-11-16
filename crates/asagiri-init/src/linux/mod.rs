@@ -19,6 +19,7 @@ mod removal;
 mod roots;
 mod seccomp;
 mod custom_seccomp;
+mod startup;
 mod sys;
 mod syscall_table;
 mod transport;

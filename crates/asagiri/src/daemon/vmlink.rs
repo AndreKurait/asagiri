@@ -25,6 +25,7 @@ pub enum Reply {
     LayerStored,
     /// The process's PID, as the agent's kernel numbers it.
     Started(u32),
+    StartRejected(String),
     Stats(Stats),
     Pong,
     FsStat(FileInfo),
@@ -38,6 +39,14 @@ pub enum Reply {
     Uplink([u8; 4], [u8; 4]),
     Error(String),
 }
+
+#[derive(Debug)]
+pub(super) struct StartRejected(pub String);
+
+impl std::fmt::Display for StartRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(&self.0) }
+}
+impl std::error::Error for StartRejected {}
 
 /// One file inside a container, as the file browser sees it.
 #[derive(Debug, Clone)]
@@ -346,6 +355,7 @@ impl VmLink {
                     Ok(Msg::LayerStatus(have)) => Reply::LayerStatus(have),
                     Ok(Msg::LayerStored(_)) => Reply::LayerStored,
                     Ok(Msg::Started { pid, .. }) => Reply::Started(pid),
+                    Ok(Msg::StartRejected(message)) => Reply::StartRejected(message.to_owned()),
                     Ok(Msg::Stats(s)) => Reply::Stats(s),
                     Ok(Msg::Pong(_)) => Reply::Pong,
                     Ok(Msg::FsStat(e)) => Reply::FsStat(FileInfo::from(e)),
@@ -754,6 +764,7 @@ impl VmLink {
 fn started(r: Reply) -> io::Result<u32> {
     match r {
         Reply::Started(pid) => Ok(pid),
+        Reply::StartRejected(message) => Err(io::Error::other(StartRejected(message))),
         other => Err(io::Error::other(format!("expected Started, got {other:?}"))),
     }
 }

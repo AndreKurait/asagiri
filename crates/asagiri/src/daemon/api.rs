@@ -2480,7 +2480,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Dead": false,
             "Pid": c.pid,
             "ExitCode": c.exit_code,
-            "Error": "",
+            "Error": c.start_error,
             "StartedAt": when(c.started),
             "FinishedAt": when(c.finished),
         },
