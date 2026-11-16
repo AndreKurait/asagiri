@@ -161,9 +161,15 @@ def check(socket_path, reference_docker=False):
 
         state.update(missing=False, auth=True)
         status, got = inspect("@" + digest(index))
-        assert status == 401, (status, got)
+        if reference_docker:
+            # Docker 28.0.4 wraps a Basic challenge without credentials in
+            # an HTTP 500 response. Require its observed diagnostic instead
+            # of accepting any server error as an authentication failure.
+            assert status == 500 and "no basic auth credentials" in got.get("message", ""), (status, got)
+        else:
+            assert status == 401, (status, got)
         cases += 1
-        print("PASS revoked access is an authentication error")
+        print("PASS revoked access is rejected:", json.dumps({"status": status, "body": got}))
 
         auth = {"username": "fixture", "password": password, "serveraddress": authority}
         answer(index, INDEX, platforms, auth=auth)

@@ -26,3 +26,9 @@ fixture in `tests/distribution.py` runs the shared compatibility cases
 against Docker and Asagiri; digest verification is an additional Asagiri
 check. Registry unit tests also prime the pull cache before deleting a
 manifest or revoking access.
+
+The Docker 28.0.4 reference returns HTTP 500 with `no basic auth credentials`
+when the registry starts requiring Basic authentication and the request has
+no credentials. Asagiri reports that rejection as HTTP 401. The fixture checks
+each engine's specific response and prints the observed status and diagnostic;
+it does not treat arbitrary server errors as successful authentication checks.
