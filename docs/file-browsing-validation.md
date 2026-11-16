@@ -15,7 +15,9 @@ with a private mount namespace and root. It checks listings, metadata, complete
 and partial reads of volume, readonly bind, and runtime files; in-root symlinks;
 outside-path refusal; and exited/exec entries. The original root is a negative
 control: its mount targets remain empty. Linux CI runs this in its privileged
-disposable compiler container.
+disposable compiler container and fails if the test cannot run as root.
+Platform run 43808419550 passed on Linux, macOS and Windows before adding that
+explicit CI requirement; the current source must also pass before merge.
 
 For the installed Mac, after updating both the app and guest:
 

@@ -29,6 +29,8 @@ fn running_view_sees_private_mounts_and_rejects_reaped_entries() {
     // An ordinary unprivileged development checkout cannot mount this fixture.
     // SAFETY: geteuid has no arguments and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
+        assert!(std::env::var_os("ASAGIRI_REQUIRE_MOUNTED_FILE_VIEW_TEST").is_none(),
+            "CI must execute the real mounted file-view fixture as root");
         eprintln!("SKIP mounted file view: requires the privileged Linux test container");
         return;
     }
