@@ -86,7 +86,20 @@
       "redundant-default-invalid-condition",
       "unknown-name-invalid-condition"
     ],
-    "limitations": "This is not the Docker JSON decoder, runc ENOSYS patch, an end-to-end Docker/Podman workload, an exhaustive rule-tree comparison, or a formal proof."
+    "limitations": "This is not the Docker JSON decoder, runc ENOSYS patch, an end-to-end Docker/Podman workload, an exhaustive rule-tree comparison, or a formal proof.",
+    "later_validation_assessment": {
+      "document": "seccomp-reference-validation-2026-11-16.json",
+      "assessment_sha256": "9b849a1ada011943533fcc2175db4b349d01a941490947f60e672b0c04b8c2d6",
+      "original_adapter_profiles_requiring_exclusion": [
+        "redundant-default-invalid-condition",
+        "unknown-name-invalid-condition"
+      ],
+      "rule_ordering_cases_still_under_review": [
+        "higher-argument-precedence",
+        "longer-before-shorter"
+      ],
+      "original_observations_preserved": true
+    }
   },
   "ci_coverage": {
     "new_rust_tests": 4,
