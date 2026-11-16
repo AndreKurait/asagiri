@@ -1062,13 +1062,13 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     };
     let began = std::time::Instant::now();
     crate::diag::info!("image pull started", image = reference.short(), platform = wanted);
-    let mut result = client.pull_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
+    let mut result = client.fetch_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
     // An image built only for amd64 runs through Rosetta, as on Docker Desktop.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
         let amd64 = Platform { os: "linux".into(), architecture: "amd64".into() };
         if req.query("platform").is_none_or(str::is_empty) && wanted != amd64 && available.iter().any(|a| a == "linux/amd64") && asagiri_vmm::rosetta_installed() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/amd64 through Rosetta", reference.short())}));
-            result = client.pull_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
+            result = client.fetch_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
         }
     }
     // On an Intel Mac an arm64-only image runs through qemu, when shared in.
@@ -1076,13 +1076,15 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
         let arm64 = Platform { os: "linux".into(), architecture: "arm64".into() };
         if req.query("platform").is_none_or(str::is_empty) && wanted != arm64 && available.iter().any(|a| a == "linux/arm64") && crate::guest::emulator_dir().is_some() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/arm64 through qemu", reference.short())}));
-            result = client.pull_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);
+            result = client.fetch_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);
         }
     }
     match result {
         Ok(image) => {
-            if let Err(e) = engine.prepare_image(&image, &|| job.cancel.is_cancelled()) {
-                crate::diag::warn!("image preparation failed", image = reference.short(), error = e);
+            if let Err(e) = engine.prepare_image(&image, &|| job.cancel.is_cancelled())
+                .and_then(|()| engine.store.put_image(image.clone()))
+            {
+                crate::diag::warn!("image pull failed", image = reference.short(), error = e);
                 if !job.cancel.is_cancelled() {
                     let message = e.to_string();
                     line(json!({"errorDetail": {"message": message}, "error": message}));

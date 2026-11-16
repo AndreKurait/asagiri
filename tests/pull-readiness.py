@@ -68,7 +68,8 @@ def check(path):
                 assert errors and not complete, rows
                 assert not ready(sha), "failed extraction left a completed layer"
                 assert not any(row.get("status") == "Pull complete" for row in rows), rows
-                print("PASS native extraction failure is returned by pull without success", flush=True)
+                api("GET", "/images/" + quote(name, safe="") + "/json", statuses=(404,))
+                print("PASS native extraction failure leaves no image or success response", flush=True)
                 continue
             assert not errors and complete, rows
             assert all(ready(sha) for sha in valid.layers), "pull returned before native layers were ready"
@@ -78,6 +79,22 @@ def check(path):
                 {"Image": name, "Cmd": ["true"], "HostConfig": {"NetworkMode": "none"}}, (201,)))
             containers.append(body["Id"])
             print("PASS pull installs all native layers and a later create succeeds after a failed pull", flush=True)
+
+        # A failed update must not replace the usable image already at this tag.
+        previous = json.loads(api("GET", "/images/" + quote(names[1], safe="") + "/json"))
+        repository, tag = names[0].rsplit(":", 1)
+        api("POST", "/images/" + quote(names[1], safe="") + "/tag?repo="
+            + quote(repository, safe="") + "&tag=" + quote(tag, safe=""), statuses=(201,))
+        raw = api("POST", "/images/create?fromImage=" + quote(names[0], safe=""))
+        rows = [json.loads(line) for line in raw.splitlines() if line]
+        assert any(row.get("error") for row in rows), rows
+        assert not any(row.get("status", "").startswith("Status: Downloaded") for row in rows), rows
+        retained = json.loads(api("GET", "/images/" + quote(names[0], safe="") + "/json"))
+        assert retained["Id"] == previous["Id"], (retained["Id"], previous["Id"])
+        body = json.loads(api("POST", "/containers/create",
+            {"Image": names[0], "Cmd": ["true"], "HostConfig": {"NetworkMode": "none"}}, (201,)))
+        containers.append(body["Id"])
+        print("PASS failed pull preserves the previous tag and its usable layers", flush=True)
     finally:
         primary_failure = sys.exc_info()[0] is not None
         cleanup = []
