@@ -155,7 +155,7 @@ fn install(root: &Path, digest: &str, tmp: &Path, final_dir: &Path) -> io::Resul
         let _ = fs::remove_dir_all(tmp);
         return Ok(());
     }
-    sync_fs(tmp)?;
+    sync_tree(tmp)?;
     if final_dir.exists() {
         // A copy without a marker was cut short and may hold empty files.
         // Moved aside rather than deleted here, which can take a while;
@@ -168,12 +168,27 @@ fn install(root: &Path, digest: &str, tmp: &Path, final_dir: &Path) -> io::Resul
     fs::File::open(root)?.sync_all()
 }
 
-/// Flushes the filesystem holding `path` to disk.
-fn sync_fs(path: &Path) -> io::Result<()> {
-    let f = fs::File::open(path)?;
-    // SAFETY: a valid descriptor that outlives the call.
-    sys::check(unsafe { libc::syncfs(std::os::fd::AsRawFd::as_raw_fd(&f)) } as _, "syncfs")?;
-    Ok(())
+/// Flush this worker's completed unpack, children before their directories.
+/// On native Linux the layer store may share a filesystem with unrelated
+/// workloads; syncfs would wait for all of their dirty files too. Symlinks and
+/// special nodes have no regular file data to flush; their directory persists
+/// their creation. Never open a device/FIFO or follow an image's symlink.
+fn sync_tree(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let directory = fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(path)?;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            sync_tree(&entry.path())?;
+        } else if kind.is_file() {
+            fs::OpenOptions::new().read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(entry.path())?.sync_all()?;
+        }
+    }
+    directory.sync_all()
 }
 
 /// Deletes every layer not in `keep` (blob digests), every layer without
@@ -1033,6 +1048,110 @@ mod tests {
     fn send(root: &Path, digest: &str, blob: &[u8]) -> LayerStored {
         let begin = LayerBegin { digest, media_type: "application/vnd.oci.image.layer.v1.tar", size: blob.len() as u64 };
         receive(&mut &blob[..], &begin, root).unwrap()
+    }
+
+    /// Keep syscall failures in a separate process, not in other libtest cases.
+    fn isolated_sync_case(name: &str) -> bool {
+        const CHILD: &str = "ASAGIRI_LAYER_SYNC_TEST";
+        if std::env::var(CHILD).as_deref() == Ok(name) {
+            return true;
+        }
+        let filter = name.strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::")).unwrap_or(name);
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", filter, "--nocapture"]).env(CHILD, name).output().unwrap();
+        assert!(output.status.success() && String::from_utf8_lossy(&output.stdout).contains("running 1 test"),
+                "{name}: isolated layer test did not pass\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        false
+    }
+
+    fn owned_header(size: u64, mode: u32) -> tar::Header {
+        let mut h = header(size, mode);
+        // SAFETY: getters do not mutate process state.
+        h.set_uid(u64::from(unsafe { libc::geteuid() }));
+        h.set_gid(u64::from(unsafe { libc::getegid() }));
+        h
+    }
+
+    fn fail_sync_calls(calls: &[libc::c_long]) {
+        let mut filter = vec![libc::sock_filter {
+            code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16, jt: 0, jf: 0, k: 0,
+        }];
+        for &call in calls {
+            filter.push(libc::sock_filter {
+                code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16, jt: 0, jf: 1, k: call as u32,
+            });
+            filter.push(libc::sock_filter {
+                code: (libc::BPF_RET | libc::BPF_K) as u16, jt: 0, jf: 0,
+                k: libc::SECCOMP_RET_ERRNO | libc::EIO as u32,
+            });
+        }
+        filter.push(libc::sock_filter {
+            code: (libc::BPF_RET | libc::BPF_K) as u16, jt: 0, jf: 0, k: libc::SECCOMP_RET_ALLOW,
+        });
+        let program = libc::sock_fprog { len: filter.len() as u16, filter: filter.as_mut_ptr() };
+        // SAFETY: this child test thread only restricts its own syscalls. The
+        // filter lives through prctl, which copies it before returning.
+        unsafe {
+            assert_eq!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), 0);
+            assert_eq!(libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, &program), 0);
+        }
+    }
+
+    #[test]
+    fn layer_sync_ignores_unrelated_filesystem_writes() {
+        if !isolated_sync_case(concat!(module_path!(), "::layer_sync_ignores_unrelated_filesystem_writes")) {
+            return;
+        }
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let root = scratch("scoped-sync");
+        let mut b = tar::Builder::new(Vec::new());
+        b.append_data(&mut owned_header(7, 0o644), "nested/payload", &b"durable"[..]).unwrap();
+        let mut link = owned_header(0, 0o777);
+        link.set_entry_type(tar::EntryType::Link);
+        b.append_link(&mut link, "alias", "nested/payload").unwrap();
+        link.set_entry_type(tar::EntryType::Symlink);
+        for (name, target) in [("outside", "/proc"), ("cycle", "."), ("broken", "missing")] {
+            b.append_link(&mut link, name, target).unwrap();
+        }
+        let mut fifo = owned_header(0, 0o600);
+        fifo.set_entry_type(tar::EntryType::Fifo);
+        b.append_data(&mut fifo, "nested/pipe", io::empty()).unwrap();
+        let blob = b.into_inner().unwrap();
+        // Unrelated dirty inodes or filesystem-wide writeback errors must not
+        // hold this complete layer. File and directory fsync remain available.
+        fail_sync_calls(&[libc::SYS_syncfs]);
+        send(&root, D1, &blob);
+        assert!(present(&root, D1));
+        let layer = dir(&root, D1).unwrap();
+        assert_eq!(fs::read(layer.join("nested/payload")).unwrap(), b"durable");
+        assert_eq!(fs::metadata(layer.join("alias")).unwrap().ino(),
+                   fs::metadata(layer.join("nested/payload")).unwrap().ino());
+        assert_eq!(fs::read_link(layer.join("outside")).unwrap(), Path::new("/proc"));
+        assert_eq!(fs::read_link(layer.join("cycle")).unwrap(), Path::new("."));
+        assert!(fs::symlink_metadata(layer.join("broken")).unwrap().is_symlink());
+        assert!(fs::symlink_metadata(layer.join("nested/pipe")).unwrap().file_type().is_fifo());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn layer_sync_failure_is_not_a_ready_layer() {
+        if !isolated_sync_case(concat!(module_path!(), "::layer_sync_failure_is_not_a_ready_layer")) {
+            return;
+        }
+        let root = scratch("failed-sync");
+        let mut b = tar::Builder::new(Vec::new());
+        let bytes = b"must reach disk before publication";
+        b.append_data(&mut owned_header(bytes.len() as u64, 0o644), "nested/payload", &bytes[..]).unwrap();
+        let blob = b.into_inner().unwrap();
+        let begin = LayerBegin { digest: D1, media_type: "application/vnd.oci.image.layer.v1.tar", size: blob.len() as u64 };
+        fail_sync_calls(&[libc::SYS_fsync, libc::SYS_syncfs]);
+        assert_eq!(receive(&mut &blob[..], &begin, &root).unwrap_err().kind(),
+                   io::Error::from_raw_os_error(libc::EIO).kind());
+        assert!(!present(&root, D1));
+        assert!(!dir(&root, D1).unwrap().exists());
+        assert!(!root.join(format!(".tmp-{}", hex(D1).unwrap())).exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

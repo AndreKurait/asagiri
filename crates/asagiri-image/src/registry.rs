@@ -609,13 +609,32 @@ impl Client {
         progress: &(dyn Fn(Progress) + Sync),
         cancel: &Cancel,
     ) -> Result<Image, Error> {
+        let image = self.fetch_with(store, reference, platform, progress, cancel)?;
+        // The last moment a cancel can stop it: after this it is pulled.
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        store.put_image(image.clone())?;
+        Ok(image)
+    }
+
+    /// Downloads an image without publishing its name in the image index.
+    /// Callers that install its layers first record it only after that succeeds.
+    pub fn fetch_with(
+        &self,
+        store: &Store,
+        reference: &Reference,
+        platform: &Platform,
+        progress: &(dyn Fn(Progress) + Sync),
+        cancel: &Cancel,
+    ) -> Result<Image, Error> {
         let targets = self.targets(reference);
         self.pull_from(store, reference, &targets, platform, progress, cancel)
     }
 
-    /// [`Client::pull_with`] over an explicit list of references: the first
+    /// [`Client::fetch_with`] over an explicit list of references: the first
     /// that resolves the image is where its layers come from. `name` is the
-    /// reference the image is recorded as.
+    /// reference returned on the image, which is not recorded here.
     fn pull_from(
         &self,
         store: &Store,
@@ -820,11 +839,9 @@ impl Client {
                 labels: Some(run.labels.unwrap_or_default()),
             },
         };
-        // The last moment a cancel can stop it: after this it is pulled.
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        store.put_image(image.clone())?;
         Ok(image)
     }
 
@@ -2018,6 +2035,33 @@ mod tests {
         assert!(mirror_seen.join().unwrap().is_empty());
         assert!(origin_seen.join().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fetching_leaves_the_image_index_unchanged_until_recorded() {
+        let (mirror, seen) = image_server(200);
+        let root = std::env::temp_dir().join(format!("asagiri-fetch-record-{}", std::process::id()));
+        let store = Store::open(&root).unwrap();
+        let name = Reference::parse("fetch-record:latest").unwrap();
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let client = test_client().with_mirrors(vec![Mirror::parse(&format!("http://{mirror}")).unwrap()]);
+        let image = client.fetch_with(&store, &name, &platform, &|_| {}, &Cancel::new()).unwrap();
+        assert!(store.images().unwrap().is_empty());
+        assert!(store.read_config(&image.config_digest).is_ok());
+        assert!(image.layers.iter().all(|layer| store.has_blob(&layer.digest, layer.size)));
+
+        let previous = Image { pulled_at: 1, ..image.clone() };
+        store.put_image(previous).unwrap();
+        client.fetch_with(&store, &name, &platform, &|_| {}, &Cancel::new()).unwrap();
+        assert_eq!(store.find(&name.short()).unwrap().unwrap().pulled_at, 1);
+
+        // Raw pulls and the builder still deliberately record their downloads.
+        let pulled = client.pull_with(&store, &name, &platform, &|_| {}, &Cancel::new()).unwrap();
+        assert_eq!(store.find(&name.short()).unwrap().unwrap().pulled_at, pulled.pulled_at);
+        assert_ne!(pulled.pulled_at, 1);
+        quit(&mirror);
+        assert!(!seen.join().unwrap().is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// A registry that serves one image under any repository name: an index
