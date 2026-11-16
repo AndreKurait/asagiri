@@ -17,10 +17,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep only the newest automatic main build. Stable tags and explicit
-  # recovery/manual runs have their own groups and are never superseded.
+  # Finish the active build and publication before the newest pending main
+  # build starts. A merge must not discard packages already being published.
+  # Stable tags and explicit recovery/manual runs have their own groups.
   group: release-${{ github.ref }}-${{ inputs.recover_run || (github.event_name == 'workflow_dispatch' && github.run_id) || 'current' }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.1
