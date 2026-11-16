@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""A native pull completes only after its layers are installed in the guest."""
+"""A native pull or load completes only after its layers are installed."""
+import io
 import json
 import os
 from pathlib import Path
 import runpy
 import sys
+import tarfile
 import threading
 from urllib.parse import quote
 import uuid
@@ -22,8 +24,9 @@ def check(path):
     def api(method, target, body=None, statuses=(200,)):
         connection = Connection(path)
         try:
-            connection.request(method, target, None if body is None else json.dumps(body),
-                               {"Content-Type": "application/json"})
+            binary = isinstance(body, bytes)
+            connection.request(method, target, body if binary else None if body is None else json.dumps(body),
+                               {"Content-Type": "application/x-tar" if binary else "application/json"})
             response = connection.getresponse()
             data = response.read()
             assert response.status in statuses, (method, target, response.status, data)
@@ -95,6 +98,47 @@ def check(path):
             {"Image": names[0], "Cmd": ["true"], "HostConfig": {"NetworkMode": "none"}}, (201,)))
         containers.append(body["Id"])
         print("PASS failed pull preserves the previous tag and its usable layers", flush=True)
+
+        for succeeds in (False, True):
+            model = Registry(seed + ("-load" if succeeds else "-bad-load"))
+            manifest = json.loads(model.manifest)
+            if not succeeds:
+                corrupt = b"\x1f\x8b" + seed.encode()
+                sha = digest(corrupt)
+                model.blobs[sha] = corrupt
+                manifest["layers"][0].update(digest=sha, size=len(corrupt))
+            digests = [entry["digest"] for entry in manifest["layers"]]
+            assert all(not ready(sha) for sha in digests), "load fixture layers must be cold"
+            name = "load-readiness-" + seed + (":valid" if succeeds else ":invalid")
+            names.append(name)
+            config_name = "config.json"
+            layer_names = [str(index) + "/layer.tar" for index in range(len(digests))]
+            members = [(config_name, model.blobs[manifest["config"]["digest"]])]
+            members.extend((filename, model.blobs[sha]) for filename, sha in zip(layer_names, digests))
+            members.append(("manifest.json", json.dumps([{
+                "Config": config_name, "RepoTags": [name], "Layers": layer_names,
+            }]).encode()))
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w") as tar:
+                for filename, data in members:
+                    entry = tarfile.TarInfo(filename)
+                    entry.size = len(data)
+                    tar.addfile(entry, io.BytesIO(data))
+            raw = api("POST", "/images/load", archive.getvalue())
+            rows = [json.loads(line) for line in raw.splitlines() if line]
+            errors = [row["error"] for row in rows if row.get("error")]
+            complete = [row for row in rows if row.get("stream", "").startswith("Loaded image")]
+            if not succeeds:
+                assert errors and not complete, rows
+                assert not ready(digests[0]), "failed load left a completed layer"
+                print("PASS load reports native extraction failure before any success response", flush=True)
+                continue
+            assert not errors and complete, rows
+            assert all(ready(sha) for sha in digests), "load returned before native layers were ready"
+            body = json.loads(api("POST", "/containers/create",
+                {"Image": name, "Cmd": ["true"], "HostConfig": {"NetworkMode": "none"}}, (201,)))
+            containers.append(body["Id"])
+            print("PASS load installs all native layers before success and a later create succeeds", flush=True)
     finally:
         primary_failure = sys.exc_info()[0] is not None
         cleanup = []

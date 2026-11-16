@@ -733,13 +733,23 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
     Ok(Next::Close)
 }
 
-/// `docker load`: an image archive, streamed into the store.
+/// `docker load`: store the archive and prepare its layers before reporting success.
 fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     let loaded = asagiri_image::archive::load(&engine.store, http::Body::new(req, r));
     match loaded {
         Ok(images) => {
             http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
             for i in &images {
+                if !i.layers.is_empty() {
+                    let line = format!("Preparing filesystem layers for {}\n", i.name);
+                    http::chunk(w, format!("{}\n", json!({"stream": line})).as_bytes())?;
+                }
+                if let Err(error) = engine.prepare_image(i, &|| false) {
+                    crate::diag::warn!("image load preparation failed", image = i.name, error = error);
+                    let message = error.to_string();
+                    http::chunk(w, format!("{}\n", json!({"errorDetail": {"message": message}, "error": message})).as_bytes())?;
+                    break;
+                }
                 engine.emit_image("load", &i.config_digest, &i.name);
                 let line = if i.name.starts_with("sha256:") { format!("Loaded image ID: {}\n", i.name) } else { format!("Loaded image: {}\n", i.name) };
                 http::chunk(w, format!("{}\n", json!({"stream": line})).as_bytes())?;

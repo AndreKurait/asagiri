@@ -1979,7 +1979,7 @@ impl Engine {
         ImagePreparation(self)
     }
 
-    /// A successful pull must leave its layers ready for container creation.
+    /// A successful pull or load leaves its layers ready for container creation.
     pub fn prepare_image(&self, image: &Image, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         check_preparation(cancelled)?;
         if image.layers.is_empty() {
@@ -4809,6 +4809,75 @@ mod vm_end_tests {
         assert_eq!(vm_end(true, false), VmEnd::Slept);
         assert_eq!(vm_end(true, true), VmEnd::Slept);
         assert_eq!(vm_end(false, false), VmEnd::Crashed);
+    }
+}
+
+#[cfg(test)]
+mod image_loading_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    fn load_to_stopped_engine(with_layer: bool) -> (String, usize) {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        }
+        let root = std::env::temp_dir().join(format!("asagiri-load-preparation-{}", random_hex(16)));
+        let _cleanup = Cleanup(root.clone());
+        let source = Store::open(root.join("source")).unwrap();
+        let mut layers = Vec::new();
+        if with_layer {
+            let mut writer = source.ingest().unwrap();
+            writer.write_all(&[0u8; 1024]).unwrap();
+            let (digest, size) = writer.finish().unwrap();
+            layers.push(asagiri_image::Layer {
+                digest, size, media_type: "application/vnd.oci.image.layer.v1.tar".into(),
+            });
+        }
+        let config = serde_json::json!({
+            "os": "linux", "architecture": "amd64", "config": {},
+            "rootfs": {"type": "layers", "diff_ids": layers.iter().map(|l| &l.digest).collect::<Vec<_>>()},
+        });
+        let mut writer = source.ingest().unwrap();
+        writer.write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        let image = asagiri_image::archive::from_config("load-preparation:fixture".into(), &digest, &config, layers);
+        let mut archive = Vec::new();
+        asagiri_image::archive::save(&source, &[image], &mut archive).unwrap();
+        let engine = Engine::boot(Store::open(root.join("engine")).unwrap()).unwrap();
+        // Exercise the real API and preparation error without booting any guest.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let serving = engine.clone();
+        let worker = std::thread::spawn(move || super::super::api::serve(server, serving));
+        write!(client, "POST /v1.47/images/load HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", archive.len()).unwrap();
+        client.write_all(&archive).unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        worker.join().unwrap().unwrap();
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let loads = engine.events.lock().unwrap().recent.iter().filter(|event| event["Action"] == "load").count();
+        (response, loads)
+    }
+
+    #[test]
+    fn image_load_reports_layer_preparation_failure_without_success() {
+        let (response, loads) = load_to_stopped_engine(true);
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.contains("\"errorDetail\"") && response.contains(STOPPED), "{response}");
+        assert!(!response.contains("Loaded image"), "{response}");
+        assert_eq!(loads, 0, "a failed preparation is not a successful load event");
+    }
+
+    #[test]
+    fn image_load_without_layers_needs_no_guest() {
+        let (response, loads) = load_to_stopped_engine(false);
+        assert!(response.contains("Loaded image: load-preparation:fixture"), "{response}");
+        assert!(!response.contains("\"error\""), "{response}");
+        assert_eq!(loads, 1);
     }
 }
 

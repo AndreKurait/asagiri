@@ -2,6 +2,9 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 
 The 0.1.6 changes include:
 
+- Image archive loading finishes filesystem layer preparation before reporting
+  success. Extraction failures are returned during load, and completed layers
+  are reused by later container creation and concurrent loads.
 - Failed container commands report their startup error before returning
   success. Missing and non-executable commands return HTTP 400 with exit
   codes 127 and 126; inspect retains the error across daemon restarts and
