@@ -922,6 +922,23 @@ mod tests {
             Self(path)
         }
         fn config(&self) -> PathBuf { self.0.join("config.json") }
+
+        #[cfg(unix)]
+        fn executable(&self, name: &str, script: &str) -> PathBuf {
+            let path = self.0.join(name);
+            // Other test threads spawn helpers concurrently. Create executable
+            // files in a separate process so those children never inherit a
+            // writable executable descriptor from this parent (Linux ETXTBSY).
+            let mut writer = Command::new("/bin/sh")
+                .args(["-ec", "umask 077; /bin/cat > \"$1\"; /bin/chmod 700 \"$1\"", "asagiri-helper-writer"])
+                .arg(&path).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped())
+                .spawn().unwrap();
+            let written = writer.stdin.take().unwrap().write_all(script.as_bytes());
+            let output = writer.wait_with_output().unwrap();
+            written.unwrap();
+            assert!(output.status.success(), "fixture writer: {}", String::from_utf8_lossy(&output.stderr));
+            path
+        }
     }
     impl Drop for Directory {
         fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
@@ -1011,12 +1028,9 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = Directory::new();
         let path = std::env::join_paths([&dir.0]).unwrap();
-        let helper = dir.0.join("docker-credential-pass");
-        std::fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        dir.executable("docker-credential-pass", "#!/bin/sh\nexit 0\n");
         assert_eq!(linux_helper_on_path(&path), "secretservice");
-        let pass = dir.0.join("pass");
-        std::fs::write(&pass, "#!/bin/sh\nexit 0\n").unwrap();
+        let pass = dir.executable("pass", "#!/bin/sh\nexit 0\n");
         std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(linux_helper_on_path(&path), "secretservice");
         std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -1026,11 +1040,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn helper_protocol_errors_never_echo_secrets_or_downgrade_to_file_credentials() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = Directory::new();
-        let helper = dir.0.join("docker-credential-test");
-        std::fs::write(&helper, "#!/bin/sh\ncat\nexit 1\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let helper = dir.executable("docker-credential-test", "#!/bin/sh\ncat\nexit 1\n");
         let cfg = json!({"credsStore":"test","currentContext":"keep"});
         let bytes = cfg.to_string();
         std::fs::write(dir.config(), &bytes).unwrap();
@@ -1050,11 +1061,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn detected_helpers_are_recorded_for_docker_and_never_store_their_secret_in_config() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = Directory::new();
-        let helper = dir.0.join("docker-credential-pass");
-        std::fs::write(&helper, "#!/bin/sh\n[ \"$1\" = store ] || exit 2\ncat > /dev/null\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let helper = dir.executable("docker-credential-pass", "#!/bin/sh\n[ \"$1\" = store ] || exit 2\ncat > /dev/null\n");
         std::fs::write(dir.config(), br#"{"currentContext":"asagiri"}"#).unwrap();
         let login = Login { username:"example".into(), secret:"test-only-secret".into() };
         let store = save_with(&dir.config(), "ghcr.io", &login, Some("pass"),
@@ -1073,14 +1081,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn configured_helper_changes_during_store_preserve_the_new_config_and_report_failure() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = Directory::new();
-        let helper = dir.0.join("docker-credential-test");
-        std::fs::write(&helper, concat!(
+        let helper = dir.executable("docker-credential-test", concat!(
             "#!/bin/sh\ncat > /dev/null\n",
             "printf '%s\\n' '{\"credsStore\":\"changed\",\"currentContext\":\"keep\"}' > \"${0%/*}/config.json\"\n"
-        )).unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        ));
         std::fs::write(dir.config(), br#"{"credsStore":"test"}"#).unwrap();
         let login = Login { username:"example".into(), secret:"test-only-secret".into() };
         let error = save_with(&dir.config(), "ghcr.io", &login, Some("pass"),
