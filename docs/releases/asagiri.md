@@ -98,6 +98,10 @@ image IDs from `RepoTags`, so Docker can load digest-only exports. Saving
 several references to one image retains its real tags once and preserves
 the configuration and layer contents.
 
+Forced image deletion by ID removes all references to that image in one
+index update. Removing a named tag or digest preserves other references
+and shared layers; images used by containers remain protected.
+
 Rejected container starts release their embedded DNS listener, names and
 parent rootfs mount before returning the setup error. This prevents repeated
 failed starts from accumulating sockets and mounts while preserving other

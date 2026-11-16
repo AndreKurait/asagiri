@@ -343,15 +343,36 @@ impl Store {
         let Some(pos) = images.iter().position(|i| i.name == name) else { return Ok(None) };
         let removed = images.remove(pos);
         self.write_index(&images)?;
+        self.delete_unused_image_blobs(std::slice::from_ref(&removed), &images);
+        Ok(Some(removed))
+    }
+
+    /// Removes references to one resolved image in a single index update.
+    /// A named removal also checks the config, so a concurrently moved tag
+    /// cannot cause an unrelated image to be removed.
+    pub fn remove_image_references(&self, config_digest: &str, name: Option<&str>) -> io::Result<Vec<Image>> {
+        let _index = self.lock_index()?;
+        let (removed, images): (Vec<_>, Vec<_>) = self.read_or_repair_index()?.into_iter()
+            .partition(|i| i.config_digest == config_digest && name.is_none_or(|name| i.name == name));
+        if !removed.is_empty() {
+            self.write_index(&images)?;
+            self.delete_unused_image_blobs(&removed, &images);
+        }
+        Ok(removed)
+    }
+
+    /// The image-index lock remains held until shared blobs are accounted for.
+    fn delete_unused_image_blobs(&self, removed: &[Image], images: &[Image]) {
         let in_use = |d: &str| images.iter().any(|i| i.config_digest == d || i.layers.iter().any(|l| l.digest == d));
-        for d in std::iter::once(&removed.config_digest).chain(removed.layers.iter().map(|l| &l.digest)) {
-            if !in_use(d)
-                && let Ok(path) = self.blob_path(d)
-            {
-                let _ = fs::remove_file(path);
+        for image in removed {
+            for d in std::iter::once(&image.config_digest).chain(image.layers.iter().map(|l| &l.digest)) {
+                if !in_use(d)
+                    && let Ok(path) = self.blob_path(d)
+                {
+                    let _ = fs::remove_file(path);
+                }
             }
         }
-        Ok(Some(removed))
     }
 
     // Called only while the image-index lock is held. Readers see either the
@@ -548,6 +569,62 @@ mod tests {
         for layer in &old.layers {
             assert!(!store.blob_path(&layer.digest).unwrap().exists());
         }
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn removal_by_config_drops_all_its_references_and_preserves_shared_blobs() {
+        let store = retention_store();
+        let mut image = retention_image(&store, "amd64");
+        image.name = format!("registry.example/java@{}", image.digest);
+        let alias = image.tagged("registry.example/java:kept".into());
+        let other_alias = image.tagged("backup.example/java:kept".into());
+        let unrelated = retention_image(&store, "arm64").tagged("registry.example/other:kept".into());
+        for row in [&image, &alias, &other_alias, &unrelated] {
+            store.put_image(row.clone()).unwrap();
+        }
+        let removed = store.remove_image_references(&image.config_digest, None).unwrap();
+        assert_eq!(removed.len(), 3);
+        assert!(removed.iter().all(|row| row.config_digest == image.config_digest));
+        assert_eq!(store.images().unwrap(), vec![unrelated.clone()]);
+        assert_eq!(Store::open(store.root()).unwrap().images().unwrap(), vec![unrelated.clone()]);
+        assert!(!store.blob_path(&image.config_digest).unwrap().exists());
+        assert!(!store.blob_path(&image.layers[1].digest).unwrap().exists());
+        assert!(store.blob_path(&unrelated.config_digest).unwrap().exists());
+        for layer in &unrelated.layers {
+            assert!(store.has_blob(&layer.digest, layer.size), "an unrelated image still needs this blob");
+        }
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn removal_by_reference_preserves_the_other_alias_and_its_blobs() {
+        let store = retention_store();
+        let image = retention_image(&store, "amd64");
+        let alias = image.tagged("registry.example/java:kept".into());
+        store.put_image(image.clone()).unwrap();
+        store.put_image(alias.clone()).unwrap();
+        assert_eq!(store.remove_image_references(&image.config_digest, Some(&image.name)).unwrap(), vec![image.clone()]);
+        assert_eq!(store.images().unwrap(), vec![alias]);
+        assert!(store.blob_path(&image.config_digest).unwrap().exists());
+        for layer in &image.layers {
+            assert!(store.has_blob(&layer.digest, layer.size));
+        }
+        fs::remove_dir_all(store.root()).unwrap();
+    }
+
+    #[test]
+    fn removal_does_not_delete_a_tag_reassigned_to_another_image() {
+        let store = retention_store();
+        let old = retention_image(&store, "amd64");
+        let new = retention_image(&store, "arm64");
+        store.put_image(old.clone()).unwrap();
+        store.put_image(new.clone()).unwrap();
+        let before = store.images().unwrap();
+        assert!(store.remove_image_references(&old.config_digest, Some(&old.name)).unwrap().is_empty());
+        assert_eq!(store.images().unwrap(), before);
+        assert_eq!(store.find(&new.name).unwrap(), Some(new));
+        assert!(store.blob_path(&old.config_digest).unwrap().exists());
         fs::remove_dir_all(store.root()).unwrap();
     }
 
