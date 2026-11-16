@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import plistlib
 import re
 import subprocess
@@ -36,6 +36,36 @@ def output(command):
     return subprocess.check_output(command, text=True, timeout=20).strip()
 
 
+def verify_archive(archive, expected):
+    with tarfile.open(archive, "r:gz") as tar:
+        seen = {}
+        paths = {}
+        identity_names = {name.casefold(): name for name in expected}
+        for member in tar.getmembers():
+            path = PurePosixPath(member.name)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("The update archive contains an unsafe archive path")
+            # tar accepts ./ and repeated separators; a default Mac filesystem
+            # also treats differently cased names as the same destination.
+            name = path.as_posix()
+            key = name.casefold()
+            if key in paths or (key in identity_names and name != identity_names[key]):
+                raise ValueError("The update archive repeats or redirects a path")
+            paths[key] = member.isdir()
+            if name in expected:
+                if not member.isfile():
+                    raise ValueError("The update archive repeats or redirects an identity file")
+                with tar.extractfile(member) as stream:
+                    seen[name] = hashlib.file_digest(stream, "sha256").hexdigest()
+        # A link at any ancestor can redirect later writes through an alias.
+        # Check all entries after reading, since the redirect may come last.
+        for name in paths:
+            if any(paths.get(parent.as_posix()) is False for parent in PurePosixPath(name).parents):
+                raise ValueError("The update archive repeats or redirects a path")
+        if seen != expected:
+            raise ValueError("The update archive does not contain the verified app identity")
+
+
 def verify(app, archive, version, arch):
     if arch not in ("arm64", "x86_64"):
         raise ValueError("Unsupported Mac architecture")
@@ -51,16 +81,7 @@ def verify(app, archive, version, arch):
         "Asagiri.app/Contents/Info.plist": digest(plist),
         "Asagiri.app/Contents/MacOS/asagiri": digest(executable),
     }
-    with tarfile.open(archive, "r:gz") as tar:
-        seen = {}
-        for member in tar.getmembers():
-            if member.name in expected:
-                if member.name in seen or not member.isfile():
-                    raise ValueError("The update archive repeats or redirects an identity file")
-                with tar.extractfile(member) as stream:
-                    seen[member.name] = hashlib.file_digest(stream, "sha256").hexdigest()
-        if seen != expected:
-            raise ValueError("The update archive does not contain the verified app identity")
+    verify_archive(archive, expected)
     return {
         "schema": 1, "version": version, "architecture": arch,
         "cli_version": reported, "identity_files": expected,

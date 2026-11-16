@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reject stale preview metadata, executable identities, and update archives."""
 import importlib.util
+import io
 from pathlib import Path
 import plistlib
 import re
@@ -38,12 +39,15 @@ class PackageTests(unittest.TestCase):
         self.archive = self.root / "app.tar.gz"
         self.pack()
 
-    def pack(self, duplicate=False):
+    def pack(self, duplicate=False, prefix="", extra=None):
         with tarfile.open(self.archive, "w:gz") as tar:
             for path in (self.plist, self.binary):
-                tar.add(path, arcname=str(path.relative_to(self.root)), recursive=False)
+                tar.add(path, arcname=prefix + str(path.relative_to(self.root)), recursive=False)
             if duplicate:
                 tar.add(self.plist, arcname=str(self.plist.relative_to(self.root)), recursive=False)
+            if extra:
+                for member, data in extra if isinstance(extra, list) else [extra]:
+                    tar.addfile(member, io.BytesIO(data))
 
     def verify(self, arch="arm64", cli=None):
         with patch.object(PACKAGE, "output", side_effect=[arch, cli or f"Asagiri {self.version}"]):
@@ -100,6 +104,83 @@ class PackageTests(unittest.TestCase):
         self.pack(duplicate=True)
         with self.assertRaisesRegex(ValueError, "repeats or redirects"):
             self.verify()
+
+    def test_leading_dot_components_are_accepted(self):
+        for prefix in ("./", "././"):
+            with self.subTest(prefix=prefix):
+                self.pack(prefix=prefix)
+                self.assertEqual(self.verify()["version"], self.version)
+
+    def test_aliased_archive_identity_is_rejected(self):
+        for name in (
+            "./Asagiri.app/Contents/MacOS/asagiri",
+            "././Asagiri.app/Contents/MacOS/asagiri",
+            "Asagiri.app/Contents/./MacOS/asagiri",
+            "Asagiri.app//Contents/MacOS/asagiri",
+            "asagiri.app/Contents/MacOS/asagiri",
+            "Asagiri.app/Contents/INFO.plist",
+        ):
+            with self.subTest(name=name):
+                member = tarfile.TarInfo(name)
+                data = b"an alias replacing verified bytes"
+                member.size = len(data)
+                self.pack(extra=(member, data))
+                with self.assertRaisesRegex(ValueError, "repeats or redirects"):
+                    self.verify()
+
+    def test_absolute_and_parent_archive_paths_are_rejected(self):
+        for name in ("/Asagiri.app/Contents/MacOS/asagiri", "other/../Asagiri.app/Contents/MacOS/asagiri"):
+            with self.subTest(name=name):
+                member = tarfile.TarInfo(name)
+                self.pack(extra=(member, b""))
+                with self.assertRaisesRegex(ValueError, "unsafe archive path"):
+                    self.verify()
+
+    def test_archive_cannot_redirect_an_identity_parent(self):
+        for name in ("Asagiri.app", "Asagiri.app/Contents", "./Asagiri.app/Contents/MacOS"):
+            for kind in (tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.REGTYPE):
+                with self.subTest(name=name, kind=kind):
+                    member = tarfile.TarInfo(name)
+                    member.type = kind
+                    if kind != tarfile.REGTYPE:
+                        member.linkname = "elsewhere"
+                    self.pack(extra=(member, b""))
+                    with self.assertRaisesRegex(ValueError, "repeats or redirects"):
+                        self.verify()
+
+    def test_archive_cannot_write_through_an_alternate_parent(self):
+        link = tarfile.TarInfo("Asagiri.app/alias")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "Contents"
+        member = tarfile.TarInfo("Asagiri.app/alias/MacOS/asagiri")
+        data = b"replacement through a directory alias"
+        member.size = len(data)
+        for entries in ([(link, b""), (member, data)], [(member, data), (link, b"")]):
+            self.pack(extra=entries)
+            with self.assertRaisesRegex(ValueError, "repeats or redirects"):
+                self.verify()
+
+    def test_archive_cannot_rewrite_a_hardlink_alias(self):
+        link = tarfile.TarInfo("Asagiri.app/alias")
+        link.type = tarfile.LNKTYPE
+        link.linkname = "Asagiri.app/Contents/MacOS/asagiri"
+        member = tarfile.TarInfo("./Asagiri.app/alias")
+        data = b"replacement through a hardlink alias"
+        member.size = len(data)
+        self.pack(extra=[(link, b""), (member, data)])
+        with self.assertRaisesRegex(ValueError, "repeats or redirects"):
+            self.verify()
+
+    def test_leaf_links_to_the_executable_are_accepted(self):
+        for kind, target in (
+            (tarfile.SYMTYPE, "../../MacOS/asagiri"),
+            (tarfile.LNKTYPE, "Asagiri.app/Contents/MacOS/asagiri"),
+        ):
+            with self.subTest(kind=kind):
+                member = tarfile.TarInfo("Asagiri.app/Contents/Resources/bin/docker")
+                member.type, member.linkname = kind, target
+                self.pack(extra=(member, b""))
+                self.assertEqual(self.verify()["version"], self.version)
 
 
 if __name__ == "__main__":
