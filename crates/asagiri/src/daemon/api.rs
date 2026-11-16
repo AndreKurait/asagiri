@@ -579,10 +579,14 @@ fn image_inspect_config(i: &asagiri_image::Image, stored: &Value) -> serde_json:
         config.remove("Healthcheck");
     }
     config.entry("Labels").or_insert_with(|| i.config.labels_json());
+    // Execution vectors cannot distinguish null from an empty array.
+    // Inspect keeps the original representation when the field was stored.
+    config.entry("Cmd").or_insert_with(|| json!(i.config.cmd));
+    config.entry("Entrypoint").or_insert_with(|| {
+        if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) }
+    });
     config.extend(serde_json::Map::from_iter([
         ("Env".into(), json!(i.config.env)),
-        ("Cmd".into(), json!(i.config.cmd)),
-        ("Entrypoint".into(), if i.config.entrypoint.is_empty() { Value::Null } else { json!(i.config.entrypoint) }),
         ("WorkingDir".into(), json!(i.config.working_dir)),
         ("User".into(), json!(i.config.user)),
     ]));
@@ -3561,6 +3565,38 @@ mod tests {
             let inspected = image_inspect_config(&image, &json!({"config": config}));
             assert_eq!(inspected.get("Healthcheck"), config.get("Healthcheck").filter(|v| !v.is_null()));
         }
+    }
+
+    #[test]
+    fn image_inspection_preserves_stored_command_fields() {
+        // Docker 28.0.4 reports Cmd: null for an ENTRYPOINT-only image.
+        // Loading normalizes commands for execution, but inspect must retain
+        // the stored distinction between null and an explicit empty array.
+        for cmd in [Value::Null, json!([]), json!(["arg", "two words"])] {
+            for entrypoint in [Value::Null, json!([]), json!(["/entrypoint", "--flag"])] {
+                let stored = json!({"config": {"Cmd": cmd, "Entrypoint": entrypoint}});
+                let image = asagiri_image::archive::from_config(
+                    "inspect:test".into(), &format!("sha256:{}", "1".repeat(64)), &stored, Vec::new());
+                let inspected = image_inspect_value(&image, &stored);
+                assert_eq!(inspected["Config"]["Cmd"], cmd);
+                assert_eq!(inspected["Config"]["Entrypoint"], entrypoint);
+            }
+        }
+    }
+
+    #[test]
+    fn image_inspection_uses_run_config_for_missing_command_fields() {
+        let stored = json!({"config": {}});
+        let mut image = asagiri_image::archive::from_config(
+            "inspect:test".into(), &format!("sha256:{}", "1".repeat(64)), &stored, Vec::new());
+        let inspected = image_inspect_value(&image, &stored);
+        assert_eq!(inspected["Config"]["Cmd"], json!([]));
+        assert_eq!(inspected["Config"]["Entrypoint"], Value::Null);
+        image.config.cmd = vec!["argument".into()];
+        image.config.entrypoint = vec!["/entrypoint".into()];
+        let inspected = image_inspect_value(&image, &stored);
+        assert_eq!(inspected["Config"]["Cmd"], json!(["argument"]));
+        assert_eq!(inspected["Config"]["Entrypoint"], json!(["/entrypoint"]));
     }
 
     struct ImageRemovalFixture {

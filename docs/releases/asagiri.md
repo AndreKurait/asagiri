@@ -1,5 +1,11 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.7 changes include:
+
+- Image inspection preserves stored `Cmd` and `Entrypoint` values, including
+  `null` and explicitly empty arrays. Missing fields fall back to the image's
+  execution configuration.
+
 The 0.1.6 changes include:
 
 - Image archive loading finishes filesystem layer preparation before reporting
