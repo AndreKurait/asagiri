@@ -7,7 +7,11 @@ The 0.1.6 changes include:
   without targeting a replacement at the same path.
 - Custom seccomp argument corrections and compact compilation of adjacent
   equality rules. Dense profile tests retain holes, action changes and
-  out-of-range values within the existing profile-size limit.
+  out-of-range values. Profiles share the complete 1 MiB request budget;
+  oversized requests fail before writing bytes or consuming a reply.
+- Container roots remain ready after successful copies and process exit,
+  preserving quick starts and restarts. Removal, reconciliation and shutdown
+  still wait for owned cleanup and reclaim the retained overlays.
 - Docker-compatible DNS selection when an alias appears on multiple
   attached networks, preserving routing and gateway-family precedence
   before network-name order.

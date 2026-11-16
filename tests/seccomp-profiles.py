@@ -38,8 +38,7 @@ CHMOD = ["chmod", "fchmodat", "fchmodat2"]
 
 
 def profile(*rules, default="SCMP_ACT_ALLOW", **fields):
-    return "seccomp=" + json.dumps({"defaultAction": default, "syscalls": list(rules), **fields},
-                                  separators=(",", ":"))
+    return "seccomp=" + json.dumps({"defaultAction": default, "syscalls": list(rules), **fields})
 
 
 def deny_chmod(**fields):
@@ -180,17 +179,19 @@ def check(path, image):
 
         # Thousands of disjoint equalities fit when adjacent values share
         # an action. Keep a hole and an action change inside the ranges.
-        # The two fchmodat variants share their argument position, so group
-        # their names to stay within the profile's 256 KiB transport limit.
+        # Preserve the original ungrouped profile: its encoded guest option
+        # exceeds the old 256 KiB cap but fits the complete request budget.
         dense = [
-            {"names": names, "action": "SCMP_ACT_ERRNO", "errnoRet": 13 if mode < 0o1000 else 95,
+            {"names": [name], "action": "SCMP_ACT_ERRNO", "errnoRet": 13 if mode < 0o1000 else 95,
              "args": [{"index": argument, "op": "SCMP_CMP_EQ", "value": mode}]}
-            for names, argument in ((["chmod"], 1), (["fchmodat", "fchmodat2"], 2))
+            for name, argument in (("chmod", 1), ("fchmodat", 2), ("fchmodat2", 2))
             for mode in range(1000) if mode != 0o600
         ]
         dense_profile = profile(*dense)
-        assert len(dense_profile.encode()) <= 256 * 1024
-        assert sum(len(rule["names"]) for rule in dense) == 2997
+        guest_option = "seccomp\t" + json.dumps(json.loads(dense_profile.removeprefix("seccomp=")),
+                                               separators=(",", ":"), sort_keys=True)
+        assert len(dense) == 2997 and len(dense_profile.removeprefix("seccomp=").encode()) == 381337
+        assert len(guest_option.encode()) == 342382 and 256 * 1024 < len(guest_option.encode()) < 1024 * 1024
         status, output = run([dense_profile],
                              "touch /f; chmod 600 /f; echo hole=$?; stat -c 'hole-mode=%a' /f; "
                              "chmod 601 /f; echo first=$?; chmod 1000 /f; echo second=$?; "
