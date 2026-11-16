@@ -189,6 +189,17 @@ def git(*args, cwd=ROOT):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def measurement_command(checkout, binaries, output):
+    # The runner imports the workload from the checkout. Root-owned bytecode
+    # there would prevent the unprivileged job from removing its worktree.
+    return [
+        "sudo", "--preserve-env=GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,"
+        "GITHUB_EVENT_NAME,ImageOS,ImageVersion",
+        "python3", "-B", checkout / "scripts/ci/reference-run.py",
+        "--binaries", binaries, "--out", output, "--runs", "400",
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True)
@@ -265,12 +276,8 @@ def main():
                         "A measured binary changed")
                 directory = output / f"leg-{index}-{variant}"
                 try:
-                    execute(f"measure-{index}-{variant}", [
-                        "sudo", "--preserve-env=GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,"
-                        "GITHUB_EVENT_NAME,ImageOS,ImageVersion",
-                        "python3", checkout / "scripts/ci/reference-run.py",
-                        "--binaries", bins[variant], "--out", directory, "--runs", "400",
-                    ], checkout)
+                    execute(f"measure-{index}-{variant}",
+                            measurement_command(checkout, bins[variant], directory), checkout)
                 finally:
                     if directory.exists():
                         subprocess.run(["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", directory],
@@ -294,6 +301,17 @@ def main():
             print(report(value), flush=True)
         finally:
             git("worktree", "remove", "--force", str(baseline))
+            require(not baseline.exists(), "The temporary baseline directory remains")
+            registered = [line.removeprefix("worktree ") for line in git("worktree", "list", "--porcelain").splitlines()
+                          if line.startswith("worktree ")]
+            require(str(baseline) not in registered, "The temporary baseline worktree is still registered")
+    require(not Path(scratch).exists(), "The temporary comparison directory remains")
+    require(git("status", "--porcelain") == "", "The candidate checkout changed")
+    write(output / "worktree-cleanup.json", {
+        "status": "passed", "sources": sources, "context": context,
+        "baseline_directory_removed": True, "baseline_worktree_unregistered": True,
+        "temporary_directory_removed": True, "candidate_checkout_clean": True,
+    })
 
 
 if __name__ == "__main__":

@@ -4,7 +4,12 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -141,6 +146,33 @@ class PairTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pair.main()
             git.assert_not_called()
+
+
+class RunnerCleanupTests(unittest.TestCase):
+    def test_measurement_imports_do_not_write_bytecode_into_either_checkout(self):
+        environment = os.environ.copy()
+        environment.pop("PYTHONDONTWRITEBYTECODE", None)
+        environment.pop("PYTHONPYCACHEPREFIX", None)
+        with tempfile.TemporaryDirectory() as temporary:
+            for variant in ("baseline", "candidate"):
+                with self.subTest(variant=variant):
+                    checkout = Path(temporary) / variant
+                    for name in ("scripts/ci/reference-run.py", "scripts/reference-bench.py"):
+                        target = checkout / name
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(ROOT / name, target)
+                    command = pair.measurement_command(checkout, checkout / "binaries", checkout / "output")
+                    # Exercise the actual Python invocation without requesting
+                    # root or launching engines; --help still imports the workload.
+                    python = command.index("python3")
+                    subprocess.run([sys.executable, *command[python + 1:], "--help"],
+                                   env=environment, check=True, capture_output=True)
+                    self.assertEqual(list(checkout.rglob("*.pyc")), [])
+                    self.assertEqual(list(checkout.rglob("__pycache__")), [])
+                    # Confirm this fixture exposes the original cache write.
+                    subprocess.run([sys.executable, checkout / "scripts/ci/reference-run.py", "--help"],
+                                   env=environment, check=True, capture_output=True)
+                    self.assertTrue(list(checkout.rglob("*.pyc")))
 
 
 if __name__ == "__main__":
