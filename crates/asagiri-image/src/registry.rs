@@ -1454,6 +1454,7 @@ mod tests {
     struct PathServer {
         host: String,
         asked: std::sync::Arc<Mutex<Vec<String>>>,
+        accepted: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
@@ -1472,6 +1473,8 @@ mod tests {
         let host = listener.local_addr().unwrap().to_string();
         let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
         let seen = asked.clone();
+        let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connections = accepted.clone();
         let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop = stopped.clone();
         listener.set_nonblocking(true).unwrap();
@@ -1485,6 +1488,10 @@ mod tests {
                     }
                     Err(e) => panic!("registry accept: {e}"),
                 };
+                // BSD sockets inherit the listener's nonblocking mode. A
+                // temporary lack of request bytes must not look like EOF.
+                c.set_nonblocking(false).unwrap();
+                connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 c.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                 c.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
                 let mut head = Vec::new();
@@ -1492,6 +1499,7 @@ mod tests {
                 while head.len() < 16384 && !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
                     head.push(b[0]);
                 }
+                if !head.ends_with(b"\r\n\r\n") { continue; }
                 let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
                 let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
                 seen.lock().unwrap().push(path.clone());
@@ -1501,7 +1509,43 @@ mod tests {
                 let _ = c.write_all(&body);
             }
         });
-        PathServer { host, asked, stopped, thread: Some(thread) }
+        PathServer { host, asked, accepted, stopped, thread: Some(thread) }
+    }
+
+    #[test]
+    fn registry_fixture_waits_for_complete_request_headers() {
+        use std::sync::{atomic::Ordering, mpsc};
+        let (sent, received) = mpsc::channel();
+        let server = path_server(move |path| {
+            sent.send(path.to_owned()).unwrap();
+            (200, "application/octet-stream", b"complete".to_vec())
+        });
+        let mut connection = std::net::TcpStream::connect(&server.host).unwrap();
+        connection.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        connection.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while server.accepted.load(Ordering::Relaxed) == 0 {
+            assert!(Instant::now() < deadline, "registry did not accept the connection");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(matches!(received.recv_timeout(Duration::from_millis(100)), Err(mpsc::RecvTimeoutError::Timeout)),
+            "registry answered before any request bytes arrived");
+        connection.write_all(b"GET /v2/app/manifests/delayed").unwrap();
+        assert!(matches!(received.recv_timeout(Duration::from_millis(100)), Err(mpsc::RecvTimeoutError::Timeout)),
+            "registry answered a partial request header");
+        connection.write_all(b" HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n").unwrap();
+        assert_eq!(received.recv_timeout(Duration::from_secs(2)).unwrap(), "/v2/app/manifests/delayed");
+        let mut response = Vec::new();
+        connection.read_to_end(&mut response).unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 200 ") && response.ends_with(b"\r\n\r\ncomplete"));
+        let mut incomplete = std::net::TcpStream::connect(&server.host).unwrap();
+        incomplete.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        incomplete.write_all(b"GET /v2/app/manifests/aborted HTTP/1.1\r\n").unwrap();
+        incomplete.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut response = Vec::new();
+        incomplete.read_to_end(&mut response).unwrap();
+        assert!(response.is_empty(), "registry answered a request with incomplete headers");
+        assert_eq!(*server.asked.lock().unwrap(), ["/v2/app/manifests/delayed"]);
     }
 
     // The answer stands without the config: a cache missing the blob (or a
