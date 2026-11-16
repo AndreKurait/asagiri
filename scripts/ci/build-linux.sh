@@ -54,6 +54,7 @@ fi
       export ASAGIRI_REQUIRE_MOUNTED_FILE_VIEW_TEST=1
       export ASAGIRI_REQUIRE_MANY_LAYER_TEST=1
       export ASAGIRI_REQUIRE_VOLUME_OWNER_TEST=1
+      export ASAGIRI_REQUIRE_CGROUP_KILL_TEST=1
       cargo test --locked -p "$engine" -p "$engine-init" -p "$engine-proto" -p "$engine-image" -p "$engine-vmm"
       rustc --edition=2024 -C opt-level=1 -C panic=abort tests/wsl-daemon-fixture.rs -o /fixtures/asagiri-daemon-fixture
       (cd /fixtures && sha256sum asagiri-daemon-fixture > SHA256SUMS)

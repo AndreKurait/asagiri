@@ -1,5 +1,6 @@
 mod agent;
 mod cgroup;
+mod cgroup_kill;
 mod container;
 mod devices;
 mod copy;
@@ -90,8 +91,13 @@ fn run(init_start_ns: u64) -> io::Result<()> {
     if transport::is_host_process() {
         // However the agent stops (Shutdown, its daemon gone, SIGTERM, an
         // error), nothing of the engine stays behind on a Linux host.
-        container::sweep(&paths, &paths.cgroup);
+        let cleaned = container::sweep(&paths, &paths.cgroup);
         net::remove_host_network();
+        return match (served, cleaned) {
+            (Err(serve), Err(cleanup)) => Err(io::Error::new(serve.kind(), format!("{serve}; cleanup: {cleanup}"))),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        };
     }
     served
 }
@@ -181,10 +187,10 @@ fn host_dirs() -> io::Result<container::Paths> {
     if let Ok(old) = std::fs::read_to_string(&record) {
         let old = PathBuf::from(old.trim());
         if old != paths.cgroup && old.starts_with("/sys/fs/cgroup") {
-            container::sweep(&paths, &old);
+            container::sweep(&paths, &old)?;
         }
     }
-    container::sweep(&paths, &paths.cgroup);
+    container::sweep(&paths, &paths.cgroup)?;
     std::fs::write(&record, paths.cgroup.as_os_str().as_encoded_bytes())?;
     std::env::set_current_dir(&paths.layers)?;
     Ok(paths)
