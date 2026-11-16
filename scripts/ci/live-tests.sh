@@ -57,7 +57,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner|shared-root)
+    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -76,6 +76,7 @@ run exec-errors alpine:3.21
 run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
+run run-options alpine:3.21
 run distribution
 run image-label-inheritance
 run many-layers alpine:3.21

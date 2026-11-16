@@ -40,6 +40,32 @@ t("a tab filters the list, and the strip's search narrows it further", () => {
   document.querySelector('[data-ltab="all"]').click();
   eq(rows().length, 6, "all again");
 });
+t("search finds published and private ports and still respects the state tab", () => {
+  const before = ui.containers.map((c) => [c, c.Ports]);
+  const search = (value) => { $("gq").value = value; $("gq").dispatchEvent(new Event("input", { bubbles: true })); };
+  try {
+    ui.containers.find((c) => c.Id === "r1").Ports = [{ PublicPort: 8181, PrivatePort: 80, Type: "tcp" }];
+    ui.containers.find((c) => c.Id === "r2").Ports = [{ PrivatePort: 3306, Type: "tcp" }];
+    ui.containers.find((c) => c.Id === "s1").Ports = [{ PublicPort: 33060, PrivatePort: 3306, Type: "tcp" }];
+    delete ui.containers.find((c) => c.Id === "f1").Ports;
+    ui.containers.find((c) => c.Id === "f2").Ports = null;
+    for (const [query, expected] of [["8181", ["r1"]], ["80", ["r1"]], ["33060", ["s1"]],
+      ["3306", ["r2", "s1"]], ["5432", []], ["undefined", []], ["web", ["r1"]]]) {
+      search(query);
+      eq(order().sort(), expected, "search " + query);
+    }
+    search("3306");
+    document.querySelector('[data-ltab="stopped"]').click();
+    eq(order(), ["s1"], "only the stopped match");
+    document.querySelector('[data-ltab="all"]').click();
+    search("asagiri-test");
+    eq(rows().length, 6, "image search still works");
+  } finally {
+    for (const [c, ports] of before) c.Ports = ports;
+    search("");
+    document.querySelector('[data-ltab="all"]').click();
+  }
+});
 t("Clear N failed shows when there's junk and asks first", () => {
   sent.length = 0;
   const b = document.querySelector("[data-junk]");

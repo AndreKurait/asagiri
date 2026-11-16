@@ -3,6 +3,14 @@ name: Engine comparison
 on:
   pull_request:
     paths:
+      - 'crates/**'
+      - 'xtask/**'
+      - '.cargo/**'
+      - Cargo.toml
+      - Cargo.lock
+      - scripts/ci/build-linux.sh
+      - scripts/ci/images.json
+      - '.github/actions/container-cache/**'
       - scripts/reference-bench.py
       - scripts/ci/reference-run.py
       - scripts/ci/reference-images.json

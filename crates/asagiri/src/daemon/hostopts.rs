@@ -70,6 +70,89 @@ pub fn check_device_requests(host: &Value) -> Result<(), String> {
     ))
 }
 
+/// Refuse options whose requested behavior the guest cannot provide. Empty
+/// client defaults and the modes already used by Asagiri remain accepted.
+/// UsernsMode and CgroupParent have their own validation in the API.
+pub fn check_unsupported(host: &Value) -> Result<Vec<String>, String> {
+    if !host.is_null() && !host.is_object() {
+        return Err("HostConfig must be an object".into());
+    }
+    const MODES: [(&str, &str, &[&str]); 6] = [
+        ("PidMode", "--pid", &[]),
+        ("IpcMode", "--ipc", &["private", "shareable"]),
+        ("UTSMode", "--uts", &[]),
+        ("CgroupnsMode", "--cgroupns", &["private"]),
+        ("Runtime", "--runtime", &["asagiri", "runc"]),
+        ("Isolation", "--isolation", &["default"]),
+    ];
+    for (key, flag, same) in MODES {
+        let value = match &host[key] {
+            Value::Null => continue,
+            Value::String(value) => value,
+            _ => return Err(format!("{key} must be a string")),
+        };
+        if !value.is_empty() && !same.contains(&value.as_str()) {
+            return Err(format!("Asagiri does not support {flag}={value}"));
+        }
+    }
+    match &host["VolumesFrom"] {
+        Value::Null => {}
+        Value::Array(values) if values.is_empty() => {}
+        Value::Array(_) => return Err("Asagiri does not support --volumes-from (Compose volumes_from); mount the volumes by name instead".into()),
+        _ => return Err("VolumesFrom must be an array".into()),
+    }
+    match &host["StorageOpt"] {
+        Value::Null => {}
+        Value::Object(values) if values.is_empty() => {}
+        Value::Object(_) => return Err("Asagiri does not support --storage-opt".into()),
+        _ => return Err("StorageOpt must be an object".into()),
+    }
+    let mut warnings = Vec::new();
+    if let Some(kind) = host["LogConfig"]["Type"].as_str().filter(|kind| !["", "json-file", "local", "none"].contains(kind)) {
+        warnings.push(format!("Asagiri does not support the {kind} log driver; logs are kept locally and are not sent anywhere"));
+    }
+    Ok(warnings)
+}
+
+/// Controls the engine currently cannot apply. Memory/swap limits, memory
+/// reservations, CPU sets and the Buildx cgroup parent are implemented and
+/// deliberately absent. OomKillDisable keeps the API's existing warning.
+pub fn resource_warnings(host: &Value) -> Result<Vec<&'static str>, String> {
+    const FIELDS: [(&str, bool, &str); 10] = [
+        ("MemorySwappiness", false, "Asagiri does not support --memory-swappiness; it was ignored"),
+        ("OomScoreAdj", false, "Asagiri does not support --oom-score-adj; it was ignored"),
+        ("CpuRealtimePeriod", false, "Asagiri does not support --cpu-rt-period; it was ignored"),
+        ("CpuRealtimeRuntime", false, "Asagiri does not support --cpu-rt-runtime; it was ignored"),
+        ("BlkioWeight", false, "Asagiri does not support --blkio-weight; it was ignored"),
+        ("BlkioWeightDevice", true, "Asagiri does not support --blkio-weight-device; it was ignored"),
+        ("BlkioDeviceReadBps", true, "Asagiri does not support --device-read-bps; it was ignored"),
+        ("BlkioDeviceWriteBps", true, "Asagiri does not support --device-write-bps; it was ignored"),
+        ("BlkioDeviceReadIOps", true, "Asagiri does not support --device-read-iops; it was ignored"),
+        ("BlkioDeviceWriteIOps", true, "Asagiri does not support --device-write-iops; it was ignored"),
+    ];
+    let mut warnings = Vec::new();
+    for (key, array, warning) in FIELDS {
+        let given = match (&host[key], array) {
+            (Value::Null, _) => false,
+            (Value::Array(values), true) => !values.is_empty(),
+            (Value::Number(value), false) if value.is_i64() || value.is_u64() => {
+                if key == "MemorySwappiness" {
+                    // Unlike zero-valued integer fields, this nullable field
+                    // uses null/-1 for the default; zero is an explicit choice.
+                    value.as_i64() != Some(-1)
+                } else {
+                    value.as_i64() != Some(0)
+                }
+            }
+            _ => return Err(format!("{key} must be {}", if array { "an array" } else { "an integer" })),
+        };
+        if given {
+            warnings.push(warning);
+        }
+    }
+    Ok(warnings)
+}
+
 /// The guest's lines for `opts` (from [`from_host`]), or Docker's error for
 /// the first bad setting. `net_host`: the container shares the host's (the
 /// VM's) network namespace, so `net.*` sysctls are not its own.
@@ -209,6 +292,61 @@ fn sysctl(key: &str, net_host: bool) -> Result<(&'static str, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_modes_are_explicit_and_client_defaults_still_work() {
+        for host in [Value::Null, json!({}), json!({"PidMode": "", "IpcMode": "", "UTSMode": "", "CgroupnsMode": "",
+            "Runtime": "", "Isolation": "", "VolumesFrom": [], "StorageOpt": {}}),
+            json!({"IpcMode": "private", "CgroupnsMode": "private", "Runtime": "asagiri", "Isolation": "default"}),
+            json!({"IpcMode": "shareable", "Runtime": "runc"})] {
+            assert!(check_unsupported(&host).unwrap().is_empty(), "{host}");
+        }
+        for (host, reason) in [
+            (json!({"PidMode": "host"}), "--pid=host"),
+            (json!({"IpcMode": "container:db"}), "--ipc=container:db"),
+            (json!({"UTSMode": "host"}), "--uts=host"),
+            (json!({"CgroupnsMode": "host"}), "--cgroupns=host"),
+            (json!({"Runtime": "nvidia"}), "--runtime=nvidia"),
+            (json!({"Isolation": "hyperv"}), "--isolation=hyperv"),
+            (json!({"VolumesFrom": ["db:ro"]}), "--volumes-from"),
+            (json!({"StorageOpt": {"size": "1G"}}), "--storage-opt"),
+            (json!({"PidMode": false}), "PidMode must be a string"),
+            (json!({"IpcMode": []}), "IpcMode must be a string"),
+            (json!({"VolumesFrom": ""}), "VolumesFrom must be an array"),
+            (json!({"StorageOpt": []}), "StorageOpt must be an object"),
+            (json!(false), "HostConfig must be an object"),
+        ] {
+            assert!(check_unsupported(&host).unwrap_err().contains(reason), "{host}");
+        }
+    }
+
+    #[test]
+    fn only_unimplemented_resource_controls_produce_warnings() {
+        let implemented = json!({"Memory": 67108864, "MemorySwap": 134217728, "MemoryReservation": 16777216,
+            "CpusetCpus": "0", "CpusetMems": "0", "CgroupParent": "/docker/buildx", "CpuShares": 512, "PidsLimit": 32});
+        assert!(resource_warnings(&implemented).unwrap().is_empty());
+        assert!(resource_warnings(&json!({"MemorySwappiness": -1, "OomScoreAdj": 0, "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0, "BlkioWeight": 0, "BlkioWeightDevice": [], "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [], "BlkioDeviceReadIOps": [], "BlkioDeviceWriteIOps": []})).unwrap().is_empty());
+        let host = json!({"MemorySwappiness": 0, "OomScoreAdj": -1, "CpuRealtimePeriod": 100000,
+            "CpuRealtimeRuntime": 1000, "BlkioWeight": 500, "BlkioWeightDevice": [{"Path": "/dev/sda", "Weight": 100}],
+            "BlkioDeviceReadBps": [{"Path": "/dev/sda", "Rate": 1024}], "BlkioDeviceWriteBps": [{"Path": "/dev/sda", "Rate": 1024}],
+            "BlkioDeviceReadIOps": [{"Path": "/dev/sda", "Rate": 100}], "BlkioDeviceWriteIOps": [{"Path": "/dev/sda", "Rate": 100}]});
+        assert_eq!(resource_warnings(&host).unwrap().len(), 10);
+        for invalid in [json!({"MemorySwappiness": false}), json!({"OomScoreAdj": 1.5}),
+            json!({"BlkioWeight": "500"}), json!({"BlkioDeviceReadBps": {}})] {
+            assert!(resource_warnings(&invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn remote_log_drivers_warn_about_local_retention() {
+        for kind in ["", "json-file", "local", "none"] {
+            assert!(check_unsupported(&json!({"LogConfig": {"Type": kind}})).unwrap().is_empty());
+        }
+        assert_eq!(check_unsupported(&json!({"LogConfig": {"Type": "syslog"}})).unwrap(),
+            ["Asagiri does not support the syslog log driver; logs are kept locally and are not sent anywhere"]);
+    }
 
     #[test]
     fn buildx_parent_is_preserved_and_encoded_but_other_parents_are_refused() {

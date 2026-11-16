@@ -5,7 +5,7 @@
   </picture>
 </p>
 <p align="center"><b>朝霧 · Morning mist</b><br>A fast Docker-compatible engine. A fresh start.</p>
-<p align="center"><a href="https://andrekurait.github.io/asagiri/">Website & demo</a> · <a href="https://github.com/AndreKurait/asagiri/releases">Downloads</a> · <a href="docs/development.md">Development</a> · <a href="UPSTREAM.md">Upstream history</a> · <a href="README.pt-BR.md">Português brasileiro</a></p>
+<p align="center"><a href="https://andrekurait.github.io/asagiri/">Website & demo</a> · <a href="https://github.com/AndreKurait/asagiri/releases">Downloads</a> · <a href="docs/development.md">Development</a> · <a href="UPSTREAM.md">Upstream history</a> · <a href="README.pt-BR.md">Português brasileiro</a> · <a href="README.fa.md">فارسی</a></p>
 
 Asagiri runs Linux containers on **macOS, Linux, and Windows** and speaks the
 Docker Engine API. Use the Docker CLI, Compose, buildx, and Docker SDKs, or

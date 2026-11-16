@@ -20,7 +20,7 @@ SHA-256 digest; an unavailable pin fails the run instead of silently changing
 the reference engine.
 
 The workflow runs on every main push, weekly, manually, and when a pull request
-changes the harness. Main publication requires a successful comparison for
+changes the engine, build inputs or harness. Main publication requires a successful comparison for
 the same commit, alongside the other required checks. Its completion can
 automatically resume a release waiting for checks. Incorrect workload results
 or failed cleanup fail the comparison; relative Docker/Podman timings have no
@@ -29,7 +29,41 @@ GitHub artifact for 90 days. Asagiri changes also have the separate
 [performance comparison against the previous commit](performance.md), with
 regression gates and permanent raw history.
 
-## Measured Linux result (workload v2)
+## Latest verified Linux result (workload v2)
+
+[GHA run 43823750794](https://github.com/AndreKurait/asagiri/actions/runs/43823750794)
+measured PR #49 head `c610a2173463a35e3e3eac329d93b7c63b90c41b` through
+merge source `48a1c0c4cc6149e842f3054d780f60723c95bc83`. Their trees are
+identical. The CI binary reports product version `0.0.0`; this is a measurement
+of that source, not an installed release. The runner reported four CPUs,
+AMD EPYC 9V74 and Linux `7.0.0-1017-azure`, with Ubuntu runner image
+`20261111.370.1`.
+
+Every cell is **median / p95 in milliseconds**, from 400 samples:
+
+| Workload | Asagiri `c610a21` | Docker 29.9.3 | Podman 6.1.3 |
+| --- | ---: | ---: | ---: |
+| Ping | 0.181 / 0.239 | 0.378 / 0.464 | 0.368 / 0.447 |
+| Empty filtered list | 0.145 / 0.191 | 0.271 / 0.356 | 0.363 / 0.433 |
+| Create/start/wait/remove | 7.532 / 26.414 | 112.668 / 259.414 | 42.884 / 158.142 |
+| Exec, output and exit check | 1.762 / 1.990 | 32.454 / 33.963 | 57.603 / 222.099 |
+| 64 KiB named-volume file round trip | 1.229 / 1.323 | 3.552 / 4.299 | 161.899 / 172.091 |
+
+The [raw record](benchmarks/engine-comparison-2026-11-16-c610.json) retains
+all 6,000 samples. The
+[verification record](benchmarks/engine-comparison-2026-11-16-c610-verification.json)
+checks the GitHub artifact digest, source tree, harness and image pins,
+independently recalculates all 15 medians and p95s, and checks matching image
+layers, payload bytes and recorded cleanup. Compiled binary hashes were
+checked and recorded by the workflow; its comparison artifact does not
+include the executable bytes for an independent local rehash.
+
+The runs below are retained with their own source identities. Shared runner
+load varies, and no controlled experiment attributes timing differences
+between these runs to a code change. This five-workload Linux comparison
+does not establish native Mac VM, Windows WSL or application performance.
+
+## Earlier Linux result (workload v2)
 
 [GHA run 43816520898](https://github.com/AndreKurait/asagiri/actions/runs/43816520898)
 completed on November 16, 2026, with 400 samples per workload and engine.

@@ -1,0 +1,127 @@
+{
+  "schema": "asagiri.native-macos-observations.v1",
+  "recorded_at": "2026-11-16T07:40:31.963163+00:00",
+  "host_platform": "macOS, Apple silicon",
+  "scope": "Observed on the installed, published builds. This records filesystem and API checks; it does not establish native GUI interaction, Windows WSL behavior, VPN routing or application-level compatibility.",
+  "installation": {
+    "version": "0.1.6-dev.99",
+    "source": "5f56e5ed9dea31da43cfb49cb3a2aa6f6af57f51",
+    "executable_sha256": "e153da0baba80393c76365e3143a759d6fc7b8ab4cd4d3320858044e4a7a37ee",
+    "old_app_and_stopped_vm_disk_backed_up": true,
+    "existing_images_preserved": 2,
+    "existing_volumes_preserved": 2
+  },
+  "finder": {
+    "version": "0.1.6-dev.99",
+    "started_at": "2026-11-16T07:29:12.694238+00:00",
+    "finished_at": "2026-11-16T07:29:13.516700+00:00",
+    "source": "5f56e5ed9dea31da43cfb49cb3a2aa6f6af57f51",
+    "probe": "tests/finder-mounted.py",
+    "probe_sha256": "9446e5bf599e276f81d609b3f0cdd4f57490ac1a8c48fd8e66ddb46c7ed7d6fe",
+    "interface": "The existing macOS NFS filesystem mount, using actual list/stat/read operations",
+    "checks": [
+      {
+        "file": "data/volume.txt",
+        "bytes": 14
+      },
+      {
+        "file": "bind/host.txt",
+        "bytes": 57
+      },
+      {
+        "file": "plain/runtime.txt",
+        "bytes": 15
+      },
+      {
+        "fresh_volume_write": true
+      },
+      {
+        "stopped_container_unavailable": true
+      }
+    ],
+    "cleanup": {
+      "owned_container_http_status": 404,
+      "owned_volume_http_status": 404,
+      "temporary_host_directories_remaining": 0
+    }
+  },
+  "host_loopback": {
+    "version": "0.1.6-dev.98",
+    "started_at": "2026-11-16T07:12:48.534053+00:00",
+    "finished_at": "2026-11-16T07:12:55.923167+00:00",
+    "method": "Real IPv4-only and IPv6-only Mac HTTP servers, reached as host.docker.internal from separate owned containers",
+    "cases": [
+      {
+        "family": "IPv4-only",
+        "host_address": "127.0.0.1",
+        "container_requests": 3,
+        "host_control_requests": 1,
+        "payload_sha256": "4512c5a32bc225bfedee58aa3c5dc206014907c0765d77443b8b9eb0a06da245",
+        "exit_code": 0,
+        "exact_responses": true
+      },
+      {
+        "family": "IPv6-only",
+        "host_address": "::1",
+        "container_requests": 3,
+        "host_control_requests": 1,
+        "payload_sha256": "4a524855b68b275da877cb61c64e13aafed6827b372389728377f964ee117c01",
+        "exit_code": 0,
+        "exact_responses": true
+      }
+    ],
+    "cleanup": {
+      "owned_containers_verified_absent": 2,
+      "host_servers_closed": true,
+      "pf_configuration_changed": false
+    }
+  },
+  "mounted_archives": {
+    "version": "0.1.6-dev.98",
+    "started_at": "2026-11-16T07:07:08.126241+00:00",
+    "finished_at": "2026-11-16T07:07:08.346572+00:00",
+    "method": "Native Docker API copy-in/copy-out while created and exited; named-volume persistence and Mac host-byte checks",
+    "cases": [
+      {
+        "kind": "volume",
+        "passed": true,
+        "created_copy_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+        "export_excludes_mount_contents": true,
+        "exited_copy_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+        "readonly_denial": {
+          "status": 400,
+          "message": "failed to unpack `/new-mount/denied`"
+        },
+        "rejected_write_left_no_file": true,
+        "identical_write_through_writable_mount_succeeds": true
+      },
+      {
+        "kind": "bind",
+        "passed": true,
+        "created_copy_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+        "host_bytes_verified": true,
+        "export_excludes_mount_contents": true,
+        "exited_copy_sha256": "785b0751fc2c53dc14a4ce3d800e69ef9ce1009eb327ccf458afe09c242c26c9",
+        "readonly_denial": {
+          "status": 400,
+          "message": "failed to unpack `/new-mount/denied`"
+        },
+        "rejected_write_left_no_file": true,
+        "identical_write_through_writable_mount_succeeds": true
+      },
+      {
+        "kind": "existing volume PG_VERSION marker before first start and after exit",
+        "passed": true
+      }
+    ],
+    "limits": [
+      "The PG_VERSION case checks marker persistence; it does not run PostgreSQL or Supabase.",
+      "Released dev.98 can report only failed to unpack for a read-only archive destination."
+    ],
+    "cleanup": {
+      "owned_containers_verified_absent": 5,
+      "owned_volume_verified_absent": true,
+      "host_fixture_removed": true
+    }
+  }
+}
