@@ -72,6 +72,11 @@ impl Roots {
             // reader, if any, keeps its own lease unchanged.
             container::mount_rootfs(paths, id, layers)?;
         }
+        if layers.is_none() {
+            // A created container may be diffed or committed before its first
+            // start or archive copy has initialized the writable directory.
+            std::fs::create_dir_all(paths.containers.join(id).join("upper"))?;
+        }
         let root = state.entries.entry(id.to_owned()).or_default();
         root.mounted |= layers.is_some();
         root.users += 1;

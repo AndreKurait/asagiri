@@ -44,12 +44,12 @@ def main():
         if args.output:
             args.output.write_text(json.dumps(record, indent=2) + "\n")
 
-    def request(method, path, value=None, expected=(200,), timeout=30):
+    def request(method, path, value=None, expected=(200,), timeout=30, content_type="application/json"):
         connection = Connection(args.socket, timeout)
         try:
             connection.request(method, "/v1.47" + path,
-                               None if value is None else json.dumps(value).encode(),
-                               {"Content-Type": "application/json"})
+                               value if isinstance(value, bytes) else None if value is None else json.dumps(value).encode(),
+                               {"Content-Type": content_type})
             response = connection.getresponse()
             data = response.read(8 * 1024**2 + 1)
             assert len(data) <= 8 * 1024**2, "oversized fixture response"
@@ -91,6 +91,17 @@ def main():
         connection.send(body[:64 * 1024])
         return {"connection": connection, "body": body, "payload": payload, "filename": filename}
 
+    def changes(cid):
+        value = json.loads(request("GET", "/containers/" + cid + "/changes", timeout=2)[1])
+        # JSON null is Docker's empty diff. An empty HTTP body or malformed
+        # JSON remains a failure, including while waiting for the first write.
+        if value is None:
+            return []
+        assert isinstance(value, list), value
+        assert all(isinstance(change, dict) and isinstance(change.get("Path"), str)
+                   and change.get("Kind") in (0, 1, 2) for change in value), value
+        return value
+
     def writer_ready(cid, filename):
         # Docker may hold its per-container operation lock throughout an
         # upload. Its baseline is allowed to serialize start/stop behind the
@@ -100,10 +111,10 @@ def main():
             return {"method": "incomplete HTTP upload", "observed_upper_write": False}
         deadline = time.monotonic() + 5
         while True:
-            changes = json.loads(request("GET", "/containers/" + cid + "/changes", timeout=2)[1])
-            if any(change["Path"] == "/tmp/" + filename for change in changes):
+            observed = changes(cid)
+            if any(change["Path"] == "/tmp/" + filename for change in observed):
                 return {"method": "upper-layer changes", "observed_upper_write": True}
-            assert time.monotonic() < deadline, ("copy did not begin writing", filename, changes)
+            assert time.monotonic() < deadline, ("copy did not begin writing", filename, observed)
             time.sleep(0.02)
 
     def finish_copy(upload):
@@ -139,6 +150,14 @@ def main():
             cid = create(name)
             uploads = []
             try:
+                result["created_changes"] = changes(cid)
+                assert result["created_changes"] == [], result
+                # Initialize an empty archive view without creating runtime
+                # files; its diff must still be valid, empty JSON.
+                request("PUT", "/containers/" + cid + "/archive?path=/", b"\0" * 10240,
+                        content_type="application/x-tar")
+                result["empty_archive_changes"] = changes(cid)
+                assert result["empty_archive_changes"] == [], result
                 if case == "restart":
                     request("POST", "/containers/" + cid + "/start", expected=(204,))
                 for index in range(2 if case == "parallel" else 1):

@@ -217,6 +217,18 @@ mod linux {
             owned
         }
 
+        // A created container has no writable directory yet. Diff must
+        // return an empty successful stream without mounting an overlay.
+        let fresh = paths.containers.join("never-started");
+        assert!(!fresh.exists());
+        let mut empty_diff = request(&socket, &listener, &mut copies, &paths, &digest, "never-started", copy_op::DIFF, "/");
+        assert!(matches!(asagiri_proto::decode(&response(&mut empty_diff, &roots, &mut copies, &paths)), Ok(Msg::CopyDone)));
+        assert!(fresh.join("upper").is_dir());
+        assert_eq!(fs::read_dir(fresh.join("upper")).unwrap().count(), 0);
+        assert!(!fresh.join("rootfs").exists());
+        assert!(!roots.unfinished().iter().any(|id| id == "never-started"));
+        println!("PASS shared-root: never-started diff initializes an empty upper without an overlay or remaining lease");
+
         // A stopped copy and a start share a single actual overlay, including
         // its device identity. A long copy must not retain unrelated roots.
         let other = acquire(&roots, &paths, "other", &digest);
