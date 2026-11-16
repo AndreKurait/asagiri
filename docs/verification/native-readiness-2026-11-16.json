@@ -1,0 +1,222 @@
+{
+  "status": "passed",
+  "verified_at": "2026-11-16T07:53:19.564584+00:00",
+  "runtime_release": "v0.1.6-dev.99",
+  "runtime_source": "5f56e5ed9dea31da43cfb49cb3a2aa6f6af57f51",
+  "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597",
+  "native_rounds": 3,
+  "successful_execs": 6,
+  "missing_user_rejected": {
+    "http_status": 200,
+    "exit_code": 127,
+    "running": false,
+    "error": "asagiri: cannot start container: user: unknown user missing-eb0c4a4a73b24bc8ab9951c56cb359b1\n",
+    "rejected": true
+  },
+  "owned_resources_independently_absent": 8,
+  "original_image_count": 2,
+  "original_volume_count": 2,
+  "baseline_sets_unchanged": true,
+  "result_sha256": "a79be24b536f641ac5fbc005f27423b41bc40c7b7c469bfc989667a08788357f",
+  "scope": "Native macOS Arm64 guest. Paired Linux Docker/Asagiri CI and the exact reported Ubuntu Arm64 host remain pending. This is a correctness stress fixture, not a general throughput benchmark.",
+  "schema": "asagiri.native-readiness-verification.v1",
+  "probe": "tests/start-exec-image-user.py",
+  "observations": {
+    "schema": "asagiri.start-exec-image-user.v1",
+    "status": "passed",
+    "started_at": "2026-11-16T07:52:15.106785+00:00",
+    "fixture_sha256": "64fa3ae8ed6ce76d5b00698772a241bf0a2f62cfb7f492dcf158f6edde7ae597",
+    "reference_docker": false,
+    "native_asagiri": true,
+    "payload_bytes": 134217728,
+    "cases": [
+      {
+        "round": 1,
+        "volume": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-0",
+        "container": "57dd2490b14f95ab89d5d2599fc2be25d1af06df5572027ba9c492b070f38af6",
+        "start_duration_ms": 27.9575,
+        "start_to_exec_ms": 0.002125,
+        "execs": [
+          {
+            "explicit_user": true,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29453982109083,
+            "exec_finished_ns": 29454524743333
+          },
+          {
+            "explicit_user": false,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29454524746000,
+            "exec_finished_ns": 29455000553375
+          }
+        ],
+        "passed": true
+      },
+      {
+        "round": 2,
+        "volume": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-1",
+        "container": "4fc366d0d29d68f5aefb3f645d89c07dc0920569a3681139005f1e823d91c956",
+        "start_duration_ms": 17.546291,
+        "start_to_exec_ms": 0.001792,
+        "execs": [
+          {
+            "explicit_user": true,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29455146271958,
+            "exec_finished_ns": 29455615229541
+          },
+          {
+            "explicit_user": false,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29455615233875,
+            "exec_finished_ns": 29456140134333
+          }
+        ],
+        "passed": true
+      },
+      {
+        "round": 3,
+        "volume": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-2",
+        "container": "278940c1187ad5e5cb99932d1866b03eda680bb54dd669ccd9ce45d282ee0046",
+        "start_duration_ms": 14.543333,
+        "start_to_exec_ms": 0.001792,
+        "execs": [
+          {
+            "explicit_user": true,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29456230071625,
+            "exec_finished_ns": 29456721812916
+          },
+          {
+            "explicit_user": false,
+            "exit_code": 0,
+            "output": "uid=1000(dev) gid=1000(dev)\nREADY_IMAGE_USER\n",
+            "exec_started_ns": 29456721817166,
+            "exec_finished_ns": 29457223627083
+          }
+        ],
+        "passed": true
+      }
+    ],
+    "cleanup": [
+      {
+        "kind": "container",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-seed",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "container",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-container-0",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "volume",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-0",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "container",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-container-1",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "volume",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-1",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "container",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-container-2",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "volume",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef-volume-2",
+        "inspect_status": 404,
+        "passed": true
+      },
+      {
+        "kind": "image",
+        "name": "asagiri-ready-44f80d4e32c74711932bc48478156aef:latest",
+        "inspect_status": 404,
+        "passed": true
+      }
+    ],
+    "owned": {
+      "container": [],
+      "volume": [],
+      "image": []
+    },
+    "payload_sha256": "254bcc3fc4f27172636df4bf32de9f107f620d559b20d760197e452b97453917",
+    "engine": {
+      "ApiVersion": "1.47",
+      "Arch": "arm64",
+      "AsagiriVersion": "0.1.6-dev.99",
+      "Components": [
+        {
+          "Details": {
+            "ApiVersion": "1.47",
+            "Arch": "arm64",
+            "AsagiriVersion": "0.1.6-dev.99",
+            "MinAPIVersion": "1.24",
+            "Os": "linux"
+          },
+          "Name": "Engine",
+          "Version": "27.5.1-asagiri"
+        }
+      ],
+      "GitCommit": "",
+      "GoVersion": "n/a (Rust)",
+      "KernelVersion": "6.18-asagiri",
+      "MinAPIVersion": "1.24",
+      "Os": "linux",
+      "Platform": {
+        "Name": "Asagiri"
+      },
+      "Version": "27.5.1-asagiri"
+    },
+    "base_image": {
+      "Id": "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee",
+      "Architecture": "arm64",
+      "Os": "linux",
+      "RootFS": {
+        "Layers": [
+          "sha256:c414b70900bff0fc663162f3cff355e6efe10fd87a218fbb99cec3bc8fb1ffa2"
+        ],
+        "Type": "layers"
+      }
+    },
+    "fixture_image": {
+      "Id": "sha256:975a95f3cdc22c92d6e35c1ddef50efb6aeba2e90e60ea11cd9ef4e003bd918e",
+      "Architecture": "arm64",
+      "Os": "linux",
+      "RootFS": {
+        "Layers": [
+          "sha256:c414b70900bff0fc663162f3cff355e6efe10fd87a218fbb99cec3bc8fb1ffa2",
+          "sha256:26733d1b85dfcc4996ec9545e95454e502c0476da830a265caa197078d6abf8b"
+        ],
+        "Type": "layers"
+      }
+    },
+    "missing_user_control": {
+      "http_status": 200,
+      "exit_code": 127,
+      "running": false,
+      "error": "asagiri: cannot start container: user: unknown user missing-eb0c4a4a73b24bc8ab9951c56cb359b1\n",
+      "rejected": true
+    },
+    "base_image_preserved": true,
+    "fixture_image_removed_by_id": true
+  }
+}
