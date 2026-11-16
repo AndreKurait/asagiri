@@ -45,6 +45,9 @@ def main():
         call("cp", victim + ":/remove-proof", proof)
         assert Path(proof).read_bytes() == b"preserved"
         Path(proof).unlink()
+        # A diff waits for the stopped copy's root retirement, then holds only
+        # its upper directory and schedules no further root unmount.
+        call("diff", victim)
         init = []
         for item in Path("/proc").iterdir():
             if not item.name.isdigit():
@@ -61,6 +64,16 @@ def main():
         through_agent = Path("/proc", str(init[0]), "root") / str(root).lstrip("/")
         assert (root.stat().st_dev, root.stat().st_ino) == (through_agent.stat().st_dev, through_agent.stat().st_ino)
         rootfs = str(root)
+        def mounts():
+            return [line for line in Path("/proc", str(init[0]), "mountinfo").read_text().splitlines()
+                    if line.split()[4] == rootfs]
+        assert not mounts(), "The stopped copy's root cleanup is still pending"
+        # Removal need not call umount2 for an already unmounted directory.
+        # Give this owned victim a real mount to retire, so the fault remains
+        # mandatory even when the engine correctly avoids redundant syscalls.
+        subprocess.check_call(["nsenter", "-t", str(init[0]), "-m", "--",
+                               "mount", "--bind", rootfs, rootfs], timeout=10)
+        assert len(mounts()) == 1, mounts()
         log = open("/tmp/remove-delay-" + victim + ".trace", "xb")
         tracer = subprocess.Popen(["strace", "-f", "-P", rootfs, "-e", "trace=umount2",
                                    "-e", "inject=umount2:delay_enter=15s", "-p", str(init[0])],
@@ -89,7 +102,8 @@ def main():
             time.sleep(.01)
         assert blocked is not None, "No explicit-removal umount2 fault observed"
         report = {"initPid": init[0], "blockedPid": blocked, "rootfs": rootfs,
-                  "injectedDelaySeconds": 15, "exitCleanupFinishedBeforeInjection": True}
+                  "injectedDelaySeconds": 15, "exitCleanupFinishedBeforeInjection": True,
+                  "copyCleanupFinishedBeforeInjection": True, "controlledVictimBindMount": True}
         started = time.monotonic()
         try:
             call("exec", survivor, "true", timeout=3)

@@ -11,12 +11,15 @@ bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
 # Run the same archive cases on the runner's Docker engine for comparison.
 python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
+# Establish Docker's allowed serialization behavior before testing the private
+# Asagiri build. The fixture itself never pulls or touches unowned containers.
+docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
+python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
 # Run the identical many-layer fixture on the runner's Docker daemon.
-docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
 python3 "$src/tests/many-layers.py" /var/run/docker.sock alpine:3.21 || exit 2
 # The same read-only fixture runs against the runner's Docker daemon first.
 python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
@@ -30,7 +33,7 @@ docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
   "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c \
-  'apk add -q --no-cache python3 py3-pip bash curl strace openssl &&
+  'apk add -q --no-cache python3 py3-pip bash curl strace openssl util-linux &&
    python3 -m venv /tmp/asagiri-mcp-sdk &&
    /tmp/asagiri-mcp-sdk/bin/pip install -q --require-hashes -r /src/tests/mcp-sdk-requirements.txt &&
    exec /opt/asagiri/asagiri daemon' >/dev/null || exit 2
@@ -54,7 +57,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner)
+    failed-start-veth|remove-responsive|volume-owner|shared-root)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -94,6 +97,7 @@ run remove-cleanup-retry alpine:3.21
 run remove-responsive alpine:3.21
 run api-connections alpine:3.21
 run archive-completion alpine:3.21
+run shared-root alpine:3.21
 run init-descriptors alpine:3.21
 run device-filter-failure alpine:3.21
 run overlay-copyup alpine:3.21

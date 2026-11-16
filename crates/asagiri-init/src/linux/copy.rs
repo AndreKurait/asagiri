@@ -1,7 +1,7 @@
 //! `docker cp`: files into and out of containers, one vsock connection per
 //! copy. Each copy runs in a forked child, so a large archive never stalls
 //! the event loop. The child chroots into the container (its live root, or a
-//! private mount of its layers when it is not running), so links resolve
+//! private namespace containing the agent's shared root), so links resolve
 //! inside the container and nothing outside it is reachable.
 
 use std::fs;
@@ -15,80 +15,12 @@ use asagiri_proto::{COPY_PORT, CopySpec, FsEntry, Msg, copy_flags, copy_op};
 use super::container::{self, Paths};
 use super::sys;
 
+#[path = "copy_broker.rs"]
+mod broker;
+pub use broker::{Broker, View};
+
 pub fn listen() -> io::Result<OwnedFd> {
     super::relay::listen_vsock(COPY_PORT)
-}
-
-/// Accepts every pending copy and forks a child for each. `running` maps
-/// container ids to their init pids.
-pub fn accept(listener: &OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&str], paths: &Paths) {
-    loop {
-        // SAFETY: accept4 on a listening socket we own; the fd is owned immediately.
-        let fd = unsafe { libc::accept4(listener.as_raw_fd(), std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_CLOEXEC) };
-        if fd < 0 {
-            return;
-        }
-        // SAFETY: a fresh descriptor from accept4.
-        let sock = unsafe { OwnedFd::from_raw_fd(fd) };
-        // SAFETY: getpid has no preconditions.
-        let parent = unsafe { libc::getpid() };
-        // SAFETY: the agent is single-threaded, so the child is a consistent
-        // copy. The child only uses what it inherited, then exits.
-        match unsafe { libc::fork() } {
-            0 => {
-                die_with_parent(parent);
-                let code = match job(sock, running, cleaning, paths) {
-                    Ok(()) => 0,
-                    Err(e) => {
-                        eprintln!("asagiri-init: copy: {e}");
-                        1
-                    }
-                };
-                // SAFETY: leaving the child without running the parent's destructors.
-                unsafe { libc::_exit(code) }
-            }
-            pid if pid < 0 => eprintln!("asagiri-init: copy: fork: {}", io::Error::last_os_error()),
-            // The parent's copy closes here; the agent reaps the child like any other.
-            _ => drop(sock),
-        }
-    }
-}
-
-fn job(sock: OwnedFd, running: &[(&str, libc::pid_t)], cleaning: &[&str], paths: &Paths) -> io::Result<()> {
-    let fd = sock.as_raw_fd();
-    // Only the connection (and the console) stays open: the child must not
-    // hold the agent's pipes, which would keep containers' stdin from closing.
-    // SAFETY: closing descriptor ranges in this process.
-    unsafe {
-        libc::syscall(libc::SYS_close_range, 3, (fd - 1).max(3) as libc::c_uint, 0);
-        libc::syscall(libc::SYS_close_range, (fd + 1) as libc::c_uint, libc::c_uint::MAX, 0);
-    }
-    let mut conn = fs::File::from(sock);
-    let mut frame = Vec::new();
-    read_frame(&mut conn, &mut frame)?;
-    let spec = match asagiri_proto::decode(&frame) {
-        Ok(Msg::Copy(c)) => c,
-        Ok(other) => return reply_error(&mut conn, &format!("expected a copy request, got {other:?}")),
-        Err(e) => return reply_error(&mut conn, &format!("bad frame: {e:?}")),
-    };
-    if cleaning.contains(&spec.id) {
-        return reply_error(&mut conn, "container filesystem cleanup is still in progress");
-    }
-    let result = match spec.op {
-        // These read the writable layer itself, next to the image's layers.
-        copy_op::DIFF | copy_op::COMMIT => layer_job(&mut conn, &spec, paths),
-        _ if !running.iter().any(|(id, _)| *id == spec.id) => stopped_job(&mut conn, &spec, paths),
-        _ => {
-            if let Err(e) = enter(&spec, running, paths) {
-                return reply_error(&mut conn, &format!("container {}: {e}", spec.id));
-            }
-            archive_job(&mut conn, &spec).and_then(|reply| conn.write_all(&reply))
-        }
-    };
-    match result {
-        Ok(()) => Ok(()),
-        Err(e) => reply_error(&mut conn, &e.to_string()),
-    }
 }
 
 /// No copy or private mount may outlive the agent that owns its paths.
@@ -102,72 +34,9 @@ fn die_with_parent(parent: libc::pid_t) {
     }
 }
 
-/// A stopped container's overlay must be gone before a successful copy or
-/// stat reply lets its caller start it. Closing the worker's socket alone is
-/// too early: descriptors close before the kernel releases its namespaces.
-/// This supervisor keeps the connection open and waits for the chrooted
-/// worker to exit. No directory descriptor pointing outside the chroot is
-/// kept there.
-fn stopped_job(conn: &mut fs::File, spec: &CopySpec<'_>, paths: &Paths) -> io::Result<()> {
-    const MAX_REPLY: u64 = 16 * 1024;
-    let (read, write) = sys::pipe()?;
-    // SAFETY: getpid has no preconditions; this copy process is single-threaded.
-    let parent = unsafe { libc::getpid() };
-    // SAFETY: the worker uses its inherited copy request and exits directly.
-    let pid = unsafe { libc::fork() };
-    if pid < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if pid == 0 {
-        drop(read);
-        die_with_parent(parent);
-        let mut control = fs::File::from(write);
-        let result = enter(spec, &[], paths).and_then(|()| archive_job(conn, spec));
-        let reply = match result {
-            Ok(reply) if reply.len() <= MAX_REPLY as usize => reply,
-            result => {
-                let message = match result {
-                    Err(e) => e.to_string(),
-                    Ok(_) => "copy metadata exceeds the reply limit".to_owned(),
-                };
-                let bounded: String = message.chars().take(2048).collect();
-                let mut reply = Vec::new();
-                Msg::Error(&bounded).encode(&mut reply);
-                reply
-            }
-        };
-        let code = i32::from(control.write_all(&reply).is_err());
-        // SAFETY: exit the worker without any supervisor destructors.
-        unsafe { libc::_exit(code) }
-    }
-    drop(write);
-    let mut reply = Vec::new();
-    let read = fs::File::from(read).take(MAX_REPLY + 1).read_to_end(&mut reply);
-    if read.is_err() || reply.len() > MAX_REPLY as usize {
-        // SAFETY: this exact child has not been reaped, so its PID cannot be reused.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
-    }
-    let mut status = 0;
-    loop {
-        // SAFETY: our own child and a valid status pointer.
-        if unsafe { libc::waitpid(pid, &mut status, 0) } >= 0 {
-            break;
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-    read?;
-    if reply.len() > MAX_REPLY as usize || !libc::WIFEXITED(status) || libc::WEXITSTATUS(status) != 0 {
-        return Err(io::Error::other("container filesystem copy worker did not complete"));
-    }
-    conn.write_all(&reply)
-}
-
 /// Metadata-only and upload replies are held until the private mount is
 /// released. Download/export bytes stream directly, with EOF held by the
-/// supervisor until that same point.
+/// agent's broker until the worker has been reaped.
 fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> {
     let mut reply = Vec::new();
     match spec.op {
@@ -183,35 +52,26 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
     Ok(reply)
 }
 
-/// Makes the container's root this process's `/`.
-fn enter(spec: &CopySpec<'_>, running: &[(&str, libc::pid_t)], paths: &Paths) -> io::Result<()> {
-    let root = match running.iter().find(|(id, _)| *id == spec.id) {
-        // An export is the container's own filesystem, without its mounts:
-        // the overlay the agent mounted for it.
-        Some(_) if spec.op == copy_op::EXPORT => paths.containers.join(spec.id).join("rootfs"),
-        // Through /proc the root shows the container's mounts (volumes) too.
-        Some((_, pid)) => std::path::PathBuf::from(format!("/proc/{pid}/root")),
-        None => {
-            if spec.layers.is_empty() {
-                return Err(io::Error::new(io::ErrorKind::NotFound, "no such container"));
-            }
-            // A private namespace: the mount disappears with this process.
-            // SAFETY: unshare with a valid flag.
-            sys::check(unsafe { libc::unshare(libc::CLONE_NEWNS) } as _, "unshare")?;
-            sys::remount(c"/", libc::MS_REC | libc::MS_PRIVATE)?;
-            let root = container::mount_rootfs(paths, spec.id, spec.layers)?;
-            // Archive reads and writes see persistent mounts even before the
-            // container first starts. Export still excludes their contents.
-            if spec.op != copy_op::EXPORT {
-                container::mount_copy_filesystems(&root, spec.mounts)?;
-            }
-            root
-        }
-    };
+/// Copy mounts belong only to the worker. The overlay already belongs to the
+/// agent and is shared with every copy and start holding a lease on this ID.
+fn enter_stopped(spec: &CopySpec<'_>, paths: &Paths) -> io::Result<()> {
+    // SAFETY: unshare changes only this worker's mount namespace.
+    sys::check(unsafe { libc::unshare(libc::CLONE_NEWNS) } as _, "unshare")?;
+    sys::remount(c"/", libc::MS_REC | libc::MS_PRIVATE)?;
+    let root = paths.containers.join(spec.id).join("rootfs");
+    if spec.op != copy_op::EXPORT {
+        container::mount_copy_filesystems(&root, spec.mounts)?;
+    }
     let c = sys::cstr(&root)?;
-    // SAFETY: valid NUL-terminated paths.
+    // A chroot alone would keep the worker's inherited mounts of unrelated
+    // container roots alive for the whole archive. Detach that old tree now;
+    // the broker keeps retirement barriers until this succeeds or we exit.
+    // SAFETY: valid paths in this worker's private mount namespace. The root
+    // is already an overlay mount, so it can become the namespace's root.
     unsafe {
-        sys::check(libc::chroot(c.as_ptr()) as _, "chroot")?;
+        sys::check(libc::chdir(c.as_ptr()) as _, "copy root")?;
+        sys::check(libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr()), "copy pivot_root")?;
+        sys::check(libc::umount2(c".".as_ptr(), libc::MNT_DETACH) as _, "copy detach old root")?;
         sys::check(libc::chdir(c"/".as_ptr()) as _, "chdir")?;
     }
     Ok(())

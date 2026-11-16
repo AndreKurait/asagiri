@@ -111,7 +111,6 @@ impl Process {
 #[derive(Debug)]
 struct Teardown {
     base: PathBuf,
-    rootfs: PathBuf,
     cgroup: PathBuf,
     remove: bool,
 }
@@ -253,21 +252,23 @@ fn finish_stdio(parent: ParentStdio, child: ChildStdio) -> io::Result<(Option<Ow
     }
 }
 
-pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<Process> {
+pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net: NetCtx<'_>) -> io::Result<Process> {
     if spec.argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command to run"));
     }
     let mut host = super::hostopts::parse(spec.opts)?;
-    let rootfs = mount_rootfs(paths, spec.id, spec.layers)?;
+    let rootfs = roots.acquire(paths, spec.id, spec.layers)?;
     let base = paths.containers.join(spec.id);
 
     let parent = if host.buildx_parent { paths.cgroup.join("docker/buildx") } else { paths.cgroup.clone() };
     let cgroup = parent.join(spec.id);
     let remove = spec.flags & run_flags::REMOVE != 0;
-    let undo = Teardown { base: base.clone(), rootfs: rootfs.clone(), cgroup: cgroup.clone(), remove };
+    let undo = Teardown { base: base.clone(), cgroup: cgroup.clone(), remove };
     // A restart that fails must not take the stopped container's files with it.
     let cleanup = |e: io::Error| {
-        undo_now(&undo, remove);
+        undo_now(&undo);
+        if remove { roots.remove(spec.id); }
+        roots.release(spec.id);
         e
     };
     // A previous run may have left sub-cgroups (Kubernetes, Docker in
@@ -454,7 +455,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
             ways_out: Vec::new(),
             macvlans: std::mem::take(&mut macvlans.0),
             netns,
-            teardown: Some(Teardown { base, rootfs, cgroup, remove }),
+            teardown: Some(Teardown { base, cgroup, remove }),
         })
     })();
     started.map_err(|error| {
@@ -471,9 +472,14 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, net: NetCtx<'_>) -> io::Result<P
         // A held namespace can outlive the failed child. Retire only this
         // attempt's unique links before another attach reuses its address.
         net::retire(&veths);
-        // The parent mounted the rootfs before cloning. A failed child has
-        // no Process teardown either; detach this attempt's mount and retain
-        // stopped-container data under the same policy as pre-clone errors.
+        // The rejected child is not in the process table. Reap it before
+        // releasing its root lease, just as the normal exit path does.
+        let mut status = 0;
+        loop {
+            // SAFETY: wait only for the child created by this failed spawn.
+            if unsafe { libc::waitpid(pid, &mut status, 0) } >= 0
+                || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted { break; }
+        }
         cleanup(error)
     })
 }
@@ -642,15 +648,22 @@ pub fn teardown_network(p: &Process, netns_shared: bool) {
 pub fn teardown(p: &Process, netns_shared: bool) {
     teardown_network(p, netns_shared);
     if let Some(t) = &p.teardown {
-        undo_now(t, t.remove);
+        undo_now(t);
     }
 }
 
-/// Keep network bookkeeping in the agent, but perform filesystem teardown in a
-/// child sharing its mount namespace. Even MNT_DETACH can wait for overlay
-/// writeback. The caller retains the container until this child is reaped so a
-/// restart cannot reuse paths while the child is unmounting/removing them.
+/// Keep network bookkeeping in the agent, but remove runtime files and cgroups
+/// in a child. Roots own overlay teardown separately, so copies can keep the
+/// filesystem alive across a container exit and restart.
 pub fn has_filesystem_teardown(p: &Process) -> bool { p.teardown.is_some() }
+
+/// Called exactly once after the container's process is reaped.
+pub fn release_root(p: &Process, roots: &super::roots::Roots) {
+    if let Some(t) = &p.teardown {
+        if t.remove { roots.remove(&p.id); }
+        roots.release(&p.id);
+    }
+}
 
 pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
     let t = p.teardown.as_ref()?;
@@ -677,13 +690,13 @@ pub fn begin_teardown(p: &Process) -> Option<libc::pid_t> {
         // Do not keep control sockets, container pipes or namespace FDs alive.
         // SAFETY: this affects only the child's descriptor table.
         unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0); }
-        undo_now(t, t.remove);
+        undo_now(t);
         // SAFETY: leave this fork without running the parent's destructors.
         unsafe { libc::_exit(0) }
     }
     if pid < 0 {
         eprintln!("asagiri-init: cleanup fork: {}; cleaning synchronously", io::Error::last_os_error());
-        undo_now(t, t.remove);
+        undo_now(t);
         None
     } else {
         Some(pid)
@@ -722,15 +735,11 @@ fn remove_cgroup(dir: &std::path::Path) {
     let _ = fs::remove_dir(dir);
 }
 
-fn undo_now(t: &Teardown, remove_files: bool) {
-    let _ = sys::umount_lazy(&t.rootfs);
+fn undo_now(t: &Teardown) {
     if let Some(id) = t.base.file_name() {
         let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
     }
     remove_cgroup(&t.cgroup);
-    if remove_files {
-        let _ = fs::remove_dir_all(&t.base);
-    }
 }
 
 /// Deletes a stopped container's directory (its writable layer).
@@ -757,7 +766,7 @@ pub fn remove_volume(name: &str) {
 pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
     valid_id(id)?;
     let base = paths.containers.join(id);
-    let _ = sys::umount_lazy(&base.join("rootfs"));
+    unmount_root(&base.join("rootfs"))?;
     match fs::remove_dir_all(base) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
@@ -767,7 +776,7 @@ pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
 /// Explicit removal can block on unmount or recursive deletion after normal
 /// process-exit cleanup. Keep it out of the single-threaded control loop too.
 /// The agent reserves this ID and reaps this worker before permitting reuse.
-pub fn begin_remove(paths: &Paths, id: &str) -> io::Result<libc::pid_t> {
+pub fn begin_root_cleanup(paths: &Paths, id: &str, remove_files: bool) -> io::Result<libc::pid_t> {
     valid_id(id)?;
     // SAFETY: follows begin_teardown's fork model in the agent. The child
     // shares the mount namespace, closes inherited descriptors, and never
@@ -785,7 +794,8 @@ pub fn begin_remove(paths: &Paths, id: &str) -> io::Result<libc::pid_t> {
             }
             libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
         }
-        let code = match remove(paths, id) {
+        let result = if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) };
+        let code = match result {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("asagiri-init: remove {id}: {error}");
@@ -798,6 +808,40 @@ pub fn begin_remove(paths: &Paths, id: &str) -> io::Result<libc::pid_t> {
     if pid < 0 { Err(io::Error::last_os_error()) } else { Ok(pid) }
 }
 
+/// A lazy detach would let the next mount overlap an overlay still in use.
+/// Leave busy roots reserved and retry from the asynchronous worker queue.
+fn unmount_root(path: &Path) -> io::Result<()> {
+    // An unmounted directory can also be removed by an unprivileged caller
+    // (including ordinary unit tests). Fail closed if mountinfo cannot be
+    // read; never treat a permission error from umount as successful cleanup.
+    let path = match fs::canonicalize(path) {
+        Ok(path) => path,
+        Err(error) if matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let mut escaped = Vec::new();
+    for byte in path.as_os_str().as_bytes() {
+        match byte {
+            b' ' => escaped.extend_from_slice(b"\\040"),
+            b'\t' => escaped.extend_from_slice(b"\\011"),
+            b'\n' => escaped.extend_from_slice(b"\\012"),
+            b'\\' => escaped.extend_from_slice(b"\\134"),
+            byte => escaped.push(*byte),
+        }
+    }
+    let info = fs::read("/proc/self/mountinfo")?;
+    if !info.split(|b| *b == b'\n').any(|line| line.split(|b| *b == b' ').nth(4) == Some(&escaped[..])) {
+        return Ok(());
+    }
+    let path = sys::cstr(&path)?;
+    // SAFETY: a NUL-terminated path in our mount namespace.
+    if unsafe { libc::umount2(path.as_ptr(), 0) } == 0 { return Ok(()); }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ENOENT | libc::EINVAL) => Ok(()),
+        _ => Err(error),
+    }
+}
 /// Linux host: what a previous agent that died without cleaning up (killed,
 /// or its machine's daemon killed with it) left of this data directory's
 /// containers under `cgroup`: their processes are killed, their mounts,
@@ -1931,7 +1975,7 @@ fn find_executable(p: &Prepared) -> Option<CString> {
 
 #[cfg(test)]
 mod removal_tests {
-    use super::{Paths, begin_remove, remove};
+    use super::{Paths, begin_root_cleanup, remove};
     use std::fs;
     use std::os::unix::fs::DirBuilderExt;
     use std::path::PathBuf;
@@ -1982,7 +2026,7 @@ mod removal_tests {
         let outside = f.root.join("outside");
         fs::write(&outside, b"keep").unwrap();
         assert_eq!(remove(&f.paths, "../outside").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
-        assert!(begin_remove(&f.paths, "../outside").is_err());
+        assert!(begin_root_cleanup(&f.paths, "../outside", true).is_err());
         assert_eq!(fs::read(outside).unwrap(), b"keep");
     }
 }

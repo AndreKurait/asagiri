@@ -40,7 +40,7 @@ pub fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream) -> Option<
                     ("POST", "unpause") => reply(w, engine.pause(id, false).map(|()| Value::Null), 204),
                     ("POST", "rename") => reply(w, engine.rename(id, req.query("name").unwrap_or_default()).map(|()| Value::Null), 204),
                     ("POST", "update") => reply(w, update(req, engine, id), 200),
-                    ("GET", "changes") => reply(w, changes(engine, id), 200),
+                    ("GET", "changes") => changes_reply(w, changes(engine, id)),
                     ("GET", "export") => export(engine, id, w),
                     _ => return None,
                 });
@@ -184,6 +184,16 @@ fn layer_job(engine: &Engine, key: &str, op: u8) -> Result<(asagiri_vmm::VsockSt
 }
 
 /// `docker diff`: Kind 0 changed, 1 added, 2 deleted.
+fn changes_reply(w: &mut UnixStream, result: Result<Value, Error>) -> io::Result<Next> {
+    // Docker encodes an empty diff as JSON null. The ordinary reply helper
+    // uses Null for bodyless mutations, which is not a valid JSON response.
+    match result {
+        Ok(value) => http::json(w, 200, &value.to_string())?,
+        Err(e) => error(w, e)?,
+    }
+    Ok(Next::KeepAlive)
+}
+
 fn changes(engine: &Engine, key: &str) -> Result<Value, Error> {
     let (_stream, mut f) = layer_job(engine, key, asagiri_proto::copy_op::DIFF)?;
     let mut text = String::new();
@@ -683,6 +693,48 @@ fn events(req: &Request, engine: &Engine, w: &mut UnixStream) -> io::Result<Next
     }
     http::end(w)?;
     Ok(Next::KeepAlive)
+}
+
+#[cfg(test)]
+mod changes_reply_tests {
+    use super::*;
+
+    fn response(value: Result<Value, Error>) -> (u16, Value) {
+        let (mut writer, mut reader) = UnixStream::pair().unwrap();
+        changes_reply(&mut writer, value).unwrap();
+        drop(writer);
+        let mut wire = String::new();
+        reader.read_to_string(&mut wire).unwrap();
+        let (headers, body) = wire.split_once("\r\n\r\n").unwrap();
+        assert!(headers.contains("\r\nContent-Type: application/json\r\n"));
+        assert!(headers.lines().any(|line| line == format!("Content-Length: {}", body.len())));
+        let status = headers.split_whitespace().nth(1).unwrap().parse().unwrap();
+        (status, serde_json::from_str(body).unwrap())
+    }
+
+    #[test]
+    fn empty_changes_has_a_json_body() {
+        assert_eq!(response(Ok(Value::Null)), (200, Value::Null));
+    }
+
+    #[test]
+    fn populated_changes_preserve_paths_and_kinds() {
+        let changes = json!([{"Path": "/tmp/proof", "Kind": 1}]);
+        assert_eq!(response(Ok(changes.clone())), (200, changes));
+    }
+
+    #[test]
+    fn failed_changes_preserve_error_status_and_message() {
+        for (error, status, message) in [
+            (Error::NotFound("missing container".into()), 404, "missing container"),
+            (Error::BadRequest("invalid request".into()), 400, "invalid request"),
+            (Error::Io(io::Error::other("copy failed")), 500, "copy failed"),
+        ] {
+            let (actual, body) = response(Err(error));
+            assert_eq!(actual, status);
+            assert_eq!(body, json!({"message": message}));
+        }
+    }
 }
 
 #[cfg(test)]

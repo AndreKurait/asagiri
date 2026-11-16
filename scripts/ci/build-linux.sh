@@ -50,6 +50,7 @@ fi
     }
     clean_workspace
     if [ "$mode" = tests ]; then
+      export ASAGIRI_REQUIRE_SHARED_ROOT_TEST=1
       export ASAGIRI_REQUIRE_MOUNTED_FILE_VIEW_TEST=1
       export ASAGIRI_REQUIRE_MANY_LAYER_TEST=1
       export ASAGIRI_REQUIRE_VOLUME_OWNER_TEST=1

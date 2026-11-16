@@ -33,3 +33,7 @@ harness = false
 [[test]]
 name = "clock-read"
 harness = false
+
+[[test]]
+name = "shared-root-process"
+harness = false
