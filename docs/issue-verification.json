@@ -1477,7 +1477,7 @@
         "scripts/ci/build-linux.sh",
         "docs/verification/public-followup-local-2026-11-16.json"
       ],
-      "remaining": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because Linux asagiri import is Docker rootfs import. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout.",
+      "remaining": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because bare Linux `asagiri import` is unsupported; rootfs import is `asagiri image import`. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout.",
       "issue": 345,
       "title": "kiri import copies a volume while a running container is writing to it, and reports done",
       "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814"
