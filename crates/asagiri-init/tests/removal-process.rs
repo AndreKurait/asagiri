@@ -3,6 +3,11 @@
 //! Exercise the actual agent modules without starting an agent or container.
 
 #[cfg(target_os = "linux")]
+#[path = "../src/layer_tar.rs"]
+#[allow(dead_code, unused_imports)] // This harness only runs removal, but includes the agent's layer code.
+mod layer_tar;
+
+#[cfg(target_os = "linux")]
 #[allow(dead_code)] // Other included agent entrypoints are not run by this test.
 #[expect(unused_imports, reason = "harness=false keeps cfg(test) modules but omits their libtest bodies")]
 mod linux {
