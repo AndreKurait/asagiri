@@ -797,6 +797,10 @@ fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
     running_pid(procs, id).map(|pid| std::path::PathBuf::from(format!("/proc/{pid}/root")))
 }
 
+#[cfg(test)]
+#[path = "agent_files_tests.rs"]
+mod files_view_tests;
+
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
     Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, exit_announced: false }
 }
