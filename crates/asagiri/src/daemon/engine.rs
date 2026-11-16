@@ -1165,16 +1165,22 @@ impl Engine {
         let _ = std::thread::Builder::new().name("asagiri-sleeper".into()).spawn(move || loop {
             std::thread::sleep(Duration::from_secs(5));
             let Some(engine) = me.upgrade() else { return };
+            // Native BuildKit connections have no dial-stdio exec to count.
+            // Keep admission excluded through pausing, stopping and VM sleep;
+            // a new connection resumes or starts its backend after this guard.
+            let Some(_builder_idle) = super::builder::idle_guard() else { continue };
             let quiet_for = now_secs().saturating_sub(engine.last_activity.load(std::sync::atomic::Ordering::Relaxed));
+            let managed = super::builder::container_name();
             // BuildKit containers (buildx's docker-container driver) run until
             // paused, which keeps the VM's state without using CPU. Between
-            // builds they are paused; the next build resumes them.
+            // builds they are paused; the next build resumes them. The managed
+            // backend has its own watch, using its settings and last build time.
             let idle_builders: Vec<String> = {
                 let st = engine.lock();
                 let building = st.execs.values().any(|e| e.running);
                 let running: Vec<&Container> = st.containers.values().filter(|c| c.status == Status::Running).collect();
-                if !building && quiet_for >= builder_idle && !running.is_empty() && running.iter().all(|c| is_builder(c)) {
-                    running.iter().filter(|c| !c.paused).map(|c| c.id.clone()).collect()
+                if builder_idle != 0 && !building && quiet_for >= builder_idle && !running.is_empty() && running.iter().all(|c| is_builder(c)) {
+                    running.iter().filter(|c| !c.paused && c.name != managed).map(|c| c.id.clone()).collect()
                 } else {
                     Vec::new()
                 }
