@@ -28,6 +28,8 @@ use super::api::{self, Next};
 use super::engine::{Engine, Error, ExecConfig, Status};
 use super::http::{self, Request};
 
+mod parents;
+
 /// The image buildx's docker-container driver runs, by the tag it uses: an
 /// image already pulled under it is used as it is.
 pub const IMAGE: &str = "moby/buildkit:buildx-stable-1";
@@ -793,6 +795,7 @@ impl Options {
         }
         // An image archive on stdout, which the daemon loads into Asagiri's
         // store; the names are quoted, the CSV way, since there may be several.
+        a.extend(["--ref-file".into(), format!("{dir}/build.ref")]);
         a.push("--output".into());
         a.push(if self.tags.is_empty() { "type=docker,dest=-".into() } else { format!("type=docker,\"name={}\",dest=-", self.tags.join(",")) });
         a
@@ -971,7 +974,11 @@ fn run(req: &Request, engine: &Engine, o: &mut Options, r: &mut BufReader<UnixSt
         if o.remote.is_none() {
             send_context(engine, &id, &dir, req, r, o)?;
         }
-        buildctl(engine, &id, &dir, o, env, out, probe)
+        let images = buildctl(engine, &id, &dir, o, env, out, probe)?;
+        // Classic Docker builds leave their resolved parents inspectable too.
+        // The separate BuildKit store is not the Engine's image store.
+        parents::register(engine, &id, &dir, req, o, &images)?;
+        Ok(images)
     })();
     let _ = engine.exec_capture(&id, &["rm", "-rf", &dir]);
     built
