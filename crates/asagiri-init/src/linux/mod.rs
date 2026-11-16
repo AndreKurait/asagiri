@@ -10,6 +10,7 @@ mod inroot;
 mod layers;
 mod net;
 mod netlink;
+mod overlay;
 mod pid1;
 mod relay;
 mod removal;
