@@ -13,6 +13,9 @@ name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
+docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull alpine:3.21 >/dev/null || exit 2
+python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
@@ -44,7 +47,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive)
+    failed-start-veth|remove-responsive|volume-owner)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -67,6 +70,7 @@ run image-label-inheritance
 run image-inspect-healthcheck
 run image-rootfs-digests alpine:3.21
 run image-load-completion
+run volume-owner alpine:3.21
 run image-tag-retention alpine:3.21
 run layer-concurrency
 run container-addresses
