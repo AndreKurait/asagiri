@@ -32,6 +32,7 @@ python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 -
 python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
 python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
+python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
@@ -64,7 +65,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options|start-exec-image-user|daemon-time|image-order)
+    failed-start-veth|remove-responsive|volume-owner|shared-root|run-options|start-exec-image-user|daemon-time|image-order|healthchecks)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -91,6 +92,7 @@ run image-order
 run image-label-inheritance
 run many-layers alpine:3.21
 run image-inspect-healthcheck
+run healthchecks alpine:3.21
 run image-rootfs-digests alpine:3.21
 run layer-hardlinks
 run image-load-completion
