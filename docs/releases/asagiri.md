@@ -1,5 +1,12 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.11 changes include:
+
+- Removing a volume detaches its name before an owned background worker
+  reclaims its files, keeping unrelated exec and DNS requests responsive.
+  A replacement volume with the same name stays intact, and interrupted
+  reclamation resumes when the agent starts again.
+
 The 0.1.10 changes include:
 
 - Unix API listener failures, including file-descriptor exhaustion, wait
