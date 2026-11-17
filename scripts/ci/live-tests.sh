@@ -79,7 +79,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|healthchecks|compose-health)
+    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -143,6 +143,7 @@ run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent
 run remove-cleanup-retry alpine:3.21
 run remove-responsive alpine:3.21
+run volume-remove-responsive alpine:3.21
 run api-connections alpine:3.21 --capacity 512 --connection-limit 2048
 run archive-completion alpine:3.21
 run shared-root alpine:3.21

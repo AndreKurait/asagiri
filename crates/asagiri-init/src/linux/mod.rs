@@ -27,6 +27,7 @@ mod trim;
 mod usb;
 mod usage;
 mod volmount;
+mod volumes;
 
 use std::fs::File;
 use std::io::{self, Read, Write};
