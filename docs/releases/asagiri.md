@@ -1,5 +1,12 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.10 changes include:
+
+- Unix API listener failures, including file-descriptor exhaustion, wait
+  100ms between retries and log at most one warning every five seconds.
+  SIGINT and SIGTERM cancel a pending retry delay while the existing
+  shutdown thread finishes guest cleanup before the engine exits.
+
 The 0.1.9 changes include:
 
 - `--pid=host` containers share the Linux engine's PID namespace, including
