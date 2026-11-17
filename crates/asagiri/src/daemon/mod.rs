@@ -98,7 +98,7 @@ fn raise_open_files() {
 }
 
 fn connection_limit(value: Option<&str>) -> io::Result<usize> {
-    let Some(value) = value else { return Ok(256) };
+    let Some(value) = value else { return Ok(2048) };
     if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
         if let Ok(limit @ 1..=4096) = value.parse::<usize>() {
             return Ok(limit);
@@ -476,8 +476,8 @@ mod connection_limit_tests {
 
     #[test]
     fn bounds_and_default_are_explicit() {
-        assert_eq!(connection_limit(None).unwrap(), 256);
-        for value in ["1", "256", "1024", "4096"] {
+        assert_eq!(connection_limit(None).unwrap(), 2048);
+        for value in ["1", "256", "1024", "2048", "4096"] {
             assert_eq!(connection_limit(Some(value)).unwrap(), value.parse::<usize>().unwrap());
         }
         for value in ["", "0", "4097", "-1", "+1", " 256", "256 ", "unlimited", "184467440737095516160"] {
