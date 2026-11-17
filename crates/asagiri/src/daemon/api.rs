@@ -2413,7 +2413,7 @@ fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
     let id = engine.resolve(key)?;
     let networks: Vec<super::network::Network> = engine.lock_net().all().to_vec();
     let health = engine.health(&id);
-    engine.with(&id, |c| {
+    engine.inspect(&id, |c| {
         let mut v = inspect(c, &networks);
         v["NetworkSettings"]["Networks"] = endpoints(c, &networks);
         // The old top-level fields describe the default bridge only.

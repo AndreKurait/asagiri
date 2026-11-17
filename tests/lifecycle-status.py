@@ -4,6 +4,7 @@ import http.client
 import json
 import socket
 import sys
+import threading
 import time
 
 
@@ -38,13 +39,51 @@ def check(path, image):
                              {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": "none"}})
         cid = created["Id"]
         owned.append(cid)
-        for _ in range(10):
+        done = threading.Event()
+        ready = threading.Barrier(5)
+        inspected = []
+        failures = []
+
+        def inspect_while_starting():
+            try:
+                ready.wait(timeout=10)
+                while not done.is_set():
+                    _, value = request("GET", "/containers/" + cid + "/json", (200,))
+                    state = value["State"]
+                    # Docker's automatic restart backoff legitimately has
+                    # Running=true, Restarting=true and Pid=0.
+                    assert not state["Running"] or state["Restarting"] or state["Pid"] > 0, state
+                    inspected.append(state["Status"])
+            except Exception as error:
+                failures.append(error)
+
+        observers = [threading.Thread(target=inspect_while_starting) for _ in range(4)]
+        for observer in observers:
+            observer.start()
+        try:
+            ready.wait(timeout=10)
+            for _ in range(10):
+                request("POST", "/containers/" + cid + "/start", (204,))
+                request("POST", "/containers/" + cid + "/start", (304,))
+                request("POST", "/containers/" + cid + "/stop?t=0", (204,))
+                _, state = request("GET", "/containers/" + cid + "/json", (200,))
+                assert not state["State"]["Running"], state["State"]
+                request("POST", "/containers/" + cid + "/stop?t=0", (304,))
             request("POST", "/containers/" + cid + "/start", (204,))
-            request("POST", "/containers/" + cid + "/start", (304,))
+            for _ in range(10):
+                request("POST", "/containers/" + cid + "/restart?t=0", (204,))
+                _, value = request("GET", "/containers/" + cid + "/json", (200,))
+                assert value["State"]["Running"] and value["State"]["Pid"] > 0, value["State"]
             request("POST", "/containers/" + cid + "/stop?t=0", (204,))
-            _, state = request("GET", "/containers/" + cid + "/json", (200,))
-            assert not state["State"]["Running"], state["State"]
-            request("POST", "/containers/" + cid + "/stop?t=0", (304,))
+        finally:
+            done.set()
+            for observer in observers:
+                observer.join(timeout=15)
+            assert not any(observer.is_alive() for observer in observers), "inspect did not return after start completed"
+        if failures:
+            raise failures[0]
+        assert inspected and "running" in inspected, inspected
+        print("PASS %d concurrent inspections across starts, stops and ten same-ID restarts" % len(inspected), flush=True)
         print("PASS ten start/stop cycles and immediate exit inspection", flush=True)
         for _ in range(3):
             _, created = request("POST", "/containers/create", (201,),
