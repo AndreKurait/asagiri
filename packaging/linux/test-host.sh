@@ -42,6 +42,17 @@ engine_ready() {
   return 1
 }
 
+# Called only after this test has started the packaged engine.
+# shellcheck disable=SC2329
+service_task_policy() {
+  local group
+  [ "$(systemctl show -p Delegate --value asagiri)" = yes ] || return 1
+  [ "$(systemctl show -p TasksMax --value asagiri)" = infinity ] || return 1
+  group=$(systemctl show -p ControlGroup --value asagiri) || return 1
+  [ -n "$group" ] && [ "$group" != / ] || return 1
+  [ "$(cat "/sys/fs/cgroup$group/pids.max")" = max ]
+}
+
 # Passed as check_command's command, without eval.
 # shellcheck disable=SC2329
 reinstall_running_engine() { # format package
@@ -136,6 +147,7 @@ host_test() { # name full(0|1)
     *) bad "host-access failed (status $access_status)"; tail -4 "$log" ;;
   esac
   check "host-access starts the engine and adds the account to the asagiri group" "systemctl is-enabled -q asagiri && systemctl is-active -q asagiri && id -nG asagiri-acl-test | grep -qw asagiri"
+  check_command "service delegates container tasks without an aggregate task ceiling" service_task_policy
   for _ in $(seq 30); do [ -S /run/asagiri/docker.sock ] && break; sleep 1; done
   check "socket /run/asagiri/docker.sock, group asagiri, mode 660" "test -S /run/asagiri/docker.sock && stat -c '%G %a' /run/asagiri/docker.sock | grep -q '^asagiri 660'"
   check "an account without host-access is refused" "! setpriv --reuid=asagiri-acl-other --regid=asagiri-acl-other --clear-groups curl -fs --unix-socket /run/asagiri/docker.sock http://asagiri/_ping"
