@@ -163,6 +163,14 @@ including when no data is flowing. For larger fleets, set the daemon's startup
 4096, for example `ASAGIRI_MAX_CONNECTIONS=4096`. Invalid values fail startup.
 Changing it requires restarting the daemon; it does not change socket access.
 
+The Linux and WSL systemd services set `TasksMax=infinity`: their cgroups
+include container threads as well as the daemon. `docker run --pids-limit`
+still limits an individual container. Parent cgroup limits, including an
+operator's fleet unit or slice, still apply; inspect `TasksCurrent`,
+`TasksMax` and `EffectiveTasksMax` with `systemctl show` when thread or
+process creation fails with `EAGAIN`. Connection capacity does not raise a
+cgroup task limit.
+
 On an otherwise idle test daemon, `tests/api-connections.py SOCKET IMAGE
 --capacity 512 --connection-limit 2048 --only-capacity` holds mixed idle
 keepalive and wait connections while checking ping and container inspection.

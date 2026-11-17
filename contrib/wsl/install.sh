@@ -19,6 +19,8 @@ ExecStart=/usr/local/bin/asagiri daemon
 Environment=HOME=/var/lib/asagiri-daemon
 Environment=ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
 Delegate=yes
+# Container threads share this unit's budget; use per-container PID limits.
+TasksMax=infinity
 KillMode=mixed
 Restart=on-failure
 UMask=0027
