@@ -3,11 +3,12 @@
 //! `--group-add` and `--pid`. They are kept as the API gave them (for inspect), checked
 //! at create with Docker's errors, and handed to the guest at every start as
 //! the `opts` lines of `Run` and `Exec` (see [`asagiri_proto::RunSpec::opts`]).
+//! `Tmpfs` is also retained for inspect; the mount records apply its options.
 
 use serde_json::{Value, json};
 
 /// The HostConfig keys kept with a container.
-const KEYS: [&str; 7] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode"];
+const KEYS: [&str; 8] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode", "Tmpfs"];
 
 /// `nofile` when the run sets none: what containers get on Docker Desktop
 /// and on Docker Engine under containerd's `LimitNOFILE=infinity`. Without
@@ -299,6 +300,18 @@ fn sysctl(key: &str, net_host: bool) -> Result<(&'static str, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tmpfs_inspection_options_survive_persistence_without_duplicate_guest_options() {
+        let tmpfs = json!({"/tmp": "rw,nosuid,size=256m", "/scratch": ""});
+        let saved = serde_json::to_vec(&from_host(&json!({"Tmpfs": tmpfs}))).unwrap();
+        let loaded: Value = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(inspect(&loaded, "Tmpfs"), tmpfs);
+        // The mount records already apply these options. Retaining the API
+        // map must not add a second set of Run/Exec options for the guest.
+        assert_eq!(guest_lines(&loaded, false).unwrap(), guest_lines(&Value::Null, false).unwrap());
+        assert_eq!(inspect(&from_host(&json!({})), "Tmpfs"), Value::Null);
+    }
 
     #[test]
     fn host_pid_is_preserved_and_encoded() {

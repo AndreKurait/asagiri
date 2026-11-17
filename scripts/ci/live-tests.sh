@@ -39,6 +39,7 @@ python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
 python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+python3 "$src/tests/tmpfs-inspect.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
 python3 "$src/tests/network-dns-order.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
@@ -77,7 +78,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|healthchecks|compose-health)
+    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -109,6 +110,7 @@ run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
 run run-options alpine:3.21
 run host-pid alpine:3.21
+run tmpfs-inspect alpine:3.21
 run start-exec-image-user alpine:3.21
 run daemon-time
 run distribution
@@ -185,6 +187,7 @@ restart_engine() {
   docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --prepare-restart /tmp/image-label-restart.json || return 1
   docker exec "$name" python3 /src/tests/image-tag-retention.py "$sock" alpine:3.21 --prepare-restart /tmp/image-retention-restart.json || return 1
   docker exec "$name" python3 /src/tests/start-error.py "$sock" alpine:3.21 --prepare-restart /tmp/start-error-restart.json || return 1
+  docker exec "$name" python3 /src/tests/tmpfs-inspect.py "$sock" alpine:3.21 --prepare-restart /tmp/tmpfs-restart.json || return 1
   before=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   docker restart -t 5 "$name" >/dev/null || return 1
   i=0
@@ -194,6 +197,7 @@ restart_engine() {
   docker exec "$name" python3 /src/tests/image-label-inheritance.py "$sock" --verify-restart /tmp/image-label-restart.json || return 1
   docker exec "$name" python3 /src/tests/image-tag-retention.py "$sock" --verify-restart /tmp/image-retention-restart.json || return 1
   docker exec "$name" python3 /src/tests/start-error.py "$sock" --verify-restart /tmp/start-error-restart.json || return 1
+  docker exec "$name" python3 /src/tests/tmpfs-inspect.py "$sock" --verify-restart /tmp/tmpfs-restart.json || return 1
   after=$(docker inspect --format '{{.State.Pid}}' "$name") || return 1
   [ "$before" != "$after" ] || return 1
   docker exec -e "EXPECTED_ENGINE_ID=$engine_id" "$name" python3 /src/tests/engine-identity.py "$sock" || return 1
