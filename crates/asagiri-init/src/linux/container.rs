@@ -800,21 +800,6 @@ fn undo_now(t: &Teardown) -> io::Result<()> {
 /// Where volumes live: `<name>/_data` under it.
 pub const VOLUMES: &str = "/var/lib/asagiri/volumes";
 
-pub fn remove_volume(name: &str) {
-    // Docker's rule for volume names: [a-zA-Z0-9][a-zA-Z0-9_.-]*
-    let valid = name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b));
-    if valid {
-        // An NFS export or a host folder mounted there is not the volume's
-        // to delete: unmount it first, and keep everything if that fails.
-        let data = format!("/var/lib/asagiri/volumes/{name}/_data");
-        if !super::volmount::release(&data) {
-            eprintln!("asagiri-init: volume {name}: {data} is still mounted, not deleting it");
-            return;
-        }
-        let _ = fs::remove_dir_all(PathBuf::from(VOLUMES).join(name));
-    }
-}
 
 pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
     valid_id(id)?;
@@ -831,6 +816,14 @@ pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
 /// The agent reserves this ID and reaps this worker before permitting reuse.
 pub fn begin_root_cleanup(paths: &Paths, id: &str, remove_files: bool) -> io::Result<libc::pid_t> {
     valid_id(id)?;
+    begin_cleanup(|| stop_cgroups(&paths.cgroup, id).and_then(|()| {
+        let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
+        if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) }
+    }))
+}
+
+/// One owned filesystem worker; its caller must reap it before reuse or exit.
+pub(super) fn begin_cleanup(action: impl FnOnce() -> io::Result<()>) -> io::Result<libc::pid_t> {
     // SAFETY: follows begin_teardown's fork model in the agent. The child
     // shares the mount namespace, closes inherited descriptors, and never
     // runs parent destructors or survives a replacement agent.
@@ -847,14 +840,11 @@ pub fn begin_root_cleanup(paths: &Paths, id: &str, remove_files: bool) -> io::Re
             }
             libc::prctl(libc::PR_SET_NAME, c"asagiri-remove".as_ptr());
         }
-        let result = stop_cgroups(&paths.cgroup, id).and_then(|()| {
-            let _ = fs::remove_dir_all(PathBuf::from("/run/asagiri").join(id));
-            if remove_files { remove(paths, id) } else { unmount_root(&paths.containers.join(id).join("rootfs")) }
-        });
+        let result = action();
         let code = match result {
             Ok(()) => 0,
             Err(error) => {
-                eprintln!("asagiri-init: remove {id}: {error}");
+                eprintln!("asagiri-init: filesystem cleanup: {error}");
                 1
             }
         };

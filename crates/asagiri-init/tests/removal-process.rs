@@ -104,6 +104,36 @@ mod linux {
         assert_eq!(run_worker(&mut removals, &paths, now + Duration::from_secs(1)), 0);
         assert!(removals.is_empty());
         assert!(!base.exists());
+        // Reclaim a real volume tree in the worker while immediately reusing
+        // its public name. Only the detached old tree may disappear.
+        let volume_root = fixture.0.join("volumes");
+        std::fs::create_dir_all(volume_root.join("reuse/_data")).unwrap();
+        for i in 0..1000 {
+            std::fs::write(volume_root.join(format!("reuse/_data/{i}")), b"old").unwrap();
+        }
+        let mut volumes = volumes::Volumes::new(&volume_root).unwrap();
+        volumes.remove("reuse").unwrap();
+        std::fs::create_dir_all(volume_root.join("reuse/_data")).unwrap();
+        std::fs::write(volume_root.join("reuse/_data/new"), b"new").unwrap();
+        volumes.start(Instant::now());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut status = 0;
+            // SAFETY: the root worker above was reaped; this is the only child.
+            let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+            if pid > 0 {
+                let code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 1 };
+                assert!(volumes.reaped(pid, code, Instant::now()));
+                assert_eq!(code, 0);
+                break;
+            }
+            assert!(pid >= 0, "volume worker disappeared");
+            assert!(Instant::now() < deadline, "volume worker timed out");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(std::fs::read(volume_root.join("reuse/_data/new")).unwrap(), b"new");
+        assert_eq!(std::fs::read_dir(&volume_root).unwrap().count(), 1);
+        println!("PASS volume-process: asynchronous reclamation preserves a recreated volume");
         single_thread();
         let mut status = 0;
         // SAFETY: this process owns every child; unlike proc's children
