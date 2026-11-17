@@ -1,5 +1,21 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.9 changes include:
+
+- `--pid=host` containers share the Linux engine's PID namespace, including
+  its VM or WSL environment on desktop hosts. They retain private mounts
+  and per-container resource limits; adopted processes are reaped and
+  cleanup targets the container's own cgroup.
+- Container inspection preserves the original `HostConfig.Tmpfs` options
+  across container and daemon restarts. Options discarded when a container
+  was created by an older version cannot be reconstructed.
+- Container `ancestor` filters resolve tags and aliases to image IDs, so
+  they find containers created by ID and follow a tag's current target.
+  Unique ID abbreviations work with or without `sha256:`; ambiguous IDs
+  are rejected and exact image names retain precedence.
+- Linux package activation tests verify the installed service's delegation
+  and unlimited task policy against systemd and the cgroup PID controller.
+
 The 0.1.8 changes include:
 
 - Linux package, manual Linux and WSL systemd services explicitly set

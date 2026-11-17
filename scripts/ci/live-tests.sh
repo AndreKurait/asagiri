@@ -12,6 +12,7 @@ src=$(cd "$(dirname "$0")/../.." && pwd)
 python3 "$src/tests/ci-engine-import.py" || exit 1
 # Run the same archive cases on the runner's Docker engine for comparison.
 python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
+python3 "$src/tests/container-ancestor.py" /var/run/docker.sock --reference-docker || exit 1
 # Establish Docker's allowed serialization behavior before testing the private
 # Asagiri build. The fixture itself never pulls or touches unowned containers.
 docker image inspect alpine:3.21 >/dev/null 2>&1 || docker pull -q alpine:3.21 >/dev/null || exit 2
@@ -117,6 +118,7 @@ run distribution
 run image-digest-export
 run image-remove alpine:3.21
 run image-order
+run container-ancestor
 run top-arguments alpine:3.21
 run image-label-inheritance
 run many-layers alpine:3.21

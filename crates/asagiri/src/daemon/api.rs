@@ -2452,6 +2452,17 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
     if let Some(bad) = f.values("health").and_then(|v| v.iter().find(|v| !super::health::valid_filter(v))) {
         return Err(Error::BadRequest(format!("Unrecognised filter value for health: {bad}")));
     }
+    // Resolve tags and aliases to the image used by the container. A client
+    // can create by ID, and a tag may have moved since another container was
+    // created; the original spelling is not the current image identity.
+    let mut ancestors = std::collections::HashSet::new();
+    if let Some(names) = f.values("ancestor") {
+        for name in names {
+            if let Some(image) = engine.image(name)? {
+                ancestors.insert(image.config_digest);
+            }
+        }
+    }
     let health = engine.health_statuses();
     // A status filter lists stopped containers without --all, as Docker does.
     let all = req.flag("all") || f.values("status").is_some() || f.values("exited").is_some();
@@ -2466,7 +2477,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
             && f.labels(&labels)
             && f.any("status", |v| v == state_word(c))
             && f.any("exited", |v| c.status == Status::Exited && v.parse() == Ok(c.exit_code))
-            && f.any("ancestor", |v| reference_matches(v, &c.spec.image) || c.spec.image == v || c.spec.image_id.trim_start_matches("sha256:").starts_with(v.trim_start_matches("sha256:")))
+            && (f.values("ancestor").is_none() || ancestors.contains(&c.spec.image_id))
             && f.any("network", |v| networks.iter().any(|n| (n.name == v || n.id.starts_with(v))
                 && (n.name == c.spec.network_mode || n.id == c.spec.network_mode
                     || (c.spec.network_mode == "default" && n.name == "bridge")
@@ -4226,7 +4237,7 @@ mod tests {
         assert_eq!(listed("localhost:5000/*"), ["localhost:5000/app:latest"]);
         assert_eq!(listed("registry.example.com:5000/team/app"), ["registry.example.com:5000/team/app:1"]);
         assert!(listed("localhost:5000/other").is_empty());
-        // `docker ps --filter ancestor=`: the image as it was typed at create.
+        // Reference spelling retains an explicit registry port and tag.
         assert!(reference_matches("localhost:5000/app:latest", "localhost:5000/app"));
         assert!(reference_matches("localhost:5000/app", "localhost:5000/app"));
         assert!(!reference_matches("localhost:5000/app:2", "localhost:5000/app"));
