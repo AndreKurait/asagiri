@@ -108,6 +108,7 @@ run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
 run run-options alpine:3.21
+run host-pid alpine:3.21
 run start-exec-image-user alpine:3.21
 run daemon-time
 run distribution

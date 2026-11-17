@@ -1,6 +1,7 @@
 //! HostConfig settings applied when a container starts, from the `opts`
 //! lines of `Run` and `Exec`: resource limits (`--ulimit`), sysctls,
-//! devices and device rules, and supplementary groups (`--group-add`). The
+//! devices and device rules, supplementary groups (`--group-add`) and PID
+//! namespace selection (`--pid`). The
 //! daemon has checked them already; this side refuses anything malformed
 //! rather than trusting it.
 
@@ -56,6 +57,8 @@ pub struct Node {
 #[derive(Debug, Default)]
 pub struct HostOpts {
     pub seccomp: Option<String>,
+    /// Share the agent's PID namespace; false creates a private one.
+    pub pid_host: bool,
     /// Buildx's shared parent, inside Asagiri's delegated cgroup tree.
     pub buildx_parent: bool,
     /// (RLIMIT_* resource, soft, hard); u64::MAX is unlimited.
@@ -77,6 +80,7 @@ pub fn parse(list: StrList<'_>) -> io::Result<HostOpts> {
         let f: Vec<&str> = line.split('\t').collect();
         match f.as_slice() {
             ["seccomp", profile] => o.seccomp = Some((*profile).into()),
+            ["pid-mode", "host"] if !o.pid_host => o.pid_host = true,
             ["cgroup-parent", "/docker/buildx"] => o.buildx_parent = true,
             ["rlimit", res, soft, hard] => {
                 let n = |s: &str| s.parse::<u64>().map_err(|_| bad(line));
@@ -403,6 +407,21 @@ mod tests {
         add_net_defaults(&mut own);
         let keys: Vec<(&str, &str)> = own.iter().map(|s| (s.path.as_str(), s.value.as_str())).collect();
         assert_eq!(keys, [("net/ipv4/ping_group_range", "0 2147483647"), ("net/ipv4/ip_unprivileged_port_start", "1024")], "--sysctl wins");
+    }
+
+    #[test]
+    fn host_pid_is_explicit_and_other_modes_are_refused() {
+        for lines in [vec![], vec!["pid-mode\thost"]] {
+            let buf = list(&lines);
+            let asagiri_proto::Msg::Retain(l) = asagiri_proto::decode(&buf).unwrap() else { panic!() };
+            assert_eq!(parse(l).unwrap().pid_host, !lines.is_empty());
+        }
+        for lines in [vec!["pid-mode\tcontainer:db"], vec!["pid-mode\tprivate"],
+            vec!["pid-mode"], vec!["pid-mode\thost\textra"], vec!["pid-mode\thost", "pid-mode\thost"]] {
+            let buf = list(&lines);
+            let asagiri_proto::Msg::Retain(l) = asagiri_proto::decode(&buf).unwrap() else { panic!() };
+            assert!(parse(l).is_err(), "{lines:?}");
+        }
     }
 
     #[test]

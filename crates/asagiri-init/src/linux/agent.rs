@@ -36,6 +36,8 @@ struct Proc {
     // A reaped container is retained until its filesystem worker finishes.
     cleanup: Option<libc::pid_t>,
     cleanup_finished: bool,
+    /// Retained before early host-PID cleanup removes the cgroup.
+    oom_killed: Option<bool>,
     exit_announced: bool,
     root_released: bool,
 }
@@ -48,6 +50,10 @@ type Procs = HashMap<String, Proc>;
 const TTY_HUP_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
 pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
+    // The VM agent is already PID 1. On a Linux host, orphaned descendants
+    // of host-PID containers (including ones without --init) belong to
+    // this agent and its existing waitpid loop, not an unrelated host init.
+    super::pid1::adopt_orphans()?;
     let sigfd = child_signals()?;
     // In the VM a DHCP lease gives the uplink and DNS; on a Linux host the
     // host has them already.
@@ -343,6 +349,20 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             reap(&mut procs, &mut dns, &roots, &mut copy_jobs);
         }
 
+        // A private PID 1's exit makes the kernel kill its descendants.
+        // A host-PID process has no such kernel cleanup: its orphan may
+        // still hold stdout/stderr open. Kill only its cgroup before waiting
+        // for pipe EOF, preserving the existing output drain and per-ID
+        // cleanup barrier. Execs never own this cleanup.
+        for p in procs.values_mut().filter(|p| p.run.pid_host && p.run.container.is_none()
+            && p.exited.is_some() && p.cleanup.is_none() && !p.cleanup_finished) {
+            if p.oom_killed.is_none() {
+                p.oom_killed = Some(container::oom_killed(&p.run));
+            }
+            p.cleanup = container::begin_teardown(&p.run);
+            p.cleanup_finished = p.cleanup.is_none();
+        }
+
         // Announce the process exit promptly. A separate per-ID cleanup barrier
         // prevents restart/removal from racing the filesystem worker, without
         // making stop or unrelated control requests wait for overlay writeback.
@@ -364,7 +384,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Msg::CleanupPending(&p.run.id).encode(&mut out);
                 }
                 Msg::Exited(Exited { id: &p.run.id, code, setup_ns: p.cloned_ns - p.received_ns,
-                    run_ns: reaped_ns - p.cloned_ns, oom_killed: container::oom_killed(&p.run) }).encode(&mut out);
+                    run_ns: reaped_ns - p.cloned_ns,
+                    oom_killed: p.oom_killed.unwrap_or_else(|| container::oom_killed(&p.run)) }).encode(&mut out);
                 conn.write_all(&out)?;
                 p.exit_announced = true;
             }
@@ -840,7 +861,7 @@ fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
 mod files_view_tests;
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, exit_announced: false, root_released: false }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
 }
 
 fn copy_view(procs: &Procs, id: &str) -> super::copy::View {

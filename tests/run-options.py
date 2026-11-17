@@ -57,7 +57,8 @@ def check(args):
         record["version"] = version["AsagiriVersion"]
         call("GET", "/images/" + args.image + "/json")
         invalid = [
-            ({"PidMode": "host"}, "--pid=host"), ({"IpcMode": "container:db"}, "--ipc=container:db"),
+            ({"PidMode": "container:db"}, "--pid=container:db"),
+            ({"PidMode": "private"}, "--pid=private"), ({"IpcMode": "container:db"}, "--ipc=container:db"),
             ({"UTSMode": "host"}, "--uts=host"), ({"CgroupnsMode": "host"}, "--cgroupns=host"),
             ({"Runtime": "nvidia"}, "--runtime=nvidia"), ({"Isolation": "hyperv"}, "--isolation=hyperv"),
             ({"UsernsMode": "private"}, "UsernsMode"), ({"CgroupParent": "/tenant"}, "CgroupParent"),
