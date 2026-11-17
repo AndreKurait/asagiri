@@ -138,7 +138,7 @@ run cleanup-responsive alpine:3.21 --copy
 run cleanup-responsive alpine:3.21 --crash-agent
 run remove-cleanup-retry alpine:3.21
 run remove-responsive alpine:3.21
-run api-connections alpine:3.21
+run api-connections alpine:3.21 --capacity 512 --connection-limit 2048
 run archive-completion alpine:3.21
 run shared-root alpine:3.21
 run init-descriptors alpine:3.21
