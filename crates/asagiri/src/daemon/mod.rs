@@ -4,6 +4,7 @@
 
 #[cfg(target_os = "linux")]
 pub mod access;
+mod accept;
 mod address_gap;
 mod api;
 mod balloon;
@@ -238,11 +239,13 @@ pub fn run(_args: &[String]) -> io::Result<()> {
 
     let on_signal = engine.clone();
     let sock = socket.clone();
-    std::thread::Builder::new().name("asagiri-signals".into()).spawn(move || {
+    let (cancel_accept, cancelled) = std::sync::mpsc::channel();
+    let signals = std::thread::Builder::new().name("asagiri-signals".into()).spawn(move || {
         let mut sig = 0;
         // SAFETY: waits on the blocked set; writes the signal number to `sig`.
         unsafe { libc::sigwait(&set, &mut sig) };
         diag::info!("engine shutting down", signal = sig);
+        let _ = cancel_accept.send(());
         #[cfg(target_os = "macos")]
         nfs::unmount();
         let _ = std::fs::remove_file(&sock);
@@ -262,8 +265,8 @@ pub fn run(_args: &[String]) -> io::Result<()> {
             OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    for conn in listener.incoming() {
-        let Ok(conn) = conn else { continue };
+    let mut accepting = accept::Retry::new(cancelled);
+    while let Some((conn, _)) = accepting.next(|| listener.accept()) {
         if OPEN_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= max_open_conns {
             OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             diag::warn!("too many open connections; the new one was not served", limit = max_open_conns);
@@ -292,6 +295,8 @@ pub fn run(_args: &[String]) -> io::Result<()> {
             diag::error!("cannot start a connection thread", error = e);
         }
     }
+    // Cancellation must not let the main thread exit before guest shutdown.
+    let _ = signals.join();
     Ok(())
 }
 
