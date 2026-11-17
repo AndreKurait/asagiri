@@ -36,7 +36,9 @@ def check(path, image):
 
     try:
         _, created = request("POST", "/containers/create", (201,),
-                             {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": "none"}})
+                             {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"NetworkMode": "none"},
+                              "Healthcheck": {"Test": ["CMD", "true"], "Interval": 20_000_000,
+                                              "Timeout": 1_000_000_000, "Retries": 1}})
         cid = created["Id"]
         owned.append(cid)
         done = threading.Event()
@@ -53,6 +55,7 @@ def check(path, image):
                     # Docker's automatic restart backoff legitimately has
                     # Running=true, Restarting=true and Pid=0.
                     assert not state["Running"] or state["Restarting"] or state["Pid"] > 0, state
+                    assert state["Running"] or state.get("Health", {}).get("Status") != "healthy", state
                     inspected.append(state["Status"])
             except Exception as error:
                 failures.append(error)
@@ -65,6 +68,10 @@ def check(path, image):
             for _ in range(10):
                 request("POST", "/containers/" + cid + "/start", (204,))
                 request("POST", "/containers/" + cid + "/start", (304,))
+                deadline = time.monotonic() + 10
+                while request("GET", "/containers/" + cid + "/json", (200,))[1]["State"]["Health"]["Status"] != "healthy":
+                    assert time.monotonic() < deadline, "the running container did not become healthy"
+                    time.sleep(.01)
                 request("POST", "/containers/" + cid + "/stop?t=0", (204,))
                 _, state = request("GET", "/containers/" + cid + "/json", (200,))
                 assert not state["State"]["Running"], state["State"]
@@ -85,6 +92,7 @@ def check(path, image):
         assert inspected and "running" in inspected, inspected
         print("PASS %d concurrent inspections across starts, stops and ten same-ID restarts" % len(inspected), flush=True)
         print("PASS ten start/stop cycles and immediate exit inspection", flush=True)
+        print("PASS ten healthy stops with consistent concurrent inspection", flush=True)
         for _ in range(3):
             _, created = request("POST", "/containers/create", (201,),
                                  {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": {"AutoRemove": True}})
