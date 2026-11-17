@@ -2557,6 +2557,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "CapDrop": c.spec.cap_drop,
             "SecurityOpt": c.spec.security_opt,
             "ReadonlyRootfs": c.spec.readonly_rootfs,
+            "Tmpfs": super::hostopts::inspect(&c.spec.host_opts, "Tmpfs"),
             "ShmSize": if c.spec.limits.shm_size > 0 { c.spec.limits.shm_size } else { 64 << 20 },
             "Memory": c.spec.limits.memory_max,
             "MemorySwap": c.spec.limits.memory_swap,
