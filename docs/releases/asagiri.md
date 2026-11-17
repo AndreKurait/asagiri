@@ -1,5 +1,14 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.8 changes include:
+
+- Linux package, manual Linux and WSL systemd services explicitly set
+  `TasksMax=infinity`, so container threads do not exhaust an inherited
+  service default. Per-container PID limits and limits on parent cgroups
+  remain enforced.
+- The default Docker API connection capacity increases to 2048 for fleets
+  with many concurrent waits, log followers and attached sessions.
+
 The 0.1.7 changes include:
 
 - Image inspection preserves stored `Cmd` and `Entrypoint` values, including

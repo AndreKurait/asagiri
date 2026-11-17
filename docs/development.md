@@ -156,12 +156,30 @@ containers, `ASAGIRI_GUEST_DIR` pointing to matching guest assets, and
 
 ### Concurrent Docker API clients
 
-The daemon admits 256 concurrent API connections by default. Long-lived
+The daemon admits 2048 concurrent API connections by default. Long-lived
 container waits, log followers and attached sessions each occupy a connection,
 including when no data is flowing. For larger fleets, set the daemon's startup
 `ASAGIRI_MAX_CONNECTIONS` environment variable to a decimal integer from 1 to
-4096, for example `ASAGIRI_MAX_CONNECTIONS=1024`. Invalid values fail startup.
+4096, for example `ASAGIRI_MAX_CONNECTIONS=4096`. Invalid values fail startup.
 Changing it requires restarting the daemon; it does not change socket access.
+
+The Linux and WSL systemd services set `TasksMax=infinity`: their cgroups
+include container threads as well as the daemon. `docker run --pids-limit`
+still limits an individual container. Parent cgroup limits, including an
+operator's fleet unit or slice, still apply; inspect `TasksCurrent`,
+`TasksMax` and `EffectiveTasksMax` with `systemctl show` when thread or
+process creation fails with `EAGAIN`. Connection capacity does not raise a
+cgroup task limit.
+
+On an otherwise idle test daemon, `tests/api-connections.py SOCKET IMAGE
+--capacity 512 --connection-limit 2048 --only-capacity` holds mixed idle
+keepalive and wait connections while checking ping and container inspection.
+It also fills the configured limit, checks that excess connections close,
+and checks that a released slot can be reused. Set `--connection-limit` to the
+daemon's actual limit; this test temporarily occupies all its API slots.
+The client also holds one socket per connection. Its shell's file descriptor
+limit must exceed `--connection-limit`; for example, run `ulimit -n 4096`
+before the 2048-slot command if the shell's hard limit permits.
 
 Budget for the peak number of streams plus ordinary API requests. Each admitted
 connection starts an OS thread and holds at least two socket descriptors;

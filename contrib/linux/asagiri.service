@@ -18,6 +18,8 @@ Environment=ASAGIRI_SOCKET_GROUP=asagiri
 Environment=HOME=/var/lib/asagiri-daemon
 # The daemon creates the cgroups its containers run in.
 Delegate=yes
+# Container threads share this unit's budget; use per-container PID limits.
+TasksMax=infinity
 KillMode=mixed
 Restart=on-failure
 RuntimeDirectory=asagiri
