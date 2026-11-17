@@ -1,5 +1,12 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.12 changes include:
+
+- Container inspection waits for an in-progress start or restart to
+  settle before reporting the process state. It preserves the original
+  container identity when automatic removal and name reuse happen
+  while inspection is waiting.
+
 The 0.1.11 changes include:
 
 - Removing a volume detaches its name before an owned background worker
