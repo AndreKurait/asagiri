@@ -59,7 +59,7 @@ def start(command):
     try:
         request('POST', f'/containers/{cid}/start')
     except BaseException:
-        request('DELETE', f'/containers/{cid}?force=1')
+        released_slot(lambda: request('DELETE', f'/containers/{cid}?force=1'))
         raise
     return cid
 
@@ -94,12 +94,13 @@ def idle():
 
 
 def controls(cid):
-    assert request('GET', '/_ping', decode_json=False) == b'OK'
-    inspected = request('GET', f'/containers/{cid}/json')
+    assert released_slot(lambda: request('GET', '/_ping', decode_json=False)) == b'OK'
+    inspected = released_slot(lambda: request('GET', f'/containers/{cid}/json'))
     assert inspected['Id'] == cid and inspected['State']['Running'], inspected
 
 
 def released_slot(check):
+    """Allow asynchronous cleanup only where the test expects a free slot."""
     deadline = time.monotonic() + 5
     while True:
         try:
@@ -128,24 +129,24 @@ def capacity(cid):
     clients = []
     try:
         for index in range(args.capacity):
-            clients.append(idle() if index % 2 == 0 else stream(cid, 'wait'))
+            clients.append(released_slot(lambda: idle() if index % 2 == 0 else stream(cid, 'wait')))
             if index % 64 == 0:
                 controls(cid)
         controls(cid)
         print(f'PASS {len(clients)} simultaneous mixed idle/wait clients plus ping and inspect', flush=True)
         if args.connection_limit:
             while len(clients) < args.connection_limit:
-                clients.append(idle())
+                clients.append(released_slot(idle))
             rejected()
             close(clients.pop())
-            released_slot(lambda: controls(cid))
+            controls(cid)
             clients.append(released_slot(idle))
             rejected()
             print(f'PASS limit {args.connection_limit}: excess closes, released slot is reusable', flush=True)
     finally:
         for client in clients:
             close(client)
-        released_slot(lambda: controls(cid))
+        controls(cid)
     print('PASS all capacity clients closed; ping and inspect still succeed', flush=True)
 
 
@@ -162,7 +163,7 @@ try:
     if args.capacity:
         capacity(cid)
 finally:
-    request('DELETE', f'/containers/{cid}?force=1')
+    released_slot(lambda: request('DELETE', f'/containers/{cid}?force=1'))
 
 for endpoint in ([] if args.only_capacity else ['wait', 'logs?follow=1&stdout=1']):
     cid = start(['sh', '-c', 'sleep 2; echo half-close-reply; exit 7'])
@@ -177,4 +178,4 @@ for endpoint in ([] if args.only_capacity else ['wait', 'logs?follow=1&stdout=1'
         close((conn, response))
         print(f'PASS {endpoint} write-half-close still receives terminal response', flush=True)
     finally:
-        request('DELETE', f'/containers/{cid}?force=1')
+        released_slot(lambda: request('DELETE', f'/containers/{cid}?force=1'))
