@@ -4008,13 +4008,24 @@ fn valid_container_name(n: &str) -> bool {
 fn image_named(images: Vec<Image>, name: &str) -> Option<Image> {
     let reference = asagiri_image::Reference::parse(name).ok();
     let short = reference.as_ref().map(|r| r.short()).unwrap_or_else(|| name.to_owned());
-    images.into_iter().find(|i| {
+    if let Some(image) = images.iter().find(|i| {
         i.name == short
             || i.name == name
             || reference.as_ref().is_some_and(|r| i.matches(r))
             || i.config_digest == name
-            || i.config_digest.strip_prefix("sha256:").is_some_and(|h| name.len() >= 12 && h.starts_with(name))
-    })
+    }) {
+        return Some(image.clone());
+    }
+    let prefix = name.strip_prefix("sha256:").unwrap_or(name);
+    if prefix.is_empty() || !prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut matches = images.into_iter().filter(|i| {
+        i.config_digest.strip_prefix("sha256:").is_some_and(|h| h.starts_with(prefix))
+    });
+    let first = matches.next()?;
+    // Multiple tags of one image are not an ambiguous image-ID prefix.
+    if matches.any(|image| image.config_digest != first.config_digest) { None } else { Some(first) }
 }
 
 #[cfg(test)]
@@ -4042,6 +4053,21 @@ mod image_lookup_tests {
 
     fn found(images: &[Image], name: &str) -> bool {
         super::image_named(images.to_vec(), name).is_some()
+    }
+
+    #[test]
+    fn image_id_prefixes_resolve_unique_images_across_aliases() {
+        let first = image("first:latest", None);
+        let alias = image("alias:latest", None);
+        assert!(found(&[first.clone(), alias.clone()], "cccccccc"));
+        assert!(found(&[first.clone(), alias.clone()], "sha256:cccccccc"));
+        assert!(!found(&[first.clone()], ""));
+        assert!(!found(&[first.clone()], "sha256:"));
+        let mut other = image("other:latest", None);
+        other.config_digest = format!("sha256:cccccccc{}", "d".repeat(56));
+        assert!(!found(&[first.clone(), alias, other.clone()], "cccccccc"));
+        assert!(!found(&[first.clone(), other.clone()], "sha256:cccccccc"));
+        assert!(found(&[first, other], "first:latest"));
     }
 
     #[test]
