@@ -3784,6 +3784,21 @@ impl Engine {
         Ok(f(st.containers.get(&id).expect("resolved")))
     }
 
+    /// A start reserves Running before the guest returns its PID. Inspect,
+    /// like stop and remove, waits for that lifecycle operation to finish.
+    /// The caller has already resolved a public name or prefix to this ID.
+    pub fn inspect<T>(&self, id: &str, f: impl FnOnce(&Container) -> T) -> Result<T, Error> {
+        let lifecycle = {
+            let st = self.lock();
+            st.containers.get(id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?.lifecycle.clone()
+        };
+        let _inspecting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        // A name, including this full ID, may have been reused while we waited.
+        let st = self.lock();
+        let c = st.containers.get(id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
+        Ok(f(c))
+    }
+
     pub fn guest_memory(&self) -> Option<(u64, u64)> {
         self.awake()?.stats().ok().map(|s| (s.mem_total_kib * 1024, s.mem_available_kib * 1024))
     }
@@ -5154,6 +5169,145 @@ mod image_preparation_tests {
             assert!(!idle, "the new preparation must exclude the next idle attempt");
         });
         assert!(f.engine.when_idle(true, || true));
+    }
+}
+
+#[cfg(test)]
+mod inspect_start_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::sync::mpsc;
+
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[derive(Clone, Copy)]
+    enum Completion { Started, Rejected, Exited, Removed }
+
+    fn inspect_during_start(completion: Completion) -> serde_json::Value {
+        let root = std::env::temp_dir().join(format!("asagiri-inspect-start-{}", random_hex(16)));
+        let _cleanup = Cleanup(root.clone());
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        // An isolated metadata engine: this test cannot boot a guest.
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "test:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true, config_digest: "sha256:test".into(),
+            layers: Vec::new(), size: 0, platform: "linux/amd64".into(), created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let mut spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "test:local", "image_id": "sha256:test", "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+            "restart": {"name": "no", "max_retries": 0}
+        })).unwrap();
+        spec.auto_remove = matches!(completion, Completion::Removed);
+        let id = engine.create(Some("starting".into()), spec.clone(), &image).unwrap();
+        let lifecycle = engine.lifecycle(&id).unwrap();
+        let starting = lifecycle.lock().unwrap();
+        {
+            // Hold precisely the state start_on_vm exposes while vm.run is
+            // waiting for Started, including on a same-ID restart.
+            let mut state = engine.lock();
+            let c = state.containers.get_mut(&id).unwrap();
+            c.status = Status::Running;
+            c.started = Some(SystemTime::now());
+            c.pid = 0;
+            c.in_guest = false;
+        }
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let serving = engine.clone();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            super::super::api::serve(server, serving)
+        });
+        ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        write!(client, "GET /v1.47/containers/starting/json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut response = String::new();
+            let result = client.read_to_string(&mut response).map(|_| response);
+            tx.send(result).unwrap();
+        });
+        let early = rx.recv_timeout(Duration::from_millis(100));
+        let waited = matches!(early, Err(mpsc::RecvTimeoutError::Timeout));
+        match completion {
+            Completion::Started => {
+                let mut state = engine.lock();
+                let c = state.containers.get_mut(&id).unwrap();
+                c.pid = 1234;
+                c.in_guest = true;
+            }
+            Completion::Rejected => engine.fail_start(&id, &spec, &"exec: no such file or directory"),
+            // The exit event is allowed to precede the Started reply. An
+            // inspection must not resurrect that process or invent a PID.
+            Completion::Exited => engine.on_event(Event::Exited { id: &id, code: 0, oom: false }),
+            Completion::Removed => {
+                engine.on_event(Event::Exited { id: &id, code: 0, oom: false });
+                // A full ID is also a valid name. The waiting inspection
+                // must not resolve the removed ID to this new container.
+                let replacement = engine.create(Some(id.clone()), spec.clone(), &image).unwrap();
+                assert_ne!(replacement, id);
+                assert_eq!(engine.resolve(&id).unwrap(), replacement);
+            }
+        }
+        drop(starting);
+        let response = match early {
+            Ok(response) => response.unwrap(),
+            Err(mpsc::RecvTimeoutError::Timeout) => rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap(),
+            Err(error) => panic!("inspect reader disconnected: {error}"),
+        };
+        reader.join().unwrap();
+        worker.join().unwrap().unwrap();
+        assert!(waited, "inspect published the pending start: {response}");
+        let expected = if matches!(completion, Completion::Removed) { "HTTP/1.1 404" } else { "HTTP/1.1 200" };
+        assert!(response.starts_with(expected), "{response}");
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        if matches!(completion, Completion::Removed) {
+            assert!(matches!(engine.inspect(&id, |_| ()), Err(Error::NotFound(_))),
+                    "an already resolved ID must not bind a replacement before the wait either");
+        }
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    }
+
+    #[test]
+    fn inspect_waits_for_start_pid() {
+        let response = inspect_during_start(Completion::Started);
+        let state = &response["State"];
+        assert_eq!(state["Status"], "running");
+        assert_eq!(state["Running"], true);
+        assert_eq!(state["Pid"], 1234);
+    }
+
+    #[test]
+    fn inspect_returns_failed_start_after_waiting() {
+        let response = inspect_during_start(Completion::Rejected);
+        let state = &response["State"];
+        assert_eq!(state["Status"], "exited");
+        assert_eq!(state["Running"], false);
+        assert_eq!(state["Pid"], 0);
+        assert_eq!(state["ExitCode"], 127);
+        assert_eq!(state["Error"], "exec: no such file or directory");
+    }
+
+    #[test]
+    fn inspect_preserves_exit_before_start_reply() {
+        let response = inspect_during_start(Completion::Exited);
+        let state = &response["State"];
+        assert_eq!(state["Status"], "exited");
+        assert_eq!(state["Running"], false);
+        assert_eq!(state["Pid"], 0);
+        assert_eq!(state["ExitCode"], 0);
+    }
+
+    #[test]
+    fn inspect_does_not_rebind_a_removed_id_as_a_name() {
+        let response = inspect_during_start(Completion::Removed);
+        assert!(response["message"].as_str().unwrap().starts_with("No such container: "));
     }
 }
 
