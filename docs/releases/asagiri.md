@@ -1,6 +1,10 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
-The 0.1.12 changes include:
+The 0.1.13 changes include:
+
+- Container inspection captures health and process state together
+  after waiting for a lifecycle operation. A stopped container no
+  longer retains a healthy value read before its exit.
 
 - Container inspection waits for an in-progress start or restart to
   settle before reporting the process state. It preserves the original
