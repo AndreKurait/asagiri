@@ -169,6 +169,9 @@ keepalive and wait connections while checking ping and container inspection.
 It also fills the configured limit, checks that excess connections close,
 and checks that a released slot can be reused. Set `--connection-limit` to the
 daemon's actual limit; this test temporarily occupies all its API slots.
+The client also holds one socket per connection. Its shell's file descriptor
+limit must exceed `--connection-limit`; for example, run `ulimit -n 4096`
+before the 2048-slot command if the shell's hard limit permits.
 
 Budget for the peak number of streams plus ordinary API requests. Each admitted
 connection starts an OS thread and holds at least two socket descriptors;
