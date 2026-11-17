@@ -1,13 +1,13 @@
 //! HostConfig settings the guest applies when a container starts:
 //! `--ulimit`, `--sysctl`, `--device`, `--device-cgroup-rule` and
-//! `--group-add`. They are kept as the API gave them (for inspect), checked
+//! `--group-add` and `--pid`. They are kept as the API gave them (for inspect), checked
 //! at create with Docker's errors, and handed to the guest at every start as
 //! the `opts` lines of `Run` and `Exec` (see [`asagiri_proto::RunSpec::opts`]).
 
 use serde_json::{Value, json};
 
 /// The HostConfig keys kept with a container.
-const KEYS: [&str; 6] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent"];
+const KEYS: [&str; 7] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode"];
 
 /// `nofile` when the run sets none: what containers get on Docker Desktop
 /// and on Docker Engine under containerd's `LimitNOFILE=infinity`. Without
@@ -78,7 +78,7 @@ pub fn check_unsupported(host: &Value) -> Result<Vec<String>, String> {
         return Err("HostConfig must be an object".into());
     }
     const MODES: [(&str, &str, &[&str]); 6] = [
-        ("PidMode", "--pid", &[]),
+        ("PidMode", "--pid", &["host"]),
         ("IpcMode", "--ipc", &["private", "shareable"]),
         ("UTSMode", "--uts", &[]),
         ("CgroupnsMode", "--cgroupns", &["private"]),
@@ -158,6 +158,13 @@ pub fn resource_warnings(host: &Value) -> Result<Vec<&'static str>, String> {
 /// VM's) network namespace, so `net.*` sysctls are not its own.
 pub fn guest_lines(opts: &Value, net_host: bool) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
+    match &opts["PidMode"] {
+        Value::Null => {}
+        Value::String(mode) if mode.is_empty() => {}
+        Value::String(mode) if mode == "host" => out.push("pid-mode\thost".into()),
+        Value::String(mode) => return Err(format!("Asagiri does not support --pid={mode}")),
+        _ => return Err("PidMode must be a string".into()),
+    }
     match &opts["CgroupParent"] {
         Value::Null => {}
         Value::String(parent) if parent.is_empty() => {}
@@ -294,6 +301,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn host_pid_is_preserved_and_encoded() {
+        let host = json!({"PidMode": "host"});
+        assert!(check_unsupported(&host).unwrap().is_empty());
+        let opts = from_host(&host);
+        assert_eq!(inspect(&opts, "PidMode"), "host");
+        assert!(guest_lines(&opts, false).unwrap().contains(&"pid-mode\thost".to_owned()));
+        for default in [Value::Null, json!({}), json!({"PidMode": ""})] {
+            assert!(!guest_lines(&default, false).unwrap().iter().any(|line| line.starts_with("pid-mode\t")));
+        }
+        for invalid in [json!({"PidMode": "container:db"}), json!({"PidMode": "private"}), json!({"PidMode": false})] {
+            assert!(check_unsupported(&invalid).is_err());
+            assert!(guest_lines(&invalid, false).is_err());
+        }
+    }
+
+    #[test]
     fn unsupported_modes_are_explicit_and_client_defaults_still_work() {
         for host in [Value::Null, json!({}), json!({"PidMode": "", "IpcMode": "", "UTSMode": "", "CgroupnsMode": "",
             "Runtime": "", "Isolation": "", "VolumesFrom": [], "StorageOpt": {}}),
@@ -302,7 +325,7 @@ mod tests {
             assert!(check_unsupported(&host).unwrap().is_empty(), "{host}");
         }
         for (host, reason) in [
-            (json!({"PidMode": "host"}), "--pid=host"),
+            (json!({"PidMode": "container:db"}), "--pid=container:db"),
             (json!({"IpcMode": "container:db"}), "--ipc=container:db"),
             (json!({"UTSMode": "host"}), "--uts=host"),
             (json!({"CgroupnsMode": "host"}), "--cgroupns=host"),

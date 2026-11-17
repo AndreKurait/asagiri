@@ -1,14 +1,28 @@
-//! `--init`: the container's PID 1 stays ours and runs the program as its
+//! `--init`: the container's initial process stays ours and runs the program as its
 //! child, as tini does for Docker. Signals sent to the container go to the
 //! program, orphans re-parented to PID 1 are reaped, and PID 1 exits with
 //! the program's status. A program that ignores SIGTERM as PID 1 (the
-//! kernel drops signals PID 1 has no handler for) now stops on it.
+//! kernel drops signals PID 1 has no handler for) now stops on it. In host
+//! PID mode the supervisor is a subreaper instead of the namespace's PID 1.
 
 use std::ffi::CStr;
 use std::io;
 use std::os::fd::RawFd;
 
 use super::sys::child_fail;
+
+/// Adopt only orphaned descendants of this process. The agent uses this on
+/// Linux hosts, and --init uses it inside a shared PID namespace. The flag
+/// is not inherited by forked children; each supervisor registers itself.
+pub(super) fn adopt_orphans() -> io::Result<()> {
+    // SAFETY: this changes only the calling process's child-reaper policy.
+    unsafe {
+        if libc::getpid() != 1 && libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 
 /// Signals left to their default action in PID 1: the ones raised by its
 /// own faults, and terminal job control.
@@ -167,6 +181,45 @@ fn exit_code(status: libc::c_int) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_non_pid_one_supervisor_adopts_and_reaps_its_orphan() {
+        // SAFETY: the disposable child alone changes reaper policy and
+        // forks; it exits directly without running the harness destructors.
+        unsafe {
+            let supervisor = libc::fork();
+            assert!(supervisor >= 0);
+            if supervisor == 0 {
+                libc::alarm(5);
+                if adopt_orphans().is_err() { libc::_exit(1); }
+                let me = libc::getpid();
+                let middle = libc::fork();
+                if middle < 0 { libc::_exit(2); }
+                if middle == 0 {
+                    let orphan = libc::fork();
+                    if orphan < 0 { libc::_exit(3); }
+                    if orphan == 0 {
+                        for _ in 0..1000 {
+                            if libc::getppid() == me { libc::_exit(0); }
+                            libc::usleep(1000);
+                        }
+                        libc::_exit(4);
+                    }
+                    libc::_exit(0);
+                }
+                let mut status = 0;
+                if libc::waitpid(middle, &mut status, 0) != middle || status != 0 { libc::_exit(5); }
+                let adopted = libc::waitpid(-1, &mut status, 0);
+                if adopted <= 0 || adopted == middle || status != 0 { libc::_exit(6); }
+                if libc::waitpid(-1, &mut status, libc::WNOHANG) != -1
+                    || io::Error::last_os_error().raw_os_error() != Some(libc::ECHILD) { libc::_exit(7); }
+                libc::_exit(0);
+            }
+            let mut status = 0;
+            assert_eq!(libc::waitpid(supervisor, &mut status, 0), supervisor);
+            assert_eq!(status, 0);
+        }
+    }
 
     #[test]
     fn statuses_read_as_a_shell_reports_them() {

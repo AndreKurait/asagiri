@@ -2569,6 +2569,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "CpuPeriod": c.spec.limits.cpu_period,
             "CpuShares": if c.spec.limits.cpu_shares > 0 { c.spec.limits.cpu_shares } else { cpu_shares(c.spec.limits.cpu_weight) },
             "PidsLimit": if c.spec.limits.pids_max > 0 { Value::from(c.spec.limits.pids_max) } else { Value::Null },
+            "PidMode": c.spec.host_opts["PidMode"].as_str().unwrap_or(""),
             "NetworkMode": c.spec.network_mode,
             "Dns": c.spec.dns,
             "DnsSearch": c.spec.dns_search,

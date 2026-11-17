@@ -1,6 +1,6 @@
 //! Starts containers and execs.
 //!
-//! A container is one clone3 straight into fresh namespaces and its cgroup;
+//! A container is one clone3 straight into its namespaces and cgroup;
 //! the child sets up its root and execs. An exec joins a running container's
 //! namespaces and cgroup the same way. No runc, no shim, no extra fork:
 //! every process is a direct child of the agent, so waiting just works.
@@ -62,7 +62,7 @@ pub struct Paths {
     pub cgroup: PathBuf,
 }
 
-/// A process the agent started: a container's PID 1, or an exec.
+/// A process the agent started: a container's initial process, or an exec.
 #[derive(Debug)]
 #[cfg_attr(test, derive(Default))]
 pub struct Process {
@@ -71,6 +71,9 @@ pub struct Process {
     /// For an exec, the container it runs in.
     pub container: Option<String>,
     pub pid: libc::pid_t,
+    /// The container's initial process shares the agent's PID namespace.
+    /// False for execs, which do not own a container cgroup to tear down.
+    pub pid_host: bool,
     /// Pipe read end, or the pty master for a TTY.
     pub stdout: Option<OwnedFd>,
     /// None for a TTY: the terminal merges both streams.
@@ -352,14 +355,29 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     let (root_ready, root_ready_child) = sys::pipe().map_err(cleanup)?;
     let rootfs_c = sys::cstr(&rootfs).map_err(cleanup)?;
 
-    let mut flags = (libc::CLONE_NEWNS | libc::CLONE_NEWPID | libc::CLONE_NEWUTS | libc::CLONE_NEWIPC | libc::CLONE_NEWCGROUP)
+    let mut flags = (libc::CLONE_NEWNS | libc::CLONE_NEWUTS | libc::CLONE_NEWIPC | libc::CLONE_NEWCGROUP)
         as u64
         | CLONE_INTO_CGROUP;
+    let host_pid_ns = if host.pid_host {
+        // "Host" is the agent's active namespace: the Linux host, or the
+        // Linux VM on desktop platforms. Do not infer it from /proc/1 or
+        // an exec's transient pid_for_children selection.
+        Some(fs::File::open("/proc/self/ns/pid").map_err(cleanup)?)
+    } else {
+        flags |= libc::CLONE_NEWPID as u64;
+        None
+    };
     if spec.flags & run_flags::NET_HOST == 0 && prepared.net_join.is_none() {
         flags |= libc::CLONE_NEWNET as u64;
     }
     let args = CloneArgs { flags, exit_signal: libc::SIGCHLD as u64, cgroup: cgroup_fd.as_raw_fd() as u64, ..Default::default() };
 
+    if let Some(ns) = &host_pid_ns {
+        // setns for PID changes only the namespace of future children.
+        // The agent stays where it is, and this selection is already its
+        // normal state after clone; no ancestor namespace is entered.
+        sys::setns(ns.as_raw_fd(), libc::CLONE_NEWPID).map_err(cleanup)?;
+    }
     // SAFETY: the agent is single-threaded, as clone3 without CLONE_VM needs.
     let pid = unsafe { sys::clone3(&args) }.map_err(cleanup)?;
     if pid == 0 {
@@ -458,6 +476,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             id: spec.id.to_owned(),
             container: None,
             pid,
+            pid_host: host.pid_host,
             stdout,
             stderr,
             stdin,
@@ -615,6 +634,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         id: spec.exec_id.to_owned(),
         container: Some(spec.container_id.to_owned()),
         pid,
+        pid_host: false,
         stdout,
         stderr,
         stdin,
@@ -1480,8 +1500,9 @@ fn report_fd(io: &ChildStdio) -> RawFd {
     }
 }
 
-/// Runs in the cloned child: PID 1 of the container, in its own namespaces
-/// and cgroup. Never returns: it execs or exits 127 with a message.
+/// Runs in the cloned child: PID 1 for a private PID namespace, otherwise
+/// an ordinary host PID. Its mount namespace and cgroup stay private.
+/// Never returns: it execs or exits 127 with a message.
 fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: RawFd) -> ! {
     let startup = super::startup::Child::new(Some(root_ready));
     let err = report_fd(io);
@@ -1648,6 +1669,7 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
     // close everything except its private setup reply before the limits/filter.
     if console && p.init {
         super::pid1::close_inherited(startup.fd()).unwrap_or_else(|e| fail("init descriptors", e));
+        super::pid1::adopt_orphans().unwrap_or_else(|e| fail("init subreaper", e));
     }
 
     // While still root with every capability: raising a hard limit needs
@@ -1769,6 +1791,8 @@ fn mount_container_filesystems(privileged: bool, shm_size: u64) -> io::Result<()
             return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("/{} in the image must be a directory", path.display())));
         }
     }
+    // A fresh procfs reflects this child's active PID namespace, including
+    // --pid=host, while its mounts and the hardening below remain private.
     sys::mount(c"proc", c"proc", c"proc", nosuid_nodev_noexec, None)?;
     sys::mount(c"sysfs", c"sys", c"sysfs", nosuid_nodev_noexec | ro, None)?;
     // Never devtmpfs, even for a privileged container: the kernel has one
