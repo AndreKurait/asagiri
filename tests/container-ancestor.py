@@ -87,6 +87,7 @@ def check(args):
         filtered("short-ID", [first.removeprefix("sha256:")[:12]], [by_id, by_tag])
         filtered("algorithm-prefixed-short-ID", [first[:19]], [by_id, by_tag])
         filtered("short-eight-character-ID", [first.removeprefix("sha256:")[:8]], [by_id, by_tag])
+        filtered("algorithm-prefixed-eight-character-ID", [first[:15]], [by_id, by_tag])
         filtered("multiple-selectors", [alias, second_tag], [by_id, by_tag, other])
         filtered("unknown-image", [prefix + ":missing"], [])
         request("POST", "/images/" + quote(second, safe="") + "/tag?" + urlencode({"repo": prefix, "tag": "first"}), expected=201)

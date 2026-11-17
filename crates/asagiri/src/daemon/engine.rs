@@ -4056,6 +4056,42 @@ mod image_lookup_tests {
     }
 
     #[test]
+    fn image_id_prefixes_accept_algorithm_names_and_duplicate_aliases() {
+        let images = [image("app:latest", None), image("app:alias", None)];
+        for length in [8, 12, 64] {
+            let prefix = "c".repeat(length);
+            for name in [prefix.clone(), format!("sha256:{prefix}")] {
+                let found = super::image_named(images.to_vec(), &name).expect(&name);
+                assert_eq!(found.config_digest, images[0].config_digest, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn ambiguous_image_id_prefixes_do_not_select_an_arbitrary_image() {
+        let first = image("app:first", None);
+        let mut second = image("app:second", None);
+        second.config_digest = format!("sha256:{}d", "c".repeat(63));
+        let images = [first, second];
+        for name in ["cccccccc", "cccccccccccc", "sha256:cccccccccccc", "", "sha256:"] {
+            assert!(!found(&images, name), "{name}");
+        }
+        for image in &images {
+            let found = super::image_named(images.to_vec(), &image.config_digest).unwrap();
+            assert_eq!(found.config_digest, image.config_digest);
+        }
+    }
+
+    #[test]
+    fn an_exact_image_name_takes_precedence_over_an_id_prefix() {
+        let first = image("app:latest", None);
+        let mut named = image("cccccccccccc:latest", None);
+        named.config_digest = format!("sha256:{}", "d".repeat(64));
+        let found = super::image_named(vec![first, named.clone()], "cccccccccccc").unwrap();
+        assert_eq!(found.config_digest, named.config_digest);
+    }
+
+    #[test]
     fn image_id_prefixes_resolve_unique_images_across_aliases() {
         let first = image("first:latest", None);
         let alias = image("alias:latest", None);
