@@ -2412,8 +2412,7 @@ fn ipam_config(want4: &str, want6: &str) -> Value {
 fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
     let id = engine.resolve(key)?;
     let networks: Vec<super::network::Network> = engine.lock_net().all().to_vec();
-    let health = engine.health(&id);
-    engine.inspect(&id, |c| {
+    engine.inspect(&id, |c, health| {
         let mut v = inspect(c, &networks);
         v["NetworkSettings"]["Networks"] = endpoints(c, &networks);
         // The old top-level fields describe the default bridge only.
@@ -2428,7 +2427,7 @@ fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
         if networks.iter().any(|n| n.internal && (n.name == c.spec.network_mode || n.id == c.spec.network_mode)) {
             v["NetworkSettings"]["IPv6Gateway"] = json!("");
         }
-        if let Some(h) = &health {
+        if let Some(h) = health {
             v["State"]["Health"] = json!(h);
         }
         if let Some(hc) = &c.spec.healthcheck {

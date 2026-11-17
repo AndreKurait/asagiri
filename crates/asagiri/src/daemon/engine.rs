@@ -3787,7 +3787,8 @@ impl Engine {
     /// A start reserves Running before the guest returns its PID. Inspect,
     /// like stop and remove, waits for that lifecycle operation to finish.
     /// The caller has already resolved a public name or prefix to this ID.
-    pub fn inspect<T>(&self, id: &str, f: impl FnOnce(&Container) -> T) -> Result<T, Error> {
+    /// Container and health state come from the same post-wait state guard.
+    pub fn inspect<T>(&self, id: &str, f: impl FnOnce(&Container, Option<&super::health::Health>) -> T) -> Result<T, Error> {
         let lifecycle = {
             let st = self.lock();
             st.containers.get(id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?.lifecycle.clone()
@@ -3796,7 +3797,7 @@ impl Engine {
         // A name, including this full ID, may have been reused while we waited.
         let st = self.lock();
         let c = st.containers.get(id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
-        Ok(f(c))
+        Ok(f(c, st.health.get(id).map(|h| &h.health)))
     }
 
     pub fn guest_memory(&self) -> Option<(u64, u64)> {
@@ -4267,11 +4268,6 @@ impl Engine {
             }
         }
         pending.into_iter().map(|(id, _, _)| id).collect()
-    }
-
-    /// `State.Health` of a container with a healthcheck.
-    pub fn health(&self, id: &str) -> Option<super::health::Health> {
-        self.lock().health.get(id).map(|h| h.health.clone())
     }
 
     /// Health status by container id, for `docker ps`.
@@ -5185,7 +5181,7 @@ mod inspect_start_tests {
     }
 
     #[derive(Clone, Copy)]
-    enum Completion { Started, Rejected, Exited, Removed }
+    enum Completion { Started, Rejected, Exited, Removed, HealthyExited }
 
     fn inspect_during_start(completion: Completion) -> serde_json::Value {
         let root = std::env::temp_dir().join(format!("asagiri-inspect-start-{}", random_hex(16)));
@@ -5203,18 +5199,33 @@ mod inspect_start_tests {
             "restart": {"name": "no", "max_retries": 0}
         })).unwrap();
         spec.auto_remove = matches!(completion, Completion::Removed);
+        let healthy = matches!(completion, Completion::HealthyExited);
+        if healthy {
+            spec.healthcheck = Some(super::super::health::Healthcheck {
+                test: vec!["CMD".into(), "true".into()], ..Default::default()
+            });
+        }
         let id = engine.create(Some("starting".into()), spec.clone(), &image).unwrap();
         let lifecycle = engine.lifecycle(&id).unwrap();
         let starting = lifecycle.lock().unwrap();
+        let lifecycle_refs = Arc::strong_count(&lifecycle);
         {
             // Hold precisely the state start_on_vm exposes while vm.run is
-            // waiting for Started, including on a same-ID restart.
+            // waiting for Started, or a healthy process while stop waits.
             let mut state = engine.lock();
             let c = state.containers.get_mut(&id).unwrap();
             c.status = Status::Running;
             c.started = Some(SystemTime::now());
-            c.pid = 0;
-            c.in_guest = false;
+            c.pid = if healthy { 1234 } else { 0 };
+            c.in_guest = healthy;
+            if healthy {
+                state.health.insert(id.clone(), HealthRun {
+                    health: super::super::health::Health {
+                        status: super::super::health::HEALTHY.into(), ..Default::default()
+                    },
+                    epoch: 1, monitoring: true,
+                });
+            }
         }
         let (mut client, server) = UnixStream::pair().unwrap();
         client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -5233,6 +5244,13 @@ mod inspect_start_tests {
             let result = client.read_to_string(&mut response).map(|_| response);
             tx.send(result).unwrap();
         });
+        // Inspect clones this private lifecycle Arc before waiting. Observe
+        // that point so the exit cannot precede its old pre-wait health read.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&lifecycle) == lifecycle_refs {
+            assert!(std::time::Instant::now() < deadline, "inspect did not reach the lifecycle wait");
+            std::thread::sleep(Duration::from_millis(1));
+        }
         let early = rx.recv_timeout(Duration::from_millis(100));
         let waited = matches!(early, Err(mpsc::RecvTimeoutError::Timeout));
         match completion {
@@ -5245,7 +5263,7 @@ mod inspect_start_tests {
             Completion::Rejected => engine.fail_start(&id, &spec, &"exec: no such file or directory"),
             // The exit event is allowed to precede the Started reply. An
             // inspection must not resurrect that process or invent a PID.
-            Completion::Exited => engine.on_event(Event::Exited { id: &id, code: 0, oom: false }),
+            Completion::Exited | Completion::HealthyExited => engine.on_event(Event::Exited { id: &id, code: 0, oom: false }),
             Completion::Removed => {
                 engine.on_event(Event::Exited { id: &id, code: 0, oom: false });
                 // A full ID is also a valid name. The waiting inspection
@@ -5268,7 +5286,7 @@ mod inspect_start_tests {
         assert!(response.starts_with(expected), "{response}");
         assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
         if matches!(completion, Completion::Removed) {
-            assert!(matches!(engine.inspect(&id, |_| ()), Err(Error::NotFound(_))),
+            assert!(matches!(engine.inspect(&id, |_, _| ()), Err(Error::NotFound(_))),
                     "an already resolved ID must not bind a replacement before the wait either");
         }
         serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
@@ -5302,6 +5320,18 @@ mod inspect_start_tests {
         assert_eq!(state["Running"], false);
         assert_eq!(state["Pid"], 0);
         assert_eq!(state["ExitCode"], 0);
+    }
+
+    #[test]
+    fn inspect_captures_health_after_waiting_for_exit() {
+        let response = inspect_during_start(Completion::HealthyExited);
+        let state = &response["State"];
+        assert_eq!(state["Status"], "exited");
+        assert_eq!(state["Running"], false);
+        assert_eq!(state["Pid"], 0);
+        assert_eq!(state["ExitCode"], 0);
+        assert_eq!(state["Health"]["Status"], "unhealthy");
+        assert_eq!(state["Health"]["FailingStreak"], 0);
     }
 
     #[test]
