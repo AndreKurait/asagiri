@@ -1,0 +1,8 @@
+    while index < bytes.len()
+        invariant
+            0 <= index <= bytes@.len(),
+            bytes@.len() > 0,
+            radix == if hex { 16u128 } else { 10u128 },
+            prefix(bytes@, hex, index as int) == Some(value as int),
+        decreases bytes@.len() - index,
+    {

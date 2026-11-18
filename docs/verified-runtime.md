@@ -29,12 +29,47 @@ the live health, lifecycle and Compose checks exercise those surrounding paths.
 Native Mac VM and Windows WSL results must be recorded separately from Linux
 runtime results.
 
+## HTTP framing numbers
+
+`http_number::parse_number` parses the decimal `Content-Length` and hexadecimal
+chunk sizes used by the production HTTP reader. For every byte slice and either
+mode, Verus proves that it:
+
+- Accepts nonempty sequences of decimal digits, or hexadecimal digits in hex
+  mode, including leading zeroes and either letter case.
+- Returns their exact mathematical value when it fits in `u64`.
+- Rejects empty input, signs, spaces, other non-digits and overflowing values.
+- Cannot overflow its intermediate arithmetic or index beyond the input.
+- Terminates, advancing once per digit and stopping at the first invalid or
+  overflowing prefix.
+
+The contract defines a mathematical prefix value, and proves that a rejected
+prefix cannot be repaired by a suffix. The executable parser uses the original
+input directly, without allocating a parsed representation. Only ghost
+invariants and proof blocks are inserted into the production body; removing
+those insertions must recover its original bytes.
+
+Six broken parser variants must fail proof verification: accepting empty input,
+accepting an invalid digit, ignoring overflow, using decimal base for hex,
+misreading uppercase letters and discarding a parsed digit. Production-module
+tests compare every one- and two-byte input with the standard Rust parser plus
+HTTP's digit restrictions, test 4,096 additional integer encodings, and exercise
+numeric limits and long zero prefixes.
+
+This function proof does not establish header tokenization, connection closure,
+stream cancellation, memory bounds in the surrounding HTTP reader or the
+Windows named-pipe bridge. Existing production HTTP tests cover ambiguous
+framing, truncation, bounded chunk lines and trailers, streamed archives and
+subsequent requests. Platform and live API results still have to qualify the
+complete engine.
+
 ## Source binding and negative controls
 
 `scripts/ci/verify-runtime.py` inserts the executable function body directly from
 its production source file into a contract in `proofs/`. The expected signature
 and file boundaries are checked before insertion. There is no separately
-maintained executable implementation in the proof.
+maintained executable implementation in the proof. Loop and ghost annotations
+are hashed in the result alongside the original and generated source.
 
 Verification uses the Rust, Verus and solver versions and archive SHA-256
 already pinned for IPAM in `scripts/ci/verus.json`, with `--no-cheating`.
