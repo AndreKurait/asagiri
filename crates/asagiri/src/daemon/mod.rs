@@ -26,6 +26,7 @@ mod mirror;
 mod http;
 mod http_number;
 mod identity;
+mod layer_admission;
 mod layer_transfers;
 mod logfile;
 mod names;

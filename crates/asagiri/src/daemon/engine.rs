@@ -1964,7 +1964,7 @@ impl Engine {
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         for (digest, media_type) in layers {
             check_preparation(cancelled)?;
-            self.layers.run(digest, || {
+            self.layers.run(digest, cancelled, || {
                 check_preparation(cancelled)?;
                 if !vm.has_layer(digest)? {
                     vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
