@@ -1,19 +1,19 @@
 {
-  "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+  "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
   "snapshot_started_at": "2026-11-18T14:50:42.991511+00:00",
   "upstream_repository": "libracoder/kiri",
   "upstream_main": "69dc0b7f9c828e2868b4b656aaf926d6f6291685",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "9e980e4778491bac67d3badf252ed29b1a34a819",
-  "ancestry_target": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "candidate_revision": "4b76b1964d507f9024221f2b6a1756d356018957",
+  "ancestry_target": "4b76b1964d507f9024221f2b6a1756d356018957",
   "counts": {
     "total": 280,
     "merged": 136,
     "closed_unmerged": 70,
     "open": 74
   },
-  "qualification_note": "Frozen public inventory at 2026-11-18T14:50:42.991511+00:00: 231 issues and 280 PRs, including 70 new issue bodies and 73 new or changed PR heads since the prior inventory. All new issue bodies and 134 changed discussion comments were reviewed. Exact PR source identities and patch hashes are recorded; implementation-review-pending means the patch has not received a complete implementation review. 176 linked verification cases were published in AndreKurait/asagiri (170 new issues, six existing mappings). Candidate 9e980e477849 adds runtime proofs, fail-safe container records, relay/file-read fixes, cancellable layer admission and five API compatibility ports. Full qualification of this combined candidate is pending. Stable v0.1.13 already supplies the built-in Docker-driver builder and rootfs image import. Native Mac VM and Windows/WSL gaps remain explicit. Older runtime, native release and performance fields below are preserved dated evidence, not claims about this candidate.",
+  "qualification_note": "Frozen public inventory at 2026-11-18T14:50:42.991511+00:00: 231 issues and 280 PRs, including 70 new issue bodies and 73 new or changed PR heads since the prior inventory. All new issue bodies and 134 changed discussion comments were reviewed. Exact PR source identities and patch hashes are recorded; implementation-review-pending means the patch has not received a complete implementation review. 176 linked verification cases were published in AndreKurait/asagiri (170 new issues, six existing mappings). Candidate 4b76b1964d50 adds runtime proofs, fail-safe container records, relay/file-read fixes, cancellable layer admission and five API compatibility ports. Full qualification of this combined candidate is pending. Stable v0.1.13 already supplies the built-in Docker-driver builder and rootfs image import. Native Mac VM and Windows/WSL gaps remain explicit. Older runtime, native release and performance fields below are preserved dated evidence, not claims about this candidate.",
   "pulls": [
     {
       "number": 1,
@@ -1434,7 +1434,7 @@
       "referenced_issues": [
         118
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -3053,7 +3053,7 @@
       "referenced_issues": [
         251
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -3139,7 +3139,7 @@
       "referenced_issues": [
         225
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -3232,7 +3232,7 @@
         450,
         471
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -3959,7 +3959,7 @@
       "patch_sha256": "ba529413097e32693282effedfd01340f39845b596705fff45453911f75284f5",
       "patch_bytes": 53730,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4074,7 +4074,7 @@
       "referenced_issues": [
         302
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4252,7 +4252,7 @@
       "referenced_issues": [
         311
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4306,7 +4306,7 @@
       "referenced_issues": [
         228
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4361,7 +4361,7 @@
       "referenced_issues": [
         340
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4466,7 +4466,7 @@
       "patch_sha256": "581f3262f8df581e6385d1d7cefbb018ddc6e63eea6b5e04729aa6640bb36a08",
       "patch_bytes": 5980,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4520,7 +4520,7 @@
       "referenced_issues": [
         330
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4557,7 +4557,7 @@
       "referenced_issues": [
         248
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "unchanged-tree-from-prior-review",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4649,7 +4649,7 @@
       "referenced_issues": [
         346
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4803,7 +4803,7 @@
       "referenced_issues": [
         387
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "tracking": {
         "repository": "AndreKurait/asagiri",
@@ -4846,7 +4846,7 @@
       "referenced_issues": [
         206
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent-and-expanded",
       "reason": "Image inspection, listing and system-df already expose stored labels; container creates merge them with explicit labels and reject non-string values before mounts. Commit preserves container labels. Docker/candidate image-label-inheritance.py covers API discovery and precedence, with additional daemon-restart checks. The proposed helper would hide config read failures and omit Asagiri validation; keep the existing implementation.",
@@ -4876,7 +4876,7 @@
       "patch_sha256": "0300dfe01ed7b23dce82bc058a8596562157aa591151e8f0a571bf26afecc944",
       "patch_bytes": 428,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "upstream-test-layout-not-applicable",
       "reason": "The one-line patch initializes the upstream Process.seccomp vector in its test constructor. Asagiri uses different process/preparation ownership and constructors; its actual Linux and ARM unit compilation succeeds. Do not introduce an absent upstream field merely to replay this compile fix.",
@@ -4905,7 +4905,7 @@
       "patch_sha256": "86be7bae643dc6094881dc3405931624aa0bcc033c3a863a58e42ad3eda25b16",
       "patch_bytes": 38361,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -4932,7 +4932,7 @@
       "referenced_issues": [
         302
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent",
       "reason": "Asagiri already uses layer_tar::unpack_hardlink and descriptor-confined hardlink_metadata. Its tests cover a hard link to a symlink, preserving the symlink inode without modifying its target, plus absolute roots, ownership, PAX timestamps and xattrs. Do not replace these broader semantics with upstream entry.unpack_in behavior. The exact Nix/Supabase workload remains tracked under issue #409.",
@@ -4964,7 +4964,7 @@
         364,
         370
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "superseded-by-403",
       "reason": "Closed earlier version of the image ordering and workdir proposal. The later #403 source was reviewed against the existing confined workdir implementation and serialized image ordering; no separate port of this older version is needed.",
@@ -4993,7 +4993,7 @@
       "patch_sha256": "f2b4a696d16c3dbb971029364dea62f4dac2ff12e4f4bf39d0b4b282df7a2533",
       "patch_bytes": 140774,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5020,7 +5020,7 @@
       "referenced_issues": [
         399
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5048,7 +5048,7 @@
         364,
         370
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent-and-expanded",
       "reason": "Image rows already sort by the serialized creation timestamp. Missing workdirs are created through a descriptor confined to the mounted container root before user/read-only setup, with metadata preservation and symlink/error regressions. This preserves stronger confinement than the proposed path-based mkdir. Docker/candidate image-order and run-options checks qualify the shared paths.",
@@ -5086,7 +5086,7 @@
       "referenced_issues": [
         388
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
       "reason": "Reviewed and ported with additional real-TCP regressions. Both old-code cases fail; candidate passes. Full engine/native qualification remains open.",
@@ -5111,7 +5111,7 @@
       "patch_sha256": "89e1f8acf6df48c5f3a2dde6cd425025b4881a0f6c661bbbc70b5b56cba28cdd",
       "patch_bytes": 11534,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5136,7 +5136,7 @@
       "patch_sha256": "d54ef47a34707add7d1609151d030dc85069284dbf87f982356ed420e6c7dadb",
       "patch_bytes": 6352,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-transport-cancellation-separate",
       "reason": "This changes the registry transport, not layer permit admission: cancel-scoped reads poll every 50 ms, preserve the overall stall deadline, and shut down a stream first registered after cancellation. The layer-admission proof does not establish this behavior. Compare the existing cancellation/transport implementation and qualify stalled reads on each host before adopting this extra polling policy.",
@@ -5172,19 +5172,21 @@
       "referenced_issues": [
         425
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
-      "reason": "Current startup writes built-in host aliases before explicit extra hosts. The candidate prioritizes explicit hosts and links, retaining built-in aliases as fallback. Verify IPv4/IPv6 entries and unaffected aliases using the running engine. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
+      "reason": "Ported explicit mapping precedence with original authorship. Independent follow-up removes built-in aliases already claimed by explicit hosts or links, case-insensitively; keeping duplicate defaults is insufficient for resolvers that return every address. Six regressions fail on the unchanged reordered block and all seven pass on the production helper. The shared live fixture now rejects every built-in fallback and includes uppercase IPv6 mappings. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
       "tracking": {
         "repository": "AndreKurait/asagiri",
         "issue": 207,
         "url": "https://github.com/AndreKurait/asagiri/issues/207"
       },
       "review_paths": [
-        "crates/asagiri/src/daemon/engine.rs"
+        "crates/asagiri/src/daemon/engine.rs",
+        "tests/api-compatibility.py",
+        "docs/verification/host-overrides-2026-11-18.json"
       ],
-      "candidate_port": "db3d07ee70ef1122d9b18bbe6df689100d7be751"
+      "candidate_port": "4b76b1964d507f9024221f2b6a1756d356018957"
     },
     {
       "number": 429,
@@ -5204,7 +5206,7 @@
         297,
         427
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5231,7 +5233,7 @@
       "referenced_issues": [
         426
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5258,7 +5260,7 @@
       "referenced_issues": [
         384
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5285,7 +5287,7 @@
       "referenced_issues": [
         436
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5312,7 +5314,7 @@
       "referenced_issues": [
         44
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5339,7 +5341,7 @@
       "referenced_issues": [
         281
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5364,7 +5366,7 @@
       "patch_sha256": "838b4b419bf34e4ca0d7b6bb6c2f3c907b975ded945b6c40ddcf29db973c9094",
       "patch_bytes": 3572,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent",
       "reason": "The PID-keyed admission path does not exist in Asagiri. Stable run-ID tracking and reused_pid_cannot_replace_cleanup_or_receive_its_exit cover this ownership difference."
@@ -5389,7 +5391,7 @@
       "patch_sha256": "d39dd778ea766ae449c13909f359c7786f0b2fe3b921efba4f4eb801834050af",
       "patch_bytes": 5399,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
       "reason": "Current network list ID filtering uses starts_with. The candidate compiles network ID regex filters once per request while retaining prefix semantics for container IDs; invalid patterns still have exact-match fallback. Qualify short/full/anchored/invalid filters on the actual API. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
@@ -5421,7 +5423,7 @@
       "referenced_issues": [
         442
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent",
       "reason": "Asagiri already resolves ancestor values into image config identities and tests the actual API against Docker in container-ancestor.py. Preserve tag-move and dangling-image behavior. The candidate clone-per-value resolver does not replace the existing implementation.",
@@ -5453,7 +5455,7 @@
       "referenced_issues": [
         438
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-fail-safe-recovery",
       "reason": "Reviewed container-index recovery and its wider policy. Asagiri #84 / PR #85 fail startup before cleanup. Preserve Asagiri's stricter image-index validation; partial metadata reconstruction remains a separate design.",
@@ -5485,7 +5487,7 @@
       "referenced_issues": [
         433
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "duplicate-candidate",
       "reason": "The retained patch is identical to PR #454. The single compatibility case is IPv6 IPAM input while IPv6 is disabled; use one attributed implementation and verify inspect and side effects.",
@@ -5520,7 +5522,7 @@
       "referenced_issues": [
         433
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
       "reason": "Current Networks::create rejects an IPv6 subnet with IPv6 disabled. The candidate ignores that IPv6 IPAM entry while preserving IPv4 setup. Qualification must compare Docker and preserve malformed/overlap checks when IPv6 is enabled. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
@@ -5556,7 +5558,7 @@
       "referenced_issues": [
         445
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
       "reason": "The current command resolver treats [\"\"] as an executable instead of the entrypoint-reset sentinel. The upstream patch also rejects an empty final command before mounts can create volumes. Preserve the missing/empty-array Cmd defaults and test metadata and side effects. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
@@ -5593,7 +5595,7 @@
       "referenced_issues": [
         407
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "ported-awaiting-platform-qualification",
       "reason": "With no explicit NetworkMode, current create always chooses bridge even when EndpointsConfig names a user network. Review covers name/ID resolution, deterministic primary selection, explicit bridge precedence, container-mode filtering and unknown endpoint rejection. Add isolated API and DNS qualification rather than retaining the upstream fixture that leaves containers running. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
@@ -5625,7 +5627,7 @@
       "referenced_issues": [
         455
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-needs-adaptation",
       "reason": "The proposed retry list handles send failures and connected UDP ECONNREFUSED, preserving custom resolver ownership instead of falling back to host DNS. It does not implement timeout or SERVFAIL fallback, so broader failover remains open. Candidate tests bind fixed loopback port 53 and need isolated network namespaces. Keep the complete policy and actual guest behavior tracked under #455.",
@@ -5655,7 +5657,7 @@
       "referenced_issues": [
         461
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5682,7 +5684,7 @@
       "referenced_issues": [
         463
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-needs-design",
       "reason": "The proposed encoder silently drops list records and shortens strings. That would hide files/processes and lose notification semantics. Asagiri #89 requires explicit bounded reply failure or pagination; Usage and FsEvents are asynchronous and cannot be replaced indiscriminately with a FIFO Error reply. Preserve message ordering and continued agent responsiveness.",
@@ -5713,7 +5715,7 @@
       "referenced_issues": [
         465
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5740,7 +5742,7 @@
       "referenced_issues": [
         467
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-needs-adaptation",
       "reason": "The proposal replaces guest DNS names per bridge and bumps its wire version for a no-reply message. Asagiri has a newer protocol and stronger lifecycle/cleanup rules; blindly importing the numeric protocol value or fire-and-forget stale updates would be incorrect. Adapt versioning, run identity, acknowledgement/error behavior, aliases, IPv6-only networks and rename/stop/remove races before qualification. The old-name shell assertion also needs a real negative check.",
@@ -5772,7 +5774,7 @@
       "referenced_issues": [
         461
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5797,7 +5799,7 @@
       "patch_sha256": "235c84a9868b1292851b98fe090533c8d1cb51cd1790a0a0af79bde5e4f81715",
       "patch_bytes": 9377,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5825,7 +5827,7 @@
         296,
         358
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent-and-expanded",
       "reason": "Asagiri already marks generated mountpoint directories using pinned descriptors, checks the exact marker value, preserves device/inode ownership, and propagates marker-write failures instead of silently forgetting restart state. Volume owner/mode and restart cases exist in container_mount_tests.rs and the Docker/candidate volume-owner fixture; health/Compose and locked-down execution have separate live suites. Preserve these stronger error and ownership rules instead of replacing them with path-based ignored-error markers.",
@@ -5859,7 +5861,7 @@
       "referenced_issues": [
         250
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-test-needs-adaptation",
       "reason": "The added test expects shell_path itself to ignore a write failure. Asagiri deliberately returns aggregated profile diagnostics, while bundled_cli logs them and continues app setup. Existing dangling/unreadable profile tests preserve data; adapt any read-only symlink regression to that diagnostic contract. The actual Finder/Dock/home-manager launch is a separate native gap under #250/#457.",
@@ -5890,7 +5892,7 @@
       "referenced_issues": [
         315
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5918,7 +5920,7 @@
         210,
         474
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5945,7 +5947,7 @@
       "referenced_issues": [
         488
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -5972,7 +5974,7 @@
       "referenced_issues": [
         378
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6002,7 +6004,7 @@
         376,
         377
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6027,7 +6029,7 @@
       "patch_sha256": "32fc2e672554ed79dcb38b7fd0b6d2aa4f3f100a868e2a56141666cff856b168",
       "patch_bytes": 96035,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6054,7 +6056,7 @@
       "referenced_issues": [
         494
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6081,7 +6083,7 @@
       "referenced_issues": [
         495
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6108,7 +6110,7 @@
       "referenced_issues": [
         338
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6133,7 +6135,7 @@
       "patch_sha256": "5a9becd6237467bb3795c0dba6089f8fc483fa4a7e9b8b8d6b878d62fb631ae1",
       "patch_bytes": 1803317,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6160,7 +6162,7 @@
       "referenced_issues": [
         500
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "partially-equivalent-error-drain-open",
       "reason": "Archive::load already drains the complete HTTP body before publishing image metadata and propagates truncation/decoder errors. Unit and live tests cover incomplete declared bodies, missing chunk terminators and delayed padding. The proposed success drain discards errors and caps trailing input after publication, weakening these guarantees; its invalid-archive path drains without a total bound. Retain current success validation and separately design/verify bounded error-response delivery for a client still uploading malformed data.",
@@ -6192,7 +6194,7 @@
       "referenced_issues": [
         435
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6219,7 +6221,7 @@
       "referenced_issues": [
         441
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6246,7 +6248,7 @@
       "referenced_issues": [
         394
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-equivalent-native-gap",
       "reason": "Hidden startup and page-ready events already use Revive, not explicit Start. A bounded daemon-recovery worker preserves persisted Stop, and builder registration only runs after a successful non-stopped state read. The proposal polls /info in a different synchronous startup path. Retain Asagiri recovery behavior and qualify real Windows login/window/sleep behavior under upstream #394.",
@@ -6277,7 +6279,7 @@
       "patch_sha256": "c15a50aec601ac7ad48148b45bf9c12779d7812fd2eb45fd8b0315c9f27ee06e",
       "patch_bytes": 27255,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6304,7 +6306,7 @@
       "referenced_issues": [
         449
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6337,7 +6339,7 @@
         488,
         492
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "independent-release-roadmap",
       "reason": "Builder roadmap is already shipped in Asagiri v0.1.13. Native Mac/Windows builder qualification remains open under upstream issue #49."
@@ -6365,10 +6367,10 @@
         445,
         492
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "partial-source-review",
       "disposition": "partially-reviewed",
-      "reason": "Reviewed the rustix lockfile change against RUSTSEC-2026-0486 and reproduced an additional xattr adapter incompatibility. Asagiri #263 tracks the paired rustix 1.1.6/xattr 1.7.0 update and six large-attribute regressions. Several API changes overlap the individually reviewed ports or existing implementations; the combined PR also changes metadata recovery, volumes-from, primary-network promotion and bridge naming. Those remaining parts need their own implementation review and scoped qualification; this is not blanket approval of the multi-fix patch.",
+      "reason": "Reviewed the rustix lockfile change against RUSTSEC-2026-0486 and reproduced an additional xattr adapter incompatibility. Asagiri #263 tracks the paired rustix 1.1.6/xattr 1.7.0 update and six large-attribute regressions. Several API changes overlap the individually reviewed ports or existing implementations; the combined PR also changes metadata recovery, volumes-from, primary-network promotion and bridge naming. Those remaining parts need their own implementation review and scoped qualification; this is not blanket approval of the multi-fix patch. Also reviewed host-alias suppression and added a separate fork follow-up: all explicit and link aliases are matched case-insensitively, preserving input order and unclaimed defaults. The seven production-helper cases pass and six expose the prior duplicate-address behavior.",
       "tracking": {
         "repository": "AndreKurait/asagiri",
         "issue": 207,
@@ -6377,7 +6379,8 @@
       "review_paths": [
         "Cargo.lock",
         "crates/asagiri-image/tests/xattr_compatibility.rs",
-        "docs/verification/xattr-compatibility-2026-11-18.json"
+        "docs/verification/xattr-compatibility-2026-11-18.json",
+        "docs/verification/host-overrides-2026-11-18.json"
       ]
     },
     {
@@ -6398,7 +6401,7 @@
         337,
         475
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6423,7 +6426,7 @@
       "patch_sha256": "ab3cfa25ad1715d833544a53d1493f02b10c8c28d1a62405bb66a76d72957fc2",
       "patch_bytes": 10687,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6448,7 +6451,7 @@
       "patch_sha256": "ba797635d410e449413b6467f083ad6a43454a2225d84c74bb6c507497e5ea88",
       "patch_bytes": 11269,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6473,7 +6476,7 @@
       "patch_sha256": "05a45bf228ba2fd3cdddc818e2f3d8d968f167f60febf03ea9683870e72e27e1",
       "patch_bytes": 8839,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "reviewed-needs-platform-qualification",
       "reason": "Reviewed shared relay teardown. Asagiri #88 tracks EOF cleanup, blocked listeners, late/reused IDs and actual Windows/WSL qualification.",
@@ -6500,7 +6503,7 @@
       "referenced_issues": [
         495
       ],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "implementation-review-pending",
       "disposition": "implementation-review-pending",
       "reason": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
@@ -6530,7 +6533,7 @@
       "patch_sha256": "8c5fdd4420ce4cada0d47782343568faf7739896c044eec32fc84be7fa73928f",
       "patch_bytes": 9343,
       "referenced_issues": [],
-      "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+      "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
       "review_scope": "source-and-applicability-reviewed",
       "disposition": "partially-ported",
       "reason": "Reviewed both changes. Port the confined nonblocking file-read change with stronger fixture cleanup. PID-keyed admission does not apply to Asagiri's stable-ID process map.",

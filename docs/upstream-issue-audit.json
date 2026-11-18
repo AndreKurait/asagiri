@@ -1,10 +1,10 @@
 {
-  "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+  "reviewed_at": "2026-11-18T16:06:27.644071+00:00",
   "snapshot_started_at": "2026-11-18T14:50:42.991511+00:00",
   "repository": "libracoder/kiri",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "candidate_revision": "4b76b1964d507f9024221f2b6a1756d356018957",
   "count": 231,
   "issues": [
     {
@@ -2978,7 +2978,7 @@
     }
   ],
   "current_main_revision": "fd504b2b0f3ee450016911bd04e83ac47dc32eee",
-  "qualification_note": "Frozen public inventory at 2026-11-18T14:50:42.991511+00:00: 231 issues and 280 PRs, including 70 new issue bodies and 73 new or changed PR heads since the prior inventory. All new issue bodies and 134 changed discussion comments were reviewed. Exact PR source identities and patch hashes are recorded; implementation-review-pending means the patch has not received a complete implementation review. 176 linked verification cases were published in AndreKurait/asagiri (170 new issues, six existing mappings). Candidate 9e980e477849 adds runtime proofs, fail-safe container records, relay/file-read fixes, cancellable layer admission and five API compatibility ports. Full qualification of this combined candidate is pending. Stable v0.1.13 already supplies the built-in Docker-driver builder and rootfs image import. Native Mac VM and Windows/WSL gaps remain explicit. Older runtime, native release and performance fields below are preserved dated evidence, not claims about this candidate.",
+  "qualification_note": "Frozen public inventory at 2026-11-18T14:50:42.991511+00:00: 231 issues and 280 PRs, including 70 new issue bodies and 73 new or changed PR heads since the prior inventory. All new issue bodies and 134 changed discussion comments were reviewed. Exact PR source identities and patch hashes are recorded; implementation-review-pending means the patch has not received a complete implementation review. 176 linked verification cases were published in AndreKurait/asagiri (170 new issues, six existing mappings). Candidate 4b76b1964d50 adds runtime proofs, fail-safe container records, relay/file-read fixes, cancellable layer admission and five API compatibility ports. Full qualification of this combined candidate is pending. Stable v0.1.13 already supplies the built-in Docker-driver builder and rootfs image import. Native Mac VM and Windows/WSL gaps remain explicit. Older runtime, native release and performance fields below are preserved dated evidence, not claims about this candidate.",
   "followup_updated_at": "2026-11-16T14:49:19.872501+00:00",
   "incremental_public_review": {
     "snapshot_at": "2026-11-18T14:50:42.991511+00:00",

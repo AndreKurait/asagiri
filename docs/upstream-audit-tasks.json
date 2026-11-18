@@ -3,7 +3,7 @@
   "upstream_repository": "libracoder/kiri",
   "snapshot_at": "2026-11-18T14:50:42.991511+00:00",
   "published_at": "2026-11-18T15:45:10.880224+00:00",
-  "candidate_revision": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "candidate_revision": "4b76b1964d507f9024221f2b6a1756d356018957",
   "count": 176,
   "new_issues": 170,
   "existing_issue_mappings": 6,
@@ -3726,7 +3726,7 @@
         "url": "https://github.com/AndreKurait/asagiri/issues/263"
       },
       "status": "fixed-awaiting-platform-qualification",
-      "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 9e980e477849 pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
+      "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 4b76b1964d50 pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
       "evidence": "docs/verification/xattr-compatibility-2026-11-18.json"
     }
   ]
