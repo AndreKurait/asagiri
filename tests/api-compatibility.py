@@ -31,7 +31,8 @@ def check(args):
         assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1", "Use a disposable test engine"
         assert os.environ.get("ASAGIRI_DATA_DIR") == "/test-store"
     nonce = uuid.uuid4().hex
-    prefix = "api-compat-" + nonce
+    # Sort after host/none to exercise their selection as the primary endpoint.
+    prefix = "z-api-compat-" + nonce
     owned = {"containers": [], "networks": [], "volumes": []}
     record = {
         "probe": "api-compatibility", "status": "running",
@@ -168,6 +169,54 @@ def check(args):
         addresses = {line.split()[0] for line in execute(clients[0], "getent", "hosts", alias).splitlines()}
         assert addresses == {peer_ip}, (addresses, peer_ip)
         passed("endpoint-only peers resolve immediately on their selected network")
+
+        record["incompatible_networks"] = []
+        for special in ("host", "none"):
+            special_id = call("GET", "/networks/" + special)["Id"]
+            for index, key in enumerate((special, special_id)):
+                cid = container(special + "-single-" + str(index), {
+                    "Entrypoint": [], "Cmd": ["/bin/true"],
+                    "HostConfig": {"NetworkMode": special},
+                    "NetworkingConfig": {"EndpointsConfig": {key: {}}},
+                })["Id"]
+                start(cid)
+                assert call("POST", "/containers/" + cid + "/wait")["StatusCode"] == 0
+                assert set(inspect(cid)["NetworkSettings"]["Networks"]) == {special}
+            for index, (mode, endpoints) in enumerate((
+                (None, {special: {}, net: {}}),
+                ("default", {special_id: {}, net_id: {}}),
+                (special, {net: {}}),
+                (net_id, {special_id: {}}),
+            )):
+                name = special + "-mixed-" + str(index)
+                volume = prefix + "-" + name + "-volume"
+                call("GET", "/volumes/" + volume, statuses=(404,))
+                owned["volumes"].append(volume)
+                host = {"Binds": [volume + ":/side-effect"]}
+                if mode is not None:
+                    host["NetworkMode"] = mode
+                result = container(name, {
+                    "Entrypoint": [], "Cmd": ["sleep", "120"],
+                    "HostConfig": host, "NetworkingConfig": {"EndpointsConfig": endpoints},
+                }, (201, 400) if args.reference_docker else (400,))
+                phase = "create"
+                if "Id" in result:
+                    # Docker versions may defer the conflict until start.
+                    # Asagiri must reject it before create can make volumes.
+                    assert args.reference_docker
+                    cid = result["Id"]
+                    result = call("POST", "/containers/" + cid + "/start", statuses=(400, 500))
+                    assert not inspect(cid)["State"]["Running"]
+                    phase = "start"
+                assert "network" in result["message"].lower(), result
+                if not args.reference_docker:
+                    call("GET", "/containers/" + prefix + "-" + name + "/json", statuses=(404,))
+                    call("GET", "/volumes/" + volume, statuses=(404,))
+                record["incompatible_networks"].append({
+                    "mode": mode, "endpoints": list(endpoints), "rejected_at": phase,
+                })
+        passed("single host and none networks work by name or ID")
+        passed("mixed host and none endpoints cannot silently lose an attachment")
 
         for pattern, expected in ((net_id[:12], [net_id]), ("^/?" + net_id + "$", [net_id]),
                                   (net_id[12:24], [net_id]), ("[", [])):

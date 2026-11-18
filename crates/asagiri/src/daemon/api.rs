@@ -2031,6 +2031,9 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
             let names = strings(&ep["Aliases"]).unwrap_or_default();
             let found = engine.lock_net().find(net).cloned().ok_or_else(|| Error::NotFound(format!("network {net} not found")))?;
             let canonical = found.name.clone();
+            if canonical != network_mode && (matches!(network_mode.as_str(), "host" | "none") || matches!(canonical.as_str(), "host" | "none")) {
+                return Err(Error::BadRequest(format!("conflicting options: cannot combine {network_mode} and {canonical} networks")));
+            }
             let (ip, ip6, mac) = endpoint_address(ep)?;
             if let Some(a) = super::network::parse_ip(&ip) {
                 found.check_static(a).map_err(Error::BadRequest)?;
