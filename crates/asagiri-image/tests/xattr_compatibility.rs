@@ -65,7 +65,7 @@ fn large_value_through_symlink() {
     let scratch = Scratch::new();
     let expected = scratch.value();
     let link = scratch.root.join("link");
-    std::os::unix::fs::symlink(&scratch.path, &link).unwrap();
+    std::os::unix::fs::symlink("data", &link).unwrap();
     assert_eq!(xattr::get_deref(&link, ATTRIBUTE).unwrap().unwrap().len(), expected.len());
     assert_eq!(xattr::get_deref(&link, ATTRIBUTE).unwrap(), Some(expected));
 }
@@ -99,6 +99,6 @@ fn large_name_list_through_symlink() {
     let scratch = Scratch::new();
     let expected = scratch.names();
     let link = scratch.root.join("link");
-    std::os::unix::fs::symlink(&scratch.path, &link).unwrap();
+    std::os::unix::fs::symlink("data", &link).unwrap();
     same_names(xattr::list_deref(&link).unwrap(), expected);
 }
