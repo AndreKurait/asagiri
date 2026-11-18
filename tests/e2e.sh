@@ -324,6 +324,7 @@ code none-no-internet 1 $D run --rm --network none alpine wget -qO- -T 2 http://
 t host-net "192.168.64." $D run --rm --network host alpine ip -4 addr show eth0
 t hosts-file "localhost" $D run --rm alpine cat /etc/hosts
 t add-host "1.2.3.4" $D run --rm --add-host foo:1.2.3.4 alpine getent hosts foo
+t add-host-override "10.9.8.7" $D run --rm --add-host host.docker.internal:10.9.8.7 alpine getent hosts host.docker.internal
 $D run -d --name peer nginx:alpine >/dev/null
 nginx_up peer
 PEER_IP=$($D inspect -f '{{.NetworkSettings.IPAddress}}' peer)

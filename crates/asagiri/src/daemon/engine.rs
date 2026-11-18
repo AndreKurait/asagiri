@@ -2347,12 +2347,12 @@ impl Engine {
         }
         flags |= spec.security_flags();
         // Every container can reach the Mac, as with Docker Desktop and OrbStack.
-        let mut hosts = vec![
-            format!("{}\thost.docker.internal host.asagiri.internal", super::ports::HOST_ADDR),
-            format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR),
-        ];
-        hosts.extend(spec.extra_hosts.iter().cloned());
+        // --add-host and links come first: /etc/hosts takes the first match,
+        // so `--add-host host.docker.internal:IP` overrides Asagiri's, as on Docker.
+        let mut hosts = spec.extra_hosts.clone();
         hosts.extend(links);
+        hosts.push(format!("{}\thost.docker.internal host.asagiri.internal", super::ports::HOST_ADDR));
+        hosts.push(format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR));
         let mut opts = net_opts(&spec, joined.as_deref(), &domainname);
         opts.extend(net6_opts);
         let net_args = asagiri_proto::Net { bridge: &bridge, ip, prefix, gateway, extra_hosts: &hosts, dns_names: &dns_names, opts: &opts };
