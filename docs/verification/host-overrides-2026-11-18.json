@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-18",
+  "source_commit": "b87c46a379a5bd84ca7853c1ee9219c620737bed",
+  "source": "crates/asagiri/src/daemon/engine.rs",
+  "function": "hosts_lines",
+  "test_module": "hosts_tests",
+  "baseline_commit": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "pre_comment_commit": "1d716b4ea1524eb859289af00a0fabeb99002891",
+  "method": "Compile the unchanged inline production block, the first override helper, and the final helper with the same nine checked-in tests and the real production HOST_ADDR. Check all addresses, case handling, preserved defaults/order, comments and physical lines.",
+  "production_helper_sha256": "64b14511377e0fd160f96e81dc8958d98e2bd7baf36e20cc0453285127ca1c2f",
+  "test_module_sha256": "75db67585c42d0817db2eb8f24aeade9768f3d4e2aa273e5dfde352a3de10328",
+  "compiler": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Homebrew)",
+  "runs": [
+    {
+      "name": "reordered",
+      "passed": 2,
+      "failed": 7,
+      "exit_code": 101,
+      "source_sha256": "a27645f0597670ee64dfef6e3b86741e10237b140527d96680de98421c781998",
+      "log_sha256": "1a0a89931dd75cb3bc5b59ef19b3aa2f39b8f98b939653d4aa74ea23aaa774f5"
+    },
+    {
+      "name": "pre-comment",
+      "passed": 8,
+      "failed": 1,
+      "exit_code": 101,
+      "source_sha256": "aa6358675da3dc924f68d280f8681a8df80312a23a53da675981e5ff8bf2b18f",
+      "log_sha256": "e9601722862397215920a975310e7cd38ac86c0f8b31ca81e58accbae0d9dcf4"
+    },
+    {
+      "name": "fixed",
+      "passed": 9,
+      "failed": 0,
+      "exit_code": 0,
+      "source_sha256": "16136ae6a4a3f26232b47c4c4623470087d71dfea607cf65ba6d3dd93062729a",
+      "log_sha256": "35166c2429c3d2d33123b95e407a36b75b6328b58c4825afade9521a0f6c99f5"
+    }
+  ],
+  "clippy": "passed",
+  "limits": "These are production host-line construction tests. The shared live fixture separately compares reference Docker and disposable Asagiri API behavior. Full combined-source platform qualification is required."
+}

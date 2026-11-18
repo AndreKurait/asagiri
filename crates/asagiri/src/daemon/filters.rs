@@ -8,7 +8,9 @@ use serde_json::Value;
 #[derive(Debug, Default)]
 pub struct Filters {
     values: Vec<(String, Vec<String>)>,
+    /// Compile filter patterns once per request, not once per object.
     names: Vec<NamePattern>,
+    ids: Vec<NamePattern>,
 }
 
 #[derive(Debug)]
@@ -43,9 +45,9 @@ impl Filters {
             };
             out.push((k, values));
         }
-        let names = out.iter().find(|(key, _)| key == "name")
-            .map(|(_, values)| values.iter().map(|p| NamePattern::new(p)).collect()).unwrap_or_default();
-        Ok(Filters { values: out, names })
+        let compile = |key: &str| out.iter().filter(|(k, _)| k == key).flat_map(|(_, v)| v).map(|p| NamePattern::new(p)).collect();
+        let (names, ids) = (compile("name"), compile("id"));
+        Ok(Filters { values: out, names, ids })
     }
 
     /// Rejects keys this list does not understand, as Docker does.
@@ -87,6 +89,14 @@ impl Filters {
         self.name(bare) || self.name(&format!("/{bare}"))
     }
 
+    /// A network's `id` filter, which Docker matches like `name`: exactly,
+    /// or as a regular expression (k3d looks its network up with
+    /// `^/?<id>$`). An ID prefix is a regular expression that matches too.
+    /// Containers' `id` filter is a prefix in Docker, not this.
+    pub fn network_id(&self, id: &str) -> bool {
+        self.ids.is_empty() || self.ids.iter().any(|p| p.matches(id))
+    }
+
     /// `true`/`1` or `false`/`0` for a boolean filter, if given.
     pub fn bool(&self, key: &str) -> Option<bool> {
         self.values(key).and_then(|v| v.first()).map(|s| matches!(s.as_str(), "true" | "1"))
@@ -95,7 +105,7 @@ impl Filters {
 
 #[cfg(test)]
 fn name_matches(pattern: &str, name: &str) -> bool {
-    Filters { values: vec![], names: vec![NamePattern::new(pattern)] }.container_name(name)
+    Filters { names: vec![NamePattern::new(pattern)], ..Filters::default() }.container_name(name)
 }
 
 #[cfg(test)]
@@ -125,6 +135,19 @@ mod tests {
         let f = Filters::parse(Some(r#"{"name":["a","b"]}"#)).unwrap();
         assert!(f.any("name", |n| n == "b"));
         assert!(!f.any("name", |n| n == "c"));
+    }
+
+    #[test]
+    fn network_id_filter_is_a_regex_like_docker() {
+        let id = "72007c172e7879167e7f562d3b53d3fb15874b9702bc4ab1bb19a28e1b4c676c";
+        let f = |v: &str| Filters::parse(Some(&json!({ "id": [v] }).to_string())).unwrap().network_id(id);
+        // k3d finds its cluster network with `^/?<id>$`.
+        assert!(f(&format!("^/?{id}$")));
+        assert!(f(id), "the full id");
+        assert!(f("72007c17"), "a short id, as `docker network ls -f id=` takes");
+        assert!(!f(&format!("^/?{}$", &id[..12])), "anchored to the whole id");
+        assert!(!f("deadbeef"));
+        assert!(Filters::default().network_id(id));
     }
 
     #[test]

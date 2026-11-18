@@ -1,0 +1,34 @@
+{
+  "date": "2026-11-18",
+  "tested_source": "fe5a007f43266f0ad6f00a3dce14c5df35bcea3a",
+  "workflow_run": 44348506739,
+  "linux_job": 134957663635,
+  "fixture": "tests/api-compatibility.py",
+  "fixture_sha256": "9778a0f77db3e8a0dd8b259d2ccf231a88706240a895e5c8f5b979468234d524",
+  "reference": {
+    "engine_version": "28.0.4",
+    "api_version": "1.47",
+    "passed_checks_before_failure": [
+      "Empty entrypoint sentinel runs the explicit command",
+      "Missing and empty commands reject before container or volume creation",
+      "Endpoint-only creates select the requested name or ID without joining bridge",
+      "Endpoint-only peers resolve immediately on their selected network"
+    ],
+    "mixed_host_requests": {
+      "cases": 4,
+      "outcome": "Created, then rejected at start",
+      "selectors": "Names and IDs, with missing/default/host/custom network modes"
+    },
+    "mixed_none_failure": {
+      "network_mode": null,
+      "endpoint_selectors": ["none", "owned custom bridge network name"],
+      "actual_start_status": 204,
+      "expected_start_statuses": [400, 500],
+      "remaining_mixed_none_cases": "Not reached"
+    }
+  },
+  "finding": "The fixture incorrectly required reference Docker to reject every mixed none request. This failure occurred before candidate-engine live checks.",
+  "correction": "Record reference create/start statuses, running state, inspected endpoint settings and interfaces for accepted mixed-none requests. Keep the candidate's strict HTTP 400 and absent-container/absent-volume assertions. Run the Docker reference fixture before engine builds as well as alongside live conformance.",
+  "compatibility_limit": "Asagiri does not support mixed host/none endpoints. It rejects them before creating containers or volumes, rather than claiming Docker's acceptance of mixed-none requests as supported behavior.",
+  "qualification": "The observed failure is retained. The revised fixture and complete candidate still require successful combined-source CI; compilation or recorded reference outcomes alone do not qualify Asagiri."
+}

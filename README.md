@@ -69,6 +69,9 @@ loop-device persistence. These small API workloads do not measure database
 throughput, builds, large-file throughput, VM startup or network speed.
 Verus checks the production address-gap search used by IPAM; the
 [proof and its boundaries](docs/verified-ipam.md) describe that specific scope.
+It also checks [health-result transitions and HTTP framing numbers](docs/verified-runtime.md),
+including failure-counter saturation, recovery, start-period grace and numeric
+overflow rejection.
 
 ## Downloads
 

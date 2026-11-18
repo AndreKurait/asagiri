@@ -1460,12 +1460,15 @@ impl Engine {
     /// stopped are recorded as exited, as Docker does without live restore.
     fn load(&self) -> io::Result<()> {
         let saved: Vec<Saved> = match std::fs::read(&self.records) {
-            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
-                crate::diag::error!("ignoring unreadable container records", file = self.records.display(), error = e);
-                Vec::new()
-            }),
+            Ok(b) => serde_json::from_slice(&b).map_err(|e| io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("cannot read container records {}: {e}; startup stopped before cleanup; the original index and container data are unchanged", self.records.display()),
+            ))?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e),
+            Err(e) => return Err(io::Error::new(e.kind(), format!(
+                "cannot read container records {}: {e}; startup stopped before cleanup; container data are unchanged",
+                self.records.display(),
+            ))),
         };
         let now = SystemTime::now();
         let mut restart = Vec::new();
@@ -1961,7 +1964,7 @@ impl Engine {
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         for (digest, media_type) in layers {
             check_preparation(cancelled)?;
-            self.layers.run(digest, || {
+            self.layers.run(digest, cancelled, || {
                 check_preparation(cancelled)?;
                 if !vm.has_layer(digest)? {
                     vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
@@ -2343,13 +2346,7 @@ impl Engine {
             flags |= run_flags::INIT;
         }
         flags |= spec.security_flags();
-        // Every container can reach the Mac, as with Docker Desktop and OrbStack.
-        let mut hosts = vec![
-            format!("{}\thost.docker.internal host.asagiri.internal", super::ports::HOST_ADDR),
-            format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR),
-        ];
-        hosts.extend(spec.extra_hosts.iter().cloned());
-        hosts.extend(links);
+        let hosts = hosts_lines(&spec.extra_hosts, links);
         let mut opts = net_opts(&spec, joined.as_deref(), &domainname);
         opts.extend(net6_opts);
         let net_args = asagiri_proto::Net { bridge: &bridge, ip, prefix, gateway, extra_hosts: &hosts, dns_names: &dns_names, opts: &opts };
@@ -3852,6 +3849,121 @@ fn drop_ifnum(taken: &mut Vec<(String, u32)>, network: &str, n: u32) {
     taken.retain(|(x, t)| !(x == network && *t == n));
 }
 
+/// Keep explicit host mappings and links in order. A mapped host name must
+/// not also resolve to a built-in address, including with different casing.
+fn hosts_lines(extra: &[String], links: Vec<String>) -> Vec<String> {
+    let mut hosts = extra.to_vec();
+    hosts.extend(links);
+    let mapped = |name: &str| hosts.iter().flat_map(|text| text.lines()).any(|line| line.split('#').next().unwrap_or("").split_whitespace().skip(1).any(|alias| alias.eq_ignore_ascii_case(name)));
+    let docker = !mapped("host.docker.internal");
+    let asagiri = !mapped("host.asagiri.internal");
+    let gateway = !mapped("gateway.docker.internal");
+    let names = match (docker, asagiri) {
+        (true, true) => Some("host.docker.internal host.asagiri.internal"),
+        (true, false) => Some("host.docker.internal"),
+        (false, true) => Some("host.asagiri.internal"),
+        (false, false) => None,
+    };
+    if let Some(names) = names {
+        hosts.push(format!("{}\t{names}", super::ports::HOST_ADDR));
+    }
+    if gateway {
+        hosts.push(format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR));
+    }
+    hosts
+}
+
+#[cfg(test)]
+mod hosts_tests {
+    use super::hosts_lines;
+
+    fn lines(input: &[&str]) -> Vec<String> {
+        input.iter().map(|line| (*line).to_owned()).collect()
+    }
+
+    fn addresses<'a>(hosts: &'a [String], name: &str) -> Vec<&'a str> {
+        hosts.iter().flat_map(|text| text.lines()).filter_map(|line| {
+            let mut fields = line.split('#').next()?.split_whitespace();
+            let address = fields.next()?;
+            fields.any(|alias| alias.eq_ignore_ascii_case(name)).then_some(address)
+        }).collect()
+    }
+
+    #[test]
+    fn defaults_and_unrelated_mappings_keep_their_order() {
+        let hosts = hosts_lines(&lines(&["203.0.113.1\tcustom"]), lines(&["203.0.113.2\tpeer"]));
+        assert_eq!(&hosts[..2], &lines(&["203.0.113.1\tcustom", "203.0.113.2\tpeer"]));
+        for name in ["host.docker.internal", "host.asagiri.internal", "gateway.docker.internal"] {
+            assert_eq!(addresses(&hosts, name), [super::super::ports::HOST_ADDR]);
+        }
+        assert_eq!(hosts.len(), 4);
+        assert_eq!(hosts_lines(&[], Vec::new()), hosts[2..]);
+    }
+
+    #[test]
+    fn an_ipv4_override_keeps_the_other_default_aliases() {
+        let hosts = hosts_lines(&lines(&["203.0.113.19\thost.docker.internal"]), Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.19"]);
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), [super::super::ports::HOST_ADDR]);
+        assert_eq!(addresses(&hosts, "gateway.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn uppercase_ipv6_overrides_do_not_get_an_ipv4_fallback() {
+        let hosts = hosts_lines(&lines(&["2001:db8::19\tHOST.DOCKER.INTERNAL"]), Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["2001:db8::19"]);
+    }
+
+    #[test]
+    fn explicit_aliases_can_replace_every_builtin() {
+        let extra = lines(&["203.0.113.19 host.docker.internal HOST.ASAGIRI.INTERNAL", "203.0.113.20\tgateway.docker.internal"]);
+        assert_eq!(hosts_lines(&extra, Vec::new()), extra);
+    }
+
+    #[test]
+    fn repeated_user_addresses_are_preserved_without_an_extra_fallback() {
+        let extra = lines(&["203.0.113.19\thost.docker.internal", "203.0.113.20\thost.docker.internal"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(&hosts[..2], &extra);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.19", "203.0.113.20"]);
+    }
+
+    #[test]
+    fn links_can_override_a_builtin_alias() {
+        let hosts = hosts_lines(&[], lines(&["203.0.113.21\tpeer host.asagiri.internal"]));
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), ["203.0.113.21"]);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn an_expanded_host_gateway_is_not_duplicated() {
+        let extra = vec![format!("{}\thost.docker.internal", super::super::ports::HOST_ADDR)];
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn names_in_comments_do_not_override_defaults() {
+        let extra = lines(&["203.0.113.19\tunrelated # host.docker.internal host.asagiri.internal gateway.docker.internal"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(hosts, vec![
+            extra[0].clone(),
+            format!("{}\thost.docker.internal host.asagiri.internal", super::super::ports::HOST_ADDR),
+            format!("{}\tgateway.docker.internal", super::super::ports::HOST_ADDR),
+        ]);
+    }
+
+    #[test]
+    fn a_mapping_after_a_comment_line_keeps_its_own_address() {
+        let extra = lines(&["203.0.113.19\tunrelated # comment\n203.0.113.20\tHOST.DOCKER.INTERNAL"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(hosts[0], extra[0]);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.20"]);
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), [super::super::ports::HOST_ADDR]);
+        assert_eq!(addresses(&hosts, "gateway.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+}
+
 /// A Docker event in Asagiri's log: containers and images coming and going,
 /// with name, image and exit code; never labels (they can hold anything).
 /// A BuildKit container's exec is a build session (`docker build`).
@@ -4882,6 +4994,78 @@ mod vm_end_tests {
         assert_eq!(vm_end(true, false), VmEnd::Slept);
         assert_eq!(vm_end(true, true), VmEnd::Slept);
         assert_eq!(vm_end(false, false), VmEnd::Crashed);
+    }
+}
+
+#[cfg(test)]
+mod records_tests {
+    use super::*;
+
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn an_unreadable_container_index_never_becomes_an_empty_retention_list() {
+        let root = std::env::temp_dir().join(format!("asagiri-record-integrity-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "records:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true,
+            config_digest: "sha256:test".into(), layers: Vec::new(), size: 0, platform: "linux/arm64".into(),
+            created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "records:local", "image_id": "sha256:test", "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+        })).unwrap();
+        let id = engine.create(Some("retained-record".into()), spec, &image).unwrap();
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let path = root.join("containers.json");
+        let valid = std::fs::read(&path).unwrap();
+        drop(engine);
+        let logs = root.join("containers").join(&id);
+        std::fs::create_dir_all(&logs).unwrap();
+        let marker = logs.join("retained.log");
+        std::fs::write(&marker, b"preserve the original log\n").unwrap();
+
+        for damaged in [&valid[..valid.len() - 1], b"", b"[{}]", b"[]trailing bytes"] {
+            std::fs::write(&path, damaged).unwrap();
+            for _ in 0..2 {
+                let error = Engine::boot(Store::open(&root).unwrap()).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                assert!(error.to_string().contains(&path.display().to_string()));
+                assert!(error.to_string().contains("startup stopped before cleanup"));
+                assert_eq!(std::fs::read(&path).unwrap(), damaged);
+                assert_eq!(std::fs::read(&marker).unwrap(), b"preserve the original log\n");
+            }
+        }
+
+        std::fs::write(&path, &valid).unwrap();
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| c.name.clone()).unwrap(), "retained-record");
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(std::fs::read(&marker).unwrap(), b"preserve the original log\n");
+    }
+
+    #[test]
+    fn an_index_that_cannot_be_read_also_preserves_container_logs() {
+        let root = std::env::temp_dir().join(format!("asagiri-record-io-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let store = Store::open(&root).unwrap();
+        std::fs::create_dir(root.join("containers.json")).unwrap();
+        let logs = root.join("containers").join("retained");
+        std::fs::create_dir_all(&logs).unwrap();
+        let marker = logs.join("original.log");
+        std::fs::write(&marker, b"preserved").unwrap();
+        let error = Engine::boot(store).unwrap_err();
+        assert!(error.to_string().contains("containers.json"));
+        assert!(error.to_string().contains("startup stopped before cleanup"));
+        assert_eq!(std::fs::read(marker).unwrap(), b"preserved");
     }
 }
 

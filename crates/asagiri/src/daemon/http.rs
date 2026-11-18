@@ -7,6 +7,7 @@ use std::fmt;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
+use super::http_number::parse_number;
 
 /// API version this daemon speaks. The Docker CLI negotiates down to it.
 pub const API_VERSION: &str = "1.47";
@@ -230,7 +231,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     let mut req = Request { method, path, api_version, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
     CLOSE_RESPONSE.with(|close| close.set(req.wants_close()));
     validate_framing(&req)?;
-    let length = req.header("content-length").and_then(|v| v.parse::<u64>().ok());
+    let length = req.header("content-length").and_then(|v| parse_number(v.as_bytes(), false));
     if !streamed && length.is_some_and(|n| n > MAX_BODY as u64) {
         return Err(Refused::TooLarge.into());
     }
@@ -268,8 +269,7 @@ fn validate_framing(req: &Request) -> io::Result<()> {
     if lengths.windows(2).any(|pair| pair[0] != pair[1]) || (!lengths.is_empty() && !codings.is_empty()) {
         return Err(Refused::Malformed("ambiguous request framing").into());
     }
-    // Digits only: `parse` alone would take a sign.
-    if lengths.first().is_some_and(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) || v.parse::<u64>().is_err()) {
+    if lengths.first().is_some_and(|v| parse_number(v.as_bytes(), false).is_none()) {
         return Err(Refused::Malformed("invalid content-length").into());
     }
     Ok(())
@@ -288,7 +288,7 @@ pub struct Body<'a> {
 impl<'a> Body<'a> {
     pub fn new(req: &'a Request, r: &'a mut BufReader<UnixStream>) -> Body<'a> {
         let chunked = req.header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked"));
-        let left = if chunked { 0 } else { req.header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0) };
+        let left = if chunked { 0 } else { req.header("content-length").and_then(|v| parse_number(v.as_bytes(), false)).unwrap_or(0) };
         Body { req, r, chunked, left, done: !chunked && left == 0 }
     }
 }
@@ -309,11 +309,7 @@ impl Read for Body<'_> {
             };
             // A chunk size may carry extensions after a semicolon.
             let size = size.split(';').next().unwrap_or("");
-            // Hex digits only: `from_str_radix` alone would take a sign.
-            if size.is_empty() || !size.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err(Refused::Malformed("bad chunk size").into());
-            }
-            self.left = u64::from_str_radix(size, 16).map_err(|_| Refused::Malformed("bad chunk size"))?;
+            self.left = parse_number(size.as_bytes(), true).ok_or(Refused::Malformed("bad chunk size"))?;
             if self.left == 0 {
                 // Trailers, then the blank line.
                 let mut trailers = (&mut *self.r).take(MAX_HEAD);
@@ -596,6 +592,53 @@ mod tests {
         let mut out = Vec::new();
         Body::new(&req, r).read_to_end(&mut out)?;
         Ok(out)
+    }
+
+    #[test]
+    fn unsigned_framing_matches_the_standard_parser_for_all_short_inputs() {
+        let reference = |bytes: &[u8], hex: bool| {
+            let text = std::str::from_utf8(bytes).ok()?;
+            if text.is_empty() || !bytes.iter().all(|b| if hex { b.is_ascii_hexdigit() } else { b.is_ascii_digit() }) {
+                return None;
+            }
+            u64::from_str_radix(text, if hex { 16 } else { 10 }).ok()
+        };
+        for hex in [false, true] {
+            assert_eq!(parse_number(b"", hex), None);
+            for first in 0..=u8::MAX {
+                assert_eq!(parse_number(&[first], hex), reference(&[first], hex));
+                for second in 0..=u8::MAX {
+                    let bytes = [first, second];
+                    assert_eq!(parse_number(&bytes, hex), reference(&bytes, hex), "{bytes:?}, hex={hex}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unsigned_framing_keeps_exact_values_and_rejects_overflow() {
+        for value in [0, 1, 9, 10, 15, 16, u32::MAX as u64, u64::MAX - 1, u64::MAX] {
+            assert_eq!(parse_number(value.to_string().as_bytes(), false), Some(value));
+            for text in [format!("{value:x}"), format!("{value:X}"), format!("{value:032x}")] {
+                assert_eq!(parse_number(text.as_bytes(), true), Some(value));
+            }
+        }
+        let mut value = 0x79b9540679b95406u64;
+        for _ in 0..4096 {
+            value = value.wrapping_mul(6364136223846793005).wrapping_add(1);
+            assert_eq!(parse_number(value.to_string().as_bytes(), false), Some(value));
+            assert_eq!(parse_number(format!("{value:X}").as_bytes(), true), Some(value));
+        }
+        for (text, hex) in [
+            ("18446744073709551616", false), ("10000000000000000", true),
+            ("99999999999999999999999999999999", false), ("fffffffffffffffff", true),
+            ("+1", false), ("-0", false), ("+a", true), (" 0", false),
+            ("1 ", true), ("0x1", true), ("1_0", false), ("1g", true),
+        ] {
+            assert_eq!(parse_number(text.as_bytes(), hex), None, "{text:?}, hex={hex}");
+        }
+        let padded = format!("{}{}", "0".repeat(4096), u64::MAX);
+        assert_eq!(parse_number(padded.as_bytes(), false), Some(u64::MAX));
     }
 
     #[test]

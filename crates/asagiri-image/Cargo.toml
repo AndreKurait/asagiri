@@ -17,5 +17,9 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 [dev-dependencies]
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
+# tar uses this dependency too. Its size queries must match rustix's buffer API.
+xattr = "1.7"
+
 [lints]
 workspace = true

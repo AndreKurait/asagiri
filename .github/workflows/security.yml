@@ -83,6 +83,7 @@ jobs:
           python3 tests/ci-release.py
           python3 tests/kernel-config-regressions.py
           python3 scripts/ci/verify-issue-coverage.py
+          python3 tests/ci-verification.py
           python3 tests/ci-macos-signing.py
           python3 tests/ci-macos-package.py
           python3 tests/ci-performance.py

@@ -1,0 +1,3776 @@
+{
+  "repository": "AndreKurait/asagiri",
+  "upstream_repository": "libracoder/kiri",
+  "snapshot_at": "2026-11-18T14:50:42.991511+00:00",
+  "published_at": "2026-11-18T15:45:10.880224+00:00",
+  "candidate_revision": "44e04ded309a2e09603beb84ab55564314699ea2",
+  "count": 176,
+  "new_issues": 170,
+  "existing_issue_mappings": 6,
+  "note": "These are verification tasks, not fixed/closed claims. Closing a task requires named source and execution evidence; broader native/design gaps remain open.",
+  "tasks": [
+    {
+      "key": "issue-14",
+      "kind": "issue",
+      "upstream_number": 14,
+      "title": "Verify Kiri #14: Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota)",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/kernel-features.sh",
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "Probe exists; verify it on the bundled guest kernel, not only the Docker host kernel.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/14",
+      "body_sha256": "65938d77c5f9fc353cccaf6fbf03f45b521706bccb2e2a3f643aa1fccb80fa8c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 91,
+        "url": "https://github.com/AndreKurait/asagiri/issues/91"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-25",
+      "kind": "issue",
+      "upstream_number": 25,
+      "title": "Verify Kiri #25: macOS: Allow hiding the Dock icon while Kiri runs in the background",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/ui/settingstabs.js"
+      ],
+      "remaining": "Dock/menu-bar lifecycle still requires a native Mac window.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/25",
+      "body_sha256": "dca734ca2c9a3d411a2076695ac70f442d21889a275fa359e22f2244e975d7dd",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 92,
+        "url": "https://github.com/AndreKurait/asagiri/issues/92"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-27",
+      "kind": "issue",
+      "upstream_number": 27,
+      "title": "Verify Kiri #27: Container DNS fails on Macs with Cisco Umbrella",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-connect-dns.py",
+        "crates/asagiri/src/daemon/dns.rs"
+      ],
+      "remaining": "Linux DNS coverage does not reproduce Cisco Umbrella on macOS.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/27",
+      "body_sha256": "70b530b8dcc155cea9464fbc274452f763cbbd998c20c2180b6069c20603a4e4",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 93,
+        "url": "https://github.com/AndreKurait/asagiri/issues/93"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-38",
+      "kind": "issue",
+      "upstream_number": 38,
+      "title": "Verify Kiri #38: Cilium does not start in kind: the guest kernel needs BPF JIT, perf events and BTF",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-features.sh",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "Kernel flags are configured; a real Cilium startup against the bundled guest remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/38",
+      "body_sha256": "bdff6d22dcf83e5494e77c011c582628f541a8b5a25bcccd441d3955709918af",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 94,
+        "url": "https://github.com/AndreKurait/asagiri/issues/94"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-40",
+      "kind": "issue",
+      "upstream_number": 40,
+      "title": "Verify Kiri #40: macOS: the Finder mount hides an existing ~/Kiri folder and force-unmounts other mounts",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/finder-mount.sh"
+      ],
+      "remaining": "Requires a native Mac Finder/NFS mount; do not run against the user's folders implicitly.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/40",
+      "body_sha256": "5937f9b6e3c82a7ee47ec661a8f3f260d0dd529c259380c9843aecfe0b25f80c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 95,
+        "url": "https://github.com/AndreKurait/asagiri/issues/95"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-41",
+      "kind": "issue",
+      "upstream_number": 41,
+      "title": "Verify Kiri #41: Crash on Typesense startup (SIGSEGV): kernel missing CONFIG_TASK_IO_ACCOUNTING (/proc/self/io)",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "TASK_IO_ACCOUNTING is configured; actual Typesense startup on the bundled guest remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/41",
+      "body_sha256": "7f5e08bc1fbfbdd1e4f85dff21935d56cb0d7407601842f48e1a110b1575949b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 96,
+        "url": "https://github.com/AndreKurait/asagiri/issues/96"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-44",
+      "kind": "issue",
+      "upstream_number": 44,
+      "title": "Verify Kiri #44: Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets)",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-bridge-icc.py",
+        "tests/wsl.sh"
+      ],
+      "remaining": "Native WSL outbound networking still needs a Windows host.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/44",
+      "body_sha256": "65b901294bfb838ba0ac34fabd0cea14703dfe39ffa003c57909a0fe4867c58f",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 97,
+        "url": "https://github.com/AndreKurait/asagiri/issues/97"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-45",
+      "kind": "issue",
+      "upstream_number": 45,
+      "title": "Verify Kiri #45: silly question, is it needed Docker installed so kiri works?",
+      "coverage": "partial",
+      "checks": [
+        "packaging/linux/test.sh",
+        "installer/windows/verify.ps1",
+        "packaging/linux/test-amazon-systemd.sh",
+        "tests/installer.py",
+        "scripts/ci/verify-pages.py"
+      ],
+      "remaining": "Linux packaging and manual Mac activation are qualified for v0.1.13. Native Windows end-user installation and fresh Mac onboarding still need platform execution.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/45",
+      "body_sha256": "1b1c43f39afce8090d4989f796310e09bbf0020ab76f2a8b8e0b0c8bb22ea8cb",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 98,
+        "url": "https://github.com/AndreKurait/asagiri/issues/98"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-48",
+      "kind": "issue",
+      "upstream_number": 48,
+      "title": "Verify Kiri #48: Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/update.rs",
+        "tests/bind-inotify.py",
+        "tests/buildx-bootstrap.py",
+        "tests/seccomp-profiles.py"
+      ],
+      "remaining": "v0.1.13 ships the builder, bind notification and selected seccomp fixes. Full in-app update/restart behavior and Windows C-drive notifications still need native qualification.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/48",
+      "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 99,
+        "url": "https://github.com/AndreKurait/asagiri/issues/99"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-49",
+      "kind": "issue",
+      "upstream_number": 49,
+      "title": "Verify Kiri #49: Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildkit-driver.py",
+        "docs/buildkit.md"
+      ],
+      "remaining": "Asagiri v0.1.13 ships /grpc, /session and /build for Buildx's docker driver, host-gateway and direct image loading. Linux release CI exercises these paths. Native Mac VM and Windows WSL builder qualification remains open.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/49",
+      "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 100,
+        "url": "https://github.com/AndreKurait/asagiri/issues/100"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-50",
+      "kind": "issue",
+      "upstream_number": 50,
+      "title": "Verify Kiri #50: macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down",
+      "coverage": "partial",
+      "checks": [
+        "tests/vm-recovery.py",
+        "guest/kernel/patches/0004-gro-frag-list-gso-size.patch"
+      ],
+      "remaining": "Actual Linux agent crashes recover; native Mac kernel crash/VM recovery remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/50",
+      "body_sha256": "5e17a20761f795020b6e94eae78030cd3aa6fedc59c69f82b22bf9dedd74d901",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 101,
+        "url": "https://github.com/AndreKurait/asagiri/issues/101"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-57",
+      "kind": "issue",
+      "upstream_number": 57,
+      "title": "Verify Kiri #57: Builds for a foreign platform use the local image of the same tag and ignore --platform (Invalid ELF image for this architecture)",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "Cross-platform OCI ELF and local-tag selection are tested; native Intel Mac execution remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/57",
+      "body_sha256": "35403523d083446b793a505b5020efc61adc928330805b53b9e3f4ebe376ed93",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 102,
+        "url": "https://github.com/AndreKurait/asagiri/issues/102"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-59",
+      "kind": "issue",
+      "upstream_number": 59,
+      "title": "Verify Kiri #59: Allow running linux/arm64 containers on Intel Macs via QEMU user-mode emulation (currently hard-rejected with \"Kiri does not emulate Arm\")",
+      "coverage": "partial",
+      "checks": [
+        "tests/ci-qemu.py",
+        ".github/workflows/qemu.yml",
+        "docs/qemu-emulation.md"
+      ],
+      "remaining": "The QEMU 11.0.5 full source build and ARM64 execution probe passed in hosted run 43633676310. All three build products and the corresponding source, including 44 target and host package entries, were independently verified. Source/bundle boundary checks and the xtask compile pass. Native Intel Mac VM execution remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/59",
+      "body_sha256": "ce5a33302f555483651ca5212a669d164c7a15f3c0cf1c5b695e9e5294e2f8dc",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 103,
+        "url": "https://github.com/AndreKurait/asagiri/issues/103"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-66",
+      "kind": "issue",
+      "upstream_number": 66,
+      "title": "Verify Kiri #66: bun install aborts under linux/amd64 emulation on Apple Silicon (QEMU SIGABRT), works on OrbStack",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "Actual Rosetta/bun execution requires a native Apple Silicon VM; no Linux emulation substitute proves it.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/66",
+      "body_sha256": "ec410c70bb77b82da9cc96d98f3411287b40b04f06deef94e0c20f3d8049db24",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 104,
+        "url": "https://github.com/AndreKurait/asagiri/issues/104"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-72",
+      "kind": "issue",
+      "upstream_number": 72,
+      "title": "Verify Kiri #72: Bind mounts (macOS): open(O_CREAT|O_WRONLY, 0200) fails with EACCES, breaking Node's native fs.cpSync",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/patches/0003-fuse-create-owner-readable.patch",
+        "tests/kernel-config-regressions.py"
+      ],
+      "remaining": "The patch is retained; native Mac virtiofs/Node fs.cpSync still needs reproduction.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/72",
+      "body_sha256": "257d54d232efa8388462e6827ff64be8696205f7d49d92f0b569496b47712abc",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 105,
+        "url": "https://github.com/AndreKurait/asagiri/issues/105"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-73",
+      "kind": "issue",
+      "upstream_number": 73,
+      "title": "Verify Kiri #73: Control Kiri from browser.",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/browser-integration.py",
+        "crates/asagiri/src/browser.rs",
+        "crates/asagiri/src/browser_settings.rs"
+      ],
+      "remaining": "Implemented a loopback-only, password-protected live browser with bounded container, image, volume, network and log views; start/stop/restart require a separate permission. Private Linux engine and real Chromium checks pass, including authentication, revocation, origins, request limits and deadlines. Native Mac engine and Windows named-pipe execution remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/73",
+      "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 106,
+        "url": "https://github.com/AndreKurait/asagiri/issues/106"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-74",
+      "kind": "issue",
+      "upstream_number": 74,
+      "title": "Verify Kiri #74: Create an MCP server to allow agents to work smoother",
+      "coverage": "partial",
+      "checks": [
+        "tests/mcp-integration.py",
+        "tests/ui/integrations.js",
+        "crates/asagiri/src/mcp.rs",
+        "crates/asagiri/src/local_api.rs",
+        "docs/integrations.md",
+        "tests/mcp-sdk.py"
+      ],
+      "remaining": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/74",
+      "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 107,
+        "url": "https://github.com/AndreKurait/asagiri/issues/107"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-85",
+      "kind": "issue",
+      "upstream_number": 85,
+      "title": "Verify Kiri #85: docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
+      "coverage": "partial",
+      "checks": [
+        "tests/image-import.py",
+        "tests/http-body-framing.py"
+      ],
+      "remaining": "docker load, archive-body completion and Docker's rootfs import API have separate production implementations and live tests. Confirm both against the frozen candidate; upstream #461 is a verification task for existing rootfs import support.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/85",
+      "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 108,
+        "url": "https://github.com/AndreKurait/asagiri/issues/108"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-91",
+      "kind": "issue",
+      "upstream_number": 91,
+      "title": "Verify Kiri #91: Setup failure is undiagnosable: \"the test container did not run\" hides the real cause",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri-win/src/setup.rs"
+      ],
+      "remaining": "Diagnostics have unit coverage; native first-run setup still requires platform execution.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/91",
+      "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 109,
+        "url": "https://github.com/AndreKurait/asagiri/issues/109"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        94
+      ]
+    },
+    {
+      "key": "issue-92",
+      "kind": "issue",
+      "upstream_number": 92,
+      "title": "Verify Kiri #92: `setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/setup.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Persisted incomplete setup, missing distro, reboot gating, and engine/tools retry have unit coverage; native Windows first-run recovery still requires execution.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/92",
+      "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 110,
+        "url": "https://github.com/AndreKurait/asagiri/issues/110"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-93",
+      "kind": "issue",
+      "upstream_number": 93,
+      "title": "Verify Kiri #93: After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/daemon_start.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "tests/native-window-regressions.md",
+        "tests/wsl.sh"
+      ],
+      "remaining": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/93",
+      "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 111,
+        "url": "https://github.com/AndreKurait/asagiri/issues/111"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-99",
+      "kind": "issue",
+      "upstream_number": 99,
+      "title": "Verify Kiri #99: Getting issue with DDEV",
+      "coverage": "partial",
+      "checks": [
+        "tests/image-import.py",
+        "tests/archive-permissions.py",
+        "tests/archive-upload-ownership.py",
+        "tests/archive-configured-user.py",
+        "tests/archive-overwrite.py",
+        "tests/archive-directory-times.py",
+        "scripts/ci/ddev.py",
+        "tests/ddev/pins.json",
+        "tests/ddev/README.md"
+      ],
+      "remaining": "The complete PHP/MariaDB/HTTPS DDEV project has Linux CI coverage, including restart and router configuration replacement. Native macOS VM behavior from the report still needs verification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/99",
+      "body_sha256": "bb4b185515b56fcbb00a10abe8e77803792643e9fbb2fdf9a588b5cff37bbff5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 112,
+        "url": "https://github.com/AndreKurait/asagiri/issues/112"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-123",
+      "kind": "issue",
+      "upstream_number": 123,
+      "title": "Verify Kiri #123: macOS: VM data.img retains host disk allocation after guest files are deleted",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri-init/src/linux/trim.rs",
+        "crates/asagiri-init/tests/trim-process.rs",
+        "tests/e2e.sh"
+      ],
+      "remaining": "The trim worker is isolated in a child process and has a standalone Linux regression; host allocated-block reclamation still needs a real Mac VM.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/123",
+      "body_sha256": "1b170c60c7ccbd962d346710bff6c54879320c8a0545bcd18b494b620284312b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 113,
+        "url": "https://github.com/AndreKurait/asagiri/issues/113"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-125",
+      "kind": "issue",
+      "upstream_number": 125,
+      "title": "Verify Kiri #125: Docker network compatibility: bridge options and IPv4/IPv6 drivers",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-bridge-icc.py",
+        "tests/network-bridge-mtu.py",
+        "tests/network-endpoint-metadata.py",
+        "tests/network-ipvlan.py",
+        "tests/network-macvlan.py"
+      ],
+      "remaining": "Linux coverage passes; native Mac/WSL network parity remains a separate check.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/125",
+      "body_sha256": "f264e57737a3b1349e376ea7afa1debb6dfc9d90274c0c7d54a4b825bd944f7f",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 114,
+        "url": "https://github.com/AndreKurait/asagiri/issues/114"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-130",
+      "kind": "issue",
+      "upstream_number": 130,
+      "title": "Verify Kiri #130: Container security: custom seccomp profiles without weakening Kiri host isolation",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/custom_seccomp.rs",
+        "crates/asagiri-init/tests/seccomp-default.rs",
+        "docs/verification/native-seccomp-default-2026-11-16.json",
+        "docs/verification/seccomp-equalities-2026-11-16.json",
+        "tests/seccomp-profiles.py"
+      ],
+      "remaining": "Linux release CI retains the seccomp compiler, default-profile and runc comparison checks. Overlapping-rule semantics, a complete current Docker allowlist audit and broader production proofs remain separate verification work.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/130",
+      "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 115,
+        "url": "https://github.com/AndreKurait/asagiri/issues/115"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-168",
+      "kind": "issue",
+      "upstream_number": 168,
+      "title": "Verify Kiri #168: Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/app.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Hidden WebView2 now requests suspension and resumes on show, preserving the document and terminal state. Native close/reopen race, terminal continuity, and renderer memory measurements remain required.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/168",
+      "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 116,
+        "url": "https://github.com/AndreKurait/asagiri/issues/116"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-170",
+      "kind": "issue",
+      "upstream_number": 170,
+      "title": "Verify Kiri #170: 请看提交的报告",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri/src/setup.rs",
+        "tests/reported-runtime-regressions.py",
+        "tests/vm-recovery.py",
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/e2e.sh"
+      ],
+      "remaining": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. The #231 port re-resolves linked sources on each start; its pure Mac filesystem regression passes on 44fab19 while retaining lifecycle locks and original inspect paths. Native Mac lifecycle, VM bind restart and published-port reproduction remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/170",
+      "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 117,
+        "url": "https://github.com/AndreKurait/asagiri/issues/117"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-187",
+      "kind": "issue",
+      "upstream_number": 187,
+      "title": "Verify Kiri #187: macOS: window traffic-light buttons shift upward after switching themes",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Theme changes now reapply native button placement after AppKit layout; pure LTR/RTL geometry regression passes. Switching themes in a native Mac window still requires verification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/187",
+      "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 118,
+        "url": "https://github.com/AndreKurait/asagiri/issues/118"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-190",
+      "kind": "issue",
+      "upstream_number": 190,
+      "title": "Verify Kiri #190: Windows: the window's usage figure counts unrelated processes (PID reuse when building the process tree)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/usage.rs"
+      ],
+      "remaining": "Portable PID-tree and CPU sample-identity regressions pass; CPU baselines use process creation time on Mac, Linux, and Windows. Native Windows handle sampling remains a Windows CI check.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/190",
+      "body_sha256": "427437ba7aa249ed84f7f7583059c92591744ce3361e42c15d0ab8429df508dc",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 119,
+        "url": "https://github.com/AndreKurait/asagiri/issues/119"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-199",
+      "kind": "issue",
+      "upstream_number": 199,
+      "title": "Verify Kiri #199: Every linux/amd64 container crashes with \"rosetta error: unhandled auxillary vector type 29\" (SIGTRAP) on Apple Silicon",
+      "coverage": "partial",
+      "checks": [
+        "guest/kernel/patches/0005-binfmt-elf-hwcap3-only-when-set.patch",
+        "tests/e2e.sh"
+      ],
+      "remaining": "Ported upstream #208: omit zero HWCAP3/HWCAP4 auxv entries for older Rosetta. Kernel recipes include the patch; actual macOS 15 Rosetta execution remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/199",
+      "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 120,
+        "url": "https://github.com/AndreKurait/asagiri/issues/120"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-202",
+      "kind": "issue",
+      "upstream_number": 202,
+      "title": "Verify Kiri #202: USB device detaches by itself after ~8 minutes idle (ESP32-S3)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/usb.rs",
+        "crates/asagiri/src/usb/helper.rs",
+        "tests/ui/usb.js",
+        "crates/asagiri/src/usb.rs"
+      ],
+      "remaining": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Waiting devices are visible and cancelable in API/CLI/UI; reconnect generations and immediate-drop registration are covered by eight passing Mac state tests on 44fab19. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/202",
+      "body_sha256": "401c286ebd8280cdda6fc9d10c4200fb60457678eafbb53e21ab38c912f0bf77",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 121,
+        "url": "https://github.com/AndreKurait/asagiri/issues/121"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-203",
+      "kind": "issue",
+      "upstream_number": 203,
+      "title": "Verify Kiri #203: Proposal for a Kiri MCP server (As suggested in Issue #74)",
+      "coverage": "partial",
+      "checks": [
+        "tests/mcp-integration.py",
+        "tests/ui/integrations.js",
+        "crates/asagiri/src/mcp.rs",
+        "crates/asagiri/src/local_api.rs",
+        "docs/integrations.md",
+        "tests/mcp-sdk.py"
+      ],
+      "remaining": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/203",
+      "body_sha256": "eb146f96c86e16289d3396889c852bad695d197487a5623459053401516c0dfa",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 122,
+        "url": "https://github.com/AndreKurait/asagiri/issues/122"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-209",
+      "kind": "issue",
+      "upstream_number": 209,
+      "title": "Verify Kiri #209: Windows: docker build hangs when a RUN step needs network (BuildKit has no usable DNS)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs",
+        "crates/asagiri-init/src/linux/transport.rs",
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "Default-bridge DNS now uses the reachable bridge gateway whenever a local host resolver needs the agent, including WSL. Local stubs are retained rather than replaced by public resolvers. Protocol/configuration tests cover the non-Mac path; native Windows VPN and BuildKit execution remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/209",
+      "body_sha256": "186afacad824393bcce424af2a34426472945a44c2751679260e4a0e8b488f9d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 123,
+        "url": "https://github.com/AndreKurait/asagiri/issues/123"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-210",
+      "kind": "issue",
+      "upstream_number": 210,
+      "title": "Verify Kiri #210: macOS: containers report hundreds of GB of block reads while the guest has no page cache",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/balloon.rs",
+        "crates/asagiri-init/src/linux/cgroup.rs",
+        "crates/asagiri-proto/src/lib.rs"
+      ],
+      "remaining": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/210",
+      "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 124,
+        "url": "https://github.com/AndreKurait/asagiri/issues/124"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-218",
+      "kind": "issue",
+      "upstream_number": 218,
+      "title": "Verify Kiri #218: Windows: publishing a port on a host IP (-p IP:port:port) fails with 'Address not available (os error 99)'; 0.0.0.0 is loopback-only",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/ports.rs",
+        "crates/asagiri/src/daemon/api.rs",
+        "docs/features.md"
+      ],
+      "remaining": "Implemented the report's clear-limitation alternative: explicit non-loopback Windows host-IP publishing is rejected, while wildcard bindings return a WSL/Windows-LAN warning. Portable address tests cover the policy; no Windows forwarding or firewall rules are installed and native LAN reachability remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/218",
+      "body_sha256": "33f134b55f020d194ac5e9d4a84931a39e8ecc8a961c09b983f478dd4e8da644",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 125,
+        "url": "https://github.com/AndreKurait/asagiri/issues/125"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        391
+      ]
+    },
+    {
+      "key": "issue-225",
+      "kind": "issue",
+      "upstream_number": 225,
+      "title": "Verify Kiri #225: Windows: Docker API ignores Connection: close, so a body-less 204 (container start) hangs Testcontainers for .NET",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/serve.rs",
+        "crates/asagiri/src/daemon/http.rs",
+        "tests/client-command-compatibility.py"
+      ],
+      "remaining": "Existing HTTP connection-close and Windows byte-mode pipe checks remain applicable; changed public #259 has identical source blobs to the already reviewed port. Exact Testcontainers for .NET/SQL Server and the newly mentioned macOS HTTP client still need end-to-end qualification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/225",
+      "body_sha256": "bc38e2f95826a6cf9d56cb699d9520e13a8dceddee9c33eb1b0d2d0ea012782b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-226",
+      "kind": "issue",
+      "upstream_number": 226,
+      "title": "Verify Kiri #226: Colima vs Kiri vs Podman",
+      "coverage": "partial",
+      "checks": [
+        "scripts/reference-bench.py",
+        "tests/ci-reference-performance.py",
+        ".github/workflows/reference-performance.yml",
+        "docs/engine-comparison.md",
+        "docs/verification/public-integration-2026-11-16.json"
+      ],
+      "remaining": "Dev.100 main comparison 43827712984 and final PR50 comparison 43831181768 each passed 6000 independently verified samples and 15 median/p95 results. Main publication now requires its exact-commit comparison automatically. The runs used different hosts; their timing difference is not a controlled code regression result. Native Mac/Colima/WSL and general application throughput remain unmeasured.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/226",
+      "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 126,
+        "url": "https://github.com/AndreKurait/asagiri/issues/126"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-228",
+      "kind": "issue",
+      "upstream_number": 228,
+      "title": "Verify Kiri #228: Linux: `docker network create` without an explicit subnet always fails with \"no free subnet left\" (breaks kind)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/network.rs",
+        "docs/linux-service-recovery.md",
+        "tests/kind-cluster.py",
+        "tests/kind-network.py",
+        "tests/network-allocation.py"
+      ],
+      "remaining": "The new comment's explicit /1 routes both use a gateway; current on_link_routes excludes those routes and retains real connected subnets, with a regression covering both /1 halves. Public Moby v28.0.4 also reserves on-link routes rather than every routed destination. This does not prove the exact CachyOS/VPN environment or every IPv6 and gateway-free tunnel configuration.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/228",
+      "body_sha256": "3967ca2b74e1ef7408073e7a5b9bd48f55bd52162c855e0c78f8ecd140ae0783",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 127,
+        "url": "https://github.com/AndreKurait/asagiri/issues/127"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-245",
+      "kind": "issue",
+      "upstream_number": 245,
+      "title": "Verify Kiri #245: docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
+      "coverage": "partial",
+      "checks": [
+        "tests/archive-stopped-mounts.py",
+        "docs/verification/native-macos-2026-11-16.json"
+      ],
+      "remaining": "Stopped/created-container mount-aware archive tests exist. Verify the newly reported copy-in certificate holder and Supabase CLI 3 rollback paths, including labels and read-only mounts, on the actual affected platforms.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/245",
+      "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 128,
+        "url": "https://github.com/AndreKurait/asagiri/issues/128"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-247",
+      "kind": "issue",
+      "upstream_number": 247,
+      "title": "Verify Kiri #247: Bridge containers have no outbound TCP/UDP when host FORWARD policy is DROP (no accept or MASQUERADE rules for kiri0)",
+      "coverage": "partial",
+      "checks": [
+        "docs/linux-firewall.md",
+        "tests/linux-firewall.py"
+      ],
+      "remaining": "The new report demonstrates a foreign FORWARD policy-drop chain overriding a separate accept chain. Verify coexistence and useful diagnostics without silently rewriting another firewall or Docker's policy.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/247",
+      "body_sha256": "ab4c1c41c7f7b222c2b9da4b5001a4244fba6d986b3b5704610dcd3f5491ca33",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 129,
+        "url": "https://github.com/AndreKurait/asagiri/issues/129"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-248",
+      "kind": "issue",
+      "upstream_number": 248,
+      "title": "Verify Kiri #248: Removing a network leaks its DNS listener: next network on the same subnet fails with 'dns bind: Address in use'",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-dns-reuse.py",
+        "crates/asagiri-init/src/linux/container.rs",
+        "tests/init-descriptors.py"
+      ],
+      "remaining": "Owned failed-start DNS/link cleanup, unaffected peers, subnet reuse and actual init descriptor/stdin/EOF tests pass. Public #363's extra descriptor-close proposal is already covered by Asagiri's checked pre-filter close_range and bounded fallback. The reporter's exact kernel 7.3 gateway-address failure remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/248",
+      "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 130,
+        "url": "https://github.com/AndreKurait/asagiri/issues/130"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-250",
+      "kind": "issue",
+      "upstream_number": 250,
+      "title": "Verify Kiri #250: macOS: launching Kiri from Finder/Dock exits silently (open returns 0), and the log records command=\"\" instead of what failed",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/setup.rs",
+        "crates/asagiri/src/diag/mod.rs",
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Pure filesystem tests reproduce and fix dangling and unreadable shell-profile failures; command-label and setup-context tests cover diagnostics. The exact reported Finder/Dock failure, LaunchAgent creation and native error alert require a disposable Mac desktop account and remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/250",
+      "body_sha256": "408452731af103e31938c696d86e5f294551a302e61df7c5774d9101e368edd9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 131,
+        "url": "https://github.com/AndreKurait/asagiri/issues/131"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        457
+      ]
+    },
+    {
+      "key": "issue-251",
+      "kind": "issue",
+      "upstream_number": 251,
+      "title": "Verify Kiri #251: AppImage or Flatpak Version",
+      "coverage": "partial",
+      "checks": [
+        "packaging/README.md",
+        "tests/appimage.py",
+        "scripts/ci/appimage.sh"
+      ],
+      "remaining": "Native x86_64/aarch64 AppImages are released and checked for extraction, CLI/library identity and headless GTK launch. Host GTK/WebKit dependencies and real desktop/FUSE behavior remain; no Flatpak is implemented.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/251",
+      "body_sha256": "1f459185e2e0ba2873897f93079af4c2ac97ac4358ea20034ad560a9950c65f3",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 132,
+        "url": "https://github.com/AndreKurait/asagiri/issues/132"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        260
+      ]
+    },
+    {
+      "key": "issue-252",
+      "kind": "issue",
+      "upstream_number": 252,
+      "title": "Verify Kiri #252: Linux: 0.2.0 .deb fails to install on Ubuntu 22.04 (requires libc6 >= 2.39)",
+      "coverage": "partial",
+      "checks": [
+        "packaging/README.md",
+        "packaging/linux/build.sh",
+        "packaging/linux/native-build.json",
+        "packaging/linux/test-host.sh",
+        "scripts/ci/linux-packages.sh",
+        "scripts/ci/verify-linux-native.py"
+      ],
+      "remaining": "GNU Linux package and ELF-baseline checks passed in v0.1.13 qualification. Actual Ubuntu 22.04 GUI installation with its GTK/WebKit packages remains a native desktop check.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/252",
+      "body_sha256": "9ef673b80f2c73c7561a8f67e7a9a10c5c43e5b10ed5edcacffa2f8b2b6fc7d7",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 133,
+        "url": "https://github.com/AndreKurait/asagiri/issues/133"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-257",
+      "kind": "issue",
+      "upstream_number": 257,
+      "title": "Verify Kiri #257: GET /distribution/{name}/json is missing, so image-update checks in Docker tools fail",
+      "coverage": "partial",
+      "checks": [
+        "tests/distribution.py",
+        "docs/registry-distribution.md",
+        "docs/verification/public-integration-2026-11-16.json"
+      ],
+      "remaining": "Final PR50 passed required live registry metadata/authentication and Docker-reference checks, retaining the Basic-auth error distinction. Actual Watchtower and Arcane applications remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/257",
+      "body_sha256": "d06a3209d7bafcf4921115f37fc1dc41ee0204fc506dc2a9724c98037d39c205",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 134,
+        "url": "https://github.com/AndreKurait/asagiri/issues/134"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-261",
+      "kind": "issue",
+      "upstream_number": 261,
+      "title": "Verify Kiri #261: Linux: bridge containers can't reach Tailscale/VPN networks (NAT only on default-route NIC, bridges in no firewalld zone)",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/linux-firewall.py",
+        "docs/linux-firewall.md"
+      ],
+      "remaining": "Verify policy-routed full-tunnel VPN and Calico egress, fallback behavior and routed container ingress. Do not infer foreign-firewall compatibility from a default-route network test.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/261",
+      "body_sha256": "5bbeba06b8dab95a06b066b344cd849f42f1702618fba72ad87face5edcb4059",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 135,
+        "url": "https://github.com/AndreKurait/asagiri/issues/135"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-266",
+      "kind": "issue",
+      "upstream_number": 266,
+      "title": "Verify Kiri #266: kiri import --list fails on a fresh machine when the default source context does not exist",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/266",
+      "body_sha256": "78be52f337544343a2a65dd39a4656b9af932e0be824d5d56ff2785c8f286023",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 136,
+        "url": "https://github.com/AndreKurait/asagiri/issues/136"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-268",
+      "kind": "issue",
+      "upstream_number": 268,
+      "title": "Verify Kiri #268: [Bug] Docker image/container import fails on Windows",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/268",
+      "body_sha256": "9176abd5b57a5a28d4b59b6a2e31b8c0c4b9630abae7dcb562d43eeb9bd284c4",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 137,
+        "url": "https://github.com/AndreKurait/asagiri/issues/137"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-269",
+      "kind": "issue",
+      "upstream_number": 269,
+      "title": "Verify Kiri #269: Windows: expose the engine socket to other WSL distros (WSL integration)",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "SECURITY.md"
+      ],
+      "remaining": "Opt-in socket integration with other WSL distros is not implemented. It needs explicit distro/group ownership, persistent restart behavior, scoped bind-path semantics and native WSL tests; the API is not exposed over unauthenticated TCP.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/269",
+      "body_sha256": "f4fada6a51b45368f1e13a977995523c43571e872daf83772bf925aafcadf68a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 138,
+        "url": "https://github.com/AndreKurait/asagiri/issues/138"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-277",
+      "kind": "issue",
+      "upstream_number": 277,
+      "title": "Verify Kiri #277: Windows: containers fail on a stock WSL2 — Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/mod.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Asagiri has explicit cgroup delegation/startup and WSL bridge recovery checks. The exact hybrid-tree WSL host remains a native qualification gap; do not infer its result from the Linux fixtures or change another distro's controllers.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/277",
+      "body_sha256": "eb90dd744b528d59cb3e95be97828a538390c3fc20f1d578100e22f39521ced1",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 139,
+        "url": "https://github.com/AndreKurait/asagiri/issues/139"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-281",
+      "kind": "issue",
+      "upstream_number": 281,
+      "title": "Verify Kiri #281: [Windows] RTL languages (Arabic and Persian) cause blank UI after restart",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/ui/ar.js",
+        "crates/asagiri-win/src/app.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "RTL/browser and all translation checks pass, including the Persian wording update. They cannot reproduce WebView2 startup after a native Windows quit/relaunch. The blank-window report remains open for native investigation.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/281",
+      "body_sha256": "c633d931023ed6ff16ade4465feefb7774deb61eab080ddd9aa418776b2e6473",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 140,
+        "url": "https://github.com/AndreKurait/asagiri/issues/140"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-288",
+      "kind": "issue",
+      "upstream_number": 288,
+      "title": "Verify Kiri #288: Dockerfile build fails with 101: Network is unreachable",
+      "coverage": "partial",
+      "checks": [
+        "docs/buildkit.md",
+        "tests/buildkit-driver.py",
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "The new build-fails/pull-succeeds comment does not contain enough independent evidence to establish the exact failure cause. Retain the existing BuildKit checks and the unresolved application/host qualification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/288",
+      "body_sha256": "57df30f4e263e141b1dcd3e28b9e272adb5b6d242fcfa5e693f79da43d535c0c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 141,
+        "url": "https://github.com/AndreKurait/asagiri/issues/141"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-294",
+      "kind": "issue",
+      "upstream_number": 294,
+      "title": "Verify Kiri #294: Embedded DNS answers from the first-joined network, so Compose service aliases resolve to another project's container",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/dns.rs",
+        "tests/network-dns-order.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "Adapted the public DNS ordering fix and retained routed/internal/gateway-family precedence per container. All 17 actual DNS unit tests, including six new regressions, passed on the integrated aarch64 guest; x86_64 also compiled. The 25-case Docker/Asagiri API fixture is checked in and awaits final CI qualification. Explicit gateway priority, Swarm and complete application-level coverage remain outside these tests.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/294",
+      "body_sha256": "82fb1e8f7f875e3a416b3d56c1e9a31c0de8ddc58b1e0b4b3efc873706cf5d5d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 142,
+        "url": "https://github.com/AndreKurait/asagiri/issues/142"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-297",
+      "kind": "issue",
+      "upstream_number": 297,
+      "title": "Verify Kiri #297: Windows: setup fails with WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED - the \"Subsystem for Linux\" optional component is never enabled",
+      "coverage": "partial",
+      "checks": [
+        "tests/windows-wsl-setup.ps1",
+        "docs/windows-wsl-setup.md",
+        "crates/asagiri-win/src/wslsync.rs"
+      ],
+      "remaining": "The setup follow-up handles missing WSL components and build-distro selection with portable/Windows CI coverage. Actual optional-feature enablement, reboot and first launch on native Windows remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/297",
+      "body_sha256": "ca95e81a02bb30b7632e0952d07375a4f0a42c0dbca75459b8e60cff50cb718e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 143,
+        "url": "https://github.com/AndreKurait/asagiri/issues/143"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-303",
+      "kind": "issue",
+      "upstream_number": 303,
+      "title": "Verify Kiri #303: Trust the system certificate store for registries (corporate root CA, UnknownIssuer)",
+      "coverage": "partial",
+      "checks": [
+        "tests/registry-ca.py",
+        "docs/registry-configuration.md"
+      ],
+      "remaining": "Review native/platform trust-store use across registry, update, share and tools clients, including SSL_CERT_FILE and proxy roots, with a controlled TLS server.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/303",
+      "body_sha256": "143afbd1b35d127992d27eeb8897051eebcda24b3207b5c3d09a41229c4d823a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 144,
+        "url": "https://github.com/AndreKurait/asagiri/issues/144"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-310",
+      "kind": "issue",
+      "upstream_number": 310,
+      "title": "Verify Kiri #310: Files changed on the Mac send no inotify events into containers (hot reload doesn't fire)",
+      "coverage": "partial",
+      "checks": [
+        "tests/bind-inotify.py",
+        "docs/mac-file-watching.md",
+        ".github/workflows/guest-kernels.yml",
+        "tests/kernel-fsnotify-init.c",
+        "tests/native-window-regressions.md",
+        "docs/verification/public-integration-2026-11-16.json"
+      ],
+      "remaining": "Final PR50 Platform and independently checked ARM64/x86_64 QEMU fsnotify/loop tests passed. Packaged native Mac save-to-inotify/hot-reload remains required after release.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/310",
+      "body_sha256": "fabaeba536ed2fb772497533d25249e39613bd197213a32f86e3af1d00ddf7a1",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 145,
+        "url": "https://github.com/AndreKurait/asagiri/issues/145"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-311",
+      "kind": "issue",
+      "upstream_number": 311,
+      "title": "Verify Kiri #311: Linux: immediate docker exec fails with unknown user after starting a container with a fresh named volume",
+      "coverage": "partial",
+      "checks": [
+        "tests/start-exec-readiness.py",
+        "tests/start-exec-image-user.py",
+        "scripts/ci/live-tests.sh",
+        "docs/verification/native-readiness-2026-11-16.json",
+        "docs/verification/public-integration-2026-11-16.json"
+      ],
+      "remaining": "Native dev.99 and both Docker/private Asagiri in final PR50 Platform passed three fresh 128 MiB volumes, six immediate explicit/inherited image-user execs, a missing-user control and eight owned removals per engine. Existing 20-exec/100-tmpfs readiness checks remain. The reporter's exact Ubuntu ARM host remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/311",
+      "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 146,
+        "url": "https://github.com/AndreKurait/asagiri/issues/146"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-315",
+      "kind": "issue",
+      "upstream_number": 315,
+      "title": "Verify Kiri #315: Support macOS 13 (Ventura): 0.2.1 x86_64 app requires macOS 14 even though the binary targets 10.12",
+      "coverage": "known-limitation",
+      "checks": [
+        "packaging/README.md",
+        "xtask/src/main.rs"
+      ],
+      "remaining": "The Mac bundle minimum remains macOS 14. A CLI deployment target alone does not prove the Virtualization.framework/AppKit APIs work on Ventura. Intel macOS 13 VM, bind and port tests have not run, so the plist floor was not lowered.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/315",
+      "body_sha256": "0cbe67873d2972c00896aa32c9eac3876f29727f638dc20ed91d19e12eb7ff5d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 147,
+        "url": "https://github.com/AndreKurait/asagiri/issues/147"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-316",
+      "kind": "issue",
+      "upstream_number": 316,
+      "title": "Verify Kiri #316: guest stopped before connecting: Some(\"the agent exited: exit status: 1\")",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/guest.rs",
+        "crates/asagiri/src/diag/console.rs",
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Startup/console diagnostics and optional-log failures have reviewed fixes; the report's cgroup/WSL root cause overlaps #277. The exact native failure and improved end-user cause propagation still need verification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/316",
+      "body_sha256": "411125e01229033126d848b4e2598b3d10b2e2a133af7efa7321694fc599a51a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 148,
+        "url": "https://github.com/AndreKurait/asagiri/issues/148"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-319",
+      "kind": "issue",
+      "upstream_number": 319,
+      "title": "Verify Kiri #319: Mac: containers can't reach hosts behind a split-tunnel VPN",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "docs/linux-firewall.md"
+      ],
+      "remaining": "A Mac host relay or equivalent split-tunnel VPN integration is not implemented or qualified. IPv4/IPv6 localhost checks do not establish private VPN reachability, and the host PF policy was left intact.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/319",
+      "body_sha256": "7010aac4e137d77b4c1d8a1cb470160483de10203ea01ba79d229c6b66580a1d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 149,
+        "url": "https://github.com/AndreKurait/asagiri/issues/149"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-323",
+      "kind": "issue",
+      "upstream_number": 323,
+      "title": "Verify Kiri #323: Install through homebrew",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/install.md",
+        "packaging/README.md",
+        "tests/installer.py"
+      ],
+      "remaining": "The new Homebrew comments concern an external tap, upstream repository-age policy and zap behavior. No Homebrew publication, uninstall or reinstall has been performed during this review.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/323",
+      "body_sha256": "01af70790cd655eb64787ce72e6cd9c9c0d408d758c85f775be3bfc75eade40e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 150,
+        "url": "https://github.com/AndreKurait/asagiri/issues/150"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-324",
+      "kind": "issue",
+      "upstream_number": 324,
+      "title": "Verify Kiri #324: Linux: a signal can reach a reused process ID after a container exits",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/agent.rs",
+        "crates/asagiri-init/src/linux/cgroup_kill.rs",
+        "crates/asagiri-init/src/linux/cgroup_kill_tests.rs",
+        "crates/asagiri-init/src/linux/container.rs",
+        "docs/verification/cgroup-stop-native-2026-11-16.json"
+      ],
+      "remaining": "Owned-cgroup shutdown and process lookup are in v0.1.13 with Linux checks. Old kernels, adversarial PID churn and exclusion of an external privileged migrator remain outside the demonstrated scope.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/324",
+      "body_sha256": "3641767ef87bcfeb9665dafac3e7cc2660a46771b39d3c5b8d63d2c3076b7513",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 151,
+        "url": "https://github.com/AndreKurait/asagiri/issues/151"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-326",
+      "kind": "issue",
+      "upstream_number": 326,
+      "title": "Verify Kiri #326: Adjust swap memory",
+      "coverage": "deferred-feature",
+      "checks": [
+        "tests/resource-limits.py",
+        "docs/features.md"
+      ],
+      "remaining": "Per-container MemorySwap limits are implemented and tested. A configurable macOS guest swap allocation is a different feature and is not implemented or benchmarked.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/326",
+      "body_sha256": "94324a40018213a9170688990b5fd3ae8d9e4094bdc7dcdd926510c57a5de06b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 152,
+        "url": "https://github.com/AndreKurait/asagiri/issues/152"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-329",
+      "kind": "issue",
+      "upstream_number": 329,
+      "title": "Verify Kiri #329: Support insecure-registries (plain-HTTP and self-signed private registries), and read Docker's daemon.json",
+      "coverage": "partial",
+      "checks": [
+        "tests/registry-config.py",
+        "tests/registry-ca.py",
+        "docs/registry-configuration.md"
+      ],
+      "remaining": "Released daemon.json and scoped HTTP/self-signed registry policy pass private pull/push/TLS and real BuildKit checks. Authority/CIDR and separate worker trust limits are documented; the exact reporter's native environment remains unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/329",
+      "body_sha256": "7d30ac3015d319b7299052aa9b1fe3324197620d1a68936a06c8b36358a80b77",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 153,
+        "url": "https://github.com/AndreKurait/asagiri/issues/153"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-330",
+      "kind": "issue",
+      "upstream_number": 330,
+      "title": "Verify Kiri #330: Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused",
+      "coverage": "partial",
+      "checks": [
+        "docs/buildkit.md",
+        "docs/features.md",
+        "scripts/ci/ddev.py",
+        "tests/buildkit-driver.py",
+        "tests/buildx-bootstrap.py",
+        "tests/network-connect-dns.py"
+      ],
+      "remaining": "Existing default-bridge DNS and BuildKit evidence is retained. The exact Bun/Compose application and new default-bridge UDP report remain unqualified. Public #366's shared-network alias ordering has a separate uncommitted candidate with six unit tests and 25 paired fixture cases prepared but not executed.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/330",
+      "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 154,
+        "url": "https://github.com/AndreKurait/asagiri/issues/154"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-336",
+      "kind": "issue",
+      "upstream_number": 336,
+      "title": "Verify Kiri #336: Windows: would you consider a libkrun/WHP VM backend instead of a WSL 2 distro?",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md",
+        "crates/asagiri-win/src/engine.rs"
+      ],
+      "remaining": "A libkrun/WHP backend is an architectural proposal, not an implemented Windows backend. Kernel, storage, networking, memory reclamation and Windows Arm behavior require a separate implementation and native validation.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/336",
+      "body_sha256": "a5d7064f5532aaaddc90ff81b5f7bc05ce46142d107489a988ed04e4a2d83492",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 155,
+        "url": "https://github.com/AndreKurait/asagiri/issues/155"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-337",
+      "kind": "issue",
+      "upstream_number": 337,
+      "title": "Verify Kiri #337: macOS 26: Cannot move the window",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The reported macOS 26 window-border dragging behavior has not been reproduced in a native AppKit interaction. Browser geometry and traffic-light tests do not establish window movement.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/337",
+      "body_sha256": "d977a7a765ac10d49b294d1897e952ba6136018d48f110b2d70859d21f0285d5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 156,
+        "url": "https://github.com/AndreKurait/asagiri/issues/156"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        475
+      ]
+    },
+    {
+      "key": "issue-338",
+      "kind": "issue",
+      "upstream_number": 338,
+      "title": "Verify Kiri #338: Can't execute commands properly inside built in container terminal",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/ui/index.html",
+        "tests/ui/terminal.js"
+      ],
+      "remaining": "Review #498's per-command result ownership and one-command-at-a-time behavior. Verify clear/late replies and keep one-shot command execution distinct from an interactive terminal.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/338",
+      "body_sha256": "9e3cdc24a55e5a413ff4f0ccf9075b32fef244f9807617b3b7349d6e272939fa",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 157,
+        "url": "https://github.com/AndreKurait/asagiri/issues/157"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-340",
+      "kind": "issue",
+      "upstream_number": 340,
+      "title": "Verify Kiri #340: Unable to copy & paste anything from/to textfield in setting panel",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/ui/mac.rs",
+        "tests/ui/parity.js",
+        "tests/native-window-regressions.md",
+        "tests/ui/logselect.js"
+      ],
+      "remaining": "Current main has the translated native Mac Edit menu. The new public #352 followup also removes duplicate page-side Mac copying; nine headless cases across three platform modes pass. Actual packaged AppKit clipboard shortcuts remain unverified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/340",
+      "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 158,
+        "url": "https://github.com/AndreKurait/asagiri/issues/158"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-342",
+      "kind": "issue",
+      "upstream_number": 342,
+      "title": "Verify Kiri #342: Manage compose yamls in Kiri dashboard",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "A dashboard that creates/imports and stores Compose projects is a feature proposal. The existing Compose client/runtime and new health fixture do not implement project-file management.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/342",
+      "body_sha256": "92fc5069504a0352215da756ff7f80d63509a5b35243f80da17e106fc58ebbda",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 159,
+        "url": "https://github.com/AndreKurait/asagiri/issues/159"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-344",
+      "kind": "issue",
+      "upstream_number": 344,
+      "title": "Verify Kiri #344: macOS 14 (Apple silicon): every linux/amd64 container aborts with Rosetta \"Failed to find vdso DT_HASH\"",
+      "coverage": "platform-gap",
+      "checks": [
+        "guest/kernel/build.sh",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The report concerns macOS 14 Rosetta requiring the ARM vDSO DT_HASH table, distinct from the earlier auxiliary-vector fix. The proposed dual hash-table kernel change has not been implemented or tested on that OS/Rosetta version; current cross-architecture checks do not prove it.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/344",
+      "body_sha256": "31c8d214b105b4713c46583655be0852e73104bf15dcefbb0eeb6793bf64c5a5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 160,
+        "url": "https://github.com/AndreKurait/asagiri/issues/160"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-345",
+      "kind": "issue",
+      "upstream_number": 345,
+      "title": "Verify Kiri #345: kiri import copies a volume while a running container is writing to it, and reports done",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "scripts/ci/engine-import.py",
+        "docs/engine-import.md",
+        "crates/asagiri/examples/import-fixture.rs",
+        "scripts/ci/build-linux.sh",
+        "docs/verification/public-followup-local-2026-11-16.json"
+      ],
+      "remaining": "Source writer-state guards and the source-bound migration fixture have release qualification. Writers must remain stopped throughout copying; dependency/retry and metadata fidelity remain tracked under #375/#376/#377/#485.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/345",
+      "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 161,
+        "url": "https://github.com/AndreKurait/asagiri/issues/161"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-346",
+      "kind": "issue",
+      "upstream_number": 346,
+      "title": "Verify Kiri #346: `/info` returns an empty `SystemTime`, which breaks attached `docker compose up` and `docker compose logs -f` on Compose 5.7+",
+      "coverage": "partial",
+      "checks": [
+        "tests/daemon-time.py",
+        "tests/compose-health.py",
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": "The daemon returns RFC3339Nano SystemTime and v0.1.13 Linux CI passes daemon-time and Compose health/build/wait checks. Actual attached compose up and logs -f event subscriptions still need a dedicated positive check.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/346",
+      "body_sha256": "64fc0a9039392af2e56c2dc1bbf2adfa74c1e279ce0e253cc719cb128b65922f",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 162,
+        "url": "https://github.com/AndreKurait/asagiri/issues/162"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-349",
+      "kind": "issue",
+      "upstream_number": 349,
+      "title": "Verify Kiri #349: Setup fails with \"no account named <user>\" for directory (non-/etc/passwd) users",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri/src/daemon/access.rs",
+        "crates/asagiri/src/setup.rs"
+      ],
+      "remaining": "Asagiri now has bounded reentrant NSS lookups and GNU Linux packaging. Qualify a real directory-account provider and ongoing authorization/revocation on the reported host.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/349",
+      "body_sha256": "7d1f245edc8a7df8c6a9596bcf5393897c258082b2951f78f41c66eb6d938c01",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 163,
+        "url": "https://github.com/AndreKurait/asagiri/issues/163"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-350",
+      "kind": "issue",
+      "upstream_number": 350,
+      "title": "Verify Kiri #350: macOS: while the VM runs, host traffic loses the DF bit (pf 'scrub ... no-df' on the primary NIC), breaking large TLS 1.3 ClientHellos on some networks",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "The reported macOS InternetSharing no-df effect and large TLS 1.3 ClientHello loss on the corporate path remain unverified. Container network tests do not cover host-wide PF normalization. No PF, MTU, TLS-security or network-control bypass was applied.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/350",
+      "body_sha256": "3a0d2860b2b5cdaef2c6506573a58dc94b4347cfa66381e38f58e26848b23d21",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 164,
+        "url": "https://github.com/AndreKurait/asagiri/issues/164"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-354",
+      "kind": "issue",
+      "upstream_number": 354,
+      "title": "Verify Kiri #354: UI: squircle corners, rounded font and flat neutral palette (proposal)",
+      "coverage": "partial",
+      "checks": [
+        "tests/ui/parity.js",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "The palette/font/squircle redesign is a proposal. Its narrow update-card button clipping and diagnostics-log column squeezing are separate usability defects still needing reproduction and responsive fixes; headless logic tests do not prove native layout.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/354",
+      "body_sha256": "970d546009070e65d4da18c8ef9bea0dc9777b3e863ec192d464d2eb67d746a9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 165,
+        "url": "https://github.com/AndreKurait/asagiri/issues/165"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-355",
+      "kind": "issue",
+      "upstream_number": 355,
+      "title": "Verify Kiri #355: Settings → Storage: choose where Kiri keeps images, containers and volumes (for example an external drive)",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/features.md"
+      ],
+      "remaining": "Storage relocation UI, sparse cross-volume migration, rollback, missing-drive behavior, shared-data locking and platform-specific WSL/Linux storage movement are not implemented by this review. User data was preserved in place; no USB or external-drive experiment was performed.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/355",
+      "body_sha256": "9d6207b7b5edf8bd04f6a9c65dd6350d99e2cef8bec911d389e9ffadd399b871",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 166,
+        "url": "https://github.com/AndreKurait/asagiri/issues/166"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-356",
+      "kind": "issue",
+      "upstream_number": 356,
+      "title": "Verify Kiri #356: macOS on Apple silicon: `--gpus all` as a private channel to a GPU server on the Mac",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/unsupported-run-options.md"
+      ],
+      "remaining": "The proposed Apple GPU/MLX relay is not implemented or benchmarked here. Current GPU requests remain visibly unsupported. A per-container host-socket relay needs its own authorization, isolation, lifecycle and cross-platform design and tests.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/356",
+      "body_sha256": "b431f454aeffdca32a80feef9a2a5cba451a50f271dfe8e42fa5e55b0eb75db8",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 167,
+        "url": "https://github.com/AndreKurait/asagiri/issues/167"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-358",
+      "kind": "issue",
+      "upstream_number": 358,
+      "title": "Verify Kiri #358: e2e has no checks for healthchecks, Compose depends_on conditions, up --wait or up --build",
+      "coverage": "partial",
+      "checks": [
+        "tests/healthchecks.py",
+        "tests/compose-health.py",
+        "tests/fixtures/compose/client.json",
+        "docs/verification/native-healthchecks-2026-11-16.json"
+      ],
+      "remaining": "v0.1.13 Linux CI passes healthchecks and Compose health/build/wait fixtures. Earlier native health evidence remains dated; full native Mac/WSL Compose qualification remains open.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/358",
+      "body_sha256": "b6031bb86c60491291b7e7a88f1aa4b3973d5dc9846e90db331f6122fe66dd6c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 168,
+        "url": "https://github.com/AndreKurait/asagiri/issues/168"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-359",
+      "kind": "issue",
+      "upstream_number": 359,
+      "title": "Verify Kiri #359: 有新版本推送（0.2.1），我下载之后我选择了立即重启，但是立即重启之后一致循环一下的页面",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/release-qualification.md",
+        "docs/verification/native-release-100-2026-11-16.json"
+      ],
+      "remaining": "Mac v0.1.13 manual activation and inventory preservation passed. The reported Windows update/restart popup loop still needs a native Windows old-to-new installation test.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/359",
+      "body_sha256": "4f431da151cb0471d16bca9223b6a4c3ebb3814143abb3ab504cee5944f9e8ae",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 169,
+        "url": "https://github.com/AndreKurait/asagiri/issues/169"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-362",
+      "kind": "issue",
+      "upstream_number": 362,
+      "title": "Verify Kiri #362: Workload numbers on Apple silicon (Kiri 0.2.1 vs OrbStack), and the three \"target\" rows",
+      "coverage": "partial",
+      "checks": [
+        "scripts/reference-bench.py",
+        "docs/engine-comparison.md",
+        "bench/suite.sh",
+        "bench/api.sh",
+        "bench/report.sh",
+        "bench/hyperfine.jq",
+        "tests/ci-hyperfine.py",
+        "tests/fixtures/hyperfine/provenance.json",
+        "docs/verification/public-followup-local-2026-11-16.json"
+      ],
+      "remaining": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/362",
+      "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 170,
+        "url": "https://github.com/AndreKurait/asagiri/issues/170"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-365",
+      "kind": "issue",
+      "upstream_number": 365,
+      "title": "Verify Kiri #365: Unable to mount folders outside $HOME",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "The report concerns macOS mounts outside the user's home. No exact native reproduction or new mount-access fix has been performed; preserve the Apple/platform scope constraint.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/365",
+      "body_sha256": "5d450372e8fcf9c7748009b2a67c57b702634876edbc8ec24f3f16a238102418",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 172,
+        "url": "https://github.com/AndreKurait/asagiri/issues/172"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-367",
+      "kind": "issue",
+      "upstream_number": 367,
+      "title": "Verify Kiri #367: Mac: containers have no working HTTP/HTTPS when a security network extension is active (DNS answers 198.18.x, TCP reset)",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "A corporate network extension changes DNS answers to 198.18.x and resets HTTP/TLS. The exact extension and host environment are unverified; no PF, TLS interception or host-security changes are made.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/367",
+      "body_sha256": "460389eb85cbe9c84ffc890c13b6b78dcd74c501f89492990318ac60c8688538",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 173,
+        "url": "https://github.com/AndreKurait/asagiri/issues/173"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-368",
+      "kind": "issue",
+      "upstream_number": 368,
+      "title": "Verify Kiri #368: macOS: setting to stop the engine when Kiri quits",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "Stopping the engine when the macOS UI quits is a feature request. The public maintainer's request to another contributor does not authorize agent messages or changes to the user's running engine.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/368",
+      "body_sha256": "1ca05c9c8a592bbc2cacc84c27687a8488f576d22bc453e8a827595f496738fe",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 174,
+        "url": "https://github.com/AndreKurait/asagiri/issues/174"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-369",
+      "kind": "issue",
+      "upstream_number": 369,
+      "title": "Verify Kiri #369: docker command not bindend to kiri",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "The Windows UI reports Asagiri selected while the Docker CLI still uses Desktop. Windows context selection and the exact installed CLI configuration still require targeted source review and runtime qualification.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/369",
+      "body_sha256": "68a78daf599bb061fd8200e78e7f934dfdc0d4ddf2e9756411ad415b16a3b0a6",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 175,
+        "url": "https://github.com/AndreKurait/asagiri/issues/175"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-370",
+      "kind": "issue",
+      "upstream_number": 370,
+      "title": "Verify Kiri #370: Non-root container with a missing WorkingDir fails to start (os error 2); breaks DDEV",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs",
+        "tests/start-exec-image-user.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "v0.1.13 Linux CI passes start-exec-image-user, including the container-root working-directory setup. Native NFS permission transitions and the exact Mac DDEV report remain separate checks.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/370",
+      "body_sha256": "f07a77d2a9f31f94aff56a4790de3e7d83a688e1e7fdc9493bf7e397fc63d27a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 176,
+        "url": "https://github.com/AndreKurait/asagiri/issues/176"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-375",
+      "kind": "issue",
+      "upstream_number": 375,
+      "title": "Verify Kiri #375: kiri import: containers using --network container:<id> fail with \"conflicting options: hostname and the network mode\" and drop container options",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/import.rs"
+      ],
+      "remaining": "Confirmed in import source: network container:<source-id> is not remapped and Hostname is copied into that incompatible mode. Devices, Dns, PidMode, GroupAdd and Healthcheck are also omitted from copied container options. Network dependency remapping and option-preservation fixtures remain unfinished.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/375",
+      "body_sha256": "14a7b9916408d3a247cd4d37e1cbd5efa73dc05b17efce8cdaa32769cc4030e7",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 177,
+        "url": "https://github.com/AndreKurait/asagiri/issues/177"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-376",
+      "kind": "issue",
+      "upstream_number": 376,
+      "title": "Verify Kiri #376: kiri import: volume import fails when source lacks 5 hardcoded helper images, and container import leaves empty volumes marked \"Already in Kiri\"",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/import.rs"
+      ],
+      "remaining": "Confirmed in source: volume copying depends on one of five already-present helper images, while a failed volume copy does not stop later dependent container imports. Empty target volumes can then look imported. Preserve the existing source-read-only and idle-volume checks when adding dependency failure handling and retry evidence.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/376",
+      "body_sha256": "ceedcf81734c0b5353f8e4a63463a371a6371fb6860f8f449e8523594244c0ee",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 178,
+        "url": "https://github.com/AndreKurait/asagiri/issues/178"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-377",
+      "kind": "issue",
+      "upstream_number": 377,
+      "title": "Verify Kiri #377: kiri import: containers using digest-pinned untagged images (repo@sha256:...) fail with \"No such image\"",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/import.rs"
+      ],
+      "remaining": "Confirmed in source: untagged images are filtered from import inventory, and container recreation retains Config.Image even when a saved/loaded digest reference is unavailable. Content-verified source-to-destination image mapping and digest-only migration regressions remain unfinished.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/377",
+      "body_sha256": "90367a495e5049d5ad9406adffccf82816bc62504c7e85fa617d4ae19eb3bd17",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 179,
+        "url": "https://github.com/AndreKurait/asagiri/issues/179"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-378",
+      "kind": "issue",
+      "upstream_number": 378,
+      "title": "Verify Kiri #378: Engine: --security-opt systempaths=unconfined is ignored, breaking bubblewrap (bwrap) inside non-privileged containers",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs"
+      ],
+      "remaining": "The reported systempaths=unconfined option is not handled and non-privileged process-path hardening is unconditional. Targeted option semantics and isolation regressions remain unfinished; no broad security bypass is added.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/378",
+      "body_sha256": "60c60581924a18fac202fbefcbd775e1c1ade82af93f9ab5b0bb0228c5bef131",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 180,
+        "url": "https://github.com/AndreKurait/asagiri/issues/180"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-379",
+      "kind": "issue",
+      "upstream_number": 379,
+      "title": "Verify Kiri #379: Please add docker-credential-osxkeychain",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "Public comments report a missing docker-credential-osxkeychain helper and a package-manager workaround. Helper bundling and native credential-store behavior have not been independently qualified; no helper was installed on the user's machine.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/379",
+      "body_sha256": "a2190838ab51ba1bc510655e96aa186cded190c7f9a04fa6169c3e2c56643e4a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 181,
+        "url": "https://github.com/AndreKurait/asagiri/issues/181"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-381",
+      "kind": "issue",
+      "upstream_number": 381,
+      "title": "Verify Kiri #381: macOS: no IPv4 default route when an internal network occupies eth0",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/net.rs",
+        "tests/network-internal-gateway.py",
+        "tests/network-late-default-route.py"
+      ],
+      "remaining": "v0.1.13 Linux CI passes internal-gateway and late-default-route fixtures. The reported native Mac multi-interface route behavior remains to be reproduced.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/381",
+      "body_sha256": "3dc4957bf7c5bb85ad1296c8ced923023450d28ac3f44c1813bd755b6259c7f3",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 182,
+        "url": "https://github.com/AndreKurait/asagiri/issues/182"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-382",
+      "kind": "issue",
+      "upstream_number": 382,
+      "title": "Verify Kiri #382: macOS bind mount: chown succeeds but leaves the file owned by root",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "The reported macOS bind-mount chown behavior has not been reproduced on the exact host/filesystem. No host ownership or mount policy is changed as part of this delta.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/382",
+      "body_sha256": "bfb8726d319be71edc4f578757b6f810ba9ea9c8f3f775bb180a112c1f004218",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 183,
+        "url": "https://github.com/AndreKurait/asagiri/issues/183"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-383",
+      "kind": "issue",
+      "upstream_number": 383,
+      "title": "Verify Kiri #383: macOS: VM's NAT DNS proxy (mDNSResponder on port 53) blocks Cloudflare WARP with CF_DNS_PROXY_FAILURE",
+      "coverage": "platform-gap",
+      "checks": [],
+      "remaining": "The report concerns macOS mDNSResponder/WARP port-53 ownership. Its proposed stop/restart workaround is unverified. No PF, host resolver, VPN, or Apple service changes are performed.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/383",
+      "body_sha256": "127b0e686cb01f38769af35be65e9a2d4d58559fba4248bcf269e8cef0b30b48",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 184,
+        "url": "https://github.com/AndreKurait/asagiri/issues/184"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-384",
+      "kind": "issue",
+      "upstream_number": 384,
+      "title": "Verify Kiri #384: macOS: a setting for the VM disk size (data.img is fixed at 64 GiB)",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "Configurable VM disk sizing/resizing is a feature request. The user's stopped 64-GiB guest backups and live data remain untouched; no resize implementation or migration test has been completed.",
+      "qualification_note_date": "2026-11-16",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/384",
+      "body_sha256": "055d08d93e894b5b213e3d6530e14cdc4e9545fb3e1dfa3e165b346cf8932807",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 185,
+        "url": "https://github.com/AndreKurait/asagiri/issues/185"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-385",
+      "kind": "issue",
+      "upstream_number": 385,
+      "title": "Verify Kiri #385: Engine: `name` filter is not a regex (`^[/]?name$` matches nothing), so `k3d cluster create` fails",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/filters.rs"
+      ],
+      "remaining": "Regex name matching and Linux network fixtures are released. Exact k3d application startup and the newer default-bridge/user-network DNS cases remain separate qualification.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/385",
+      "body_sha256": "e3b85cb2a2cc36375309b368404b85719394eace7a3b9770d3458ad4ca2a68df",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 186,
+        "url": "https://github.com/AndreKurait/asagiri/issues/186"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-387",
+      "kind": "issue",
+      "upstream_number": 387,
+      "title": "Verify Kiri #387: exec start / attach answer 101 to clients that didn't ask to upgrade; Testcontainers reads no ExitCode",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "crates/asagiri/src/daemon/http.rs"
+      ],
+      "remaining": "The released HTTP reader returns 101 only for Upgrade requests and otherwise uses 200/close framing, with Linux API checks. Exact native MongoDB/Valkey client-module workflows remain to be qualified.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/387",
+      "body_sha256": "34696647a9b45c38998b9929252133103722873d76b1025f692493d0654a0a52",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 187,
+        "url": "https://github.com/AndreKurait/asagiri/issues/187"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-388",
+      "kind": "issue",
+      "upstream_number": 388,
+      "title": "Verify Kiri #388: Published ports close TCP connections after ~300 s of inactivity",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/daemon/ports.rs"
+      ],
+      "remaining": "Asagiri #86 / the relay fix preserve quiet TCP connections and close both directions on a fatal copy error. Two real-socket regressions fail on old production functions and pass on the candidate. Full engine, Linux splice and native Mac NAT/vsock qualification remain required.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/388",
+      "body_sha256": "d9b9351ff9ef4eba7d2675530d33d3a81710c6b7d6a5305986b49df8579bb992",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 86,
+        "url": "https://github.com/AndreKurait/asagiri/issues/86"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-394",
+      "kind": "issue",
+      "upstream_number": 394,
+      "title": "Verify Kiri #394: Windows: launching Kiri at login undoes a Stop",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-win/src/main.rs",
+        "crates/asagiri-win/src/engine.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Hidden startup already uses Revive and preserves Stop. Qualify sign-in, window startup and sleep/wake on Windows; retain the explicit-start distinction.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/394",
+      "body_sha256": "cb5e2ccf161230904af0269eaa48b9872660cf70d6f64f3e091916afedd029ba",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 188,
+        "url": "https://github.com/AndreKurait/asagiri/issues/188"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-395",
+      "kind": "issue",
+      "upstream_number": 395,
+      "title": "Verify Kiri #395: Windows: leftovers from the WSL restart fix (#318)",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/wsl.sh",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Reproduce leftover WSL state across restart and verify recovery without deleting existing containers, projects or distributions.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/395",
+      "body_sha256": "800be3aca35d4ffb380c7ac1e9136d96d791c13d01987114fed20d7559418740",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 189,
+        "url": "https://github.com/AndreKurait/asagiri/issues/189"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-399",
+      "kind": "issue",
+      "upstream_number": 399,
+      "title": "Verify Kiri #399: macOS bind mounts: a file deleted or replaced on the Mac gives ENOENT in containers for about 1 s (reading it, or creating it again)",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/bind-inotify.py",
+        "tests/kernel-fsnotify.py"
+      ],
+      "remaining": "Verify immediate reads after host rename/replacement and delete/recreate on Mac virtiofs, with and without watchers. Review PR #402's dentry invalidation and lookup cost.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/399",
+      "body_sha256": "b284300fd883c91186062cf861c77b0eb4ff5f64889290473a5737222349a935",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 190,
+        "url": "https://github.com/AndreKurait/asagiri/issues/190"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-404",
+      "kind": "issue",
+      "upstream_number": 404,
+      "title": "Verify Kiri #404: Gvisor support with runsc runtime",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "A gVisor runtime remains a separate runtime-selection and isolation feature requiring a design and platform qualification.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/404",
+      "body_sha256": "2b2dd99c27f042b50e96473bed0d06c8951537c043e7e36e982a1b51ba261626",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 191,
+        "url": "https://github.com/AndreKurait/asagiri/issues/191"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-405",
+      "kind": "issue",
+      "upstream_number": 405,
+      "title": "Verify Kiri #405: Linux: close the window to the tray, as on Windows",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "Linux tray controls and desktop-session lifecycle need a feature design and native desktop tests.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/405",
+      "body_sha256": "e05feb673f9ceff901e4bf3f7f8530dc80b316f9dd21c6f329cd3d32a8d56540",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 192,
+        "url": "https://github.com/AndreKurait/asagiri/issues/192"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-407",
+      "kind": "issue",
+      "upstream_number": 407,
+      "title": "Verify Kiri #407: Container created with only NetworkingConfig.EndpointsConfig also joins bridge; network aliases don't resolve (breaks Testcontainers WithNetworkAliases)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/network-endpoint-metadata.py"
+      ],
+      "remaining": "Verify create requests containing only NetworkingConfig.EndpointsConfig: primary network, aliases, fixed addresses and absence of an unintended default bridge. Review #459.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/407",
+      "body_sha256": "e842958f0f38477ad928c8d293ec2a3836a9f0689761b77e65b367e57c2f03df",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 193,
+        "url": "https://github.com/AndreKurait/asagiri/issues/193"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-408",
+      "kind": "issue",
+      "upstream_number": 408,
+      "title": "Verify Kiri #408: Kiri `import` command not working",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "docs/engine-import.md"
+      ],
+      "remaining": "Verify the ordinary Linux migration CLI entrypoint separately from the source-bound migration fixture and from rootfs image import.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/408",
+      "body_sha256": "12c88fd2f64819145e373ddd91518b909a2cc34f7796f1b92ddf51f9374d02ec",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 194,
+        "url": "https://github.com/AndreKurait/asagiri/issues/194"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-409",
+      "kind": "issue",
+      "upstream_number": 409,
+      "title": "Verify Kiri #409: Unpack fails when a hard link targets a symlink (breaks Nix images such as supabase/postgres)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/layers.rs",
+        "tests/image-import.py"
+      ],
+      "remaining": "Confined layer extraction is implemented. Verify the exact Nix hard-link-to-symlink archive and preserve traversal rejection; review #398/#322 against Asagiri's extraction code.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/409",
+      "body_sha256": "8695e97a51c08b86d55bba4cb4ebf15f8f77bbf6f9ed4b0200a822a4b7232a49",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 195,
+        "url": "https://github.com/AndreKurait/asagiri/issues/195"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-410",
+      "kind": "issue",
+      "upstream_number": 410,
+      "title": "Verify Kiri #410: Docker Desktop import drops each container's writable layer (data outside volumes is lost); docker diff fails with chroot error",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/import.rs"
+      ],
+      "remaining": "Migration must preserve a container's writable filesystem changes and support source images without a shell; the current migration path does not establish this.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/410",
+      "body_sha256": "266ab6d84c064f5a3879de38ac4dfb5b0310b9c8fa7e033683fd972582316d43",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 196,
+        "url": "https://github.com/AndreKurait/asagiri/issues/196"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-411",
+      "kind": "issue",
+      "upstream_number": 411,
+      "title": "Verify Kiri #411: Docker Desktop import: containers with /host_mnt bind-mount sources are skipped silently",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/import.rs"
+      ],
+      "remaining": "Verify Docker Desktop /host_mnt bind-source translation, missing-source behavior and visible failures before recreating dependent containers.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/411",
+      "body_sha256": "880ce71efd471f737568bf6635571d1715c8cf5cabce848ac38a3effe2158aaa",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 197,
+        "url": "https://github.com/AndreKurait/asagiri/issues/197"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-412",
+      "kind": "issue",
+      "upstream_number": 412,
+      "title": "Verify Kiri #412: Copy-up of a file from an image layer changes its creation time: Elasticsearch fails with 'Underlying file changed by an external force' on node.lock",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs"
+      ],
+      "remaining": "Reproduce overlay copy-up birth-time behavior with Lucene node.lock and compare statx identity across copy-up; ordinary file-copy tests do not establish this case.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/412",
+      "body_sha256": "83602fc511d5a4d336504aff64ee4f5adbd258e710451c23a2a8b383f9abfcdf",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 198,
+        "url": "https://github.com/AndreKurait/asagiri/issues/198"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-413",
+      "kind": "issue",
+      "upstream_number": 413,
+      "title": "Verify Kiri #413: Privileged systemd container with --cgroupns host and /sys/fs/cgroup bind exits 255 with no logs",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs",
+        "tests/run-options.py"
+      ],
+      "remaining": "Verify systemd 255 with privileged and host-cgroup-namespace options. Keep namespace support/rejection explicit and preserve the host boundary.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/413",
+      "body_sha256": "aebfb824cc2d42d68dc0bc7f103d0919812b657455c05b4c71a43fe450f81c67",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 199,
+        "url": "https://github.com/AndreKurait/asagiri/issues/199"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-414",
+      "kind": "issue",
+      "upstream_number": 414,
+      "title": "Verify Kiri #414: A container whose first start fails leaves its anonymous volume partly filled, and later starts reuse it",
+      "coverage": "partial",
+      "checks": [
+        "tests/start-exec-readiness.py",
+        "tests/volume-owner.py"
+      ],
+      "remaining": "Verify failed starts leave anonymous-volume population retryable and do not publish partially copied data as ready.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/414",
+      "body_sha256": "60338552e64187b50d3364f84ee59da037c147dd319af03fd72f8fa7e34136e4",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 200,
+        "url": "https://github.com/AndreKurait/asagiri/issues/200"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-415",
+      "kind": "issue",
+      "upstream_number": 415,
+      "title": "Verify Kiri #415: macOS bind mounts: reading many small files is 3–6× slower than OrbStack, and turning the balloon off barely helps",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/engine-comparison.md"
+      ],
+      "remaining": "Measure the reported small-file workload on native Mac with equal resources and cold/warm controls; Linux lifecycle rankings do not establish Mac filesystem throughput.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/415",
+      "body_sha256": "d2ffe8918a2542cc9373c39335bc40b04c2f1fe6477c9488e10f32835580916b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 201,
+        "url": "https://github.com/AndreKurait/asagiri/issues/201"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-416",
+      "kind": "issue",
+      "upstream_number": 416,
+      "title": "Verify Kiri #416: Named volume is only partly populated when the container is reported started",
+      "coverage": "partial",
+      "checks": [
+        "tests/start-exec-readiness.py",
+        "docs/volume-owner-validation.md"
+      ],
+      "remaining": "Existing readiness checks cover root/volume preparation. Add or run the reported immediate post-start large-volume visibility case and preserve failure/cancellation evidence.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/416",
+      "body_sha256": "fdea53aaf2b201df59e30b9c34c89959a9f785129f1595e23b510a91fd71683c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 202,
+        "url": "https://github.com/AndreKurait/asagiri/issues/202"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-417",
+      "kind": "issue",
+      "upstream_number": 417,
+      "title": "Verify Kiri #417: Volumes not mounted or appear empty",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/wsl.sh",
+        "tests/archive-stopped-mounts.py"
+      ],
+      "remaining": "Reproduce blank Windows bind mounts with the original path form and WSL mode; the later Mac report needs its own filesystem reproduction.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/417",
+      "body_sha256": "f092f812bd8c5fb2d5946edf9a0335d4efa77d247457fc31852eabdcc9b3b8fa",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 203,
+        "url": "https://github.com/AndreKurait/asagiri/issues/203"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-418",
+      "kind": "issue",
+      "upstream_number": 418,
+      "title": "Verify Kiri #418: Kiri refuses to disconnect a container from its first network, and .NET Aspire (DCP) fails",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/engine.rs",
+        "tests/network-endpoint-metadata.py"
+      ],
+      "remaining": "Verify create on bridge, attach a user network, then disconnect the first network before start, including address/alias promotion. Review the #511 followup; distinguish running-container behavior.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/418",
+      "body_sha256": "757c3f9d1d1ee41eb5a471b909212d14448888a95112f6bdaf138903dcc59eca",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 204,
+        "url": "https://github.com/AndreKurait/asagiri/issues/204"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-420",
+      "kind": "issue",
+      "upstream_number": 420,
+      "title": "Verify Kiri #420: Linux host: engine creates /run/host-services as root 0700, so Docker Desktop for Linux can't start",
+      "coverage": "partial",
+      "checks": [
+        "packaging/linux/test.sh",
+        "crates/asagiri/src/setup.rs"
+      ],
+      "remaining": "Verify ordinary desktop-user traversal and access to /run/host-services while preserving ownership and socket authorization.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/420",
+      "body_sha256": "09a214925a3b5cea25c8e2d3db397eb2b6a382210caa599be85ae6d546bac193",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 205,
+        "url": "https://github.com/AndreKurait/asagiri/issues/205"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-424",
+      "kind": "issue",
+      "upstream_number": 424,
+      "title": "Verify Kiri #424: Windows: The interface gets stuck after installation",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/native-window-regressions.md",
+        "tests/windows-wsl-setup.ps1"
+      ],
+      "remaining": "Reproduce the stuck setup window and preserve the actual failing stage, startup state and WebView diagnostics.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/424",
+      "body_sha256": "30826a3e03a46956103a417754bacce6d8c19782faaa21b5f5b813139af6b97b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 206,
+        "url": "https://github.com/AndreKurait/asagiri/issues/206"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-425",
+      "kind": "issue",
+      "upstream_number": 425,
+      "title": "Verify Kiri #425: `--add-host host.docker.internal:<ip>` is ignored: Kiri's own entry comes first in /etc/hosts",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs"
+      ],
+      "remaining": "Verify user --add-host entries override built-in hostnames in the container's hosts file, including host-gateway and repeated entries; review #428/#511.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/425",
+      "body_sha256": "8d1d015f0802a0eea86b68400ed2cad964dbfa6169b4b968e3034aac06cba449",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 207,
+        "url": "https://github.com/AndreKurait/asagiri/issues/207"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-426",
+      "kind": "issue",
+      "upstream_number": 426,
+      "title": "Verify Kiri #426: Windows: Docker Desktop fails to start (\"Access is denied\" on \\.\\pipe\\docker_engine) while Kiri serves the pipe",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri/src/bridge.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Verify Docker Desktop pipe handoff with long-lived clients and racing bridge instances without taking over unrelated engine connections; review #430.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/426",
+      "body_sha256": "4349fe326d3d2db612ae679ef0b1d179aed2a31ad2ae7a3d025ae74e3df82e35",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 208,
+        "url": "https://github.com/AndreKurait/asagiri/issues/208"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-427",
+      "kind": "issue",
+      "upstream_number": 427,
+      "title": "Verify Kiri #427: Windows: Kiri opens on \"Install WSL\" when WSL is installed but slow to answer",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/windows-wsl-setup.ps1",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Verify slow WSL probes distinguish missing, unavailable and still-starting distributions; review #429 and retain bounded retries.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/427",
+      "body_sha256": "6fddfe549f40ad8252212cf3e3791fc89cb98d693fe6a823d35323fd300a6744",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 209,
+        "url": "https://github.com/AndreKurait/asagiri/issues/209"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-432",
+      "kind": "issue",
+      "upstream_number": 432,
+      "title": "Verify Kiri #432: Linux host on kernel 5.15: containers get no network (\"kiri-init: no uplink: Invalid argument\")",
+      "coverage": "partial",
+      "checks": [
+        "tests/linux-host.sh"
+      ],
+      "remaining": "Reproduce nftables EINVAL on the reported Linux 5.15 host and establish supported-kernel behavior and a useful error before changing network rules.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/432",
+      "body_sha256": "6a515a43cd5d739621bf5a6221a2011389744567a5d8c8dd6dec44a8c100ed67",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 210,
+        "url": "https://github.com/AndreKurait/asagiri/issues/210"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-433",
+      "kind": "issue",
+      "upstream_number": 433,
+      "title": "Verify Kiri #433: Compose network with an IPv6 subnet but enable_ipv6: false is rejected (Docker accepts it)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/network-endpoint-metadata.py"
+      ],
+      "remaining": "Compare Docker's behavior for an IPv6 subnet supplied with IPv6 disabled; verify inspect and side effects before adopting #454/#511.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/433",
+      "body_sha256": "739efcd687ca32e77707187ecf259e31ec4ba917d4a8ad997ef7d15ccc3645ca",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 211,
+        "url": "https://github.com/AndreKurait/asagiri/issues/211"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-434",
+      "kind": "issue",
+      "upstream_number": 434,
+      "title": "Verify Kiri #434: buildx build --platform linux/amd64 on Apple Silicon produces an arm64 image labelled amd64 (no amd64 emulation registered)",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildx-bootstrap.py"
+      ],
+      "remaining": "Cross-platform local-tag selection and OCI ELF checks already exist. Qualify the reported native host/foreign-image combination separately.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/434",
+      "body_sha256": "e1be39c654d28a68e77229a4573d587c9df57a0a9c7b1964583a3dd5bea6db50",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 212,
+        "url": "https://github.com/AndreKurait/asagiri/issues/212"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-435",
+      "kind": "issue",
+      "upstream_number": 435,
+      "title": "Verify Kiri #435: Containers have no internet: VM never gets IPv4/uplink lease when another app binds UDP 67",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/release-qualification.md"
+      ],
+      "remaining": "Reproduce UDP/67 ownership conflict and review #503's DHCP fallback, address ownership, routing and shutdown on native Mac.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/435",
+      "body_sha256": "49877e9df62cdcb505c8e5820b5a8a8d3f5cb872e3d5bdbe4e6ef22ab96caba9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 213,
+        "url": "https://github.com/AndreKurait/asagiri/issues/213"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-436",
+      "kind": "issue",
+      "upstream_number": 436,
+      "title": "Verify Kiri #436: let me choose a share name in the desktop app",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "A user-selected share hostname needs collision, ownership, lifecycle and UI behavior defined; upstream #437 is a proposal.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/436",
+      "body_sha256": "4186619b562b35a7186c82277ef7755de9f4ada6701966f7d20cb39004f0d231",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 214,
+        "url": "https://github.com/AndreKurait/asagiri/issues/214"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-438",
+      "kind": "issue",
+      "upstream_number": 438,
+      "title": "Verify Kiri #438: Engine: a damaged containers.json makes the engine delete every container's logs and files",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/daemon/engine.rs"
+      ],
+      "remaining": "Asagiri #84 / PR #85 stop startup on malformed or unreadable records before cleanup. The old production blocks deleted retained logs; patched blocks preserve them. Full Engine::boot CI must pass before closure.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/438",
+      "body_sha256": "a4884ffbaf00c1142583fc913999d1a16bf73b0260b94ec0b2f651a23613778c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 84,
+        "url": "https://github.com/AndreKurait/asagiri/issues/84"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-440",
+      "kind": "issue",
+      "upstream_number": 440,
+      "title": "Verify Kiri #440: Images: a damaged images.json is repaired without a warning, and the image made last drops out of the list",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-image/src/store.rs"
+      ],
+      "remaining": "Asagiri rejects incomplete typed indexes and preserves originals; it backs up a complete array followed by stale bytes before repair. Verify visible warnings and Windows atomic-file behavior; do not replace this with unqualified partial salvage.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/440",
+      "body_sha256": "c6588a224e63c74bbcdc77a8ce12729315fe060a4dfa119139e23ac127beb248",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 215,
+        "url": "https://github.com/AndreKurait/asagiri/issues/215"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-441",
+      "kind": "issue",
+      "upstream_number": 441,
+      "title": "Verify Kiri #441: macOS: ~/.kiri/daemon.log has no size limit and keeps growing",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/diag/mod.rs"
+      ],
+      "remaining": "Verify launchd daemon-log growth and review #504's bounded rotation while preserving pre-crash output and ordinary terminal/journal behavior.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/441",
+      "body_sha256": "73dbf79024acd02579d4d04c9d8299f3a357edf4d5237f71704db9dfdece3932",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 216,
+        "url": "https://github.com/AndreKurait/asagiri/issues/216"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-443",
+      "kind": "issue",
+      "upstream_number": 443,
+      "title": "Verify Kiri #443: Windows (WSL 2): a second Kiri engine in another distro takes over the first one's bridge and firewall table",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/wsl.sh"
+      ],
+      "remaining": "Reproduce two engines in WSL and verify ownership of global networking resources and independent teardown.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/443",
+      "body_sha256": "c11354f3612ec09674af9fe62395bb8f8a086f76706ccf8dab156bbf9d040a5f",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 217,
+        "url": "https://github.com/AndreKurait/asagiri/issues/217"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-445",
+      "kind": "issue",
+      "upstream_number": 445,
+      "title": "Verify Kiri #445: docker run --entrypoint= (empty) fails: exec \"/usr/local/bin/\": is a directory (Docker resets the entrypoint)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/client-command-compatibility.py"
+      ],
+      "remaining": "Verify Entrypoint [\"\"] reset semantics independently of missing and empty-array entrypoints, preserving image Cmd behavior; review #458/#511.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/445",
+      "body_sha256": "44e3d7859f9ca409549f7f38a9075a39c8dfb982771b35488e72d3317683e189",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 218,
+        "url": "https://github.com/AndreKurait/asagiri/issues/218"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-449",
+      "kind": "issue",
+      "upstream_number": 449,
+      "title": "Verify Kiri #449: A container on the default bridge that joins a user network can't resolve that network's names (k3d's load balancer fails)",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-connect-dns.py",
+        "tests/network-dns-order.py"
+      ],
+      "remaining": "Verify DNS when a default-bridge container joins a user network before and after start, including the first application lookup and k3d; review #507.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/449",
+      "body_sha256": "ba6ca8b502a80c8f241c42edb1c3dec4fa7d54e41e932bbf165f6dbc11b6f3f3",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 219,
+        "url": "https://github.com/AndreKurait/asagiri/issues/219"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-450",
+      "kind": "issue",
+      "upstream_number": 450,
+      "title": "Verify Kiri #450: Engine: `--volumes-from` is ignored without a word, so backups made with it are empty",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "crates/asagiri/src/daemon/engine.rs"
+      ],
+      "remaining": "Verify --volumes-from for binds, named/anonymous volumes, ro overrides and destination precedence, including shared-volume lifetime after rm -v; review #511.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/450",
+      "body_sha256": "aefd683106804af8f4a6e16a09a1195062367156ec583c630c1804243cb774ed",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 220,
+        "url": "https://github.com/AndreKurait/asagiri/issues/220"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-455",
+      "kind": "issue",
+      "upstream_number": 455,
+      "title": "Verify Kiri #455: User-defined network: embedded resolver does not fall back when the first --dns server refuses (default bridge does)",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri-init/src/linux/dns.rs"
+      ],
+      "remaining": "Verify fallback to later configured DNS servers after refusal, timeout and transient errors on user networks; review #460.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/455",
+      "body_sha256": "0b33c7e9be84d019be605eab69e187055205afb8aff519e4e7488b3b77d4d29a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 221,
+        "url": "https://github.com/AndreKurait/asagiri/issues/221"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-456",
+      "kind": "issue",
+      "upstream_number": 456,
+      "title": "Verify Kiri #456: Builds from `docker compose build` never appear in the Builds view (they run on buildx_buildkit_default, not buildx_buildkit_kiri)",
+      "coverage": "partial",
+      "checks": [
+        "tests/buildkit-driver.py",
+        "docs/buildkit.md"
+      ],
+      "remaining": "The built-in builder is released. Verify Buildx build-history discovery and UI behavior explicitly; driver operation alone does not establish history support.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/456",
+      "body_sha256": "e74030f031b88a0c8cb4afba672c92d13218280eefdfa319d0e49397d2d89d1a",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 222,
+        "url": "https://github.com/AndreKurait/asagiri/issues/222"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-461",
+      "kind": "issue",
+      "upstream_number": 461,
+      "title": "Verify Kiri #461: docker image import (POST /images/create?fromSrc) is unsupported",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/image-import.py",
+        "docs/docker-import.md"
+      ],
+      "remaining": "Asagiri already implements POST /images/create?fromSrc for file, gzip, chunked and URL rootfs imports, including config changes and image identity. Qualify these existing paths against the frozen candidate and compare #462/#469 without replacing the broader implementation.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/461",
+      "body_sha256": "78583e9a863e5db0717d3bf0bf232c35082d416861a563cb06347832803818b0",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 223,
+        "url": "https://github.com/AndreKurait/asagiri/issues/223"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-463",
+      "kind": "issue",
+      "upstream_number": 463,
+      "title": "Verify Kiri #463: A big `docker top` or Files-tab listing restarts the whole VM",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri-proto/src/lib.rs"
+      ],
+      "remaining": "Tracked in Asagiri #89: variable-size replies can exceed the 1 MiB frame limit. Require explicit bounded error/pagination semantics and continued agent responsiveness; review #464 without silently dropping records.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/463",
+      "body_sha256": "936cf6140ba548b518e281d4dcf8f7ad29ec8932ee6182a62911d6e124101eea",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 89,
+        "url": "https://github.com/AndreKurait/asagiri/issues/89"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-465",
+      "kind": "issue",
+      "upstream_number": 465,
+      "title": "Verify Kiri #465: docker load cannot read OCI layout archives (index.json / blobs)",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri-image/src/store.rs",
+        "docs/buildkit.md"
+      ],
+      "remaining": "OCI-only archive loading remains unsupported. Review #466's indexes, descriptors, platform selection, digest checks and malformed/traversing input before adding it.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/465",
+      "body_sha256": "b7009e0607a957b21ff17b2d88408dcd61b8a5ee4845a0b680a7d7aa4da135fd",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 224,
+        "url": "https://github.com/AndreKurait/asagiri/issues/224"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-467",
+      "kind": "issue",
+      "upstream_number": 467,
+      "title": "Verify Kiri #467: docker rename leaves stale DNS names on user-defined networks",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/engine.rs",
+        "tests/network-connect-dns.py"
+      ],
+      "remaining": "Verify DNS changes after rename: new name, removal of the old name, configured aliases and per-network scope; review #468.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/467",
+      "body_sha256": "2640174a10ef2d9868591c0bbaecd92042908b2c89ee915f633e5d05acd68dc5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 225,
+        "url": "https://github.com/AndreKurait/asagiri/issues/225"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-471",
+      "kind": "issue",
+      "upstream_number": 471,
+      "title": "Verify Kiri #471: Coolify support: engine gaps left after #253 (`--pid host`, idle `builder prune`)",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/unsupported-run-options.md"
+      ],
+      "remaining": "Full Coolify qualification needs an isolated application fixture and explicit handling of its PID-mode and builder-prune requirements. Existing engine fixes do not establish full application support.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/471",
+      "body_sha256": "c5c6c88cde90fd6df07e0632c93c10ea5bf1897da04d6a91bc7b12f8984a3f76",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 226,
+        "url": "https://github.com/AndreKurait/asagiri/issues/226"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        333
+      ]
+    },
+    {
+      "key": "issue-473",
+      "kind": "issue",
+      "upstream_number": 473,
+      "title": "Verify Kiri #473: macOS: Kubernetes LoadBalancer ports below 1024 are never published unless `--lan on` (binding 127.0.0.1 needs root)",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/release-qualification.md"
+      ],
+      "remaining": "Verify low-port loopback publishing on native Mac and DDEV/k8s. Preserve the requested bind address and avoid an implicit wildcard exposure.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/473",
+      "body_sha256": "e8536da6a46b9d20a461bcba1f31fc08bf7d7c25941c126a8a65b683919c42e5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 227,
+        "url": "https://github.com/AndreKurait/asagiri/issues/227"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        483
+      ]
+    },
+    {
+      "key": "issue-474",
+      "kind": "issue",
+      "upstream_number": 474,
+      "title": "Verify Kiri #474: The Kubernetes node is killed \"for memory\" with no reason logged, so a real out-of-memory kill can't be told from Kiri's own restart",
+      "coverage": "partial",
+      "checks": [
+        "tests/ui/memory-accounting.js"
+      ],
+      "remaining": "Verify memory-kill diagnostics, balloon pressure and recovery on a native guest with actual OOM/PSI evidence; review #484.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/474",
+      "body_sha256": "778d866ba99d62804c0c72d3e7bd4725c559112a9f10cc5aaaa7260c7838184c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 228,
+        "url": "https://github.com/AndreKurait/asagiri/issues/228"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-477",
+      "kind": "issue",
+      "upstream_number": 477,
+      "title": "Verify Kiri #477: WSL 2 Linux host: user-defined bridge networks fail at gateway DNS bind (EINVAL)",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/wsl.sh"
+      ],
+      "remaining": "Reproduce fixed-port EINVAL in the reported WSL/Consomme environment and establish ownership before changing global port/network state.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/477",
+      "body_sha256": "6afe444a200e131e52ba1c3600248933c6025ed9733692640d51b9cab1989212",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 229,
+        "url": "https://github.com/AndreKurait/asagiri/issues/229"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-478",
+      "kind": "issue",
+      "upstream_number": 478,
+      "title": "Verify Kiri #478: Feature request: run WASI/Wasm workloads (`--platform wasi/wasm`)",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "WASI/WASM execution needs a runtime and isolation design, resource accounting, networking and lifecycle tests; upstream fork prototypes are not qualified Asagiri implementations.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/478",
+      "body_sha256": "9a06fb2184138e9000a8fa8d70e05848d631efd85e629647ab0d63934229fba9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 230,
+        "url": "https://github.com/AndreKurait/asagiri/issues/230"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-479",
+      "kind": "issue",
+      "upstream_number": 479,
+      "title": "Verify Kiri #479: .NET Testcontainers 4.11.0 hangs after container-start 204 response on Kiri 0.2.1",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/daemon/http.rs",
+        "tests/testcontainers-integration.py"
+      ],
+      "remaining": "Tracked with Asagiri #80: strict HTTP framing and close handling exist, while the actual .NET Windows named-pipe 204/304 path requires native verification.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/479",
+      "body_sha256": "1d1a6ccf1bdafc1783a1c32a3872dd15955869361b02c76b51dcef0a7f38f454",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-485",
+      "kind": "issue",
+      "upstream_number": 485,
+      "title": "Verify Kiri #485: kiri import: named volumes lose extended attributes (Supabase Storage returns 500 ENODATA)",
+      "coverage": "known-limitation",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "docs/engine-import.md"
+      ],
+      "remaining": "Verify migration preservation of xattrs, ACLs, capabilities, numeric ownership and timestamps; review #491/#506 without weakening read-only source and stopped-writer guards.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/485",
+      "body_sha256": "dedbd051efd8be9057bbb391de7d357215de0998a8eeef72d202d3d4d47c7503",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 231,
+        "url": "https://github.com/AndreKurait/asagiri/issues/231"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-487",
+      "kind": "issue",
+      "upstream_number": 487,
+      "title": "Verify Kiri #487: Windows: file changes on C:\\ bind mounts fire no events in containers",
+      "coverage": "platform-gap",
+      "checks": [
+        "tests/bind-inotify.py",
+        "tests/wsl.sh"
+      ],
+      "remaining": "Windows C-drive bind notification behavior remains a separate native WSL qualification from Mac virtiofs and Linux inotify.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/487",
+      "body_sha256": "4d871ac88da566ebd5f1d74fe4b4f8f9e6fd87d5935e18dcd49199170ea9ed4e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 232,
+        "url": "https://github.com/AndreKurait/asagiri/issues/232"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-488",
+      "kind": "issue",
+      "upstream_number": 488,
+      "title": "Verify Kiri #488: Share containers on your own domain with optional Cloudflare Tunnel",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "Cloudflare sharing is a separate optional integration requiring credential, routing, ownership and shutdown design; upstream #486 remains unqualified.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/488",
+      "body_sha256": "d0afa56ca15409a8b212128a6dd995868615a4fa617e1a0df7896a3428f6b2d4",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 233,
+        "url": "https://github.com/AndreKurait/asagiri/issues/233"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-489",
+      "kind": "issue",
+      "upstream_number": 489,
+      "title": "Verify Kiri #489: Linux: default bridge takes 172.17.0.0/16 while docker0 already owns it — containers cannot reach their own gateway",
+      "coverage": "partial",
+      "checks": [
+        "tests/network-allocation.py",
+        "tests/network-bridge-icc.py"
+      ],
+      "remaining": "Verify default-bridge allocation beside existing Docker and host routes, including restart and teardown, without replacing another engine's network resources.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/489",
+      "body_sha256": "dc0d89dc1f88913da37daa15c3f29de9d918942687dfb43bea587d87fa462dea",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 234,
+        "url": "https://github.com/AndreKurait/asagiri/issues/234"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-494",
+      "kind": "issue",
+      "upstream_number": 494,
+      "title": "Verify Kiri #494: nfs support",
+      "coverage": "deferred-feature",
+      "checks": [
+        "guest/kernel/asagiri.config",
+        "guest/kernel/asagiri-x86_64.config"
+      ],
+      "remaining": "Review #496's guest NFS client configuration and qualify a real mount, reconnect and failure path against both bundled kernel architectures.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/494",
+      "body_sha256": "24880e6ca7ee66b0e9e0a900bd407903f1e90b3b3b8537eb38808618e8cbe6bf",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 235,
+        "url": "https://github.com/AndreKurait/asagiri/issues/235"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-495",
+      "kind": "issue",
+      "upstream_number": 495,
+      "title": "Verify Kiri #495: Windows: Blank screen on launch - assembled page exceeds WebView2 NavigateToString 2MB limit",
+      "coverage": "platform-gap",
+      "checks": [
+        "crates/asagiri-win/src/app.rs",
+        "tests/native-window-regressions.md"
+      ],
+      "remaining": "Review #519's in-memory page serving and verify every supported language, CSP/origin restrictions and large-page startup in real WebView2.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/495",
+      "body_sha256": "2ac2840425b11a1f2a3f852aa83337f9fd3ce50366e18a139883c8d76f6726bc",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 236,
+        "url": "https://github.com/AndreKurait/asagiri/issues/236"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-499",
+      "kind": "issue",
+      "upstream_number": 499,
+      "title": "Verify Kiri #499: Windows Server support for production use?",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Windows Server production use needs an explicit supported-environment and operational lifecycle design; desktop/WSL smoke tests do not establish that support.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/499",
+      "body_sha256": "3b7b567610b656b2ff777301337dcbf5218d7d32a676dbda046e05c5e86db2b1",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 237,
+        "url": "https://github.com/AndreKurait/asagiri/issues/237"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-509",
+      "kind": "issue",
+      "upstream_number": 509,
+      "title": "Verify Kiri #509: Containers on a user network get TCP resets under sustained load (Supabase local stack: Kong → PostgREST)",
+      "coverage": "partial",
+      "checks": [
+        "tests/testcontainers-integration.py",
+        "tests/start-exec-readiness.py"
+      ],
+      "remaining": "Reproduce the mixed Supabase/Kong/PostgREST workload with resets, timer and agent traces. Its root cause is unconfirmed; avoid attributing it solely to the TCP idle or FIFO fixes.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/509",
+      "body_sha256": "965af883585294af88029bd4e36c10fd271def0eba15003dea45b4d42e8505ea",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 238,
+        "url": "https://github.com/AndreKurait/asagiri/issues/238"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-510",
+      "kind": "issue",
+      "upstream_number": 510,
+      "title": "Verify Kiri #510: Windows Defender quarantines kiri-win.exe from 0.2.1 x64 as Bearfoos.A!ml",
+      "coverage": "platform-gap",
+      "checks": [
+        "docs/release-qualification.md"
+      ],
+      "remaining": "Verify the exact Asagiri release artifact, signature and current Defender result. The report names a Kiri binary; no malware/false-positive conclusion or exclusion is established.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/510",
+      "body_sha256": "d002bdc690631fe78302c2119fae30b40ff02b1a98650fa3219475fd03267997",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 239,
+        "url": "https://github.com/AndreKurait/asagiri/issues/239"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-516",
+      "kind": "issue",
+      "upstream_number": 516,
+      "title": "Verify Kiri #516: Apache Iggy can't start: the host-boundary filter blocks io_uring, and `seccomp=unconfined` / `--privileged` can't lift it",
+      "coverage": "partial",
+      "checks": [
+        "docs/features.md",
+        "tests/seccomp-profiles.py"
+      ],
+      "remaining": "Document and verify inherited native-host io_uring restrictions separately from container seccomp profiles and explicit unconfined requests; preserve the host boundary.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/516",
+      "body_sha256": "b2ebca5a4ba4219cb5027c69f6b42f1f155af4b33262d6a703a8b6f5b4d1ef0f",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 240,
+        "url": "https://github.com/AndreKurait/asagiri/issues/240"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-517",
+      "kind": "issue",
+      "upstream_number": 517,
+      "title": "Verify Kiri #517: [Feature Request] Allow using an existing WSL distribution instead of installing a new one",
+      "coverage": "deferred-feature",
+      "checks": [
+        "docs/windows-wsl-setup.md"
+      ],
+      "remaining": "Existing managed WSL distributions and rootless operation need ownership, install, upgrade, socket and resource-isolation design and native tests.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/517",
+      "body_sha256": "41ad542bc3c0e7482b0b194afad9806fe5d0c51d21c082fcf91d3fbab21b0bcc",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 241,
+        "url": "https://github.com/AndreKurait/asagiri/issues/241"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-518",
+      "kind": "issue",
+      "upstream_number": 518,
+      "title": "Verify Kiri #518: Floci doesn't run the floci-ui sidecar container",
+      "coverage": "deferred-feature",
+      "checks": [],
+      "remaining": "Verify the expected Floci UI integration/sidecar lifecycle and define startup/readiness, ports, image identity and shutdown before implementing the integration.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/518",
+      "body_sha256": "bb100351958f99c0b91c7cb053c9c61c9454a4ce991ae9ce809598e266b081a6",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 242,
+        "url": "https://github.com/AndreKurait/asagiri/issues/242"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "issue-520",
+      "kind": "issue",
+      "upstream_number": 520,
+      "title": "Verify Kiri #520: Daemon ignores `Connection: close` on Windows named pipe; Docker.DotNet / Testcontainers hang on 204 responses",
+      "coverage": "partial",
+      "checks": [
+        "crates/asagiri/src/bridge.rs",
+        "crates/asagiri/src/daemon/http.rs"
+      ],
+      "remaining": "Tracked with Asagiri #80: verify Connection: close reaches EOF through the actual Windows named-pipe bridge for 204/304 and ordinary responses.",
+      "qualification_note_date": "2026-11-18",
+      "upstream_url": "https://github.com/libracoder/kiri/issues/520",
+      "body_sha256": "de3a1b22e86b6c9dcdc42bc2483c5057c6645c5558b04cf22134034e90a9fe8d",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-514",
+      "kind": "pull",
+      "upstream_number": 514,
+      "title": "Review and verify Kiri PR #514: Windows: cancel in-flight terminal opens on close or replacement",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/514",
+      "head": "32a030142fe92ea4f5d97b44669ea1b1a111dfc2",
+      "base": "36923b212bc1541dfb9e6894b2d39ffae46cc910",
+      "patch_sha256": "ba797635d410e449413b6467f083ad6a43454a2225d84c74bb6c507497e5ea88",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 243,
+        "url": "https://github.com/AndreKurait/asagiri/issues/243"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-506",
+      "kind": "pull",
+      "upstream_number": 506,
+      "title": "Review and verify Kiri PR #506: Security: import runs only an official image as its volume helper",
+      "coverage": "reviewed-separate-import-work-required",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "tests/ci-engine-import.py"
+      ],
+      "remaining": "Reviewed the public upstream helper-provenance changes. They replace broad name selection with official-repository digest checks, override helper entrypoints, avoid implicitly pulling during helper runs, and use a never-started source container for volume reads. Asagiri has an older import implementation using five exact tags and source/destination run helpers; the complete behavior is not present. Preserve its active-source preflight/recheck guards when adapting the import design, and retain source integrity, helper identity and real Docker-to-Asagiri runtime qualification in the linked task.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/506",
+      "head": "2f89e6618b97e42c76d175e33a2050c48f535ef6",
+      "base": "2b167134f3f44d3e4c7bed90f7365accb2090b0d",
+      "patch_sha256": "c15a50aec601ac7ad48148b45bf9c12779d7812fd2eb45fd8b0315c9f27ee06e",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 244,
+        "url": "https://github.com/AndreKurait/asagiri/issues/244"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-502",
+      "kind": "pull",
+      "upstream_number": 502,
+      "title": "Review and verify Kiri PR #502: docker load: read the rest of the body before answering",
+      "coverage": "partially-equivalent-error-drain-open",
+      "checks": [
+        "crates/asagiri-image/src/archive.rs",
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/image-load-completion.py"
+      ],
+      "remaining": "Archive::load already drains the complete HTTP body before publishing image metadata and propagates truncation/decoder errors. Unit and live tests cover incomplete declared bodies, missing chunk terminators and delayed padding. The proposed success drain discards errors and caps trailing input after publication, weakening these guarantees; its invalid-archive path drains without a total bound. Retain current success validation and separately design/verify bounded error-response delivery for a client still uploading malformed data.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/502",
+      "head": "bc10b55ccc1d3273e1832fc3cdb747cb8814be62",
+      "base": "ad301e3edf1cd8c5c4db809ae0df7b24de9c1173",
+      "patch_sha256": "39cd0c122aca951c3dbb21400164f1c7b719d5c23f358bb936f503c28852ab97",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 245,
+        "url": "https://github.com/AndreKurait/asagiri/issues/245"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-501",
+      "kind": "pull",
+      "upstream_number": 501,
+      "title": "Review and verify Kiri PR #501: Compose gets its own section",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/501",
+      "head": "41d9be58a8652aa2b574bb2f97101a3df9ed97fa",
+      "base": "89d37f7eb1c3f34b0f69f4a6e9bc7dcf5eea1725",
+      "patch_sha256": "5a9becd6237467bb3795c0dba6089f8fc483fa4a7e9b8b8d6b878d62fb631ae1",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 246,
+        "url": "https://github.com/AndreKurait/asagiri/issues/246"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-493",
+      "kind": "pull",
+      "upstream_number": 493,
+      "title": "Review and verify Kiri PR #493: image: fix jsonfile::sync PermissionDenied (os error 5) on Windows",
+      "coverage": "primary-fix-not-needed-transport-delta-separate",
+      "checks": [
+        "crates/asagiri-image/src/store.rs",
+        "crates/asagiri-image/src/cancel.rs",
+        "crates/asagiri-image/src/connect.rs"
+      ],
+      "remaining": "The named read-only jsonfile::sync bug is absent: Asagiri uses write-enabled handles for image-index replacement, recovery backups and blob synchronization. Native Windows source49fe2f8 ran87 image tests successfully, including real index-lock subprocesses, concurrent writers, shorter rewrites and recovery. Store source is unchanged from released671f5564. The PR also includes34fb0236 transport cancellation/formatting changes; their complete qualification remains separate under the transport-cancellation task, rather than being inferred from metadata tests.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/493",
+      "head": "ccd15d6c464831cbbce3ff3103b1f8b332b2af84",
+      "base": "218253184bce9ca6926a82c132577b6d0bd482fa",
+      "patch_sha256": "32fc2e672554ed79dcb38b7fd0b6d2aa4f3f100a868e2a56141666cff856b168",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 247,
+        "url": "https://github.com/AndreKurait/asagiri/issues/247"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-472",
+      "kind": "pull",
+      "upstream_number": 472,
+      "title": "Review and verify Kiri PR #472: scan: kiri scan <image>, the scanner the window's tab uses",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/472",
+      "head": "0c21a5f723f5b4278c45d54130fa9a82c1e3c22b",
+      "base": "2d6c2d65d46a183f19c2e38602ae72dbc6134920",
+      "patch_sha256": "235c84a9868b1292851b98fe090533c8d1cb51cd1790a0a0af79bde5e4f81715",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 248,
+        "url": "https://github.com/AndreKurait/asagiri/issues/248"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-451",
+      "kind": "pull",
+      "upstream_number": 451,
+      "title": "Review and verify Kiri PR #451: Engine: the ancestor filter matches the image a name means, as in Docker, not every tag of it",
+      "coverage": "independent-equivalent",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "tests/container-ancestor.py",
+        "scripts/ci/live-tests.sh"
+      ],
+      "remaining": "Asagiri already resolves ancestor values into image config identities and tests the actual API against Docker in container-ancestor.py. Preserve tag-move and dangling-image behavior. The candidate clone-per-value resolver does not replace the existing implementation.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/451",
+      "head": "eba7715c33efcdb31c4fda0523cd74ed471a28f8",
+      "base": "2d6c2d65d46a183f19c2e38602ae72dbc6134920",
+      "patch_sha256": "549f65c8c305735258e8c3a67bc10a3564ca39239b30473f66501c7f5f66e228",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 249,
+        "url": "https://github.com/AndreKurait/asagiri/issues/249"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-448",
+      "kind": "pull",
+      "upstream_number": 448,
+      "title": "Review and verify Kiri PR #448: Networks: the id filter is a regular expression, as in Docker, so k3d finds its network",
+      "coverage": "ported-awaiting-platform-qualification",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "crates/asagiri/src/daemon/filters.rs"
+      ],
+      "remaining": "Current network list ID filtering uses starts_with. The candidate compiles network ID regex filters once per request while retaining prefix semantics for container IDs; invalid patterns still have exact-match fallback. Qualify short/full/anchored/invalid filters on the actual API. Reviewed and ported with original authorship and signed source trailers. The common tests/api-compatibility.py now compares the Docker reference with a disposable Asagiri build; full platform/live qualification is pending.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/448",
+      "head": "fc69f70f6c6fc8b11bed4371b0e17f591e9483f2",
+      "base": "2d6c2d65d46a183f19c2e38602ae72dbc6134920",
+      "patch_sha256": "d39dd778ea766ae449c13909f359c7786f0b2fe3b921efba4f4eb801834050af",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 250,
+        "url": "https://github.com/AndreKurait/asagiri/issues/250"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-421",
+      "kind": "pull",
+      "upstream_number": 421,
+      "title": "Review and verify Kiri PR #421: Fix stalled image pull cancellation",
+      "coverage": "reviewed-transport-cancellation-separate",
+      "checks": [
+        "crates/asagiri-image/src/cancel.rs",
+        "crates/asagiri-image/src/connect.rs"
+      ],
+      "remaining": "This changes the registry transport, not layer permit admission: cancel-scoped reads poll every 50 ms, preserve the overall stall deadline, and shut down a stream first registered after cancellation. The layer-admission proof does not establish this behavior. Compare the existing cancellation/transport implementation and qualify stalled reads on each host before adopting this extra polling policy.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/421",
+      "head": "e118e28bc69ae2702c43b38e7f232d66e5bf475a",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "d54ef47a34707add7d1609151d030dc85069284dbf87f982356ed420e6c7dadb",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 251,
+        "url": "https://github.com/AndreKurait/asagiri/issues/251"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-419",
+      "kind": "pull",
+      "upstream_number": 419,
+      "title": "Review and verify Kiri PR #419: update: check the tarball's member names before unpacking",
+      "coverage": "reviewed-not-integrated",
+      "checks": [
+        "crates/asagiri/src/update.rs",
+        "crates/asagiri/Cargo.toml",
+        "SECURITY.md"
+      ],
+      "remaining": "The proposal preflights tar members before invoking macOS bsdtar. The fork currently validates the downloaded hash then relies on bsdtar before checking the extracted bundle. A port needs separate hardlink and symlink target semantics, GNU/PAX/sparse and AppleDouble handling, and agreement between preflight and actual extraction. No pre-extraction confinement result is claimed from reviewing the patch. The updater has no default feed.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/419",
+      "head": "9317d9249999f68c1b7aef0d64411da521d07174",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "89e1f8acf6df48c5f3a2dde6cd425025b4881a0f6c661bbbc70b5b56cba28cdd",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 252,
+        "url": "https://github.com/AndreKurait/asagiri/issues/252"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-401",
+      "kind": "pull",
+      "upstream_number": 401,
+      "title": "Review and verify Kiri PR #401: UI:Add Azerbaijani language support",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/401",
+      "head": "0c62ef61b94c0c312554cdb8f2b0d7893b8304c7",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "f2b4a696d16c3dbb971029364dea62f4dac2ff12e4f4bf39d0b4b282df7a2533",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 253,
+        "url": "https://github.com/AndreKurait/asagiri/issues/253"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-398",
+      "kind": "pull",
+      "upstream_number": 398,
+      "title": "Review and verify Kiri PR #398: Fix layer extraction of hard links to symlinks",
+      "coverage": "independent-equivalent",
+      "checks": [
+        "crates/asagiri-init/src/layer_tar.rs",
+        "crates/asagiri-init/src/linux/layers.rs"
+      ],
+      "remaining": "Asagiri already uses layer_tar::unpack_hardlink and descriptor-confined hardlink_metadata. Its tests cover a hard link to a symlink, preserving the symlink inode without modifying its target, plus absolute roots, ownership, PAX timestamps and xattrs. Do not replace these broader semantics with upstream entry.unpack_in behavior. The exact Nix/Supabase workload remains tracked under issue #409.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/398",
+      "head": "da68b639733d42e1c23ba08b114f91674172cedd",
+      "base": "5789abee3527b228ffd9c01c8cfd3ef4e878e187",
+      "patch_sha256": "687012458e1726a79ab3bb096a28fb7df0a10f1a3c3b58b17ce481c99cb72cd9",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 254,
+        "url": "https://github.com/AndreKurait/asagiri/issues/254"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-397",
+      "kind": "pull",
+      "upstream_number": 397,
+      "title": "Review and verify Kiri PR #397: Fix macOS search field keyboard shortcuts",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/397",
+      "head": "f0365f09f8f9b1358b879391c776efb3cf28f95e",
+      "base": "5789abee3527b228ffd9c01c8cfd3ef4e878e187",
+      "patch_sha256": "86be7bae643dc6094881dc3405931624aa0bcc033c3a863a58e42ad3eda25b16",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 255,
+        "url": "https://github.com/AndreKurait/asagiri/issues/255"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-396",
+      "kind": "pull",
+      "upstream_number": 396,
+      "title": "Review and verify Kiri PR #396: Tests: kiri-init unit tests compile again after #371",
+      "coverage": "upstream-test-layout-not-applicable",
+      "checks": [
+        "crates/asagiri-init/src/linux/container.rs",
+        ".github/workflows/platforms.yml"
+      ],
+      "remaining": "The one-line patch initializes the upstream Process.seccomp vector in its test constructor. Asagiri uses different process/preparation ownership and constructors; its actual Linux and ARM unit compilation succeeds. Do not introduce an absent upstream field merely to replay this compile fix.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/396",
+      "head": "3c3ccaf4e9d59379248656a9e5980827713754e7",
+      "base": "2e8168b48160f7c1ac2d4223a9345ed579089fa0",
+      "patch_sha256": "0300dfe01ed7b23dce82bc058a8596562157aa591151e8f0a571bf26afecc944",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 256,
+        "url": "https://github.com/AndreKurait/asagiri/issues/256"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-393",
+      "kind": "pull",
+      "upstream_number": 393,
+      "title": "Review and verify Kiri PR #393: Engine: expose image Config.Labels and inherit image labels on container create",
+      "coverage": "independent-equivalent-and-expanded",
+      "checks": [
+        "crates/asagiri/src/daemon/api.rs",
+        "crates/asagiri/src/daemon/ops.rs",
+        "tests/image-label-inheritance.py"
+      ],
+      "remaining": "Image inspection, listing and system-df already expose stored labels; container creates merge them with explicit labels and reject non-string values before mounts. Commit preserves container labels. Docker/candidate image-label-inheritance.py covers API discovery and precedence, with additional daemon-restart checks. The proposed helper would hide config read failures and omit Asagiri validation; keep the existing implementation.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/393",
+      "head": "fcf90d2eb65d8f02062c0ca596fb41ced6d9f823",
+      "base": "ad301e3edf1cd8c5c4db809ae0df7b24de9c1173",
+      "patch_sha256": "86059f0194334321d3f9af34420ac7a698859afd9a85bf0724539328fe246b4b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 257,
+        "url": "https://github.com/AndreKurait/asagiri/issues/257"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-360",
+      "kind": "pull",
+      "upstream_number": 360,
+      "title": "Review and verify Kiri PR #360: A user's own group is one of its supplementary groups, as with Docker",
+      "coverage": "adapted-pending-final-followup-qualification",
+      "checks": [],
+      "remaining": "Seed supplementary groups with the resolved primary GID for run and exec, then sort and deduplicate image memberships and group-add values. Preserve Asagiri's Docker-compatible unknown numeric UID default GID 0. The native old-engine failure was reproduced and cleaned up; two actual compiled helper tests pass. The required full-engine user-form matrix is wired into CI and still needs the final followup result.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/360",
+      "head": "4a4128025f196010f7339a9463f8f1d82a29995d",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "581f3262f8df581e6385d1d7cefbb018ddc6e63eea6b5e04729aa6640bb36a08",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 258,
+        "url": "https://github.com/AndreKurait/asagiri/issues/258"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-322",
+      "kind": "pull",
+      "upstream_number": 322,
+      "title": "Review and verify Kiri PR #322: Tests for layers with an absolute hard-link target (issue 302)",
+      "coverage": "already-implemented-awaiting-live-confirmation",
+      "checks": [
+        "crates/asagiri-init/src/layer_tar.rs",
+        "crates/asagiri-init/src/linux/layers.rs",
+        "tests/layer-hardlinks.py"
+      ],
+      "remaining": "Asagiri already has the production layer-root normalization and stronger tests for rooted/relative hardlinks, inode/permission preservation, PAX/GNU names, parent and symlink confinement, and hardlink metadata. The real Linux untar and metadata cases pass in source49fe2f8 Platform builds44339799423, job134926333099. The live image fixture and original workload still require their recorded runtime result; test compilation is not treated as completion.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/322",
+      "head": "61679aa8b0536db15b2f2c6166be9a5cdf9804dd",
+      "base": "2d6c2d65d46a183f19c2e38602ae72dbc6134920",
+      "patch_sha256": "697cf2d5a47c0bd6bf20257e05fda296a340783e2401d72d4cec413d32e6b69b",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 259,
+        "url": "https://github.com/AndreKurait/asagiri/issues/259"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-314",
+      "kind": "pull",
+      "upstream_number": 314,
+      "title": "Review and verify Kiri PR #314: xtask windows-dev: pick a real WSL distro on Windows",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/314",
+      "head": "4a7b6cf65f2ed46d6ce455b12c740e4c3a05ed25",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "ba529413097e32693282effedfd01340f39845b596705fff45453911f75284f5",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 260,
+        "url": "https://github.com/AndreKurait/asagiri/issues/260"
+      },
+      "status": "open-verification"
+    },
+    {
+      "key": "pr-119",
+      "kind": "pull",
+      "upstream_number": 119,
+      "title": "Review and verify Kiri PR #119: Images: registry mirrors for Docker Hub, in Settings and the CLI",
+      "coverage": "implementation-review-pending",
+      "checks": [],
+      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/119",
+      "head": "ea5de9476031bb720e20f4b9352debd8258b37c9",
+      "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
+      "patch_sha256": "3dba3aca0d6233315ce30416ceb25dc93432be6e8f752c4984eb4e67833ee8fb",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 261,
+        "url": "https://github.com/AndreKurait/asagiri/issues/261"
+      },
+      "status": "open-verification",
+      "related_issues": [
+        339
+      ]
+    }
+  ],
+  "additional_source_findings": [
+    {
+      "key": "pr-511-rustix",
+      "upstream_url": "https://github.com/libracoder/kiri/pull/511",
+      "kind": "pull",
+      "upstream_number": 511,
+      "head": "2738a14318113168b09c636cb19a050ec0a09c30",
+      "patch_sha256": "ab700640c0aace2853d2f32d3e982d6f8fee9adde2fa657436d7d006ecccc7f0",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 263,
+        "url": "https://github.com/AndreKurait/asagiri/issues/263"
+      },
+      "status": "fixed-awaiting-platform-qualification",
+      "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 44e04ded309a pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
+      "evidence": "docs/verification/xattr-compatibility-2026-11-18.json"
+    }
+  ]
+}
