@@ -279,6 +279,30 @@ def check(args):
                                    "global_ipv6": global_ipv6}
         passed("IPv6-disabled networks accept mixed IPAM and allocate only IPv4")
 
+        record["endpoint_static_addresses"] = []
+        for index, key in enumerate((off_net, off_id)):
+            address = str(subnet.network_address + 42 + index)
+            cid = container("endpoint-static-" + str(index), {
+                "Entrypoint": [], "Cmd": ["sleep", "120"],
+                "HostConfig": {} if index == 0 else {"NetworkMode": "default"},
+                "NetworkingConfig": {"EndpointsConfig": {
+                    key: {"IPAMConfig": {"IPv4Address": address}},
+                }},
+            })["Id"]
+            start(cid)
+            settings = inspect(cid)["NetworkSettings"]["Networks"]
+            assert set(settings) == {off_net}, settings
+            endpoint = settings[off_net]
+            assert endpoint["NetworkID"] == off_id and endpoint["IPAddress"] == address, endpoint
+            assert endpoint["IPAMConfig"]["IPv4Address"] == address, endpoint
+            interfaces = execute(cid, "ip", "-4", "-o", "addr", "show", "dev", "eth0")
+            assert f"{address}/{subnet.prefixlen}" in interfaces.split(), interfaces
+            record["endpoint_static_addresses"].append({
+                "selector": key, "requested": address, "endpoint": endpoint,
+                "interfaces": interfaces,
+            })
+        passed("endpoint-only name and ID selectors preserve requested IPv4 addresses")
+
         cid = container("host-override", {
             "Entrypoint": [], "Cmd": ["sleep", "120"], "HostConfig": {
                 "NetworkMode": "none", "ExtraHosts": ["host.docker.internal:203.0.113.19"],
