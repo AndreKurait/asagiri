@@ -396,7 +396,13 @@ jobs:
           print(f"Before setup: exists={path.exists()}, link={path.readlink() if path.is_symlink() else None}")
           print(f"Before setup resolved path: {path.resolve()}")
           PY
-          sudo /usr/sbin/systemsetup -settimezone GMT
+          # systemsetup can remove a valid link on hosted macOS 26 (error -99).
+          # Preserve the runner's time zone; supply its UTC link only if absent.
+          if [ ! -f /etc/localtime ]; then
+            test ! -e /etc/localtime
+            test -f /var/db/timezone/zoneinfo/UTC
+            sudo ln -sfn /var/db/timezone/zoneinfo/UTC /etc/localtime
+          fi
           python3 - <<'PY'
           from pathlib import Path
           path = Path("/etc/localtime")
