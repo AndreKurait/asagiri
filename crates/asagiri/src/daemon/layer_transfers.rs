@@ -1,11 +1,12 @@
 //! Serialize the same layer, while bounding work on independent layers.
 
-use std::collections::HashMap;
-use std::sync::{Condvar, Mutex, Weak};
+use std::collections::HashSet;
+use std::io;
+use std::sync::{Condvar, Mutex};
 
 #[derive(Default)]
 struct State {
-    by_digest: HashMap<String, Weak<Mutex<()>>>,
+    by_digest: HashSet<String>,
     active: usize,
 }
 
@@ -27,44 +28,47 @@ impl LayerTransfers {
         Self { state: Mutex::default(), available: Condvar::new(), limit }
     }
 
-    pub(super) fn run<T>(&self, digest: &str, operation: impl FnOnce() -> T) -> T {
-        let layer = {
+    pub(super) fn run<T>(&self, digest: &str, cancelled: &dyn Fn() -> bool, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        loop {
+            // Call external cancellation code without holding our state lock.
+            let cancelled = cancelled();
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            // Completed work must not retain a lock object for every image
-            // this daemon has ever seen.
-            if state.by_digest.len() >= 64 {
-                state.by_digest.retain(|_, lock| lock.strong_count() > 0);
+            // Digest ownership and capacity are claimed together. A waiter
+            // owns neither, so a busy digest cannot fill every capacity slot.
+            if let Some(active) = super::layer_admission::transition(
+                state.active, self.limit, true, state.by_digest.contains(digest), cancelled,
+            ) {
+                state.by_digest.insert(digest.to_owned());
+                state.active = active;
+                let _permit = Permit { transfers: self, digest };
+                drop(state);
+                return operation();
             }
-            match state.by_digest.get(digest).and_then(Weak::upgrade) {
-                Some(lock) => lock,
-                None => {
-                    let lock = std::sync::Arc::new(Mutex::new(()));
-                    state.by_digest.insert(digest.to_owned(), std::sync::Arc::downgrade(&lock));
-                    lock
-                }
+            if cancelled {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "image preparation cancelled"));
             }
-        };
-        // Take the digest lock before a capacity permit: waiters for the
-        // same layer must not occupy every slot and starve unrelated work.
-        let _layer = layer.lock().unwrap_or_else(|e| e.into_inner());
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        while state.active == self.limit {
-            state = self.available.wait(state).unwrap_or_else(|e| e.into_inner());
+            // Cancellation need not notify this condvar. Recheck it while
+            // waiting for either a digest owner or an unrelated transfer.
+            drop(self.available.wait_timeout(state, std::time::Duration::from_millis(50))
+                .unwrap_or_else(|e| e.into_inner()));
         }
-        state.active += 1;
-        drop(state);
-        let _permit = Permit(self);
-        operation()
     }
 }
 
-struct Permit<'a>(&'a LayerTransfers);
+struct Permit<'a> {
+    transfers: &'a LayerTransfers,
+    digest: &'a str,
+}
 
 impl Drop for Permit<'_> {
     fn drop(&mut self) {
-        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.active -= 1;
-        self.0.available.notify_one();
+        let mut state = self.transfers.state.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(state.by_digest.remove(self.digest), "layer permit lost its digest");
+        state.active = super::layer_admission::transition(
+            state.active, self.transfers.limit, false, false, false,
+        ).expect("layer permit count is inconsistent");
+        // A single wake can select a waiter for another still-busy digest.
+        self.transfers.available.notify_all();
     }
 }
 
@@ -83,13 +87,14 @@ mod tests {
             for _ in 0..8 {
                 scope.spawn(|| {
                     start.wait();
-                    transfers.run("shared", || {
+                    transfers.run("shared", &|| false, || {
                         if !ready.load(Ordering::SeqCst) {
                             uploads.fetch_add(1, Ordering::SeqCst);
                             std::thread::yield_now();
                             ready.store(true, Ordering::SeqCst);
                         }
-                    });
+                        Ok(())
+                    }).unwrap();
                 });
             }
             start.wait();
@@ -110,7 +115,7 @@ mod tests {
                 let entered = entered.clone();
                 let release = release.clone();
                 let (transfers, active, peak) = (&transfers, &active, &peak);
-                scope.spawn(move || transfers.run(&index.to_string(), || {
+                scope.spawn(move || transfers.run(&index.to_string(), &|| false, || {
                     let count = active.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(count, Ordering::SeqCst);
                     entered.send(()).unwrap();
@@ -120,7 +125,8 @@ mod tests {
                         done = wake.wait(done).unwrap();
                     }
                     active.fetch_sub(1, Ordering::SeqCst);
-                }));
+                    Ok(())
+                }).unwrap());
             }
             let first = arrivals.recv_timeout(std::time::Duration::from_secs(5));
             let second = arrivals.recv_timeout(std::time::Duration::from_secs(5));
@@ -138,11 +144,90 @@ mod tests {
     fn panic_releases_capacity_and_the_digest_can_be_retried() {
         let transfers = LayerTransfers::new(1);
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            transfers.run("retry", || panic!("interrupted transfer"));
+            let _: io::Result<()> = transfers.run("retry", &|| false, || panic!("interrupted transfer"));
         }));
         assert!(failed.is_err());
         assert_eq!(transfers.state.lock().unwrap().active, 0);
-        assert_eq!(transfers.run("retry", || 42), 42);
-        assert_eq!(transfers.run("another", || 7), 7);
+        assert_eq!(transfers.run("retry", &|| false, || Ok(42)).unwrap(), 42);
+        assert_eq!(transfers.run("another", &|| false, || Ok(7)).unwrap(), 7);
+    }
+
+    #[test]
+    fn cancelled_and_failed_operations_leave_no_digest_or_capacity() {
+        let transfers = LayerTransfers::new(1);
+        let cancelled: io::Result<()> = transfers.run("cancelled", &|| true, || panic!("cancelled work ran"));
+        assert_eq!(cancelled.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        let failed: io::Result<()> = transfers.run("retry", &|| false, || Err(io::Error::other("transfer failed")));
+        assert_eq!(failed.unwrap_err().to_string(), "transfer failed");
+        assert_eq!(transfers.run("retry", &|| false, || Ok(7)).unwrap(), 7);
+        let state = transfers.state.lock().unwrap();
+        assert_eq!(state.active, 0);
+        assert!(state.by_digest.is_empty());
+    }
+
+    fn cancelled_waiter(same_digest: bool) {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let transfers = Arc::new(LayerTransfers::new(1));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (entered, running) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let owner = {
+            let transfers = transfers.clone();
+            std::thread::spawn(move || {
+                transfers.run("held", &|| false, || {
+                    entered.send(()).unwrap();
+                    released.recv_timeout(Duration::from_secs(5)).unwrap();
+                    Ok(())
+                }).unwrap();
+            })
+        };
+        running.recv_timeout(Duration::from_secs(5)).expect("owner started");
+        let (attempt, attempted) = mpsc::channel();
+        let (finished, result) = mpsc::channel();
+        let waiter = {
+            let transfers = transfers.clone();
+            let cancelled = cancelled.clone();
+            std::thread::spawn(move || {
+                attempt.send(()).unwrap();
+                let value = transfers.run(
+                    if same_digest { "held" } else { "other" },
+                    &|| cancelled.load(Ordering::SeqCst), || Ok(()),
+                );
+                finished.send(value).unwrap();
+            })
+        };
+        attempted.recv_timeout(Duration::from_secs(5)).unwrap();
+        let before_cancel = result.recv_timeout(Duration::from_millis(30));
+        cancelled.store(true, Ordering::SeqCst);
+        let after_cancel = result.recv_timeout(Duration::from_secs(2));
+        let active_before_release = transfers.state.lock().unwrap().active;
+        // Cleanup must finish even if a regression made the waiter block.
+        release.send(()).unwrap();
+        owner.join().unwrap();
+        waiter.join().unwrap();
+        assert!(matches!(before_cancel, Err(mpsc::RecvTimeoutError::Timeout)));
+        assert_eq!(active_before_release, 1, "a waiter cannot consume another permit");
+        assert!(
+            matches!(&after_cancel, Ok(Err(error)) if error.kind() == io::ErrorKind::Interrupted),
+            "cancelled waiter remained blocked by another transfer: {after_cancel:?}"
+        );
+        assert_eq!(transfers.state.lock().unwrap().active, 0);
+        transfers.run("held", &|| false, || Ok(())).unwrap();
+        transfers.run("other", &|| false, || Ok(())).unwrap();
+        let state = transfers.state.lock().unwrap();
+        assert_eq!(state.active, 0);
+        assert!(state.by_digest.is_empty());
+    }
+
+    #[test]
+    fn cancellation_does_not_wait_for_a_digest_owner() {
+        cancelled_waiter(true);
+    }
+
+    #[test]
+    fn cancellation_does_not_wait_for_transfer_capacity() {
+        cancelled_waiter(false);
     }
 }

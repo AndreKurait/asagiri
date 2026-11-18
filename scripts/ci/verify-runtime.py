@@ -8,6 +8,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = {
+    "layer-admission": {
+        "source": "crates/asagiri/src/daemon/layer_admission.rs",
+        "signature": "pub(super) fn transition(active: usize, limit: usize, acquiring: bool, busy: bool, cancelled: bool) -> Option<usize> {",
+        "negative_diagnostics": ("postcondition not satisfied", "possible arithmetic underflow/overflow"),
+        "minimum_verified": 2,
+        "mutants": {
+            "ignore-cancellation": ("cancelled || busy", "false || busy"),
+            "ignore-digest-owner": ("cancelled || busy", "cancelled || false"),
+            "exceed-capacity": ("active == limit", "false"),
+            "uncounted-permit": ("Some(active + 1)", "Some(active)"),
+            "release-empty": ("active == 0", "false"),
+            "accept-invalid-count": ("active > limit", "false"),
+        },
+    },
     "health-transition": {
         "source": "crates/asagiri/src/daemon/health_transition.rs",
         "signature": "pub(super) fn after_probe(success: bool, starting: bool, in_start_period: bool, failures: u32, retries: u32) -> (u32, Option<bool>) {",

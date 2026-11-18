@@ -29,6 +29,41 @@ the live health, lifecycle and Compose checks exercise those surrounding paths.
 Native Mac VM and Windows WSL results must be recorded separately from Linux
 runtime results.
 
+## Layer transfer admission
+
+`LayerTransfers::run` claims a digest and a capacity slot in one state lock.
+Waiters own neither resource and can observe cancellation every 50 ms without
+waiting for the transfer that holds the digest or capacity. Success, errors
+and unwinding release both resources. The next transfer checks whether the
+layer is already present before uploading it.
+
+Verus checks the exact `layer_admission::transition` function used for both
+claiming and releasing permits. For every `usize` count and limit, it proves:
+
+- A claim succeeds exactly when the count is valid, capacity remains, the
+  digest is available, and the sampled cancellation flag is false.
+- A successful claim adds exactly one; release subtracts exactly one.
+- Release succeeds for a valid nonzero count even when cancellation is set.
+- Empty releases, over-capacity states and blocked claims return no transition.
+- Every successful result stays within capacity, without arithmetic overflow.
+
+Six broken transitions must fail verification, covering cancellation, digest
+ownership, capacity, accounting, empty releases and invalid input states.
+Concrete witnesses include zero capacity and maximum machine-sized counts.
+
+The arithmetic proof does not verify Rust's mutexes, condvars, hash set or
+destructors, or establish scheduler fairness. Production synchronization tests
+exercise shared-digest contention, independent transfers, capacity limits,
+error and panic cleanup, cancellation while waiting, and retry. Both waiting
+cancellation regressions fail against the previous production locking code:
+the request cannot finish until the unrelated owner is released.
+
+Cancellation is cooperative. A flag that changes after the admission sample
+is checked again by the engine before work starts; this does not interrupt an
+already executing filesystem or transport operation. Layer durability, guest
+retirement, stale process completion and native VM/WSL behavior retain their
+separate runtime qualification requirements.
+
 ## HTTP framing numbers
 
 `http_number::parse_number` parses the decimal `Content-Length` and hexadecimal

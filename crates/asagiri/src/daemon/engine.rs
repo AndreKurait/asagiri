@@ -1460,12 +1460,15 @@ impl Engine {
     /// stopped are recorded as exited, as Docker does without live restore.
     fn load(&self) -> io::Result<()> {
         let saved: Vec<Saved> = match std::fs::read(&self.records) {
-            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
-                crate::diag::error!("ignoring unreadable container records", file = self.records.display(), error = e);
-                Vec::new()
-            }),
+            Ok(b) => serde_json::from_slice(&b).map_err(|e| io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("cannot read container records {}: {e}; startup stopped before cleanup; the original index and container data are unchanged", self.records.display()),
+            ))?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e),
+            Err(e) => return Err(io::Error::new(e.kind(), format!(
+                "cannot read container records {}: {e}; startup stopped before cleanup; container data are unchanged",
+                self.records.display(),
+            ))),
         };
         let now = SystemTime::now();
         let mut restart = Vec::new();
@@ -1961,7 +1964,7 @@ impl Engine {
     fn ensure_layers<'a>(&self, vm: &VmLink, layers: impl Iterator<Item = (&'a str, &'a str)>, cancelled: &dyn Fn() -> bool) -> io::Result<()> {
         for (digest, media_type) in layers {
             check_preparation(cancelled)?;
-            self.layers.run(digest, || {
+            self.layers.run(digest, cancelled, || {
                 check_preparation(cancelled)?;
                 if !vm.has_layer(digest)? {
                     vm.send_layer(digest, media_type, &self.store.blob_path(digest)?)?;
@@ -4882,6 +4885,78 @@ mod vm_end_tests {
         assert_eq!(vm_end(true, false), VmEnd::Slept);
         assert_eq!(vm_end(true, true), VmEnd::Slept);
         assert_eq!(vm_end(false, false), VmEnd::Crashed);
+    }
+}
+
+#[cfg(test)]
+mod records_tests {
+    use super::*;
+
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn an_unreadable_container_index_never_becomes_an_empty_retention_list() {
+        let root = std::env::temp_dir().join(format!("asagiri-record-integrity-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        engine.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let image = Image {
+            name: "records:local".into(), digest: "sha256:test".into(), index_digest: None, local_tag: true,
+            config_digest: "sha256:test".into(), layers: Vec::new(), size: 0, platform: "linux/arm64".into(),
+            created: String::new(), pulled_at: 0, config: Default::default(),
+        };
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "image": "records:local", "image_id": "sha256:test", "entrypoint": [], "cmd": ["true"],
+            "env": [], "cwd": "/", "user": "", "auto_remove": false, "network_mode": "none", "labels": {},
+        })).unwrap();
+        let id = engine.create(Some("retained-record".into()), spec, &image).unwrap();
+        assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        let path = root.join("containers.json");
+        let valid = std::fs::read(&path).unwrap();
+        drop(engine);
+        let logs = root.join("containers").join(&id);
+        std::fs::create_dir_all(&logs).unwrap();
+        let marker = logs.join("retained.log");
+        std::fs::write(&marker, b"preserve the original log\n").unwrap();
+
+        for damaged in [&valid[..valid.len() - 1], b"", b"[{}]", b"[]trailing bytes"] {
+            std::fs::write(&path, damaged).unwrap();
+            for _ in 0..2 {
+                let error = Engine::boot(Store::open(&root).unwrap()).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                assert!(error.to_string().contains(&path.display().to_string()));
+                assert!(error.to_string().contains("startup stopped before cleanup"));
+                assert_eq!(std::fs::read(&path).unwrap(), damaged);
+                assert_eq!(std::fs::read(&marker).unwrap(), b"preserve the original log\n");
+            }
+        }
+
+        std::fs::write(&path, &valid).unwrap();
+        let restored = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        assert_eq!(restored.with(&id, |c| c.name.clone()).unwrap(), "retained-record");
+        assert_eq!(restored.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(std::fs::read(&marker).unwrap(), b"preserve the original log\n");
+    }
+
+    #[test]
+    fn an_index_that_cannot_be_read_also_preserves_container_logs() {
+        let root = std::env::temp_dir().join(format!("asagiri-record-io-{}", random_hex(16)));
+        std::fs::create_dir(&root).unwrap();
+        let _cleanup = Cleanup(root.clone());
+        let store = Store::open(&root).unwrap();
+        std::fs::create_dir(root.join("containers.json")).unwrap();
+        let logs = root.join("containers").join("retained");
+        std::fs::create_dir_all(&logs).unwrap();
+        let marker = logs.join("original.log");
+        std::fs::write(&marker, b"preserved").unwrap();
+        let error = Engine::boot(store).unwrap_err();
+        assert!(error.to_string().contains("containers.json"));
+        assert!(error.to_string().contains("startup stopped before cleanup"));
+        assert_eq!(std::fs::read(marker).unwrap(), b"preserved");
     }
 }
 
