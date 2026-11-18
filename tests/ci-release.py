@@ -286,21 +286,25 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(api.call_count, 2)
         self.assertIn("page=2", api.call_args.args[1])
 
-    def test_provenance_distinguishes_source_from_a_newer_workflow(self):
-        env = {"GITHUB_WORKFLOW_SHA": "b" * 40,
+    def provenance_environment(self):
+        return {"GITHUB_WORKFLOW_SHA": "b" * 40,
                "GITHUB_SHA": "b" * 40,
                "GITHUB_WORKFLOW_REF": REPO + "/.github/workflows/release.yml@refs/heads/main",
                "GITHUB_SERVER_URL": "https://github.com", "GITHUB_REF": "refs/heads/main",
                "GITHUB_EVENT_NAME": "workflow_run", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
                "GITHUB_REPOSITORY_ID": "456", "GITHUB_REPOSITORY_OWNER_ID": "789",
                "RUNNER_ENVIRONMENT": "github-hosted"}
+
+    def test_provenance_distinguishes_source_from_a_newer_workflow(self):
+        env = self.provenance_environment()
         predicate = release.provenance(REPO, COMMIT, "0.1.0-dev.12", env)
         dependencies = predicate["buildDefinition"]["resolvedDependencies"]
         self.assertEqual(dependencies[0]["uri"], f"git+https://github.com/{REPO}@refs/heads/main")
         self.assertEqual(dependencies[0]["digest"]["gitCommit"], "b" * 40)
         self.assertEqual(dependencies[1]["digest"]["gitCommit"], COMMIT)
         self.assertEqual(dependencies[1]["annotations"]["buildInvocation"],
-                         f"https://github.com/{REPO}/actions/runs/123/attempts/1")
+                          f"https://github.com/{REPO}/actions/runs/123")
+        self.assertEqual(dependencies[1]["annotations"]["artifactSelectionAttempt"], "1")
         self.assertEqual(predicate["buildDefinition"]["externalParameters"]["source"]["commit"], COMMIT)
         self.assertEqual(predicate["buildDefinition"]["internalParameters"]["github"], {
             "event_name": "workflow_run", "repository_id": "456", "repository_owner_id": "789",
@@ -309,11 +313,46 @@ class ReleaseTests(unittest.TestCase):
             **env, "GITHUB_EVENT_NAME": "workflow_dispatch",
             "ASAGIRI_PACKAGE_RUN_ID": "62", "ASAGIRI_PACKAGE_RUN_ATTEMPT": "2"})
         self.assertEqual(recovered["buildDefinition"]["resolvedDependencies"][1]["annotations"]["buildInvocation"],
-                         f"https://github.com/{REPO}/actions/runs/62/attempts/2")
-        for field in ("GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "RUNNER_ENVIRONMENT", "GITHUB_SHA"):
+                          f"https://github.com/{REPO}/actions/runs/62")
+        self.assertEqual(recovered["buildDefinition"]["resolvedDependencies"][1]["annotations"]["artifactSelectionAttempt"], "2")
+        for field in ("GITHUB_REPOSITORY_ID", "GITHUB_REPOSITORY_OWNER_ID", "RUNNER_ENVIRONMENT",
+                      "GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "ASAGIRI_PACKAGE_RUN_ID"):
             for value in ("", "untrusted"):
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     release.provenance(REPO, COMMIT, "0.1.0-dev.12", {**env, field: value})
+
+    def test_same_run_recovery_selects_mixed_attempt_packages_without_using_the_old_plan(self):
+        env = {**self.provenance_environment(), "GITHUB_RUN_ATTEMPT": "3",
+               "ASAGIRI_PACKAGE_RUN_ID": "123", "ASAGIRI_PACKAGE_RUN_ATTEMPT": "1"}
+        predicate = release.provenance(REPO, COMMIT, "0.1.0-dev.12", env)
+        annotations = predicate["buildDefinition"]["resolvedDependencies"][1]["annotations"]
+        # Packages retained from attempt 1 and rebuilt in attempt 2 belong to
+        # the run. The publisher selects the whole set in attempt 3.
+        self.assertEqual(annotations, {
+            "role": "package source",
+            "buildInvocation": f"https://github.com/{REPO}/actions/runs/123",
+            "artifactSelectionAttempt": "3",
+        })
+        self.assertEqual(predicate["runDetails"]["metadata"]["invocationId"],
+                         f"https://github.com/{REPO}/actions/runs/123/attempts/3")
+
+    def test_other_run_recovery_preserves_its_verified_selection_attempt(self):
+        env = {**self.provenance_environment(), "GITHUB_RUN_ATTEMPT": "3",
+               "ASAGIRI_PACKAGE_RUN_ID": "62", "ASAGIRI_PACKAGE_RUN_ATTEMPT": "2"}
+        predicate = release.provenance(REPO, COMMIT, "0.1.0-dev.62", env)
+        annotations = predicate["buildDefinition"]["resolvedDependencies"][1]["annotations"]
+        self.assertEqual(annotations["buildInvocation"],
+                         f"https://github.com/{REPO}/actions/runs/62")
+        self.assertEqual(annotations["artifactSelectionAttempt"], "2")
+        self.assertEqual(predicate["runDetails"]["metadata"]["invocationId"],
+                         f"https://github.com/{REPO}/actions/runs/123/attempts/3")
+        for value in ("", "0", "-1", "untrusted"):
+            with self.subTest(attempt=value), self.assertRaises(ValueError):
+                release.provenance(REPO, COMMIT, "0.1.0-dev.62",
+                                   {**env, "ASAGIRI_PACKAGE_RUN_ATTEMPT": value})
+        del env["ASAGIRI_PACKAGE_RUN_ATTEMPT"]
+        with self.assertRaises(ValueError):
+            release.provenance(REPO, COMMIT, "0.1.0-dev.62", env)
 
     def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False):
         candidate = self.release_run() if candidate is None else candidate

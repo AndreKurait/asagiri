@@ -369,16 +369,38 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-15
+            runner: macos-26
             app: target/Asagiri.app
           - arch: x86_64
-            runner: macos-15-intel
+            runner: macos-26-intel
             app: target/intel/Asagiri.app
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.commit }}
           persist-credentials: false
+      - name: Prepare the Mac test time zone
+        # Native bind tests exercise the real /etc/localtime symlink.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("/etc/localtime")
+          print(f"Before setup: exists={path.exists()}, link={path.readlink() if path.is_symlink() else None}")
+          print(f"Before setup resolved path: {path.resolve()}")
+          PY
+          # systemsetup can remove a valid link on hosted macOS 26 (error -99).
+          # Preserve the runner's time zone; supply its UTC link only if absent.
+          if [ ! -f /etc/localtime ]; then
+            test ! -e /etc/localtime
+            test -f /var/db/timezone/zoneinfo/UTC
+            sudo ln -sfn /var/db/timezone/zoneinfo/UTC /etc/localtime
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("/etc/localtime")
+          print(f"Configured time zone file: {path.resolve(strict=True)}")
+          assert path.is_file(), "The Mac tests require a time zone file"
+          PY
       - name: Install the pinned toolchain
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update --target aarch64-unknown-linux-musl --target x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -636,7 +658,7 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           COMMIT: ${{ needs.plan.outputs.commit }}
           ASAGIRI_PACKAGE_RUN_ID: ${{ needs.plan.outputs.artifact_run || github.run_id }}
-          ASAGIRI_PACKAGE_RUN_ATTEMPT: ${{ needs.plan.outputs.artifact_attempt }}
+          ASAGIRI_PACKAGE_RUN_ATTEMPT: ${{ needs.plan.outputs.artifact_run != '' && needs.plan.outputs.artifact_attempt || github.run_attempt }}
         run: python3 scripts/ci/release.py collect dist "$VERSION" "$COMMIT" --source-root release-source
       - name: Attest the release artifacts
         id: provenance

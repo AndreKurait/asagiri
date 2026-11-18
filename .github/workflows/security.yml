@@ -81,6 +81,7 @@ jobs:
         run: |
           python3 tests/ci-container-cache.py
           python3 tests/ci-release.py
+          python3 tests/ci-runner-retry.py
           python3 tests/kernel-config-regressions.py
           python3 scripts/ci/verify-issue-coverage.py
           python3 tests/ci-verification.py

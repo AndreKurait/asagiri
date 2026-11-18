@@ -1,0 +1,39 @@
+name: Recover hosted Mac runners
+
+on:
+  # Inspect provider metadata using trusted code; never execute the triggering
+  # workflow's checkout or artifacts with the token that can request a retry.
+  workflow_run: # zizmor: ignore[dangerous-triggers] official main/tag workflows only; trusted checkout and provider metadata, no artifact execution
+    workflows: [Platform builds, Release]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: runner-retry-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    if: >-
+      github.repository == 'AndreKurait/asagiri' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.name == 'Release') &&
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Retry only an unassigned job with confirmed hosted capacity failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/runner-retry.py
