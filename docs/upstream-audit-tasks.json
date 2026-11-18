@@ -416,7 +416,10 @@
         "issue": 109,
         "url": "https://github.com/AndreKurait/asagiri/issues/109"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        94
+      ]
     },
     {
       "key": "issue-92",
@@ -780,7 +783,10 @@
         "issue": 125,
         "url": "https://github.com/AndreKurait/asagiri/issues/125"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        391
+      ]
     },
     {
       "key": "issue-225",
@@ -937,7 +943,10 @@
         "issue": 131,
         "url": "https://github.com/AndreKurait/asagiri/issues/131"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        457
+      ]
     },
     {
       "key": "issue-251",
@@ -959,7 +968,10 @@
         "issue": 132,
         "url": "https://github.com/AndreKurait/asagiri/issues/132"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        260
+      ]
     },
     {
       "key": "issue-252",
@@ -1491,7 +1503,10 @@
         "issue": 156,
         "url": "https://github.com/AndreKurait/asagiri/issues/156"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        475
+      ]
     },
     {
       "key": "issue-338",
@@ -2965,7 +2980,10 @@
         "issue": 226,
         "url": "https://github.com/AndreKurait/asagiri/issues/226"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        333
+      ]
     },
     {
       "key": "issue-473",
@@ -2985,7 +3003,10 @@
         "issue": 227,
         "url": "https://github.com/AndreKurait/asagiri/issues/227"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        483
+      ]
     },
     {
       "key": "issue-474",
@@ -3713,7 +3734,10 @@
         "issue": 261,
         "url": "https://github.com/AndreKurait/asagiri/issues/261"
       },
-      "status": "open-verification"
+      "status": "open-verification",
+      "related_issues": [
+        339
+      ]
     }
   ],
   "additional_source_findings": [
@@ -3727,7 +3751,11 @@
       },
       "status": "fixed-awaiting-platform-qualification",
       "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 4b76b1964d50 pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
-      "evidence": "docs/verification/xattr-compatibility-2026-11-18.json"
+      "evidence": "docs/verification/xattr-compatibility-2026-11-18.json",
+      "kind": "pull",
+      "upstream_number": 511,
+      "head": "2738a14318113168b09c636cb19a050ec0a09c30",
+      "patch_sha256": "ab700640c0aace2853d2f32d3e982d6f8fee9adde2fa657436d7d006ecccc7f0"
     }
   ]
 }

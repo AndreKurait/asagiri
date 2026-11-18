@@ -133,12 +133,15 @@ def rejected_by_proof(returncode, result, expected):
     )
 
 
-def source_state():
+def source_state(paths):
     status = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)
     return {
         "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "worktree_clean": not status.strip(),
         "worktree_status_sha256": sha256(status),
+        "proof_input_sha256": {
+            path: sha256((ROOT / path).read_bytes()) for path in sorted(paths)
+        },
     }
 
 

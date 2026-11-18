@@ -105,7 +105,11 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     tools = support()
-    checkout_before = tools.source_state()
+    paths = {"scripts/ci/verify-runtime.py", "scripts/ci/verify-ipam.py", "scripts/ci/verus.json"}
+    for name, contract in CONTRACTS.items():
+        paths.update((contract["source"], "proofs/" + name + ".rs"))
+        paths.update(contract.get("annotations", {}).values())
+    checkout_before = tools.source_state(paths)
     pin = json.loads((ROOT / "scripts/ci/verus.json").read_text())
     record = {
         "schema": "asagiri.runtime-proof.v1",
@@ -127,7 +131,7 @@ def main():
             }
             for name, contract in CONTRACTS.items()
         }
-        record["source_state_after_read"] = tools.source_state()
+        record["source_state_after_read"] = tools.source_state(paths)
         if record["source_state_after_read"] != checkout_before:
             raise ValueError("Checkout changed while reading proof inputs")
         extracted, binary, asset = tools.install_verus(args.cache, pin)
@@ -171,7 +175,7 @@ def main():
                 result["negative_controls"][mutation] = verified
                 if not tools.rejected_by_proof(rc, verified, contract["negative_diagnostics"]):
                     raise ValueError("Broken production variant was not rejected by the prover: " + mutation)
-        record["source_state_after_proof"] = tools.source_state()
+        record["source_state_after_proof"] = tools.source_state(paths)
         if record["source_state_after_proof"] != checkout_before:
             raise ValueError("Checkout changed during proof verification")
         record["status"] = "passed"

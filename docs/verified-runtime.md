@@ -133,4 +133,7 @@ the proofs and all negative controls, then preserves the generated sources,
 proof output, source and template hashes, tested revision and tool identities
 in the `runtime-proof-X64` artifact with 90-day requested retention. A dirty
 worktree is identified in the local result rather than attributed to its
-unchanged HEAD.
+unchanged HEAD. The runner fingerprints the production files, proof templates,
+annotations, toolchain pin and runner scripts before reading inputs, after
+reading them and after verification. A second edit to an already dirty file
+therefore fails the run even when its Git status entry stays the same.
