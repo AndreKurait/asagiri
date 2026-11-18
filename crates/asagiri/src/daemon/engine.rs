@@ -3854,7 +3854,7 @@ fn drop_ifnum(taken: &mut Vec<(String, u32)>, network: &str, n: u32) {
 fn hosts_lines(extra: &[String], links: Vec<String>) -> Vec<String> {
     let mut hosts = extra.to_vec();
     hosts.extend(links);
-    let mapped = |name: &str| hosts.iter().any(|line| line.split_whitespace().skip(1).any(|alias| alias.eq_ignore_ascii_case(name)));
+    let mapped = |name: &str| hosts.iter().flat_map(|text| text.lines()).any(|line| line.split('#').next().unwrap_or("").split_whitespace().skip(1).any(|alias| alias.eq_ignore_ascii_case(name)));
     let docker = !mapped("host.docker.internal");
     let asagiri = !mapped("host.asagiri.internal");
     let gateway = !mapped("gateway.docker.internal");
@@ -3882,8 +3882,8 @@ mod hosts_tests {
     }
 
     fn addresses<'a>(hosts: &'a [String], name: &str) -> Vec<&'a str> {
-        hosts.iter().filter_map(|line| {
-            let mut fields = line.split_whitespace();
+        hosts.iter().flat_map(|text| text.lines()).filter_map(|line| {
+            let mut fields = line.split('#').next()?.split_whitespace();
             let address = fields.next()?;
             fields.any(|alias| alias.eq_ignore_ascii_case(name)).then_some(address)
         }).collect()
@@ -3940,6 +3940,27 @@ mod hosts_tests {
         let extra = vec![format!("{}\thost.docker.internal", super::super::ports::HOST_ADDR)];
         let hosts = hosts_lines(&extra, Vec::new());
         assert_eq!(addresses(&hosts, "host.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn names_in_comments_do_not_override_defaults() {
+        let extra = lines(&["203.0.113.19\tunrelated # host.docker.internal host.asagiri.internal gateway.docker.internal"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(hosts, vec![
+            extra[0].clone(),
+            format!("{}\thost.docker.internal host.asagiri.internal", super::super::ports::HOST_ADDR),
+            format!("{}\tgateway.docker.internal", super::super::ports::HOST_ADDR),
+        ]);
+    }
+
+    #[test]
+    fn a_mapping_after_a_comment_line_keeps_its_own_address() {
+        let extra = lines(&["203.0.113.19\tunrelated # comment\n203.0.113.20\tHOST.DOCKER.INTERNAL"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(hosts[0], extra[0]);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.20"]);
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), [super::super::ports::HOST_ADDR]);
+        assert_eq!(addresses(&hosts, "gateway.docker.internal"), [super::super::ports::HOST_ADDR]);
     }
 }
 
