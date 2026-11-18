@@ -369,10 +369,10 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-15
+            runner: macos-26
             app: target/Asagiri.app
           - arch: x86_64
-            runner: macos-15-intel
+            runner: macos-26-intel
             app: target/intel/Asagiri.app
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
