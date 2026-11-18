@@ -3,7 +3,7 @@
   "upstream_repository": "libracoder/kiri",
   "snapshot_at": "2026-11-18T14:50:42.991511+00:00",
   "published_at": "2026-11-18T15:45:10.880224+00:00",
-  "candidate_revision": "4b76b1964d507f9024221f2b6a1756d356018957",
+  "candidate_revision": "44e04ded309a2e09603beb84ab55564314699ea2",
   "count": 176,
   "new_issues": 170,
   "existing_issue_mappings": 6,
@@ -3375,9 +3375,12 @@
       "kind": "pull",
       "upstream_number": 506,
       "title": "Review and verify Kiri PR #506: Security: import runs only an official image as its volume helper",
-      "coverage": "implementation-review-pending",
-      "checks": [],
-      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "coverage": "reviewed-separate-import-work-required",
+      "checks": [
+        "crates/asagiri/src/import.rs",
+        "tests/ci-engine-import.py"
+      ],
+      "remaining": "Reviewed the public upstream helper-provenance changes. They replace broad name selection with official-repository digest checks, override helper entrypoints, avoid implicitly pulling during helper runs, and use a never-started source container for volume reads. Asagiri has an older import implementation using five exact tags and source/destination run helpers; the complete behavior is not present. Preserve its active-source preflight/recheck guards when adapting the import design, and retain source integrity, helper identity and real Docker-to-Asagiri runtime qualification in the linked task.",
       "upstream_url": "https://github.com/libracoder/kiri/pull/506",
       "head": "2f89e6618b97e42c76d175e33a2050c48f535ef6",
       "base": "2b167134f3f44d3e4c7bed90f7365accb2090b0d",
@@ -3436,9 +3439,13 @@
       "kind": "pull",
       "upstream_number": 493,
       "title": "Review and verify Kiri PR #493: image: fix jsonfile::sync PermissionDenied (os error 5) on Windows",
-      "coverage": "implementation-review-pending",
-      "checks": [],
-      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "coverage": "primary-fix-not-needed-transport-delta-separate",
+      "checks": [
+        "crates/asagiri-image/src/store.rs",
+        "crates/asagiri-image/src/cancel.rs",
+        "crates/asagiri-image/src/connect.rs"
+      ],
+      "remaining": "The named read-only jsonfile::sync bug is absent: Asagiri uses write-enabled handles for image-index replacement, recovery backups and blob synchronization. Native Windows source49fe2f8 ran87 image tests successfully, including real index-lock subprocesses, concurrent writers, shorter rewrites and recovery. Store source is unchanged from released671f5564. The PR also includes34fb0236 transport cancellation/formatting changes; their complete qualification remains separate under the transport-cancellation task, rather than being inferred from metadata tests.",
       "upstream_url": "https://github.com/libracoder/kiri/pull/493",
       "head": "ccd15d6c464831cbbce3ff3103b1f8b332b2af84",
       "base": "218253184bce9ca6926a82c132577b6d0bd482fa",
@@ -3541,9 +3548,13 @@
       "kind": "pull",
       "upstream_number": 419,
       "title": "Review and verify Kiri PR #419: update: check the tarball's member names before unpacking",
-      "coverage": "implementation-review-pending",
-      "checks": [],
-      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "coverage": "reviewed-not-integrated",
+      "checks": [
+        "crates/asagiri/src/update.rs",
+        "crates/asagiri/Cargo.toml",
+        "SECURITY.md"
+      ],
+      "remaining": "The proposal preflights tar members before invoking macOS bsdtar. The fork currently validates the downloaded hash then relies on bsdtar before checking the extracted bundle. A port needs separate hardlink and symlink target semantics, GNU/PAX/sparse and AppleDouble handling, and agreement between preflight and actual extraction. No pre-extraction confinement result is claimed from reviewing the patch. The updater has no default feed.",
       "upstream_url": "https://github.com/libracoder/kiri/pull/419",
       "head": "9317d9249999f68c1b7aef0d64411da521d07174",
       "base": "f68a8d2129b99ddb72a89033ec65cbdfdfa709a7",
@@ -3684,9 +3695,13 @@
       "kind": "pull",
       "upstream_number": 322,
       "title": "Review and verify Kiri PR #322: Tests for layers with an absolute hard-link target (issue 302)",
-      "coverage": "implementation-review-pending",
-      "checks": [],
-      "remaining": "Current public source identity and full diff are retained. Detailed implementation review and Asagiri-specific qualification remain open.",
+      "coverage": "already-implemented-awaiting-live-confirmation",
+      "checks": [
+        "crates/asagiri-init/src/layer_tar.rs",
+        "crates/asagiri-init/src/linux/layers.rs",
+        "tests/layer-hardlinks.py"
+      ],
+      "remaining": "Asagiri already has the production layer-root normalization and stronger tests for rooted/relative hardlinks, inode/permission preservation, PAX/GNU names, parent and symlink confinement, and hardlink metadata. The real Linux untar and metadata cases pass in source49fe2f8 Platform builds44339799423, job134926333099. The live image fixture and original workload still require their recorded runtime result; test compilation is not treated as completion.",
       "upstream_url": "https://github.com/libracoder/kiri/pull/322",
       "head": "61679aa8b0536db15b2f2c6166be9a5cdf9804dd",
       "base": "2d6c2d65d46a183f19c2e38602ae72dbc6134920",
@@ -3744,18 +3759,18 @@
     {
       "key": "pr-511-rustix",
       "upstream_url": "https://github.com/libracoder/kiri/pull/511",
+      "kind": "pull",
+      "upstream_number": 511,
+      "head": "2738a14318113168b09c636cb19a050ec0a09c30",
+      "patch_sha256": "ab700640c0aace2853d2f32d3e982d6f8fee9adde2fa657436d7d006ecccc7f0",
       "tracking": {
         "repository": "AndreKurait/asagiri",
         "issue": 263,
         "url": "https://github.com/AndreKurait/asagiri/issues/263"
       },
       "status": "fixed-awaiting-platform-qualification",
-      "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 4b76b1964d50 pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
-      "evidence": "docs/verification/xattr-compatibility-2026-11-18.json",
-      "kind": "pull",
-      "upstream_number": 511,
-      "head": "2738a14318113168b09c636cb19a050ec0a09c30",
-      "patch_sha256": "ab700640c0aace2853d2f32d3e982d6f8fee9adde2fa657436d7d006ecccc7f0"
+      "remaining": "Rustix 1.1.5 was confirmed in the affected range for RUSTSEC-2026-0486. Candidate 44e04ded309a pairs rustix 1.1.6 with xattr 1.7.0. All six large-attribute checks pass on native Mac with the original and paired versions; rustix alone fails all six. Required full platform, archive/xattr and advisory checks remain pending.",
+      "evidence": "docs/verification/xattr-compatibility-2026-11-18.json"
     }
   ]
 }

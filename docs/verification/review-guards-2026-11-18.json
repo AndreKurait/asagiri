@@ -1,0 +1,69 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "8fc9fcbde9d094d8acf98c4360436cd91f3ca143",
+  "verification_guards": {
+    "source_commit": "2afb2b92ca94f7eb4a35533f0016780c2a73c7fb",
+    "test": "tests/ci-verification.py",
+    "test_sha256": "0ccd99f3da32e570f44d58a157f0a1dfb7de3a09f01c5f424bfa8eba285c8aa6",
+    "baseline": {
+      "tests": 9,
+      "failed_assertions": 8
+    },
+    "candidate": {
+      "tests": 9,
+      "status": "passed"
+    },
+    "cases": "Dirty production source, proof template, annotation and toolchain pin edits; incorrect issue, PR and supplemental source links; unknown PR states; unchanged dirty inputs and proof/cleanup failure retention.",
+    "limits": "These are runner and catalog integrity regressions. A prover double isolates runner state handling; the real Verus contracts and negative controls are qualified separately in Linux CI."
+  },
+  "endpoint_preflight": {
+    "source_commit": "44e04ded309a2e09603beb84ab55564314699ea2",
+    "source": "crates/asagiri/src/daemon/api.rs",
+    "baseline": {
+      "passed": 6,
+      "failed": 10
+    },
+    "candidate": {
+      "passed": 16,
+      "failed": 0
+    },
+    "baseline_block_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "candidate_block_sha256": "d72846621ded95663b51dcba55277a56d47d239ee992b340c1203a691fe3b582",
+    "limits": "The exact production preflight block was compiled with a table of canonical network names. Name/ID resolution, live attachments and creation side effects require the shared tests/api-compatibility.py fixture on reference Docker and disposable Asagiri."
+  },
+  "xattr_scratch_paths": {
+    "source_commit": "a5a5cf3f8c1a34382423a2519c01078daac8b815",
+    "test": "crates/asagiri-image/tests/xattr_compatibility.rs",
+    "test_sha256": "c94997eb166efbfd142e5438eeb53e420d6746f0f167bd63d8df518421d7e713",
+    "dependencies": {
+      "rustix": "1.1.6",
+      "xattr": "1.7.0"
+    },
+    "baseline_relative": {
+      "passed": 4,
+      "failed": 2
+    },
+    "candidate_relative": {
+      "passed": 6,
+      "failed": 0
+    },
+    "candidate_absolute": {
+      "passed": 6,
+      "failed": 0
+    },
+    "clippy": "passed",
+    "method": "The same checked-in integration test compiled in a standalone Cargo harness on native macOS ARM64, with relative and absolute ASAGIRI_XATTR_TEST_DIR values. Full workspace/platform qualification remains separate."
+  },
+  "patch_reproduction": {
+    "procedure": "docs/verification/upstream-diff-reproduction.md",
+    "retained_patches": 73,
+    "exact_matches": 73,
+    "command": [
+      "git",
+      "diff",
+      "--no-ext-diff",
+      "BASE...HEAD"
+    ]
+  },
+  "qualification": "Follow-up source and local evidence. Combined platform and live qualification is still required before main integration and release."
+}
