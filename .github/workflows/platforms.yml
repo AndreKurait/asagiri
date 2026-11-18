@@ -387,6 +387,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare the Mac test time zone
+        # Native bind tests exercise the real /etc/localtime symlink.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("/etc/localtime")
+          print(f"Before setup: exists={path.exists()}, link={path.readlink() if path.is_symlink() else None}")
+          PY
+          sudo /usr/sbin/systemsetup -settimezone UTC
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("/etc/localtime")
+          print(f"Configured time zone file: {path.resolve(strict=True)}")
+          assert path.is_file(), "The Mac tests require a time zone file"
+          PY
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
