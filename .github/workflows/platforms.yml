@@ -65,6 +65,10 @@ jobs:
             ${{ runner.temp }}/ipam-proof
             ${{ runner.temp }}/ipam-performance
           retention-days: 90
+      - name: Check Docker API reference expectations before building the engine
+        run: |
+          docker pull -q alpine:3.21
+          python3 tests/api-compatibility.py /var/run/docker.sock alpine:3.21 --reference-docker
       - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
       - name: Restore Linux dependencies
         id: cache

@@ -41,7 +41,7 @@ def check(args):
         "owner": nonce, "checks": [], "cleanup": [],
     }
 
-    def call(method, target, body=None, statuses=(200,)):
+    def call(method, target, body=None, statuses=(200,), with_status=False):
         connection = Connection(args.socket)
         try:
             connection.request(method, "/v1.47" + target,
@@ -51,11 +51,12 @@ def check(args):
             data = response.read(4 * 1024**2 + 1)
             assert len(data) <= 4 * 1024**2, "API response exceeded the fixture limit"
             assert response.status in statuses, (method, target, response.status, data[:1000])
-            return json.loads(data) if data else None
+            result = json.loads(data) if data else None
+            return (response.status, result) if with_status else result
         finally:
             connection.close()
 
-    def container(name, body, statuses=(201,)):
+    def container(name, body, statuses=(201,), with_status=False):
         name = prefix + "-" + name
         call("GET", "/containers/" + name + "/json", statuses=(404,))
         # Record ownership before the request: a failing implementation can
@@ -63,7 +64,7 @@ def check(args):
         owned["containers"].append(name)
         return call("POST", "/containers/create?name=" + name, {
             "Image": args.image, "Labels": {LABEL: nonce}, **body,
-        }, statuses)
+        }, statuses, with_status)
 
     def network(name, **options):
         name = prefix + "-" + name
@@ -195,28 +196,47 @@ def check(args):
                 host = {"Binds": [volume + ":/side-effect"]}
                 if mode is not None:
                     host["NetworkMode"] = mode
-                result = container(name, {
+                create_status, result = container(name, {
                     "Entrypoint": [], "Cmd": ["sleep", "120"],
                     "HostConfig": host, "NetworkingConfig": {"EndpointsConfig": endpoints},
-                }, (201, 400) if args.reference_docker else (400,))
-                phase = "create"
-                if "Id" in result:
-                    # Docker versions may defer the conflict until start.
-                    # Asagiri must reject it before create can make volumes.
+                }, (201, 400) if args.reference_docker else (400,), with_status=True)
+                outcome = {
+                    "mode": mode, "endpoints": list(endpoints),
+                    "create_status": create_status, "rejected_at": "create",
+                }
+                if create_status == 201:
+                    # Docker can defer host conflicts until start and accepts
+                    # some mixed none requests. Preserve its actual outcome;
+                    # Asagiri rejects these unsupported combinations before
+                    # create can make containers or volumes.
                     assert args.reference_docker
                     cid = result["Id"]
-                    result = call("POST", "/containers/" + cid + "/start", statuses=(400, 500))
-                    assert not inspect(cid)["State"]["Running"]
-                    phase = "start"
-                assert "network" in result["message"].lower(), result
+                    status, result = call("POST", "/containers/" + cid + "/start",
+                                          statuses=(204, 400, 500), with_status=True)
+                    info = inspect(cid)
+                    outcome.update(start_status=status, rejected_at="start",
+                                   running=info["State"]["Running"],
+                                   network_mode=info["HostConfig"]["NetworkMode"],
+                                   networks=info["NetworkSettings"]["Networks"])
+                    if status == 204:
+                        assert special == "none" and info["State"]["Running"], info
+                        assert outcome["networks"] and set(outcome["networks"]) <= {net, "none", "bridge"}, info
+                        outcome.update(rejected_at=None,
+                                       interfaces=execute(cid, "ip", "-o", "addr", "show"))
+                    else:
+                        assert not info["State"]["Running"], info
+                if outcome["rejected_at"] is not None:
+                    assert "network" in result["message"].lower(), result
+                    outcome["message"] = result["message"]
                 if not args.reference_docker:
                     call("GET", "/containers/" + prefix + "-" + name + "/json", statuses=(404,))
                     call("GET", "/volumes/" + volume, statuses=(404,))
-                record["incompatible_networks"].append({
-                    "mode": mode, "endpoints": list(endpoints), "rejected_at": phase,
-                })
+                record["incompatible_networks"].append(outcome)
         passed("single host and none networks work by name or ID")
-        passed("mixed host and none endpoints cannot silently lose an attachment")
+        if args.reference_docker:
+            passed("reference Docker mixed-network outcomes are recorded")
+        else:
+            passed("mixed host and none endpoints reject before container or volume creation")
 
         for pattern, expected in ((net_id[:12], [net_id]), ("^/?" + net_id + "$", [net_id]),
                                   (net_id[12:24], [net_id]), ("[", [])):

@@ -21,6 +21,9 @@ The 0.1.14 changes include:
   host aliases replace matching built-in aliases without retaining a fallback
   address, including IPv6 and uppercase names. The same live API fixture
   compares these cases with Docker.
+- Mixed `host`/`none` endpoint configurations fail before container or volume
+  creation. Docker 28.0.4 accepts some mixed `none` requests; those combinations
+  remain an Asagiri compatibility limit.
 - Rustix is updated to 1.1.6 for RUSTSEC-2026-0486, paired with the compatible
   xattr 1.7.0 update and large-attribute regression checks.
 - The upstream inventory now records 231 issues and 280 pull requests,
