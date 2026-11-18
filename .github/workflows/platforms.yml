@@ -394,8 +394,9 @@ jobs:
           from pathlib import Path
           path = Path("/etc/localtime")
           print(f"Before setup: exists={path.exists()}, link={path.readlink() if path.is_symlink() else None}")
+          print(f"Before setup resolved path: {path.resolve()}")
           PY
-          sudo /usr/sbin/systemsetup -settimezone UTC
+          sudo /usr/sbin/systemsetup -settimezone GMT
           python3 - <<'PY'
           from pathlib import Path
           path = Path("/etc/localtime")
