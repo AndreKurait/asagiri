@@ -12,6 +12,7 @@ CONTRACTS = {
         "source": "crates/asagiri/src/daemon/health_transition.rs",
         "signature": "pub(super) fn after_probe(success: bool, starting: bool, in_start_period: bool, failures: u32, retries: u32) -> (u32, Option<bool>) {",
         "negative_diagnostics": ("postcondition not satisfied", "possible arithmetic underflow/overflow"),
+        "minimum_verified": 2,
         "mutants": {
             "overflow-streak": ("failures == u32::MAX", "false"),
             "skip-failure": ("failures + 1", "failures"),
@@ -19,6 +20,28 @@ CONTRACTS = {
             "success-keeps-streak": ("return (0, Some(true));", "return (failures, Some(true));"),
             "extend-grace": ("starting && in_start_period", "starting || in_start_period"),
             "failure-reports-healthy": ("Some(false)", "Some(true)"),
+        },
+    },
+    "http-number": {
+        "source": "crates/asagiri/src/daemon/http_number.rs",
+        "signature": "pub(super) fn parse_number(bytes: &[u8], hex: bool) -> Option<u64> {",
+        "minimum_verified": 5,
+        "negative_diagnostics": (
+            "postcondition not satisfied", "invariant not satisfied before loop",
+            "invariant not satisfied at end of loop body", "assertion failed",
+        ),
+        "annotations": {
+            "    while index < bytes.len() {": "proofs/http-number-loop.txt",
+            "                // Reject the first invalid digit without scanning the suffix.": "proofs/http-number-invalid.txt",
+            "            // A later digit cannot make an overflowing prefix representable.": "proofs/http-number-overflow.txt",
+        },
+        "mutants": {
+            "accept-empty": ("if bytes.is_empty() {\n        return None;", "if bytes.is_empty() {\n        return Some(0);"),
+            "accept-invalid-digit": ("b'0'..=b'9'", "b'0'..=b':'"),
+            "ignore-overflow": ("next > u64::MAX as u128", "false"),
+            "hexadecimal-base-ten": ("if hex { 16u128 } else { 10u128 }", "if hex { 10u128 } else { 10u128 }"),
+            "uppercase-off-by-one": ("byte - b'A' + 10", "byte - b'A' + 11"),
+            "skip-digit": ("value = next as u64;", "value = 0;"),
         },
     },
 }
@@ -42,11 +65,21 @@ def executable(source, signature):
     return rest[:-2].strip("\n")
 
 
-def render(source, signature, template):
+def render(source, signature, template, annotations):
     if template.count("/* EXECUTABLE_BODY */") != 1:
         raise ValueError("The proof must contain exactly one production body insertion")
     body = executable(source, signature)
-    return template.replace("/* EXECUTABLE_BODY */", body)
+    annotated = body
+    for anchor, insertion in annotations.items():
+        if annotated.count(anchor) != 1:
+            raise ValueError("Proof annotation must identify one source location")
+        annotated = annotated.replace(anchor, insertion)
+    recovered = annotated
+    for anchor, insertion in reversed(list(annotations.items())):
+        recovered = recovered.replace(insertion, anchor)
+    if recovered != body:
+        raise ValueError("Proof instrumentation changed executable code")
+    return template.replace("/* EXECUTABLE_BODY */", annotated)
 
 
 def main():
@@ -70,7 +103,14 @@ def main():
     extracted = None
     try:
         inputs = {
-            name: ((ROOT / contract["source"]).read_text(), (ROOT / ("proofs/" + name + ".rs")).read_text())
+            name: {
+                "source": (ROOT / contract["source"]).read_text(),
+                "template": (ROOT / ("proofs/" + name + ".rs")).read_text(),
+                "annotations": {
+                    path: (ROOT / path).read_text()
+                    for path in contract.get("annotations", {}).values()
+                },
+            }
             for name, contract in CONTRACTS.items()
         }
         record["source_state_after_read"] = tools.source_state()
@@ -81,14 +121,23 @@ def main():
         for name, contract in CONTRACTS.items():
             folder = args.output / name
             folder.mkdir()
-            source, template = inputs[name]
+            source = inputs[name]["source"]
+            template = inputs[name]["template"]
+            annotations = {
+                anchor: inputs[name]["annotations"][path].rstrip("\n")
+                for anchor, path in contract.get("annotations", {}).items()
+            }
             body = executable(source, contract["signature"])
             generated = folder / "production.rs"
-            generated.write_text(render(source, contract["signature"], template))
+            generated.write_text(render(source, contract["signature"], template, annotations))
             result = {
                 "source": contract["source"], "source_sha256": tools.sha256(source.encode()),
                 "executable_body_sha256": tools.sha256(body.encode()),
                 "template_sha256": tools.sha256(template.encode()),
+                "annotation_sha256": {
+                    path: tools.sha256(text.encode())
+                    for path, text in inputs[name]["annotations"].items()
+                },
                 "generated_sha256": tools.sha256(generated.read_bytes()),
                 "negative_controls": {},
             }
@@ -97,13 +146,13 @@ def main():
             result["production"] = verified
             if rc or not verified["success"] or verified["errors"] or not verified["is-verifying-entire-crate"]:
                 raise ValueError("Production runtime proof failed: " + name)
-            if verified["verified"] < 2:
-                raise ValueError("Expected the transition and its non-vacuity witnesses to be verified")
+            if verified["verified"] < contract["minimum_verified"]:
+                raise ValueError("Expected the complete contract and its non-vacuity witnesses to be verified")
             for mutation, (before, after) in contract["mutants"].items():
                 if source.count(before) != 1:
                     raise ValueError("Mutation must identify one production expression: " + mutation)
                 mutant = folder / (mutation + ".rs")
-                mutant.write_text(render(source.replace(before, after), contract["signature"], template))
+                mutant.write_text(render(source.replace(before, after), contract["signature"], template, annotations))
                 rc, verified = tools.verify(binary, mutant, folder / mutation, pin)
                 result["negative_controls"][mutation] = verified
                 if not tools.rejected_by_proof(rc, verified, contract["negative_diagnostics"]):

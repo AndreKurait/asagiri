@@ -1,0 +1,5 @@
+                // Reject the first invalid digit without scanning the suffix.
+                proof {
+                    assert(prefix(bytes@, hex, index as int + 1) == None);
+                    rejected_prefix_stays_rejected(bytes@, hex, index as int + 1, bytes@.len() as int);
+                }

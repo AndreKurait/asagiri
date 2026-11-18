@@ -24,6 +24,7 @@ mod hostetc;
 mod hostopts;
 mod mirror;
 mod http;
+mod http_number;
 mod identity;
 mod layer_transfers;
 mod logfile;
