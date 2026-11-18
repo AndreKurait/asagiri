@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-18",
+  "source_commit": "4b76b1964d507f9024221f2b6a1756d356018957",
+  "source": "crates/asagiri/src/daemon/engine.rs",
+  "function": "hosts_lines",
+  "test_module": "hosts_tests",
+  "baseline_commit": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "method": "Compile the unchanged inline production block and the candidate helper with the same checked-in regression module and the real production HOST_ADDR constant. Inspect all addresses for each case-insensitive alias, preserving unclaimed defaults and explicit entry order.",
+  "production_helper_sha256": "481fbac80a5c4afc95ffbb3fb7d148896a834ec7d87dcce95e5a13b81122824e",
+  "test_module_sha256": "8c33c939b7b7a6d7005db573d26606f6a0a3a18a721930dda22463fcfc2ac4a5",
+  "runs": [
+    {
+      "name": "baseline",
+      "passed": 1,
+      "failed": 6,
+      "log_sha256": "e7f342616c1c5e51cec673900c69cfca823ec8831826e08c6ea99c17be1b278b"
+    },
+    {
+      "name": "candidate",
+      "passed": 7,
+      "failed": 0,
+      "log_sha256": "d9ac3ce70c1c2f902018fe3b3ff4f89f3899843cda1594d09eb108402536c707"
+    }
+  ],
+  "clippy": "passed",
+  "limits": "These are production host-line construction tests. Full reference Docker and disposable Asagiri API qualification, including IPv6 and every matching address, remains in platform CI."
+}
