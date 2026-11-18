@@ -682,7 +682,7 @@ Apache License 2.0
 ----------------------------------------------------------------------
 Used by:
 - linux-raw-sys 0.12.1 (https://github.com/sunfishcode/linux-raw-sys)
-- rustix 1.1.5 (https://github.com/bytecodealliance/rustix)
+- rustix 1.1.6 (https://github.com/bytecodealliance/rustix)
 - target-lexicon 0.12.16 (https://github.com/bytecodealliance/target-lexicon)
 - wasi 0.11.1+wasi-snapshot-preview1 (https://github.com/bytecodealliance/wasi)
 
@@ -3330,7 +3330,7 @@ Used by:
 - pkg-config 0.3.34 (https://github.com/rust-lang/pkg-config-rs)
 - ring 0.17.14 (https://github.com/briansmith/ring)
 - rustc_version 0.4.1 (https://github.com/djc/rustc-version-rs)
-- rustix 1.1.5 (https://github.com/bytecodealliance/rustix)
+- rustix 1.1.6 (https://github.com/bytecodealliance/rustix)
 - rustls 0.23.46 (https://github.com/rustls/rustls)
 - smallvec 1.16.4 (https://github.com/servo/rust-smallvec)
 - syn 1.0.109 (https://github.com/dtolnay/syn)
@@ -3340,7 +3340,7 @@ Used by:
 - tungstenite 0.30.0 (https://github.com/snapview/tungstenite-rs)
 - version_check 0.9.5 (https://github.com/SergioBenitez/version_check)
 - wasi 0.11.1+wasi-snapshot-preview1 (https://github.com/bytecodealliance/wasi)
-- xattr 1.6.1 (https://github.com/Stebalien/xattr)
+- xattr 1.7.0 (https://github.com/Stebalien/xattr)
 - yasna 0.6.0 (https://github.com/qnighy/yasna.rs)
 
                               Apache License
