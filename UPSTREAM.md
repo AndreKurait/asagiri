@@ -3,24 +3,34 @@
 Asagiri is an independent fork of [Kiri](https://github.com/libracoder/kiri).
 The original Apache-2.0 license, copyright notices and contributor authorship are preserved.
 
-The incremental public review through **2026-11-16 13:52 UTC** covers
-[221 pull requests](docs/upstream-pr-audit.md): 106 merged, 61 closed without
-merging and 54 open. The [issue inventory](docs/issue-verification.md) maps
-all 161 reports in that snapshot to checked-in tests or explicit remaining
-gaps. The records retain the upstream state and reviewed source identity.
+The frozen public inventory through **2026-11-18 14:50 UTC** covers
+[280 pull requests](docs/upstream-pr-audit.md): 136 merged, 70 closed without
+merging and 74 open. The [issue inventory](docs/issue-verification.md) maps
+all 231 reports to checked-in checks or explicit remaining gaps. The records
+retain upstream state, source identities, patch hashes and previous reviews.
+All 70 new issue bodies and 134 changed discussion comments were read.
+PR rows distinguish completed source review from implementation review that
+remains open.
 
-The integrated candidate includes GNU NSS packages, cgroup shutdown and
-removal fixes, seccomp argument/equality corrections, deterministic DNS
-selection, working-directory setup and Armenian support. Source-specific
-local tests passed; full platform/API and release qualification remains
-separate. The audit records identify exactly which checks ran and preserve
-unsupported platforms, workloads and feature gaps.
+The [linked verification work](docs/upstream-audit-tasks.md) contains 176
+cases published in this fork, plus the rustix advisory found during source
+review. Related reports share a task where recorded. Source and execution
+evidence are required before closing a task; native-platform and design
+gaps stay open.
+
+The current integration adds production-bound health, HTTP parser and layer
+admission proofs, cancellable layer waiters, fail-safe container metadata,
+TCP/file-read fixes and five Docker API compatibility ports. Local baseline
+failures and candidate checks are preserved; complete platform, live API and
+release qualification remains separate. Stable v0.1.13 already supplies the
+built-in Docker-driver builder and rootfs image import.
 
 The [engine comparison](docs/engine-comparison.md) includes the unfavorable
 cleanup p95 that motivated the removed-cgroup regression checks.
 [Verus verification](docs/verified-ipam.md) covers the production IPAM gap
-search; it does not certify the complete engine. Prior release and component
-evidence remain in `docs/verification/` and the audit JSON records.
+search, with further [runtime contracts](docs/verified-runtime.md). These
+function proofs do not certify the complete engine. Prior release and
+component evidence remain in `docs/verification/` and the audit JSON records.
 
 ## Integration policy
 

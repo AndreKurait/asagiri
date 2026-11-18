@@ -1,5 +1,31 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+The 0.1.14 changes include:
+
+- Verus checks the exact production health transition, HTTP numeric parser
+  and layer-admission transition. CI requires nine proof checks and rejection
+  of 18 deliberately broken variants. These function contracts supplement
+  IPAM verification; they do not certify the complete engine or native
+  Mac/Windows behavior.
+- Consecutive health failures saturate at the counter limit. Cancelling an
+  image pull can release a request waiting for a layer digest or capacity
+  slot; failed and panicking transfers release their reservations.
+- Malformed or unreadable container records stop startup before cleanup can
+  remove retained container data. Quiet published TCP connections remain
+  open, relay failures close both directions, and non-regular file reads
+  cannot block the guest agent while opening a FIFO or device.
+- An empty entrypoint override clears the image entrypoint, and creates
+  without a command fail before making mounts. Endpoint-only network
+  requests select their requested network, network ID filters accept
+  regular expressions, IPv6-disabled networks ignore IPv6 IPAM, and explicit
+  host aliases take precedence over built-in aliases. The same live API
+  fixture compares these cases with Docker.
+- Rustix is updated to 1.1.6 for RUSTSEC-2026-0486, paired with the compatible
+  xattr 1.7.0 update and large-attribute regression checks.
+- The upstream inventory now records 231 issues and 280 pull requests,
+  with linked verification work and explicit native-platform, workload
+  and design gaps.
+
 The 0.1.13 changes include:
 
 - Container inspection captures health and process state together
@@ -97,8 +123,8 @@ The ordinary Docker/Podman/Asagiri comparison retains 6,000 samples across
 five API workloads. An optional baseline/candidate/candidate/baseline run
 retains 24,000 samples on one host, including p95 and slow lifecycle counts.
 These measurements cover the specified small API operations; they do not
-establish general application throughput. Verus verification remains scoped
-to the production IPAM gap-search function described below.
+establish general application throughput. Verus verification covers the
+production IPAM gap search and the selected runtime functions described above.
 
 On macOS, unavailable shell profiles no longer interrupt the app's first
 setup. Existing profile contents are preserved when they cannot be read.

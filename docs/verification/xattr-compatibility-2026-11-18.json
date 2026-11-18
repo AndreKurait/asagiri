@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-18",
+  "source_commit": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "fixture": "crates/asagiri-image/tests/xattr_compatibility.rs",
+  "fixture_sha256": "b55cbf6b996c72e0c6a84e0f6f99b43625095da0e5445ef81d521628b22992cb",
+  "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "host": {
+    "os": "macOS",
+    "version": "26.7.3",
+    "architecture": "arm64"
+  },
+  "inputs": {
+    "value_bytes": 8192,
+    "owned_attribute_names": 80,
+    "functions": [
+      "getxattr",
+      "lgetxattr",
+      "fgetxattr",
+      "listxattr",
+      "llistxattr",
+      "flistxattr"
+    ]
+  },
+  "method": "The exact checked-in fixture is compiled in an isolated manifest with each pinned dependency pair. All reads and writes use the real native filesystem. Six data assertions, not build failures, reject the incompatible pair.",
+  "runs": [
+    {
+      "name": "original",
+      "rustix": "1.1.5",
+      "xattr": "1.6.1",
+      "passed": 6,
+      "failed": 0,
+      "exit_code": 0,
+      "log_sha256": "2516675961bb9fc0abf432152d7261c84f1b569917678689d921e374bb086953"
+    },
+    {
+      "name": "rustix-only",
+      "rustix": "1.1.6",
+      "xattr": "1.6.1",
+      "passed": 0,
+      "failed": 6,
+      "exit_code": 101,
+      "log_sha256": "7c93fc878efa8deeb80e7cf1c3a09f995d6da612fa65a64d7cd1b1129f07648f"
+    },
+    {
+      "name": "paired",
+      "rustix": "1.1.6",
+      "xattr": "1.7.0",
+      "passed": 6,
+      "failed": 0,
+      "exit_code": 0,
+      "log_sha256": "421c7e087b016317214a458238ec0bd48b46bbdeffbdb15a352158e244f82f02"
+    }
+  ],
+  "limitations": "This is dependency compatibility evidence, not a full Asagiri engine run or an exploit demonstration. Linux tests use tmpfs and are required by platform CI; native Windows/WSL runtime qualification is separate."
+}

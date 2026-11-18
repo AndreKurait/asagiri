@@ -1,11 +1,11 @@
 {
-  "reviewed_at": "2026-11-16T09:01:14.423113+00:00",
-  "snapshot_started_at": "2026-11-16T07:55:46Z",
+  "reviewed_at": "2026-11-18T16:00:59.894936+00:00",
+  "snapshot_started_at": "2026-11-18T14:50:42.991511+00:00",
   "repository": "libracoder/kiri",
   "asagiri_runtime_revision": "2f9073bddd42454c26970bd21aad70dd6f39755f",
   "native_verified_release": "v0.1.6-dev.100",
-  "candidate_revision": "8064a1867fed8d31c71ddee90cbc6f29cf85d419",
-  "count": 161,
+  "candidate_revision": "9e980e4778491bac67d3badf252ed29b1a34a819",
+  "count": 231,
   "issues": [
     {
       "number": 10,
@@ -13,8 +13,8 @@
       "state": "closed",
       "updated_at": "2026-11-04T11:38:57Z",
       "body_sha256": "c5035029ad292fa9893743aa39560a2640e388c32c676768af1305477958a156",
-      "disposition": "inherited-review",
-      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+      "disposition": "informational",
+      "reason": "General feedback; no reproducible behavior was reported."
     },
     {
       "number": 13,
@@ -22,8 +22,8 @@
       "state": "closed",
       "updated_at": "2026-11-06T11:14:54Z",
       "body_sha256": "d909e086e1047227fa4cbd48ec61bb61c3160f3000ab4933aa32acd50621dbf5",
-      "disposition": "inherited-review",
-      "reason": "Security controls and release checks retained; no claim that a security review proves absence of vulnerabilities."
+      "disposition": "informational",
+      "reason": "The author withdrew the security evaluation; this is not a security certification."
     },
     {
       "number": 14,
@@ -31,8 +31,13 @@
       "state": "closed",
       "updated_at": "2026-11-06T17:39:46Z",
       "body_sha256": "65938d77c5f9fc353cccaf6fbf03f45b521706bccb2e2a3f643aa1fccb80fa8c",
-      "disposition": "inherited-review",
-      "reason": "Guest netfilter configuration inherited."
+      "disposition": "platform-gap",
+      "reason": "Probe exists; verify it on the bundled guest kernel, not only the Docker host kernel.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 91,
+        "url": "https://github.com/AndreKurait/asagiri/issues/91"
+      }
     },
     {
       "number": 18,
@@ -40,8 +45,8 @@
       "state": "closed",
       "updated_at": "2026-11-06T17:39:59Z",
       "body_sha256": "53ba01609280d49851175d29955b80d7ea80225ad589dbb062feacd0c64ffcef",
-      "disposition": "inherited-review",
-      "reason": "Unprivileged port configuration retained."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 25,
@@ -49,8 +54,13 @@
       "state": "closed",
       "updated_at": "2026-11-07T17:04:43Z",
       "body_sha256": "dca734ca2c9a3d411a2076695ac70f442d21889a275fa359e22f2244e975d7dd",
-      "disposition": "inherited-review",
-      "reason": "Dock visibility preference inherited."
+      "disposition": "platform-gap",
+      "reason": "Dock/menu-bar lifecycle still requires a native Mac window.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 92,
+        "url": "https://github.com/AndreKurait/asagiri/issues/92"
+      }
     },
     {
       "number": 26,
@@ -58,8 +68,8 @@
       "state": "closed",
       "updated_at": "2026-11-05T18:54:57Z",
       "body_sha256": "ca427a223598a685d69a455e52547630f0b1631cad582d967328dc66ed29d94f",
-      "disposition": "inherited-review",
-      "reason": "Private device-node ownership retained; host ptmx protection tests."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 27,
@@ -67,8 +77,13 @@
       "state": "closed",
       "updated_at": "2026-11-15T23:16:42Z",
       "body_sha256": "70b530b8dcc155cea9464fbc274452f763cbbd998c20c2180b6069c20603a4e4",
-      "disposition": "inherited-review",
-      "reason": "DNS fallback and resolver handling inherited."
+      "disposition": "partial",
+      "reason": "Linux DNS coverage does not reproduce Cisco Umbrella on macOS.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 93,
+        "url": "https://github.com/AndreKurait/asagiri/issues/93"
+      }
     },
     {
       "number": 30,
@@ -76,8 +91,8 @@
       "state": "closed",
       "updated_at": "2026-11-06T04:11:39Z",
       "body_sha256": "40a637b5cb686da0c774333fd45de0bc66410e72a7a51bdc9866be562f91b12c",
-      "disposition": "inherited-review",
-      "reason": "Nested mount resolution work inherited."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 38,
@@ -85,8 +100,13 @@
       "state": "closed",
       "updated_at": "2026-11-08T06:11:03Z",
       "body_sha256": "bdff6d22dcf83e5494e77c011c582628f541a8b5a25bcccd441d3955709918af",
-      "disposition": "inherited-review",
-      "reason": "Guest kernel BPF/perf configuration retained."
+      "disposition": "platform-gap",
+      "reason": "Kernel flags are configured; a real Cilium startup against the bundled guest remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 94,
+        "url": "https://github.com/AndreKurait/asagiri/issues/94"
+      }
     },
     {
       "number": 40,
@@ -94,8 +114,13 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:28:35Z",
       "body_sha256": "5937f9b6e3c82a7ee47ec661a8f3f260d0dd529c259380c9843aecfe0b25f80c",
-      "disposition": "inherited-review",
-      "reason": "Finder mount path safeguards retained; native reproduction not rerun."
+      "disposition": "platform-gap",
+      "reason": "Requires a native Mac Finder/NFS mount; do not run against the user's folders implicitly.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 95,
+        "url": "https://github.com/AndreKurait/asagiri/issues/95"
+      }
     },
     {
       "number": 41,
@@ -103,17 +128,27 @@
       "state": "closed",
       "updated_at": "2026-11-08T04:49:07Z",
       "body_sha256": "7f5e08bc1fbfbdd1e4f85dff21935d56cb0d7407601842f48e1a110b1575949b",
-      "disposition": "inherited-review",
-      "reason": "Guest kernel accounting configuration retained."
+      "disposition": "platform-gap",
+      "reason": "TASK_IO_ACCOUNTING is configured; actual Typesense startup on the bundled guest remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 96,
+        "url": "https://github.com/AndreKurait/asagiri/issues/96"
+      }
     },
     {
       "number": 44,
       "title": "Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets)",
-      "state": "open",
-      "updated_at": "2026-11-09T03:49:58Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:17:09Z",
       "body_sha256": "65b901294bfb838ba0ac34fabd0cea14703dfe39ffa003c57909a0fe4867c58f",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Kernel-version-compatible nftables/NAT work is retained from #60; native WSL network validation remains distinct from private Linux tests."
+      "disposition": "partial",
+      "reason": "Native WSL outbound networking still needs a Windows host.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 97,
+        "url": "https://github.com/AndreKurait/asagiri/issues/97"
+      }
     },
     {
       "number": 45,
@@ -121,18 +156,28 @@
       "state": "closed",
       "updated_at": "2026-11-07T18:09:12Z",
       "body_sha256": "1b1c43f39afce8090d4989f796310e09bbf0020ab76f2a8b8e0b0c8bb22ea8cb",
-      "disposition": "inherited-review",
-      "reason": "Closed discussion/report: no additional actionable code delta identified beyond the reviewed upstream history."
+      "disposition": "partial",
+      "reason": "Linux packaging and manual Mac activation are qualified for v0.1.13. Native Windows end-user installation and fresh Mac onboarding still need platform execution.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 98,
+        "url": "https://github.com/AndreKurait/asagiri/issues/98"
+      }
     },
     {
       "number": 48,
       "title": "Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp",
-      "state": "open",
-      "updated_at": "2026-11-16T10:02:43Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:20:41Z",
       "body_sha256": "7f373fadfa8e6d847c69d99085b76ec1a2f05bd544515a325b6223d1829a6f0a",
       "disposition": "partial",
-      "reason": "Existing BuildKit, bind notification and selected seccomp evidence is retained. The controlled native dev.100 installation is verified, but it does not prove every in-app update or VM restart path. The new public seccomp discussion is tracked under #130/#371.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "v0.1.13 ships the builder, bind notification and selected seccomp fixes. Full in-app update/restart behavior and Windows C-drive notifications still need native qualification.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 99,
+        "url": "https://github.com/AndreKurait/asagiri/issues/99"
+      }
     },
     {
       "number": 49,
@@ -140,8 +185,13 @@
       "state": "open",
       "updated_at": "2026-11-07T22:18:04Z",
       "body_sha256": "62d66cdc50ec7c264e411a201a73f72c59300bc66f63a4ce186ba690f1e3b24e",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Implemented the bounded Docker-driver BuildKit bridge with local image loading, contexts, secrets, cache, explicit exports, concurrent Bake, host-gateway and cancellation. Real private Linux Docker/Buildx probes pass; native Mac VM and Windows WSL execution remain unverified."
+      "disposition": "partial",
+      "reason": "Asagiri v0.1.13 ships /grpc, /session and /build for Buildx's docker driver, host-gateway and direct image loading. Linux release CI exercises these paths. Native Mac VM and Windows WSL builder qualification remains open.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 100,
+        "url": "https://github.com/AndreKurait/asagiri/issues/100"
+      }
     },
     {
       "number": 50,
@@ -149,8 +199,13 @@
       "state": "closed",
       "updated_at": "2026-11-15T13:21:56Z",
       "body_sha256": "5e17a20761f795020b6e94eae78030cd3aa6fedc59c69f82b22bf9dedd74d901",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Agent/VM recovery and restart-policy fixes retained; private Linux crash tests pass. Native Mac kernel-crash reproduction remains unverified."
+      "disposition": "partial",
+      "reason": "Actual Linux agent crashes recover; native Mac kernel crash/VM recovery remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 101,
+        "url": "https://github.com/AndreKurait/asagiri/issues/101"
+      }
     },
     {
       "number": 57,
@@ -158,8 +213,13 @@
       "state": "open",
       "updated_at": "2026-11-16T06:01:50Z",
       "body_sha256": "35403523d083446b793a505b5020efc61adc928330805b53b9e3f4ebe376ed93",
-      "disposition": "covered",
-      "reason": "Registry platform resolution and local-tag provenance fixed; cross-platform OCI ELF validation is in Buildx tests."
+      "disposition": "partial",
+      "reason": "Cross-platform OCI ELF and local-tag selection are tested; native Intel Mac execution remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 102,
+        "url": "https://github.com/AndreKurait/asagiri/issues/102"
+      }
     },
     {
       "number": 59,
@@ -167,8 +227,13 @@
       "state": "open",
       "updated_at": "2026-11-10T04:10:16Z",
       "body_sha256": "ce5a33302f555483651ca5212a669d164c7a15f3c0cf1c5b695e9e5294e2f8dc",
-      "disposition": "implemented-unverified-platform",
-      "reason": "The QEMU 11.0.5 full source build and ARM64 execution probe passed in hosted run 43633676310. All three build products and the corresponding source, including 44 target and host package entries, were independently verified. Source/bundle boundary checks and the xtask compile pass. Native Intel Mac VM execution remains unverified."
+      "disposition": "partial",
+      "reason": "The QEMU 11.0.5 full source build and ARM64 execution probe passed in hosted run 43633676310. All three build products and the corresponding source, including 44 target and host package entries, were independently verified. Source/bundle boundary checks and the xtask compile pass. Native Intel Mac VM execution remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 103,
+        "url": "https://github.com/AndreKurait/asagiri/issues/103"
+      }
     },
     {
       "number": 64,
@@ -176,8 +241,8 @@
       "state": "closed",
       "updated_at": "2026-11-08T12:02:19Z",
       "body_sha256": "36bc45e32fa94dbeffa6c9e47db156ec76860b830e57818d28285b3395d18d7a",
-      "disposition": "inherited-review",
-      "reason": "Registry manifest RepoDigest handling inherited."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 66,
@@ -185,8 +250,13 @@
       "state": "closed",
       "updated_at": "2026-11-08T11:44:11Z",
       "body_sha256": "ec410c70bb77b82da9cc96d98f3411287b40b04f06deef94e0c20f3d8049db24",
-      "disposition": "unverified-platform",
-      "reason": "Emulated execution depends on the host Rosetta/QEMU environment; track the new #199 report separately rather than claiming universal compatibility."
+      "disposition": "platform-gap",
+      "reason": "Actual Rosetta/bun execution requires a native Apple Silicon VM; no Linux emulation substitute proves it.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 104,
+        "url": "https://github.com/AndreKurait/asagiri/issues/104"
+      }
     },
     {
       "number": 72,
@@ -194,17 +264,27 @@
       "state": "closed",
       "updated_at": "2026-11-09T22:49:14Z",
       "body_sha256": "257d54d232efa8388462e6827ff64be8696205f7d49d92f0b569496b47712abc",
-      "disposition": "inherited-review",
-      "reason": "Bind-mount access behavior inherited; native Mac reproduction not rerun."
+      "disposition": "platform-gap",
+      "reason": "The patch is retained; native Mac virtiofs/Node fs.cpSync still needs reproduction.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 105,
+        "url": "https://github.com/AndreKurait/asagiri/issues/105"
+      }
     },
     {
       "number": 73,
       "title": "Control Kiri from browser.",
-      "state": "open",
-      "updated_at": "2026-11-08T20:15:48Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:20:54Z",
       "body_sha256": "303f82b629fd90986f6974ceb887ddffce2f87f610c44bdf15e00d6ad83ddbfa",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Implemented a loopback-only, password-protected live browser with bounded container, image, volume, network and log views; start/stop/restart require a separate permission. Private Linux engine and real Chromium checks pass, including authentication, revocation, origins, request limits and deadlines. Native Mac engine and Windows named-pipe execution remain unverified."
+      "disposition": "platform-gap",
+      "reason": "Implemented a loopback-only, password-protected live browser with bounded container, image, volume, network and log views; start/stop/restart require a separate permission. Private Linux engine and real Chromium checks pass, including authentication, revocation, origins, request limits and deadlines. Native Mac engine and Windows named-pipe execution remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 106,
+        "url": "https://github.com/AndreKurait/asagiri/issues/106"
+      }
     },
     {
       "number": 74,
@@ -212,8 +292,13 @@
       "state": "closed",
       "updated_at": "2026-11-15T16:27:06Z",
       "body_sha256": "104f2cf3bcb1bf2819e23dc49eb941b0c90b7785250f48f2de59a66cf36c5c7d",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified. Official MCP Python SDK 2.3.0 interoperability also passes against the private Linux engine."
+      "disposition": "partial",
+      "reason": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 107,
+        "url": "https://github.com/AndreKurait/asagiri/issues/107"
+      }
     },
     {
       "number": 77,
@@ -221,8 +306,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:39:24Z",
       "body_sha256": "42da8595c86e0dd3135ce6d0d72bb09836871e7a29cd6eb36c3515644993d0ce",
-      "disposition": "inherited-review",
-      "reason": "Intel Mac support documentation retained."
+      "disposition": "documentation",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 78,
@@ -230,8 +315,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:39:26Z",
       "body_sha256": "b42fee073ccfff256c4ae567d1962dd4b251ee706dd63803fd16ccaca7f6aa5f",
-      "disposition": "inherited-review",
-      "reason": "Linux full-package GUI documentation retained."
+      "disposition": "documentation",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 79,
@@ -239,8 +324,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T17:39:31Z",
       "body_sha256": "ebc06a4be74a4e171570063b57a69492e851ec1068be30417e5f7f02749c284e",
-      "disposition": "inherited-review",
-      "reason": "Runtime Linux kernel version reporting retained."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 80,
@@ -248,8 +333,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:46:29Z",
       "body_sha256": "1cc28a8f86f2caa7a96f63b8e3a58889dcceb44a1ef58a0492e4d6cb67c03f4d",
-      "disposition": "inherited-review",
-      "reason": "Package install/start behavior documented separately."
+      "disposition": "documentation",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 81,
@@ -257,8 +342,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:46:31Z",
       "body_sha256": "79d047684e0455ae91a1c19645c5939bc9404c476c9c4eec134186020be0b245",
-      "disposition": "inherited-review",
-      "reason": "Development documentation describes optional socket integration."
+      "disposition": "documentation",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 82,
@@ -266,8 +351,8 @@
       "state": "closed",
       "updated_at": "2026-11-09T03:46:33Z",
       "body_sha256": "347bce72038176c835699ef7b75cc55f6353b76745aa7352a818f985f64a185b",
-      "disposition": "inherited-review",
-      "reason": "Network documentation reviewed with IPv6 support."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 83,
@@ -275,17 +360,22 @@
       "state": "open",
       "updated_at": "2026-11-08T22:43:15Z",
       "body_sha256": "826be9deea2731456bef3bf0fda1f4b721a6f2f823f089e6970cc06e7af0cb21",
-      "disposition": "covered",
-      "reason": "Upload-close header fix passed hosted native x86_64 and ARM release live tests at c4b990a."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 85,
       "title": "docker load / import always fail (400): \"archive is missing <config>.json\" though the file is in the tar — cannot ingest local images",
-      "state": "open",
-      "updated_at": "2026-11-12T02:37:32Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:02:34Z",
       "body_sha256": "b03becbb6739f9a7a28bdb9cb36af85c25ef74655b5277062400b203a3418348",
-      "disposition": "covered",
-      "reason": "Image import/load and archive-framing fixes retained; Docker/OCI import live checks run in release builds."
+      "disposition": "partial",
+      "reason": "docker load, archive-body completion and Docker's rootfs import API have separate production implementations and live tests. Confirm both against the frozen candidate; upstream #461 is a verification task for existing rootfs import support.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 108,
+        "url": "https://github.com/AndreKurait/asagiri/issues/108"
+      }
     },
     {
       "number": 90,
@@ -293,8 +383,8 @@
       "state": "closed",
       "updated_at": "2026-11-10T00:00:18Z",
       "body_sha256": "fb2fa19fbc865f69382ebebd296862b09e241317eda58261abfb4e30288cee45",
-      "disposition": "inherited-review",
-      "reason": "Internationalization work retained."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 91,
@@ -302,8 +392,13 @@
       "state": "closed",
       "updated_at": "2026-11-10T03:27:25Z",
       "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
-      "disposition": "inherited-review",
-      "reason": "Duplicate setup-diagnostics report; inherited fix retained."
+      "disposition": "partial",
+      "reason": "Diagnostics have unit coverage; native first-run setup still requires platform execution.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 109,
+        "url": "https://github.com/AndreKurait/asagiri/issues/109"
+      }
     },
     {
       "number": 92,
@@ -311,17 +406,27 @@
       "state": "closed",
       "updated_at": "2026-11-10T08:03:22Z",
       "body_sha256": "dd948dbec0953156e7dcfc650e2a38c0c7682831b2bf7b6e6106a237ecad3d60",
-      "disposition": "partially-covered",
-      "reason": "Incomplete persisted setup retries engine/tools and honors WSL/reboot/distro state; added regression coverage. Native first-run recovery still requires Windows execution."
+      "disposition": "partial",
+      "reason": "Persisted incomplete setup, missing distro, reboot gating, and engine/tools retry have unit coverage; native Windows first-run recovery still requires execution.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 110,
+        "url": "https://github.com/AndreKurait/asagiri/issues/110"
+      }
     },
     {
       "number": 93,
       "title": "After long idle / Windows sleep, `docker` fails with \"Kiri is stopped: press Start\" and the bridge is not rebuilt",
       "state": "open",
-      "updated_at": "2026-11-09T10:05:22Z",
+      "updated_at": "2026-11-16T15:18:07Z",
       "body_sha256": "049faa097bc7caac30647454fb7c990b7c76727b0b3fb41e2d96a25fd2a409ce",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified."
+      "disposition": "partial",
+      "reason": "Background/window startup and a lost handshaken bridge restore only daemon availability, preserving the persisted engine Stop state. Managed Buildx registration and saved preferences are restored on a separate worker only after an explicit running-state response; stopped, unknown and unavailable engines skip registration. Pure regressions cover explicit wake, a Stop during recovery, serialized startup, failed attempts and bounded retries. Native Windows sleep/wake, WSL disappearance and running-container recovery remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 111,
+        "url": "https://github.com/AndreKurait/asagiri/issues/111"
+      }
     },
     {
       "number": 94,
@@ -329,8 +434,14 @@
       "state": "closed",
       "updated_at": "2026-11-09T17:15:23Z",
       "body_sha256": "2884b61ede2fd98f6290deea25b6d335288f2cbe08cbf30c6a38aaa17718f2c5",
-      "disposition": "inherited-review",
-      "reason": "Setup diagnostics retained."
+      "disposition": "partial",
+      "reason": "Duplicate of setup-diagnostics report #91; same platform limitation.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 109,
+        "url": "https://github.com/AndreKurait/asagiri/issues/109"
+      },
+      "duplicate_of": 91
     },
     {
       "number": 97,
@@ -338,8 +449,8 @@
       "state": "closed",
       "updated_at": "2026-11-10T03:04:53Z",
       "body_sha256": "c1c2d3ca43e95e7634e8a689b7924dd8cced52015ea9a87b6c3dd6922cc10680",
-      "disposition": "inherited-review",
-      "reason": "Domain listener gating and configurable ports retained."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 98,
@@ -347,8 +458,8 @@
       "state": "closed",
       "updated_at": "2026-11-10T16:58:28Z",
       "body_sha256": "420f2a4155173c9857b891c6e9bdabb0a443e68345cad80fddb6a742f900a413",
-      "disposition": "inherited-review",
-      "reason": "Private stdio ownership retained from #106."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 99,
@@ -356,8 +467,13 @@
       "state": "closed",
       "updated_at": "2026-11-09T22:36:26Z",
       "body_sha256": "bb4b185515b56fcbb00a10abe8e77803792643e9fbb2fdf9a588b5cff37bbff5",
-      "disposition": "inherited-review",
-      "reason": "Gzip archive handling and Docker-copy tests retained."
+      "disposition": "partial",
+      "reason": "The complete PHP/MariaDB/HTTPS DDEV project has Linux CI coverage, including restart and router configuration replacement. Native macOS VM behavior from the report still needs verification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 112,
+        "url": "https://github.com/AndreKurait/asagiri/issues/112"
+      }
     },
     {
       "number": 112,
@@ -365,8 +481,8 @@
       "state": "closed",
       "updated_at": "2026-11-10T03:27:22Z",
       "body_sha256": "e7ba4b03b319c717e2198ba244a2bf846462850a22a376ebd57ca7c772800f2d",
-      "disposition": "inherited-review",
-      "reason": "Translation dictionaries and consistency checks retained."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 118,
@@ -374,8 +490,8 @@
       "state": "open",
       "updated_at": "2026-11-16T01:32:51Z",
       "body_sha256": "772e229c46189bab99719a0c4a3d562a4eee6b7924265e7d5cd632e007129154",
-      "disposition": "covered",
-      "reason": "Registry mirrors and local-tag provenance retained; real Buildx and mirror-refresh tests."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 121,
@@ -383,17 +499,22 @@
       "state": "closed",
       "updated_at": "2026-11-14T22:44:53Z",
       "body_sha256": "b70a252eebbefdfc6d3f1265cef5b3869227e30692c5c49e64262cd182c097dd",
-      "disposition": "covered",
-      "reason": "Empty Cmd/default Entrypoint rules expanded by #198 port; live SDK compatibility test."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 123,
       "title": "macOS: VM data.img retains host disk allocation after guest files are deleted",
       "state": "open",
-      "updated_at": "2026-11-10T10:46:22Z",
+      "updated_at": "2026-11-17T09:57:56Z",
       "body_sha256": "1b170c60c7ccbd962d346710bff6c54879320c8a0545bcd18b494b620284312b",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Trim/reclamation implementation is inherited from #122; no native Mac VM disk-reclamation run here."
+      "disposition": "platform-gap",
+      "reason": "The trim worker is isolated in a child process and has a standalone Linux regression; host allocated-block reclamation still needs a real Mac VM.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 113,
+        "url": "https://github.com/AndreKurait/asagiri/issues/113"
+      }
     },
     {
       "number": 125,
@@ -401,8 +522,13 @@
       "state": "open",
       "updated_at": "2026-11-10T13:42:13Z",
       "body_sha256": "f264e57737a3b1349e376ea7afa1debb6dfc9d90274c0c7d54a4b825bd944f7f",
-      "disposition": "covered-with-limits",
-      "reason": "Bridge/direct-driver and endpoint behavior retained with live network tests; external IPv6 and native guest parity are not inferred."
+      "disposition": "partial",
+      "reason": "Linux coverage passes; native Mac/WSL network parity remains a separate check.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 114,
+        "url": "https://github.com/AndreKurait/asagiri/issues/114"
+      }
     },
     {
       "number": 127,
@@ -410,8 +536,8 @@
       "state": "open",
       "updated_at": "2026-11-10T13:57:11Z",
       "body_sha256": "cd2a02f19e8265b2aa8b19325d7828d49c49ce62e76b62ef9f38f012ea0b0fdb",
-      "disposition": "covered",
-      "reason": "Root Linux service socket and explicit managed-group policy retained; package/user-access checks cover the service."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 128,
@@ -419,8 +545,8 @@
       "state": "open",
       "updated_at": "2026-11-10T13:57:12Z",
       "body_sha256": "cb3dd99f173622c116395cd368bcdfe7a03ceb3086c12b19455bf28d2522b6c3",
-      "disposition": "covered",
-      "reason": "Attach/WebSocket/detach and stdin lifetime work retained; tests/interactive-attach.py and tests/attach-http.py."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 129,
@@ -428,18 +554,23 @@
       "state": "open",
       "updated_at": "2026-11-10T13:57:13Z",
       "body_sha256": "082611c226c94f6b155507918cc7174d019c3bcf2911029a77a17e74d11fdf3e",
-      "disposition": "covered",
-      "reason": "Resource and namespace validation implemented; release tests cover limits, lifecycle and rollback scenarios."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 130,
       "title": "Container security: custom seccomp profiles without weakening Kiri host isolation",
-      "state": "open",
-      "updated_at": "2026-11-16T10:02:37Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T14:08:45Z",
       "body_sha256": "9f12753a0ef16c765c456823b3d4d45c61e07a85736f0b3138f3b250ce9c0bd4",
       "disposition": "partial",
-      "reason": "Public #357 was replaced by #371. PR55 contains independently implemented zero-mask handling and equality compaction, with 25 ARM unit tests, 62 actual kernel cases/1,432 syscalls against retained runc results, and 803 profiles/675,096 interpreted decisions. Combined dual-architecture and 2,997-rule API qualification remains pending. The experimental imported tree is excluded. Two documented overlapping-rule differences, the complete Docker default allowlist and broader formal proofs remain open.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "Linux release CI retains the seccomp compiler, default-profile and runc comparison checks. Overlapping-rule semantics, a complete current Docker allowlist audit and broader production proofs remain separate verification work.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 115,
+        "url": "https://github.com/AndreKurait/asagiri/issues/115"
+      }
     },
     {
       "number": 134,
@@ -447,8 +578,8 @@
       "state": "open",
       "updated_at": "2026-11-10T14:18:27Z",
       "body_sha256": "a159e7b402311bfc3e8d0b001509626424b8a69ab26049aef00fd474c1cc4189",
-      "disposition": "covered",
-      "reason": "Shared bounded upload decoder, Expect handling, contradictory framing rejection and connection-reuse tests in tests/http-body-framing.py."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 168,
@@ -456,8 +587,13 @@
       "state": "open",
       "updated_at": "2026-11-11T03:41:52Z",
       "body_sha256": "4391c3b662cc19d41a767ed913cedfc9c131c8eae2d03989ffd3cf9a9ef8fea6",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Hidden WebView2 requests suspension, preserves its document, resumes on show, and handles close/reopen completion races. Native Windows lifecycle and renderer-memory verification remain required."
+      "disposition": "partial",
+      "reason": "Hidden WebView2 now requests suspension and resumes on show, preserving the document and terminal state. Native close/reopen race, terminal continuity, and renderer memory measurements remain required.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 116,
+        "url": "https://github.com/AndreKurait/asagiri/issues/116"
+      }
     },
     {
       "number": 170,
@@ -465,18 +601,28 @@
       "state": "closed",
       "updated_at": "2026-11-12T05:55:19Z",
       "body_sha256": "9ef1f1743da619adbd8d41c86a02ff35e53dd22f5f008131bdcf201362ddbbf9",
-      "disposition": "partially-covered",
+      "disposition": "partial",
       "reason": "The attached report contains four actionable subreports: LaunchAgent restart policy, bundled kernel discovery, symlinked bind sources, and stale published ports. The #231 port re-resolves linked sources on each start; its pure Mac filesystem regression passes on 44fab19 while retaining lifecycle locks and original inspect paths. Native Mac lifecycle, VM bind restart and published-port reproduction remain unverified.",
-      "attachment_sha256": "2e56f3d47c3565b061f25ca8db005e753a2b97ff4478a1b6cd984a532a77821c"
+      "attachment_sha256": "2e56f3d47c3565b061f25ca8db005e753a2b97ff4478a1b6cd984a532a77821c",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 117,
+        "url": "https://github.com/AndreKurait/asagiri/issues/117"
+      }
     },
     {
       "number": 187,
       "title": "macOS: window traffic-light buttons shift upward after switching themes",
-      "state": "open",
-      "updated_at": "2026-11-16T01:46:44Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:17:47Z",
       "body_sha256": "f20aaad146f99339af8a1db0653e64e58b1ac460702b553e5d42e17eca85757d",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Theme changes now reapply traffic-light placement after AppKit layout; LTR/RTL geometry has a unit regression. Native Mac theme switching remains unverified."
+      "disposition": "partial",
+      "reason": "Theme changes now reapply native button placement after AppKit layout; pure LTR/RTL geometry regression passes. Switching themes in a native Mac window still requires verification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 118,
+        "url": "https://github.com/AndreKurait/asagiri/issues/118"
+      }
     },
     {
       "number": 188,
@@ -484,8 +630,8 @@
       "state": "closed",
       "updated_at": "2026-11-13T06:32:04Z",
       "body_sha256": "e2cc5c50455a236f3f45577fa5670a18b04fcff2598170fae409b94c03ba42c9",
-      "disposition": "inherited-review",
-      "reason": "Engine state controls from merged #197 plus browser regressions."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 189,
@@ -493,8 +639,8 @@
       "state": "open",
       "updated_at": "2026-11-12T09:38:16Z",
       "body_sha256": "22fd6ddb0d09bcc582ef4088171e105fc8bd16f1b9ef133fde1fb2a6a445d654",
-      "disposition": "covered",
-      "reason": "Implemented the report's truthful-UI alternative: idle/stopped Windows memory is unknown, not zero or reclaimed; tooltip and feature documentation explain WSL residency. Cross-platform browser regression added. Stop does not terminate shared WSL."
+      "disposition": "automated",
+      "reason": "The UI no longer presents idle/stopped Windows engine readings as reclaimed WSL memory. Stop still intentionally leaves the shared WSL VM running; this does not implement WSL termination."
     },
     {
       "number": 190,
@@ -502,8 +648,13 @@
       "state": "open",
       "updated_at": "2026-11-12T09:49:57Z",
       "body_sha256": "427437ba7aa249ed84f7f7583059c92591744ce3361e42c15d0ab8429df508dc",
-      "disposition": "fixed",
-      "reason": "Creation-time checked Windows process tree and single-handle sampling; portable regression tests and Windows self-sampling test."
+      "disposition": "partial",
+      "reason": "Portable PID-tree and CPU sample-identity regressions pass; CPU baselines use process creation time on Mac, Linux, and Windows. Native Windows handle sampling remains a Windows CI check.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 119,
+        "url": "https://github.com/AndreKurait/asagiri/issues/119"
+      }
     },
     {
       "number": 191,
@@ -511,17 +662,22 @@
       "state": "closed",
       "updated_at": "2026-11-13T06:32:00Z",
       "body_sha256": "70d5abb10e79999aa359e2dd414e056927cf86fe3ddad0862ac85bd52d7f5894",
-      "disposition": "inherited-review",
-      "reason": "Independent sessions from merged #196 plus process-group signal regression."
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     },
     {
       "number": 199,
       "title": "Every linux/amd64 container crashes with \"rosetta error: unhandled auxillary vector type 29\" (SIGTRAP) on Apple Silicon",
       "state": "closed",
-      "updated_at": "2026-11-14T11:42:25Z",
+      "updated_at": "2026-11-18T14:09:10Z",
       "body_sha256": "6bb549faea37a4746c5af3adfff7b54bb9399b41946877d3cd5518e014f0903d",
       "disposition": "partial",
-      "reason": "Ported upstream #208: omit zero HWCAP3/HWCAP4 auxv entries for older Rosetta. Kernel recipes include the patch; actual macOS 15 Rosetta execution remains unverified."
+      "reason": "Ported upstream #208: omit zero HWCAP3/HWCAP4 auxv entries for older Rosetta. Kernel recipes include the patch; actual macOS 15 Rosetta execution remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 120,
+        "url": "https://github.com/AndreKurait/asagiri/issues/120"
+      }
     },
     {
       "number": 202,
@@ -530,16 +686,26 @@
       "updated_at": "2026-11-15T12:29:00Z",
       "body_sha256": "401c286ebd8280cdda6fc9d10c4200fb60457678eafbb53e21ab38c912f0bf77",
       "disposition": "partial",
-      "reason": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Waiting devices are visible and cancelable in API/CLI/UI; reconnect generations and immediate-drop registration are covered by eight passing Mac state tests on 44fab19. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts."
+      "reason": "USB attachments prevent idle sleep and reconnect by identity while the daemon remains running. Waiting devices are visible and cancelable in API/CLI/UI; reconnect generations and immediate-drop registration are covered by eight passing Mac state tests on 44fab19. Physical ESP32 reset, idle and Mac sleep/wake tests remain unverified; reconnect intent is not persisted across daemon restarts.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 121,
+        "url": "https://github.com/AndreKurait/asagiri/issues/121"
+      }
     },
     {
       "number": 203,
       "title": "Proposal for a Kiri MCP server (As suggested in Issue #74)",
-      "state": "open",
-      "updated_at": "2026-11-15T16:27:01Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:28Z",
       "body_sha256": "eb146f96c86e16289d3396889c852bad695d197487a5623459053401516c0dfa",
-      "disposition": "implemented-unverified-platform",
-      "reason": "Implemented an off-by-default local stdio MCP server with seven bounded read tools, separately permitted start/stop/restart, redacted metadata, cancellation, request deadlines and live permission revocation. CLI and native settings share permissions. Linux client integration and browser parity checks cover the interface; native Windows named-pipe execution remains unverified. Official MCP Python SDK 2.3.0 interoperability also passes against the private Linux engine."
+      "disposition": "partial",
+      "reason": "The local stdio interface passes custom protocol regressions and the official MCP Python SDK 2.3.0 with typed discovery/results, redaction, separately permitted actions and revocation. Native Windows named-pipe clients and real native settings interaction still require execution on target systems.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 122,
+        "url": "https://github.com/AndreKurait/asagiri/issues/122"
+      }
     },
     {
       "number": 204,
@@ -556,7 +722,7 @@
       "state": "open",
       "updated_at": "2026-11-14T01:24:02Z",
       "body_sha256": "b9b3bab42fe1a2d67c2a0c7b8dd73c3441317e0a1691d38f144d68d83a027166",
-      "disposition": "fix-and-regression",
+      "disposition": "automated",
       "reason": "Full OCI config inspection is retained. Image lists expose labels and apply presence/value filters; indexes without cached labels read their original config blobs. Live labelled/unlabelled image and filter tests and legacy-store unit tests pass on 749c40c."
     },
     {
@@ -566,16 +732,26 @@
       "updated_at": "2026-11-14T06:32:43Z",
       "body_sha256": "186afacad824393bcce424af2a34426472945a44c2751679260e4a0e8b488f9d",
       "disposition": "partial",
-      "reason": "Default-bridge DNS now uses the reachable bridge gateway whenever a local host resolver needs the agent, including WSL. Local stubs are retained rather than replaced by public resolvers. Protocol/configuration tests cover the non-Mac path; native Windows VPN and BuildKit execution remain unverified."
+      "reason": "Default-bridge DNS now uses the reachable bridge gateway whenever a local host resolver needs the agent, including WSL. Local stubs are retained rather than replaced by public resolvers. Protocol/configuration tests cover the non-Mac path; native Windows VPN and BuildKit execution remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 123,
+        "url": "https://github.com/AndreKurait/asagiri/issues/123"
+      }
     },
     {
       "number": 210,
       "title": "macOS: containers report hundreds of GB of block reads while the guest has no page cache",
       "state": "open",
-      "updated_at": "2026-11-16T06:55:09Z",
+      "updated_at": "2026-11-17T13:04:19Z",
       "body_sha256": "84e5321c1c9ae1df84a166357ee53e84468b6d5ec4260b84bacbd0ceae7d623e",
       "disposition": "partial",
-      "reason": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified."
+      "reason": "The balloon reserves active and mapped file cache, holds capacity for 30 seconds after pressure or substantial refaults, and bounds gradual shrinking. Policy and protocol regressions cover these decisions. Native Mac VM cache retention, block-I/O rates, and throughput remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 124,
+        "url": "https://github.com/AndreKurait/asagiri/issues/124"
+      }
     },
     {
       "number": 213,
@@ -583,7 +759,7 @@
       "state": "open",
       "updated_at": "2026-11-15T11:49:08Z",
       "body_sha256": "d2bd38b7f07b942e157cac05d87e37da6d6e117717fcc109c99cfe1ef901a2be",
-      "disposition": "covered",
+      "disposition": "automated",
       "reason": "Implemented the report's explicit-rejection alternative for unsupported parent cgroups, user remapping, and custom bridge names before resource creation. Buildx's default /docker/buildx parent is supported inside Asagiri's delegated tree, with aggregate accounting and per-container controls; arbitrary tenant parents and UID remapping remain unsupported."
     },
     {
@@ -592,7 +768,7 @@
       "state": "closed",
       "updated_at": "2026-11-14T14:02:59Z",
       "body_sha256": "df10b33158a2954e60d51edff1073adab1b149b7748dda62c438df0a4de5d519",
-      "disposition": "inherited-review",
+      "disposition": "informational",
       "reason": "The author withdrew this proposal after explaining that they misunderstood the project. Asagiri remains its own Docker-compatible engine; this closed discussion does not require a selectable Podman backend."
     },
     {
@@ -601,8 +777,13 @@
       "state": "open",
       "updated_at": "2026-11-14T15:51:17Z",
       "body_sha256": "33f134b55f020d194ac5e9d4a84931a39e8ecc8a961c09b983f478dd4e8da644",
-      "disposition": "covered",
-      "reason": "Implemented the report's clear-limitation alternative: explicit non-loopback Windows host-IP publishing is rejected, while wildcard bindings return a WSL/Windows-LAN warning. Portable address tests cover the policy; no Windows forwarding or firewall rules are installed and native LAN reachability remains unverified."
+      "disposition": "partial",
+      "reason": "Implemented the report's clear-limitation alternative: explicit non-loopback Windows host-IP publishing is rejected, while wildcard bindings return a WSL/Windows-LAN warning. Portable address tests cover the policy; no Windows forwarding or firewall rules are installed and native LAN reachability remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 125,
+        "url": "https://github.com/AndreKurait/asagiri/issues/125"
+      }
     },
     {
       "number": 222,
@@ -610,7 +791,7 @@
       "state": "closed",
       "updated_at": "2026-11-14T22:45:01Z",
       "body_sha256": "d5dc3c9c513b6ee7fc86e0f61dd44ab1b367d8e33616279ab57854e9e9f58f16",
-      "disposition": "fix-and-regression",
+      "disposition": "automated",
       "reason": "Docker and product versions remain separate. Successful uploads now support same-socket followups; 33 framing cases and real BuildKit pass on 749c40c. Real Java Testcontainers 1.20.3 was previously verified with default checks, pre-start copy, delayed logs, MySQL, a JDBC query and Ryuk; that check remains in platform/release CI. Native Mac execution remains unverified."
     },
     {
@@ -625,8 +806,8 @@
     {
       "number": 224,
       "title": "image store: a shorter rewrite leaves trailing bytes in images.json, and every pull fails",
-      "state": "open",
-      "updated_at": "2026-11-15T09:55:25Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T23:19:52Z",
       "body_sha256": "57ee8d55097ce2ace3d19ab521abe19ba88f7237b8e5894dcc1493efacb43022",
       "disposition": "automated",
       "reason": "Image-index read/modify/replace uses a cross-process lock and unique synced temporary files. Concurrent writers and shorter rewrites are tested; a complete typed array with a stale tail is recovered only after saving an exact backup. Incomplete corrupt records remain untouched and return an explicit error."
@@ -634,21 +815,31 @@
     {
       "number": 225,
       "title": "Windows: Docker API ignores Connection: close, so a body-less 204 (container start) hangs Testcontainers for .NET",
-      "state": "open",
-      "updated_at": "2026-11-16T11:06:47Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T23:21:28Z",
       "body_sha256": "bc38e2f95826a6cf9d56cb699d9520e13a8dceddee9c33eb1b0d2d0ea012782b",
       "disposition": "partial",
       "reason": "Existing HTTP connection-close and Windows byte-mode pipe checks remain applicable; changed public #259 has identical source blobs to the already reviewed port. Exact Testcontainers for .NET/SQL Server and the newly mentioned macOS HTTP client still need end-to-end qualification.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      }
     },
     {
       "number": 226,
       "title": "Colima vs Kiri vs Podman",
-      "state": "open",
-      "updated_at": "2026-11-14T19:08:24Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T21:16:01Z",
       "body_sha256": "2117dc81627b8ae68a31bd8261534887dbbea137341ee46f300d865c00ecbfb6",
       "disposition": "partial",
-      "reason": "Dev.100 main comparison 43827712984 and final PR50 comparison 43831181768 each passed 6000 independently verified samples and 15 median/p95 results. Main publication now requires its exact-commit comparison automatically. The runs used different hosts; their timing difference is not a controlled code regression result. Native Mac/Colima/WSL and general application throughput remain unmeasured."
+      "reason": "Dev.100 main comparison 43827712984 and final PR50 comparison 43831181768 each passed 6000 independently verified samples and 15 median/p95 results. Main publication now requires its exact-commit comparison automatically. The runs used different hosts; their timing difference is not a controlled code regression result. Native Mac/Colima/WSL and general application throughput remain unmeasured.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 126,
+        "url": "https://github.com/AndreKurait/asagiri/issues/126"
+      }
     },
     {
       "number": 227,
@@ -656,7 +847,7 @@
       "state": "closed",
       "updated_at": "2026-11-15T22:10:30Z",
       "body_sha256": "efe45fbbbd8850dd801528f278cf54682fe9d076bd67f3a9ffc0d28f386b9a10",
-      "disposition": "fix-and-regression",
+      "disposition": "automated",
       "reason": "Copies still wait for the private worker's mount release before completion. Overlay mounts now disable metadata-only copy-up and redirects so commit preserves complete files; older such upper entries are explicitly refused. Private kernel controls reproduce both data-loss cases with the features enabled and retain index overlap rejection. Completion and real BuildKit checks pass on 749c40c; the reporter's exact Arch/CachyOS installation remains unverified."
     },
     {
@@ -667,7 +858,12 @@
       "body_sha256": "3967ca2b74e1ef7408073e7a5b9bd48f55bd52162c855e0c78f8ecd140ae0783",
       "disposition": "partial",
       "reason": "The new comment's explicit /1 routes both use a gateway; current on_link_routes excludes those routes and retains real connected subnets, with a regression covering both /1 halves. Public Moby v28.0.4 also reserves on-link routes rather than every routed destination. This does not prove the exact CachyOS/VPN environment or every IPv6 and gateway-free tunnel configuration.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 127,
+        "url": "https://github.com/AndreKurait/asagiri/issues/127"
+      }
     },
     {
       "number": 229,
@@ -675,8 +871,8 @@
       "state": "open",
       "updated_at": "2026-11-14T19:46:03Z",
       "body_sha256": "8f662941bcb9afda371e5a7b420842666ffab6d2ce208f311c79f93514a91766",
-      "disposition": "runtime-regression-covered",
-      "reason": "Gateway and embedded DNS resolve local A/AAAA and public names. A real kind v0.27.0/Kubernetes v1.32.2 node uses the gateway resolver, pulls a containerd image and resolves a peer alias; a pod resolves public DNS and an absolute peer alias through CoreDNS on ce0eb4f."
+      "disposition": "automated",
+      "reason": "Gateway and embedded DNS resolve local A/AAAA and public names. A real kind v0.27.0/Kubernetes v1.32.2 node uses the gateway resolver, pulls a containerd image and resolves a peer alias; a pod resolves public DNS and an absolute peer alias through CoreDNS on ce0eb4f. The reporter's exact CachyOS host with kernel 7.3.4 and systemd 262 remains unverified."
     },
     {
       "number": 230,
@@ -689,13 +885,18 @@
       "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
     },
     {
-      "disposition": "automated",
-      "reason": "The created/exited mounted-volume sequence also passed native dev.98, including an existing PG_VERSION marker, Mac binds, persisted bytes, export exclusion and read-only denial. Five owned containers and the volume were removed. This does not execute PostgreSQL or Supabase CLI 3.",
+      "disposition": "partial",
+      "reason": "Stopped/created-container mount-aware archive tests exist. Verify the newly reported copy-in certificate holder and Supabase CLI 3 rollback paths, including labels and read-only mounts, on the actual affected platforms.",
       "number": 245,
       "title": "docker cp can't read files inside a named volume (breaks Supabase CLI 3 restart)",
       "state": "open",
-      "updated_at": "2026-11-14T23:19:25Z",
-      "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550"
+      "updated_at": "2026-11-18T14:28:09Z",
+      "body_sha256": "473da10dd85b5c4c7ab5b7a634019bc38cca6d58668ea793b084c3ab1b684550",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 128,
+        "url": "https://github.com/AndreKurait/asagiri/issues/128"
+      }
     },
     {
       "number": 246,
@@ -703,8 +904,8 @@
       "state": "closed",
       "updated_at": "2026-11-15T18:45:49Z",
       "body_sha256": "1b1f10382c169cfd73af6b862e97a7346ad977f9012e7ea17dfd281202d325a3",
-      "disposition": "runtime-regression-covered",
-      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount under the existing writable-data removal policy, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
+      "disposition": "automated",
+      "reason": "The first-start sequence is covered by six freshly created Buildx builders; an initial failure remains a failure even if a retry succeeds. Copy-worker mount completion and orphan-overlay recovery fixes are retained. Repeated invalid-sysctl starts also reproduced stacked parent rootfs mounts; the failed-start path now detaches its own mount while preserving writable data, with a live regression. The exact reported XanMod 7.3/ext4 host and its Buildx failure remain unverified.",
       "reviewed_comments": [
         {
           "id": 6888477894,
@@ -717,35 +918,50 @@
       "number": 247,
       "title": "Bridge containers have no outbound TCP/UDP when host FORWARD policy is DROP (no accept or MASQUERADE rules for kiri0)",
       "state": "open",
-      "updated_at": "2026-11-15T03:20:11Z",
+      "updated_at": "2026-11-17T18:57:52Z",
       "body_sha256": "ab4c1c41c7f7b222c2b9da4b5001a4244fba6d986b3b5704610dcd3f5491ca33",
-      "disposition": "documented-and-verified",
-      "reason": "Private IPv4 iptables-nft checks reproduce FORWARD DROP blocking TCP/UDP/DNS despite Asagiri owning a NAT table. Interface-scoped FORWARD and real DOCKER-USER allowances restore egress beside Docker while preserving the drop policy and unsolicited inbound blocking. CI runs all 33 checks on both the default bridge and a custom network created after a placeholder network, deriving its actual interface and gateway. The guide explains Compose networks and separate allowances. Custom UFW/firewalld policies, IPv6, VPNs and the exact reporter host remain unverified.",
+      "disposition": "partial",
+      "reason": "The new report demonstrates a foreign FORWARD policy-drop chain overriding a separate accept chain. Verify coexistence and useful diagnostics without silently rewriting another firewall or Docker's policy.",
       "reviewed_comments": [
         {
           "id": 6888477697,
           "updated_at": "2026-11-15T03:20:11Z",
           "body_sha256": "b129c1c32e71aa16c5d13e088e5084efe38fcd546148384c4ca8ab7119f43ea6"
         }
-      ]
+      ],
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 129,
+        "url": "https://github.com/AndreKurait/asagiri/issues/129"
+      }
     },
     {
       "number": 248,
       "disposition": "partial",
       "title": "Removing a network leaks its DNS listener: next network on the same subnet fails with 'dns bind: Address in use'",
       "state": "open",
-      "updated_at": "2026-11-15T11:49:07Z",
+      "updated_at": "2026-11-17T09:31:33Z",
       "body_sha256": "4c4c1e5705609a755b86ff5d2ff49bd1c1209f322f9ae9951e7617b7473af596",
-      "reason": "Owned failed-start DNS/link cleanup, unaffected peers, subnet reuse and actual init descriptor/stdin/EOF tests pass. Public #363's extra descriptor-close proposal is already covered by Asagiri's checked pre-filter close_range and bounded fallback. The reporter's exact kernel 7.3 gateway-address failure remains unverified."
+      "reason": "Owned failed-start DNS/link cleanup, unaffected peers, subnet reuse and actual init descriptor/stdin/EOF tests pass. Public #363's extra descriptor-close proposal is already covered by Asagiri's checked pre-filter close_range and bounded fallback. The reporter's exact kernel 7.3 gateway-address failure remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 130,
+        "url": "https://github.com/AndreKurait/asagiri/issues/130"
+      }
     },
     {
       "number": 250,
       "title": "macOS: launching Kiri from Finder/Dock exits silently (open returns 0), and the log records command=\"\" instead of what failed",
-      "state": "open",
-      "updated_at": "2026-11-16T03:56:59Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:20:48Z",
       "body_sha256": "408452731af103e31938c696d86e5f294551a302e61df7c5774d9101e368edd9",
-      "disposition": "partially-covered",
-      "reason": "First-launch setup continues past optional shell-profile failures and preserves unreadable profile contents. Fatal setup errors identify the operation, app-launch logs have a nonempty command label, and the native app presents an error alert. Two original filesystem regressions were reproduced and corrected; the reporter's exact Finder/Dock failure and native alert remain unverified."
+      "disposition": "partial",
+      "reason": "Pure filesystem tests reproduce and fix dangling and unreadable shell-profile failures; command-label and setup-context tests cover diagnostics. The exact reported Finder/Dock failure, LaunchAgent creation and native error alert require a disposable Mac desktop account and remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 131,
+        "url": "https://github.com/AndreKurait/asagiri/issues/131"
+      }
     },
     {
       "number": 251,
@@ -754,23 +970,33 @@
       "updated_at": "2026-11-15T17:52:06Z",
       "body_sha256": "1f459185e2e0ba2873897f93079af4c2ac97ac4358ea20034ad560a9950c65f3",
       "disposition": "partial",
-      "reason": "Native x86_64/aarch64 AppImages are released and checked for extraction, CLI/library identity and headless GTK launch. Host GTK/WebKit dependencies and real desktop/FUSE behavior remain; no Flatpak is implemented."
+      "reason": "Native x86_64/aarch64 AppImages are released and checked for extraction, CLI/library identity and headless GTK launch. Host GTK/WebKit dependencies and real desktop/FUSE behavior remain; no Flatpak is implemented.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 132,
+        "url": "https://github.com/AndreKurait/asagiri/issues/132"
+      }
     },
     {
       "number": 252,
       "title": "Linux: 0.2.0 .deb fails to install on Ubuntu 22.04 (requires libc6 >= 2.39)",
       "state": "open",
-      "updated_at": "2026-11-16T11:18:08Z",
+      "updated_at": "2026-11-18T07:24:47Z",
       "body_sha256": "9ef673b80f2c73c7561a8f67e7a9a10c5c43e5b10ed5edcacffa2f8b2b6fc7d7",
       "disposition": "partial",
-      "reason": "Dev.100's portable engine remains separate from the native GNU package work in PR55. The native build policy targets glibc <=2.34 and checks actual x86_64/ARM64 ELF inputs and package lifecycles; fresh combined qualification is pending. The desktop's GTK/WebKit requirements and actual Ubuntu 22.04 GUI installation are not qualified by this policy.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "GNU Linux package and ELF-baseline checks passed in v0.1.13 qualification. Actual Ubuntu 22.04 GUI installation with its GTK/WebKit packages remains a native desktop check.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 133,
+        "url": "https://github.com/AndreKurait/asagiri/issues/133"
+      }
     },
     {
       "number": 253,
       "title": "Images with 60 or more layers fail to start: \"mount …/rootfs: No such file or directory\"",
       "state": "open",
-      "updated_at": "2026-11-16T09:47:39Z",
+      "updated_at": "2026-11-18T04:55:04Z",
       "body_sha256": "bd3fb68de8a7b50b9b32fe5b2b9d5160d91ef0ee1213680108c1fb8b267f2ef6",
       "disposition": "automated",
       "reason": "The prior qualified 120-layer start/content/precedence/archive/restart fix is in current main. The new 107-layer Dagger comment is consistent with the reviewed mount-option limit, but that exact Dagger application has not been rerun. Current main's dev.105 publication remains pending.",
@@ -779,8 +1005,8 @@
     {
       "number": 254,
       "title": "losetup fails in privileged containers: the guest kernel has no loop devices",
-      "state": "open",
-      "updated_at": "2026-11-15T07:40:52Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T16:45:01Z",
       "body_sha256": "7a1e0d8123ea5a6e708b2fc2844a4c810f10d211b742110da0bdd7246c37a0c8",
       "disposition": "automated",
       "reason": "Loop support is released in dev.98 and later. Independently checked actual guest boots on both architectures cover loop attachment and ext4 data persistence; the reporter's exact tool stack was not rerun."
@@ -792,7 +1018,12 @@
       "updated_at": "2026-11-15T18:36:00Z",
       "body_sha256": "d06a3209d7bafcf4921115f37fc1dc41ee0204fc506dc2a9724c98037d39c205",
       "disposition": "partial",
-      "reason": "Final PR50 passed required live registry metadata/authentication and Docker-reference checks, retaining the Basic-auth error distinction. Actual Watchtower and Arcane applications remain unverified."
+      "reason": "Final PR50 passed required live registry metadata/authentication and Docker-reference checks, retaining the Basic-auth error distinction. Actual Watchtower and Arcane applications remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 134,
+        "url": "https://github.com/AndreKurait/asagiri/issues/134"
+      }
     },
     {
       "number": 258,
@@ -806,20 +1037,31 @@
     {
       "number": 260,
       "title": "Linux: 0.2.1 rpm on Rocky 9 - cannot install",
-      "state": "open",
-      "updated_at": "2026-11-15T10:10:11Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T15:26:30Z",
       "body_sha256": "6420e4814cd0b761cf5da06de57ae51c36388d3e81e31c73b6fc183e0c0ee025",
       "disposition": "known-limitation",
-      "reason": "The static engine/lite packages and AppImage are separate options, but the AppImage window still needs host WebKitGTK 4.1 and glibc 2.36. Rocky 9 native desktop installation has not been qualified; the missing-library report is not declared fixed."
+      "reason": "The static engine/lite packages and AppImage are separate options, but the AppImage window still needs host WebKitGTK 4.1 and glibc 2.36. Rocky 9 native desktop installation has not been qualified; the missing-library report is not declared fixed.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 132,
+        "url": "https://github.com/AndreKurait/asagiri/issues/132"
+      },
+      "duplicate_of": 251
     },
     {
       "number": 261,
       "title": "Linux: bridge containers can't reach Tailscale/VPN networks (NAT only on default-route NIC, bridges in no firewalld zone)",
       "state": "open",
-      "updated_at": "2026-11-16T05:21:24Z",
+      "updated_at": "2026-11-18T04:55:00Z",
       "body_sha256": "5bbeba06b8dab95a06b066b344cd849f42f1702618fba72ad87face5edcb4059",
       "disposition": "platform-gap",
-      "reason": "Existing 33-case private iptables-nft checks cover default/custom bridges and FORWARD DROP coexistence. They do not test Tailscale routes, non-default uplinks or firewalld zone integration. No host VPN/firewall changes were made."
+      "reason": "Verify policy-routed full-tunnel VPN and Calico egress, fallback behavior and routed container ingress. Do not infer foreign-firewall compatibility from a default-route network test.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 135,
+        "url": "https://github.com/AndreKurait/asagiri/issues/135"
+      }
     },
     {
       "number": 262,
@@ -837,7 +1079,12 @@
       "updated_at": "2026-11-15T18:35:56Z",
       "body_sha256": "78be52f337544343a2a65dd39a4656b9af932e0be824d5d56ff2785c8f286023",
       "disposition": "partial",
-      "reason": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified."
+      "reason": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 136,
+        "url": "https://github.com/AndreKurait/asagiri/issues/136"
+      }
     },
     {
       "number": 268,
@@ -846,7 +1093,12 @@
       "updated_at": "2026-11-15T17:35:03Z",
       "body_sha256": "9176abd5b57a5a28d4b59b6a2e31b8c0c4b9630abae7dcb562d43eeb9bd284c4",
       "disposition": "partial",
-      "reason": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified."
+      "reason": "Reviewed import/source detection, argument handling and Windows WSL distro selection are in the candidate and pass portable/topic CI checks. Fresh-machine and real Windows Docker Desktop data migration remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 137,
+        "url": "https://github.com/AndreKurait/asagiri/issues/137"
+      }
     },
     {
       "number": 269,
@@ -855,7 +1107,12 @@
       "updated_at": "2026-11-16T05:23:42Z",
       "body_sha256": "f4fada6a51b45368f1e13a977995523c43571e872daf83772bf925aafcadf68a",
       "disposition": "deferred-feature",
-      "reason": "Opt-in socket integration with other WSL distros is not implemented. It needs explicit distro/group ownership, persistent restart behavior, scoped bind-path semantics and native WSL tests; the API is not exposed over unauthenticated TCP."
+      "reason": "Opt-in socket integration with other WSL distros is not implemented. It needs explicit distro/group ownership, persistent restart behavior, scoped bind-path semantics and native WSL tests; the API is not exposed over unauthenticated TCP.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 138,
+        "url": "https://github.com/AndreKurait/asagiri/issues/138"
+      }
     },
     {
       "number": 275,
@@ -870,10 +1127,15 @@
       "number": 277,
       "title": "Windows: containers fail on a stock WSL2 — Kiri Linux boots a hybrid cgroup tree, so kiri-init exits 1",
       "state": "open",
-      "updated_at": "2026-11-15T15:00:53Z",
+      "updated_at": "2026-11-18T09:39:06Z",
       "body_sha256": "eb90dd744b528d59cb3e95be97828a538390c3fc20f1d578100e22f39521ced1",
-      "disposition": "known-limitation",
-      "reason": "The engine requires a usable cgroup v2 hierarchy; the reported hybrid WSL host remains unsupported/unverified. No global .wslconfig or controller reassignment was applied to other distros. A safe targeted remedy and native WSL validation remain required."
+      "disposition": "partial",
+      "reason": "Asagiri has explicit cgroup delegation/startup and WSL bridge recovery checks. The exact hybrid-tree WSL host remains a native qualification gap; do not infer its result from the Linux fixtures or change another distro's controllers.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 139,
+        "url": "https://github.com/AndreKurait/asagiri/issues/139"
+      }
     },
     {
       "number": 278,
@@ -900,7 +1162,12 @@
       "updated_at": "2026-11-15T15:30:30Z",
       "body_sha256": "c633d931023ed6ff16ade4465feefb7774deb61eab080ddd9aa418776b2e6473",
       "disposition": "platform-gap",
-      "reason": "RTL/browser and all translation checks pass, including the Persian wording update. They cannot reproduce WebView2 startup after a native Windows quit/relaunch. The blank-window report remains open for native investigation."
+      "reason": "RTL/browser and all translation checks pass, including the Persian wording update. They cannot reproduce WebView2 startup after a native Windows quit/relaunch. The blank-window report remains open for native investigation.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 140,
+        "url": "https://github.com/AndreKurait/asagiri/issues/140"
+      }
     },
     {
       "number": 285,
@@ -928,7 +1195,12 @@
       "body_sha256": "57df30f4e263e141b1dcd3e28b9e272adb5b6d242fcfa5e693f79da43d535c0c",
       "disposition": "partial",
       "reason": "The new build-fails/pull-succeeds comment does not contain enough independent evidence to establish the exact failure cause. Retain the existing BuildKit checks and the unresolved application/host qualification.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 141,
+        "url": "https://github.com/AndreKurait/asagiri/issues/141"
+      }
     },
     {
       "number": 289,
@@ -954,15 +1226,20 @@
       "state": "open",
       "updated_at": "2026-11-15T18:41:25Z",
       "body_sha256": "82fb1e8f7f875e3a416b3d56c1e9a31c0de8ddc58b1e0b4b3efc873706cf5d5d",
-      "disposition": "ported-with-verification-gaps",
+      "disposition": "partial",
       "reason": "Adapted the public DNS ordering fix and retained routed/internal/gateway-family precedence per container. All 17 actual DNS unit tests, including six new regressions, passed on the integrated aarch64 guest; x86_64 also compiled. The 25-case Docker/Asagiri API fixture is checked in and awaits final CI qualification. Explicit gateway priority, Swarm and complete application-level coverage remain outside these tests.",
-      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 142,
+        "url": "https://github.com/AndreKurait/asagiri/issues/142"
+      }
     },
     {
       "number": 296,
       "title": "Engine: a tmpfs volume loses its uid, gid and mode when the image doesn't have the mount target",
-      "state": "open",
-      "updated_at": "2026-11-15T16:16:27Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T16:46:35Z",
       "body_sha256": "c2857b84d28885e72d0f4a005f742de3ec95360edcd16affacc8a2846e1b2e65",
       "disposition": "automated",
       "reason": "Final PR50 passed actual API/uid/gid/mode fixtures and Docker-reference checks. Docker's empty configured tmpfs and Asagiri's image population remain documented differences. The fix is merged in current main, pending its next release."
@@ -974,13 +1251,18 @@
       "updated_at": "2026-11-15T16:17:40Z",
       "body_sha256": "ca95e81a02bb30b7632e0952d07375a4f0a42c0dbca75459b8e60cff50cb718e",
       "disposition": "partial",
-      "reason": "The setup follow-up handles missing WSL components and build-distro selection with portable/Windows CI coverage. Actual optional-feature enablement, reboot and first launch on native Windows remain unverified."
+      "reason": "The setup follow-up handles missing WSL components and build-distro selection with portable/Windows CI coverage. Actual optional-feature enablement, reboot and first launch on native Windows remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 143,
+        "url": "https://github.com/AndreKurait/asagiri/issues/143"
+      }
     },
     {
       "number": 302,
       "title": "Layers with an absolute hard-link target fail to unpack (failed to unpack usr/bin/perl5.38.2)",
-      "state": "open",
-      "updated_at": "2026-11-15T17:54:59Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T23:21:32Z",
       "body_sha256": "572e902e6b219be6ba24c82f44741c8c1aae7b335e3a075b028dd98ca93cd93d",
       "disposition": "automated",
       "reason": "Final PR50 passed all eight archive-root hard-link Docker API cases and local layer regressions after the old installed version reproduced the failure. The independently implemented fix is merged in current main, pending its next release."
@@ -989,10 +1271,15 @@
       "number": 303,
       "title": "Trust the system certificate store for registries (corporate root CA, UnknownIssuer)",
       "state": "open",
-      "updated_at": "2026-11-15T17:55:39Z",
+      "updated_at": "2026-11-16T23:37:37Z",
       "body_sha256": "143afbd1b35d127992d27eeb8897051eebcda24b3207b5c3d09a41229c4d823a",
       "disposition": "partial",
-      "reason": "Released scoped registry CA support passes the 34-case TLS contract and independent artifact qualification. System trust and explicitly configured per-registry roots have documented scope. The reporter's corporate native host remains unverified."
+      "reason": "Review native/platform trust-store use across registry, update, share and tools clients, including SSL_CERT_FILE and proxy roots, with a controlled TLS server.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 144,
+        "url": "https://github.com/AndreKurait/asagiri/issues/144"
+      }
     },
     {
       "number": 310,
@@ -1001,16 +1288,26 @@
       "updated_at": "2026-11-15T23:36:55Z",
       "body_sha256": "fabaeba536ed2fb772497533d25249e39613bd197213a32f86e3af1d00ddf7a1",
       "disposition": "partial",
-      "reason": "Final PR50 Platform and independently checked ARM64/x86_64 QEMU fsnotify/loop tests passed. Packaged native Mac save-to-inotify/hot-reload remains required after release."
+      "reason": "Final PR50 Platform and independently checked ARM64/x86_64 QEMU fsnotify/loop tests passed. Packaged native Mac save-to-inotify/hot-reload remains required after release.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 145,
+        "url": "https://github.com/AndreKurait/asagiri/issues/145"
+      }
     },
     {
       "number": 311,
       "title": "Linux: immediate docker exec fails with unknown user after starting a container with a fresh named volume",
-      "state": "open",
-      "updated_at": "2026-11-15T18:38:47Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T23:20:06Z",
       "body_sha256": "8859983e4ff6a126574f7f95d1164eb1e6e00efc35a83793b12629dee01822ba",
       "disposition": "partial",
-      "reason": "Native dev.99 and both Docker/private Asagiri in final PR50 Platform passed three fresh 128 MiB volumes, six immediate explicit/inherited image-user execs, a missing-user control and eight owned removals per engine. Existing 20-exec/100-tmpfs readiness checks remain. The reporter's exact Ubuntu ARM host remains unverified."
+      "reason": "Native dev.99 and both Docker/private Asagiri in final PR50 Platform passed three fresh 128 MiB volumes, six immediate explicit/inherited image-user execs, a missing-user control and eight owned removals per engine. Existing 20-exec/100-tmpfs readiness checks remain. The reporter's exact Ubuntu ARM host remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 146,
+        "url": "https://github.com/AndreKurait/asagiri/issues/146"
+      }
     },
     {
       "number": 315,
@@ -1019,7 +1316,12 @@
       "updated_at": "2026-11-15T20:26:28Z",
       "body_sha256": "0cbe67873d2972c00896aa32c9eac3876f29727f638dc20ed91d19e12eb7ff5d",
       "disposition": "known-limitation",
-      "reason": "The Mac bundle minimum remains macOS 14. A CLI deployment target alone does not prove the Virtualization.framework/AppKit APIs work on Ventura. Intel macOS 13 VM, bind and port tests have not run, so the plist floor was not lowered."
+      "reason": "The Mac bundle minimum remains macOS 14. A CLI deployment target alone does not prove the Virtualization.framework/AppKit APIs work on Ventura. Intel macOS 13 VM, bind and port tests have not run, so the plist floor was not lowered.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 147,
+        "url": "https://github.com/AndreKurait/asagiri/issues/147"
+      }
     },
     {
       "number": 316,
@@ -1028,13 +1330,18 @@
       "updated_at": "2026-11-15T21:04:37Z",
       "body_sha256": "411125e01229033126d848b4e2598b3d10b2e2a133af7efa7321694fc599a51a",
       "disposition": "partial",
-      "reason": "Startup/console diagnostics and optional-log failures have reviewed fixes; the report's cgroup/WSL root cause overlaps #277. The exact native failure and improved end-user cause propagation still need verification."
+      "reason": "Startup/console diagnostics and optional-log failures have reviewed fixes; the report's cgroup/WSL root cause overlaps #277. The exact native failure and improved end-user cause propagation still need verification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 148,
+        "url": "https://github.com/AndreKurait/asagiri/issues/148"
+      }
     },
     {
       "number": 317,
       "title": "macOS: a container's Files tab shows only the image's files; volumes, bind mounts and files written at runtime show \"This folder is empty\"",
-      "state": "open",
-      "updated_at": "2026-11-16T02:15:25Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:18:03Z",
       "body_sha256": "a06778884dffdbe8c356ff8e86193985edcec22569bc271581ce9559849c370d",
       "disposition": "automated",
       "reason": "Released dev.99 passed the real Mac NFS mount: named-volume, host-bind and container files, fresh volume updates, and stopped-container disappearance. The owned container/volume and temporary host directory were removed. Visual Finder clicks were not tested."
@@ -1043,20 +1350,30 @@
       "number": 319,
       "title": "Mac: containers can't reach hosts behind a split-tunnel VPN",
       "state": "open",
-      "updated_at": "2026-11-15T21:49:43Z",
+      "updated_at": "2026-11-17T05:39:13Z",
       "body_sha256": "7010aac4e137d77b4c1d8a1cb470160483de10203ea01ba79d229c6b66580a1d",
       "disposition": "deferred-feature",
-      "reason": "A Mac host relay or equivalent split-tunnel VPN integration is not implemented or qualified. IPv4/IPv6 localhost checks do not establish private VPN reachability, and the host PF policy was left intact."
+      "reason": "A Mac host relay or equivalent split-tunnel VPN integration is not implemented or qualified. IPv4/IPv6 localhost checks do not establish private VPN reachability, and the host PF policy was left intact.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 149,
+        "url": "https://github.com/AndreKurait/asagiri/issues/149"
+      }
     },
     {
       "number": 323,
       "title": "Install through homebrew",
-      "state": "open",
-      "updated_at": "2026-11-16T12:03:29Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:20:44Z",
       "body_sha256": "01af70790cd655eb64787ce72e6cd9c9c0d408d758c85f775be3bfc75eade40e",
       "disposition": "deferred-feature",
       "reason": "The new Homebrew comments concern an external tap, upstream repository-age policy and zap behavior. No Homebrew publication, uninstall or reinstall has been performed during this review.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 150,
+        "url": "https://github.com/AndreKurait/asagiri/issues/150"
+      }
     },
     {
       "number": 324,
@@ -1065,8 +1382,13 @@
       "updated_at": "2026-11-16T09:14:46Z",
       "body_sha256": "3641767ef87bcfeb9665dafac3e7cc2660a46771b39d3c5b8d63d2c3076b7513",
       "disposition": "partial",
-      "reason": "Upstream closed this through public #341. PR55 contains the attributed process lookup fix and independent owned-cgroup shutdown work. Ten unprivileged and eight actual privileged ARM tests passed for the component; fresh combined execution on both architectures is pending. Old kernels, adversarial PID churn and atomic exclusion of an external privileged migrator remain outside demonstrated coverage.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "Owned-cgroup shutdown and process lookup are in v0.1.13 with Linux checks. Old kernels, adversarial PID churn and exclusion of an external privileged migrator remain outside the demonstrated scope.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 151,
+        "url": "https://github.com/AndreKurait/asagiri/issues/151"
+      }
     },
     {
       "number": 325,
@@ -1085,13 +1407,18 @@
       "updated_at": "2026-11-15T23:56:58Z",
       "body_sha256": "94324a40018213a9170688990b5fd3ae8d9e4094bdc7dcdd926510c57a5de06b",
       "disposition": "deferred-feature",
-      "reason": "Per-container MemorySwap limits are implemented and tested. A configurable macOS guest swap allocation is a different feature and is not implemented or benchmarked."
+      "reason": "Per-container MemorySwap limits are implemented and tested. A configurable macOS guest swap allocation is a different feature and is not implemented or benchmarked.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 152,
+        "url": "https://github.com/AndreKurait/asagiri/issues/152"
+      }
     },
     {
       "number": 327,
       "title": "Default seccomp filter denies read-only adjtimex (modes=0)",
-      "state": "open",
-      "updated_at": "2026-11-16T10:02:40Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T14:08:47Z",
       "body_sha256": "df8b93d3491e3248dc9d7fee2fbf24f6b2dd9f5637ae1f69dd58c4d07de1dbe2",
       "disposition": "automated",
       "reason": "The previously qualified read-only clock-state syscall fix is in current main; the new upstream comment does not change the source delta. A complete default seccomp allowlist is a separate unresolved scope. Dev.105 publication remains pending.",
@@ -1104,35 +1431,56 @@
       "updated_at": "2026-11-16T01:30:36Z",
       "body_sha256": "7d30ac3015d319b7299052aa9b1fe3324197620d1a68936a06c8b36358a80b77",
       "disposition": "partial",
-      "reason": "Released daemon.json and scoped HTTP/self-signed registry policy pass private pull/push/TLS and real BuildKit checks. Authority/CIDR and separate worker trust limits are documented; the exact reporter's native environment remains unverified."
+      "reason": "Released daemon.json and scoped HTTP/self-signed registry policy pass private pull/push/TLS and real BuildKit checks. Authority/CIDR and separate worker trust limits are documented; the exact reporter's native environment remains unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 153,
+        "url": "https://github.com/AndreKurait/asagiri/issues/153"
+      }
     },
     {
       "number": 330,
       "title": "Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused",
       "state": "open",
-      "updated_at": "2026-11-16T11:25:10Z",
+      "updated_at": "2026-11-16T16:52:16Z",
       "body_sha256": "7fbf5b26a29acb7142e60dfe52bce60423e93c2473fd0ce23b32c9dc20ac0456",
       "disposition": "partial",
-      "reason": "Existing default-bridge DNS and BuildKit evidence is retained. The exact Bun/Compose application and new default-bridge UDP report remain unqualified. Public #366's shared-network alias ordering is integrated. All 17 DNS unit tests, including six regressions, passed on the aarch64 guest. The 25-case Docker/Asagiri API fixture is checked in; final combined CI qualification remains pending.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "Existing default-bridge DNS and BuildKit evidence is retained. The exact Bun/Compose application and new default-bridge UDP report remain unqualified. Public #366's shared-network alias ordering has a separate uncommitted candidate with six unit tests and 25 paired fixture cases prepared but not executed.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 154,
+        "url": "https://github.com/AndreKurait/asagiri/issues/154"
+      }
     },
     {
       "number": 333,
       "title": "Coolify support",
-      "state": "open",
-      "updated_at": "2026-11-16T02:02:51Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T04:47:44Z",
       "body_sha256": "23224b495a1d78e687617df1f7fccfda4049a354fd67fa784916d64e13615b96",
       "disposition": "deferred-feature",
-      "reason": "Coolify application compatibility has not been qualified. Existing Docker API conformance and application fixtures are not evidence that Coolify's full install/deploy/upgrade workflow works."
+      "reason": "Coolify application compatibility has not been qualified. Existing Docker API conformance and application fixtures are not evidence that Coolify's full install/deploy/upgrade workflow works.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 226,
+        "url": "https://github.com/AndreKurait/asagiri/issues/226"
+      },
+      "duplicate_of": 471
     },
     {
       "number": 336,
       "title": "Windows: would you consider a libkrun/WHP VM backend instead of a WSL 2 distro?",
-      "state": "open",
-      "updated_at": "2026-11-16T03:05:37Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T01:14:15Z",
       "body_sha256": "a5d7064f5532aaaddc90ff81b5f7bc05ce46142d107489a988ed04e4a2d83492",
       "disposition": "deferred-feature",
-      "reason": "A libkrun/WHP backend is an architectural proposal, not an implemented Windows backend. Kernel, storage, networking, memory reclamation and Windows Arm behavior require a separate implementation and native validation."
+      "reason": "A libkrun/WHP backend is an architectural proposal, not an implemented Windows backend. Kernel, storage, networking, memory reclamation and Windows Arm behavior require a separate implementation and native validation.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 155,
+        "url": "https://github.com/AndreKurait/asagiri/issues/155"
+      }
     },
     {
       "number": 337,
@@ -1141,43 +1489,69 @@
       "updated_at": "2026-11-16T03:00:47Z",
       "body_sha256": "d977a7a765ac10d49b294d1897e952ba6136018d48f110b2d70859d21f0285d5",
       "disposition": "platform-gap",
-      "reason": "The reported macOS 26 window-border dragging behavior has not been reproduced in a native AppKit interaction. Browser geometry and traffic-light tests do not establish window movement."
+      "reason": "The reported macOS 26 window-border dragging behavior has not been reproduced in a native AppKit interaction. Browser geometry and traffic-light tests do not establish window movement.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 156,
+        "url": "https://github.com/AndreKurait/asagiri/issues/156"
+      }
     },
     {
       "number": 338,
       "title": "Can't execute commands properly inside built in container terminal",
       "state": "open",
-      "updated_at": "2026-11-16T03:03:28Z",
+      "updated_at": "2026-11-18T00:53:05Z",
       "body_sha256": "9e3cdc24a55e5a413ff4f0ccf9075b32fef244f9807617b3b7349d6e272939fa",
       "disposition": "known-limitation",
-      "reason": "The container command panel still runs individual shell commands and can misassociate concurrent completion. It is not a persistent interactive psql terminal. Command correlation, session lifecycle and native Windows interactive behavior remain outstanding."
+      "reason": "Review #498's per-command result ownership and one-command-at-a-time behavior. Verify clear/late replies and keep one-shot command execution distinct from an interactive terminal.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 157,
+        "url": "https://github.com/AndreKurait/asagiri/issues/157"
+      }
     },
     {
       "number": 339,
       "title": "Registry Mirror Support",
-      "state": "open",
-      "updated_at": "2026-11-16T03:06:27Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T15:26:26Z",
       "body_sha256": "5385b59552a16fda05ed8663a0949a61fb3839cb9b8443bb181187dbdb776bfa",
       "disposition": "partial",
-      "reason": "Mirror configuration and bounded registry fallback already have UI/configuration and private registry coverage. The requested real mirror/network environment has not been independently exercised."
+      "reason": "Mirror configuration and bounded registry fallback already have UI/configuration and private registry coverage. The requested real mirror/network environment has not been independently exercised.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 261,
+        "url": "https://github.com/AndreKurait/asagiri/issues/261"
+      },
+      "duplicate_of": 118
     },
     {
       "number": 340,
       "title": "Unable to copy & paste anything from/to textfield in setting panel",
-      "state": "open",
-      "updated_at": "2026-11-16T04:40:18Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:17:29Z",
       "body_sha256": "465ba8e20e918f6f01b1ee739f3af068a8d4ca0ad258df604318b43655f36397",
       "disposition": "partial",
-      "reason": "Current main has the translated native Mac Edit menu. The new public #352 followup also removes duplicate page-side Mac copying; nine headless cases across three platform modes pass. Actual packaged AppKit clipboard shortcuts remain unverified."
+      "reason": "Current main has the translated native Mac Edit menu. The new public #352 followup also removes duplicate page-side Mac copying; nine headless cases across three platform modes pass. Actual packaged AppKit clipboard shortcuts remain unverified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 158,
+        "url": "https://github.com/AndreKurait/asagiri/issues/158"
+      }
     },
     {
       "number": 342,
       "title": "Manage compose yamls in Kiri dashboard",
-      "state": "open",
-      "updated_at": "2026-11-16T04:56:35Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:37Z",
       "body_sha256": "92fc5069504a0352215da756ff7f80d63509a5b35243f80da17e106fc58ebbda",
       "disposition": "deferred-feature",
-      "reason": "A dashboard that creates/imports and stores Compose projects is a feature proposal. The existing Compose client/runtime and new health fixture do not implement project-file management."
+      "reason": "A dashboard that creates/imports and stores Compose projects is a feature proposal. The existing Compose client/runtime and new health fixture do not implement project-file management.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 159,
+        "url": "https://github.com/AndreKurait/asagiri/issues/159"
+      }
     },
     {
       "number": 344,
@@ -1186,25 +1560,40 @@
       "updated_at": "2026-11-16T05:26:07Z",
       "body_sha256": "31c8d214b105b4713c46583655be0852e73104bf15dcefbb0eeb6793bf64c5a5",
       "disposition": "platform-gap",
-      "reason": "The report concerns macOS 14 Rosetta requiring the ARM vDSO DT_HASH table, distinct from the earlier auxiliary-vector fix. The proposed dual hash-table kernel change has not been implemented or tested on that OS/Rosetta version; current cross-architecture checks do not prove it."
+      "reason": "The report concerns macOS 14 Rosetta requiring the ARM vDSO DT_HASH table, distinct from the earlier auxiliary-vector fix. The proposed dual hash-table kernel change has not been implemented or tested on that OS/Rosetta version; current cross-architecture checks do not prove it.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 160,
+        "url": "https://github.com/AndreKurait/asagiri/issues/160"
+      }
     },
     {
       "number": 345,
       "title": "kiri import copies a volume while a running container is writing to it, and reports done",
-      "state": "open",
-      "updated_at": "2026-11-16T05:28:31Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T00:12:48Z",
       "body_sha256": "0887301018f07786eeef55bdc974f14570b353c8021d4cbc80e497f84bb19814",
       "disposition": "partial",
-      "reason": "Published guards reject missing, running, paused and restarting source-volume users; fourteen real subprocess scenarios pass. Hosted run 43834922117 fixed root ownership but still failed before any import case because bare Linux `asagiri import` is unsupported; rootfs import is `asagiri image import`. Both hosts and all three stores were removed and verified absent. Published d1da7adf772c adds a source/hash-bound CI entrypoint for the exact desktop migration module, checks the real Docker contexts and retains command output. Both Linux architectures compile and Mac all-target checking passes; real two-engine migration remains pending hosted CI. Copies are not atomic and writers must remain stopped throughout."
+      "reason": "Source writer-state guards and the source-bound migration fixture have release qualification. Writers must remain stopped throughout copying; dependency/retry and metadata fidelity remain tracked under #375/#376/#377/#485.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 161,
+        "url": "https://github.com/AndreKurait/asagiri/issues/161"
+      }
     },
     {
       "number": 346,
       "title": "`/info` returns an empty `SystemTime`, which breaks attached `docker compose up` and `docker compose logs -f` on Compose 5.7+",
-      "state": "open",
-      "updated_at": "2026-11-16T05:43:07Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T16:44:41Z",
       "body_sha256": "64fc0a9039392af2e56c2dc1bbf2adfa74c1e279ce0e253cc719cb128b65922f",
       "disposition": "partial",
-      "reason": "The published followup returns RFC3339Nano SystemTime from the same daemon clock used for events, without waking the VM. The old native empty field was reproduced; real time/events tests are wired into CI. Compose 5.7.1 config parsing passes and build/wait runtime qualification is underway, but actual attached compose up and logs -f event subscription still need a dedicated positive check."
+      "reason": "The daemon returns RFC3339Nano SystemTime and v0.1.13 Linux CI passes daemon-time and Compose health/build/wait checks. Actual attached compose up and logs -f event subscriptions still need a dedicated positive check.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 162,
+        "url": "https://github.com/AndreKurait/asagiri/issues/162"
+      }
     },
     {
       "number": 347,
@@ -1221,8 +1610,8 @@
       "state": "open",
       "updated_at": "2026-11-16T05:45:58Z",
       "body_sha256": "d3ae1ca73da7ed93a66593295713ce381e5472dcc0d561125b7303cdf01be8f1",
-      "disposition": "partial",
-      "reason": "Published 38393ab76ed4 accepts default, empty and -ef arguments and returns HTTP 400 for unsupported ps_args. A nine-case paired fixture is wired into CI. Installed dev.100 reproduced all four silently accepted custom/invalid queries while default, missing and stopped controls passed; its owned container was removed and original data preserved. Local compilation passes; the corrected engine's paired runtime result is pending. Arbitrary columns, including RSS, remain unsupported."
+      "disposition": "automated",
+      "reason": "v0.1.13 Linux CI passes top-arguments: default/empty/-ef work and unsupported queries return HTTP 400. Arbitrary output columns remain unsupported and are documented."
     },
     {
       "number": 349,
@@ -1231,7 +1620,12 @@
       "updated_at": "2026-11-16T05:59:59Z",
       "body_sha256": "7d1f245edc8a7df8c6a9596bcf5393897c258082b2951f78f41c66eb6d938c01",
       "disposition": "platform-gap",
-      "reason": "Static musl account lookup cannot use the reported Fedora/Himmelblau NSS directory account. Setup and ongoing Gate admission/revocation both need a bounded trusted identity lookup and real NSS-module coverage. No SUDO_UID/PKEXEC_UID authorization shortcut, passwd/PAM edit or desktop-engine reinstall was used."
+      "reason": "Asagiri now has bounded reentrant NSS lookups and GNU Linux packaging. Qualify a real directory-account provider and ongoing authorization/revocation on the reported host.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 163,
+        "url": "https://github.com/AndreKurait/asagiri/issues/163"
+      }
     },
     {
       "number": 350,
@@ -1240,16 +1634,26 @@
       "updated_at": "2026-11-16T06:02:07Z",
       "body_sha256": "3a0d2860b2b5cdaef2c6506573a58dc94b4347cfa66381e38f58e26848b23d21",
       "disposition": "platform-gap",
-      "reason": "The reported macOS InternetSharing no-df effect and large TLS 1.3 ClientHello loss on the corporate path remain unverified. Container network tests do not cover host-wide PF normalization. No PF, MTU, TLS-security or network-control bypass was applied."
+      "reason": "The reported macOS InternetSharing no-df effect and large TLS 1.3 ClientHello loss on the corporate path remain unverified. Container network tests do not cover host-wide PF normalization. No PF, MTU, TLS-security or network-control bypass was applied.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 164,
+        "url": "https://github.com/AndreKurait/asagiri/issues/164"
+      }
     },
     {
       "number": 354,
       "title": "UI: squircle corners, rounded font and flat neutral palette (proposal)",
-      "state": "open",
-      "updated_at": "2026-11-16T06:28:58Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:31Z",
       "body_sha256": "970d546009070e65d4da18c8ef9bea0dc9777b3e863ec192d464d2eb67d746a9",
       "disposition": "partial",
-      "reason": "The palette/font/squircle redesign is a proposal. Its narrow update-card button clipping and diagnostics-log column squeezing are separate usability defects still needing reproduction and responsive fixes; headless logic tests do not prove native layout."
+      "reason": "The palette/font/squircle redesign is a proposal. Its narrow update-card button clipping and diagnostics-log column squeezing are separate usability defects still needing reproduction and responsive fixes; headless logic tests do not prove native layout.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 165,
+        "url": "https://github.com/AndreKurait/asagiri/issues/165"
+      }
     },
     {
       "number": 355,
@@ -1258,25 +1662,40 @@
       "updated_at": "2026-11-16T06:43:30Z",
       "body_sha256": "9d6207b7b5edf8bd04f6a9c65dd6350d99e2cef8bec911d389e9ffadd399b871",
       "disposition": "deferred-feature",
-      "reason": "Storage relocation UI, sparse cross-volume migration, rollback, missing-drive behavior, shared-data locking and platform-specific WSL/Linux storage movement are not implemented by this review. User data was preserved in place; no USB or external-drive experiment was performed."
+      "reason": "Storage relocation UI, sparse cross-volume migration, rollback, missing-drive behavior, shared-data locking and platform-specific WSL/Linux storage movement are not implemented by this review. User data was preserved in place; no USB or external-drive experiment was performed.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 166,
+        "url": "https://github.com/AndreKurait/asagiri/issues/166"
+      }
     },
     {
       "number": 356,
       "title": "macOS on Apple silicon: `--gpus all` as a private channel to a GPU server on the Mac",
-      "state": "open",
-      "updated_at": "2026-11-16T06:55:08Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:25Z",
       "body_sha256": "b431f454aeffdca32a80feef9a2a5cba451a50f271dfe8e42fa5e55b0eb75db8",
       "disposition": "deferred-feature",
-      "reason": "The proposed Apple GPU/MLX relay is not implemented or benchmarked here. Current GPU requests remain visibly unsupported. A per-container host-socket relay needs its own authorization, isolation, lifecycle and cross-platform design and tests."
+      "reason": "The proposed Apple GPU/MLX relay is not implemented or benchmarked here. Current GPU requests remain visibly unsupported. A per-container host-socket relay needs its own authorization, isolation, lifecycle and cross-platform design and tests.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 167,
+        "url": "https://github.com/AndreKurait/asagiri/issues/167"
+      }
     },
     {
       "number": 358,
       "title": "e2e has no checks for healthchecks, Compose depends_on conditions, up --wait or up --build",
-      "state": "open",
-      "updated_at": "2026-11-16T07:12:19Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T16:46:36Z",
       "body_sha256": "b6031bb86c60491291b7e7a88f1aa4b3973d5dc9846e90db331f6122fe66dd6c",
       "disposition": "partial",
-      "reason": "Seven actual native health probe/status/filter cases passed, including retry failure, one-second timeout and 250ms start interval, with four owned containers removed. A checksum-pinned Compose 5.7.1 fixture adds eight paired build/wait/dependency/bind-volume/init/capability/read-only cases. Actual config parsing passed; full Docker/private-Asagiri runtime and CLI health-flag parsing still need verified results."
+      "reason": "v0.1.13 Linux CI passes healthchecks and Compose health/build/wait fixtures. Earlier native health evidence remains dated; full native Mac/WSL Compose qualification remains open.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 168,
+        "url": "https://github.com/AndreKurait/asagiri/issues/168"
+      }
     },
     {
       "number": 359,
@@ -1285,25 +1704,35 @@
       "updated_at": "2026-11-16T07:12:21Z",
       "body_sha256": "4f431da151cb0471d16bca9223b6a4c3ebb3814143abb3ab504cee5944f9e8ae",
       "disposition": "platform-gap",
-      "reason": "Verified Mac dev.100 manual activation and native inventory preservation do not reproduce the reported Windows update/restart popup loop. Native Windows GUI updater diagnosis and an actual old-to-new installation remain required."
+      "reason": "Mac v0.1.13 manual activation and inventory preservation passed. The reported Windows update/restart popup loop still needs a native Windows old-to-new installation test.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 169,
+        "url": "https://github.com/AndreKurait/asagiri/issues/169"
+      }
     },
     {
       "number": 362,
       "title": "Workload numbers on Apple silicon (Kiri 0.2.1 vs OrbStack), and the three \"target\" rows",
-      "state": "open",
-      "updated_at": "2026-11-16T07:13:51Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:34Z",
       "body_sha256": "0bb5d977ffcf4e6e83d8055573772321f1b99e66f3e27ed4943904f8c4c2e26d",
       "disposition": "partial",
-      "reason": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified."
+      "reason": "The reported Kiri/OrbStack Mac workloads used unequal VM resources and are not controlled Asagiri rankings. Asagiri retains its own source-bound 6000-sample Linux comparison. Published 837d994bca94 fixes Hyperfine 2 wall-clock parsing in all three legacy scripts and corrects decimal MB/s for the one-GiB bind workload. Seven parser/report tests pass using an actual official 2.0.0 sleep export, a synthetic legacy record and invalid inputs. This is parser qualification; legacy engine workload cleanup and native Mac application performance remain unqualified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 170,
+        "url": "https://github.com/AndreKurait/asagiri/issues/170"
+      }
     },
     {
       "number": 364,
       "title": "Image list order differs from Docker Engine: older images appear first",
-      "state": "open",
-      "updated_at": "2026-11-16T07:31:35Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T17:25:45Z",
       "body_sha256": "b3db6688d51e64f3e62de5f3251fce551c55363493efc4a75af228ac1ff5b51c",
-      "disposition": "partial",
-      "reason": "Published image ordering now sorts integer Created seconds descending, matching both reviewed Moby image stores. The old native engine failed four of five isolated list queries; all three owned images were removed and original inventory preserved. The fixed paired Docker/private-Asagiri runtime result is still pending."
+      "disposition": "automated",
+      "reason": "v0.1.13 Linux CI passes image-order against the candidate. Ordering is by integer Created seconds descending."
     },
     {
       "number": 365,
@@ -1313,7 +1742,12 @@
       "body_sha256": "5d450372e8fcf9c7748009b2a67c57b702634876edbc8ec24f3f16a238102418",
       "disposition": "platform-gap",
       "reason": "The report concerns macOS mounts outside the user's home. No exact native reproduction or new mount-access fix has been performed; preserve the Apple/platform scope constraint.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 172,
+        "url": "https://github.com/AndreKurait/asagiri/issues/172"
+      }
     },
     {
       "number": 367,
@@ -1323,7 +1757,12 @@
       "body_sha256": "460389eb85cbe9c84ffc890c13b6b78dcd74c501f89492990318ac60c8688538",
       "disposition": "platform-gap",
       "reason": "A corporate network extension changes DNS answers to 198.18.x and resets HTTP/TLS. The exact extension and host environment are unverified; no PF, TLS interception or host-security changes are made.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 173,
+        "url": "https://github.com/AndreKurait/asagiri/issues/173"
+      }
     },
     {
       "number": 368,
@@ -1333,7 +1772,12 @@
       "body_sha256": "1ca05c9c8a592bbc2cacc84c27687a8488f576d22bc453e8a827595f496738fe",
       "disposition": "deferred-feature",
       "reason": "Stopping the engine when the macOS UI quits is a feature request. The public maintainer's request to another contributor does not authorize agent messages or changes to the user's running engine.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 174,
+        "url": "https://github.com/AndreKurait/asagiri/issues/174"
+      }
     },
     {
       "number": 369,
@@ -1343,23 +1787,33 @@
       "body_sha256": "68a78daf599bb061fd8200e78e7f934dfdc0d4ddf2e9756411ad415b16a3b0a6",
       "disposition": "platform-gap",
       "reason": "The Windows UI reports Asagiri selected while the Docker CLI still uses Desktop. Windows context selection and the exact installed CLI configuration still require targeted source review and runtime qualification.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 175,
+        "url": "https://github.com/AndreKurait/asagiri/issues/175"
+      }
     },
     {
       "number": 370,
       "title": "Non-root container with a missing WorkingDir fails to start (os error 2); breaks DDEV",
-      "state": "open",
-      "updated_at": "2026-11-16T09:57:21Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T17:25:47Z",
       "body_sha256": "f07a77d2a9f31f94aff56a4790de3e7d83a688e1e7fdc9493bf7e397fc63d27a",
-      "disposition": "ported-with-verification-gaps",
-      "reason": "Create the start working directory through the container-root descriptor before switching users or making the root read-only. All four scoped-path unit tests passed on the integrated aarch64 guest; x86_64 also compiled. Seven start/exec cases plus inherited working-directory checks in the existing image/volume fixture await paired Docker/Asagiri CI execution. NFS permission transitions and root-only parent access remain unverified.",
-      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00"
+      "disposition": "partial",
+      "reason": "v0.1.13 Linux CI passes start-exec-image-user, including the container-root working-directory setup. Native NFS permission transitions and the exact Mac DDEV report remain separate checks.",
+      "incremental_reviewed_at": "2026-11-16T14:49:19.872501+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 176,
+        "url": "https://github.com/AndreKurait/asagiri/issues/176"
+      }
     },
     {
       "number": 373,
       "title": "Project name has a vulgar meaning in Persian",
-      "state": "open",
-      "updated_at": "2026-11-16T10:24:57Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T07:34:32Z",
       "body_sha256": "0e9e4997386f999edc52daa94658579d1af1d80a67810406d8881192e2f50d5d",
       "disposition": "informational",
       "reason": "This is a discussion of the upstream product name. This fork uses Asagiri; no runtime behavior or code fix is implied.",
@@ -1368,32 +1822,47 @@
     {
       "number": 375,
       "title": "kiri import: containers using --network container:<id> fail with \"conflicting options: hostname and the network mode\" and drop container options",
-      "state": "open",
-      "updated_at": "2026-11-16T10:39:54Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T00:12:45Z",
       "body_sha256": "14a7b9916408d3a247cd4d37e1cbd5efa73dc05b17efce8cdaa32769cc4030e7",
       "disposition": "known-limitation",
       "reason": "Confirmed in import source: network container:<source-id> is not remapped and Hostname is copied into that incompatible mode. Devices, Dns, PidMode, GroupAdd and Healthcheck are also omitted from copied container options. Network dependency remapping and option-preservation fixtures remain unfinished.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 177,
+        "url": "https://github.com/AndreKurait/asagiri/issues/177"
+      }
     },
     {
       "number": 376,
       "title": "kiri import: volume import fails when source lacks 5 hardcoded helper images, and container import leaves empty volumes marked \"Already in Kiri\"",
-      "state": "open",
-      "updated_at": "2026-11-16T10:40:09Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T00:12:43Z",
       "body_sha256": "ceedcf81734c0b5353f8e4a63463a371a6371fb6860f8f449e8523594244c0ee",
       "disposition": "known-limitation",
       "reason": "Confirmed in source: volume copying depends on one of five already-present helper images, while a failed volume copy does not stop later dependent container imports. Empty target volumes can then look imported. Preserve the existing source-read-only and idle-volume checks when adding dependency failure handling and retry evidence.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 178,
+        "url": "https://github.com/AndreKurait/asagiri/issues/178"
+      }
     },
     {
       "number": 377,
       "title": "kiri import: containers using digest-pinned untagged images (repo@sha256:...) fail with \"No such image\"",
-      "state": "open",
-      "updated_at": "2026-11-16T10:40:12Z",
+      "state": "closed",
+      "updated_at": "2026-11-18T00:12:46Z",
       "body_sha256": "90367a495e5049d5ad9406adffccf82816bc62504c7e85fa617d4ae19eb3bd17",
       "disposition": "known-limitation",
       "reason": "Confirmed in source: untagged images are filtered from import inventory, and container recreation retains Config.Image even when a saved/loaded digest reference is unavailable. Content-verified source-to-destination image mapping and digest-only migration regressions remain unfinished.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 179,
+        "url": "https://github.com/AndreKurait/asagiri/issues/179"
+      }
     },
     {
       "number": 378,
@@ -1403,17 +1872,27 @@
       "body_sha256": "60c60581924a18fac202fbefcbd775e1c1ade82af93f9ab5b0bb0228c5bef131",
       "disposition": "known-limitation",
       "reason": "The reported systempaths=unconfined option is not handled and non-privileged process-path hardening is unconditional. Targeted option semantics and isolation regressions remain unfinished; no broad security bypass is added.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 180,
+        "url": "https://github.com/AndreKurait/asagiri/issues/180"
+      }
     },
     {
       "number": 379,
       "title": "Please add docker-credential-osxkeychain",
-      "state": "open",
-      "updated_at": "2026-11-16T11:31:52Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T17:51:51Z",
       "body_sha256": "a2190838ab51ba1bc510655e96aa186cded190c7f9a04fa6169c3e2c56643e4a",
       "disposition": "platform-gap",
       "reason": "Public comments report a missing docker-credential-osxkeychain helper and a package-manager workaround. Helper bundling and native credential-store behavior have not been independently qualified; no helper was installed on the user's machine.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 181,
+        "url": "https://github.com/AndreKurait/asagiri/issues/181"
+      }
     },
     {
       "number": 381,
@@ -1422,8 +1901,13 @@
       "updated_at": "2026-11-16T11:13:03Z",
       "body_sha256": "3dc4957bf7c5bb85ad1296c8ced923023450d28ac3f44c1813bd755b6259c7f3",
       "disposition": "partial",
-      "reason": "Current source adds a missing default route for a later routed interface and restores it after detach; the relevant net.rs blob is identical in dev.100, main and PR55. Existing regression coverage is retained. The new macOS 27 host-specific report has not been reproduced independently.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "v0.1.13 Linux CI passes internal-gateway and late-default-route fixtures. The reported native Mac multi-interface route behavior remains to be reproduced.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 182,
+        "url": "https://github.com/AndreKurait/asagiri/issues/182"
+      }
     },
     {
       "number": 382,
@@ -1433,7 +1917,12 @@
       "body_sha256": "bfb8726d319be71edc4f578757b6f810ba9ea9c8f3f775bb180a112c1f004218",
       "disposition": "platform-gap",
       "reason": "The reported macOS bind-mount chown behavior has not been reproduced on the exact host/filesystem. No host ownership or mount policy is changed as part of this delta.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 183,
+        "url": "https://github.com/AndreKurait/asagiri/issues/183"
+      }
     },
     {
       "number": 383,
@@ -1443,7 +1932,12 @@
       "body_sha256": "127b0e686cb01f38769af35be65e9a2d4d58559fba4248bcf269e8cef0b30b48",
       "disposition": "platform-gap",
       "reason": "The report concerns macOS mDNSResponder/WARP port-53 ownership. Its proposed stop/restart workaround is unverified. No PF, host resolver, VPN, or Apple service changes are performed.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 184,
+        "url": "https://github.com/AndreKurait/asagiri/issues/184"
+      }
     },
     {
       "number": 384,
@@ -1453,43 +1947,63 @@
       "body_sha256": "055d08d93e894b5b213e3d6530e14cdc4e9545fb3e1dfa3e165b346cf8932807",
       "disposition": "deferred-feature",
       "reason": "Configurable VM disk sizing/resizing is a feature request. The user's stopped 64-GiB guest backups and live data remain untouched; no resize implementation or migration test has been completed.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 185,
+        "url": "https://github.com/AndreKurait/asagiri/issues/185"
+      }
     },
     {
       "number": 385,
       "title": "Engine: `name` filter is not a regex (`^[/]?name$` matches nothing), so `k3d cluster create` fails",
-      "state": "open",
-      "updated_at": "2026-11-16T11:35:29Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T17:25:05Z",
       "body_sha256": "e3b85cb2a2cc36375309b368404b85719394eace7a3b9770d3458ad4ca2a68df",
       "disposition": "partial",
-      "reason": "Regex name matching is already implemented, with literal-first matching, invalid-regex fallback and container-only slash aliases. The blob is identical in dev.100, main and PR55; public #392 does not require a duplicate port. Exact k3d application startup remains unverified.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "Regex name matching and Linux network fixtures are released. Exact k3d application startup and the newer default-bridge/user-network DNS cases remain separate qualification.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 186,
+        "url": "https://github.com/AndreKurait/asagiri/issues/186"
+      }
     },
     {
       "number": 387,
       "title": "exec start / attach answer 101 to clients that didn't ask to upgrade; Testcontainers reads no ExitCode",
-      "state": "open",
-      "updated_at": "2026-11-16T12:44:12Z",
+      "state": "closed",
+      "updated_at": "2026-11-16T23:20:39Z",
       "body_sha256": "34696647a9b45c38998b9929252133103722873d76b1025f692493d0654a0a52",
       "disposition": "partial",
-      "reason": "Existing raw_stream already returns 101 only for an Upgrade header and otherwise sends 200 with connection-close framing. The same source is in dev.100, main and PR55; public #390 does not require a duplicate port. Exact MongoDB and Valkey Testcontainers applications remain unverified.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "The released HTTP reader returns 101 only for Upgrade requests and otherwise uses 200/close framing, with Linux API checks. Exact native MongoDB/Valkey client-module workflows remain to be qualified.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 187,
+        "url": "https://github.com/AndreKurait/asagiri/issues/187"
+      }
     },
     {
       "number": 388,
       "title": "Published ports close TCP connections after ~300 s of inactivity",
-      "state": "open",
-      "updated_at": "2026-11-16T12:33:57Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:16:48Z",
       "body_sha256": "d9b9351ff9ef4eba7d2675530d33d3a81710c6b7d6a5305986b49df8579bb992",
       "disposition": "known-limitation",
-      "reason": "Confirmed in source: TCP_IDLE is 300 seconds and is applied to client, guest/NAT, Linux direct and vsock relay sockets. This matches the reported idle connection loss but is not a fresh runtime reproduction. A fix must retain bounded shutdown and session limits, and needs long-idle, half-close, transfer and cleanup tests.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "reason": "Asagiri #86 / the relay fix preserve quiet TCP connections and close both directions on a fatal copy error. Two real-socket regressions fail on old production functions and pass on the candidate. Full engine, Linux splice and native Mac NAT/vsock qualification remain required.",
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 86,
+        "url": "https://github.com/AndreKurait/asagiri/issues/86"
+      }
     },
     {
       "number": 389,
       "title": "CLA for contributors: you plan to change license later?",
-      "state": "open",
-      "updated_at": "2026-11-16T12:45:52Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:10:58Z",
       "body_sha256": "af452e41f10836726b431333ce20e1d1974a3180ac46aef87d4916daf316dab9",
       "disposition": "informational",
       "reason": "This is an upstream contributor-policy/license discussion. No license or CLA policy is changed, and it is not evidence of a runtime defect.",
@@ -1498,12 +2012,961 @@
     {
       "number": 391,
       "title": "Windows: Native LAN access for published Docker/Compose ports without manual WSL configuration",
-      "state": "open",
-      "updated_at": "2026-11-16T13:16:02Z",
+      "state": "closed",
+      "updated_at": "2026-11-17T07:40:03Z",
       "body_sha256": "dac82fb5f52c5884d8f21f3b6eaf2fd636039b4acaa80e1856497b5833359cb5",
       "disposition": "deferred-feature",
       "reason": "Windows LAN publishing is an exposure/configuration feature request. No host firewall or global port-forwarding rule is created; explicit product behavior and platform qualification remain unfinished.",
-      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00"
+      "incremental_reviewed_at": "2026-11-16T14:06:34.945124+00:00",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 125,
+        "url": "https://github.com/AndreKurait/asagiri/issues/125"
+      },
+      "duplicate_of": 218
+    },
+    {
+      "number": 394,
+      "title": "Windows: launching Kiri at login undoes a Stop",
+      "state": "closed",
+      "updated_at": "2026-11-18T03:31:41Z",
+      "body_sha256": "cb5e2ccf161230904af0269eaa48b9872660cf70d6f64f3e091916afedd029ba",
+      "disposition": "partial",
+      "reason": "Hidden startup already uses Revive and preserves Stop. Qualify sign-in, window startup and sleep/wake on Windows; retain the explicit-start distinction.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 188,
+        "url": "https://github.com/AndreKurait/asagiri/issues/188"
+      }
+    },
+    {
+      "number": 395,
+      "title": "Windows: leftovers from the WSL restart fix (#318)",
+      "state": "open",
+      "updated_at": "2026-11-16T15:25:27Z",
+      "body_sha256": "800be3aca35d4ffb380c7ac1e9136d96d791c13d01987114fed20d7559418740",
+      "disposition": "platform-gap",
+      "reason": "Reproduce leftover WSL state across restart and verify recovery without deleting existing containers, projects or distributions.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 189,
+        "url": "https://github.com/AndreKurait/asagiri/issues/189"
+      }
+    },
+    {
+      "number": 399,
+      "title": "macOS bind mounts: a file deleted or replaced on the Mac gives ENOENT in containers for about 1 s (reading it, or creating it again)",
+      "state": "open",
+      "updated_at": "2026-11-16T16:51:04Z",
+      "body_sha256": "b284300fd883c91186062cf861c77b0eb4ff5f64889290473a5737222349a935",
+      "disposition": "platform-gap",
+      "reason": "Verify immediate reads after host rename/replacement and delete/recreate on Mac virtiofs, with and without watchers. Review PR #402's dentry invalidation and lookup cost.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 190,
+        "url": "https://github.com/AndreKurait/asagiri/issues/190"
+      }
+    },
+    {
+      "number": 404,
+      "title": "Gvisor support with runsc runtime",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:36:23Z",
+      "body_sha256": "2b2dd99c27f042b50e96473bed0d06c8951537c043e7e36e982a1b51ba261626",
+      "disposition": "deferred-feature",
+      "reason": "A gVisor runtime remains a separate runtime-selection and isolation feature requiring a design and platform qualification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 191,
+        "url": "https://github.com/AndreKurait/asagiri/issues/191"
+      }
+    },
+    {
+      "number": 405,
+      "title": "Linux: close the window to the tray, as on Windows",
+      "state": "open",
+      "updated_at": "2026-11-16T17:59:16Z",
+      "body_sha256": "e05feb673f9ceff901e4bf3f7f8530dc80b316f9dd21c6f329cd3d32a8d56540",
+      "disposition": "deferred-feature",
+      "reason": "Linux tray controls and desktop-session lifecycle need a feature design and native desktop tests.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 192,
+        "url": "https://github.com/AndreKurait/asagiri/issues/192"
+      }
+    },
+    {
+      "number": 407,
+      "title": "Container created with only NetworkingConfig.EndpointsConfig also joins bridge; network aliases don't resolve (breaks Testcontainers WithNetworkAliases)",
+      "state": "open",
+      "updated_at": "2026-11-16T19:43:43Z",
+      "body_sha256": "e842958f0f38477ad928c8d293ec2a3836a9f0689761b77e65b367e57c2f03df",
+      "disposition": "partial",
+      "reason": "Verify create requests containing only NetworkingConfig.EndpointsConfig: primary network, aliases, fixed addresses and absence of an unintended default bridge. Review #459.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 193,
+        "url": "https://github.com/AndreKurait/asagiri/issues/193"
+      }
+    },
+    {
+      "number": 408,
+      "title": "Kiri `import` command not working",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:24:40Z",
+      "body_sha256": "12c88fd2f64819145e373ddd91518b909a2cc34f7796f1b92ddf51f9374d02ec",
+      "disposition": "partial",
+      "reason": "Verify the ordinary Linux migration CLI entrypoint separately from the source-bound migration fixture and from rootfs image import.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 194,
+        "url": "https://github.com/AndreKurait/asagiri/issues/194"
+      }
+    },
+    {
+      "number": 409,
+      "title": "Unpack fails when a hard link targets a symlink (breaks Nix images such as supabase/postgres)",
+      "state": "open",
+      "updated_at": "2026-11-16T20:52:23Z",
+      "body_sha256": "8695e97a51c08b86d55bba4cb4ebf15f8f77bbf6f9ed4b0200a822a4b7232a49",
+      "disposition": "partial",
+      "reason": "Confined layer extraction is implemented. Verify the exact Nix hard-link-to-symlink archive and preserve traversal rejection; review #398/#322 against Asagiri's extraction code.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 195,
+        "url": "https://github.com/AndreKurait/asagiri/issues/195"
+      }
+    },
+    {
+      "number": 410,
+      "title": "Docker Desktop import drops each container's writable layer (data outside volumes is lost); docker diff fails with chroot error",
+      "state": "open",
+      "updated_at": "2026-11-16T20:54:34Z",
+      "body_sha256": "266ab6d84c064f5a3879de38ac4dfb5b0310b9c8fa7e033683fd972582316d43",
+      "disposition": "known-limitation",
+      "reason": "Migration must preserve a container's writable filesystem changes and support source images without a shell; the current migration path does not establish this.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 196,
+        "url": "https://github.com/AndreKurait/asagiri/issues/196"
+      }
+    },
+    {
+      "number": 411,
+      "title": "Docker Desktop import: containers with /host_mnt bind-mount sources are skipped silently",
+      "state": "open",
+      "updated_at": "2026-11-16T20:54:35Z",
+      "body_sha256": "880ce71efd471f737568bf6635571d1715c8cf5cabce848ac38a3effe2158aaa",
+      "disposition": "partial",
+      "reason": "Verify Docker Desktop /host_mnt bind-source translation, missing-source behavior and visible failures before recreating dependent containers.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 197,
+        "url": "https://github.com/AndreKurait/asagiri/issues/197"
+      }
+    },
+    {
+      "number": 412,
+      "title": "Copy-up of a file from an image layer changes its creation time: Elasticsearch fails with 'Underlying file changed by an external force' on node.lock",
+      "state": "open",
+      "updated_at": "2026-11-16T20:54:36Z",
+      "body_sha256": "83602fc511d5a4d336504aff64ee4f5adbd258e710451c23a2a8b383f9abfcdf",
+      "disposition": "partial",
+      "reason": "Reproduce overlay copy-up birth-time behavior with Lucene node.lock and compare statx identity across copy-up; ordinary file-copy tests do not establish this case.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 198,
+        "url": "https://github.com/AndreKurait/asagiri/issues/198"
+      }
+    },
+    {
+      "number": 413,
+      "title": "Privileged systemd container with --cgroupns host and /sys/fs/cgroup bind exits 255 with no logs",
+      "state": "open",
+      "updated_at": "2026-11-16T20:54:37Z",
+      "body_sha256": "aebfb824cc2d42d68dc0bc7f103d0919812b657455c05b4c71a43fe450f81c67",
+      "disposition": "partial",
+      "reason": "Verify systemd 255 with privileged and host-cgroup-namespace options. Keep namespace support/rejection explicit and preserve the host boundary.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 199,
+        "url": "https://github.com/AndreKurait/asagiri/issues/199"
+      }
+    },
+    {
+      "number": 414,
+      "title": "A container whose first start fails leaves its anonymous volume partly filled, and later starts reuse it",
+      "state": "open",
+      "updated_at": "2026-11-16T21:53:47Z",
+      "body_sha256": "60338552e64187b50d3364f84ee59da037c147dd319af03fd72f8fa7e34136e4",
+      "disposition": "partial",
+      "reason": "Verify failed starts leave anonymous-volume population retryable and do not publish partially copied data as ready.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 200,
+        "url": "https://github.com/AndreKurait/asagiri/issues/200"
+      }
+    },
+    {
+      "number": 415,
+      "title": "macOS bind mounts: reading many small files is 3–6× slower than OrbStack, and turning the balloon off barely helps",
+      "state": "open",
+      "updated_at": "2026-11-16T21:53:49Z",
+      "body_sha256": "d2ffe8918a2542cc9373c39335bc40b04c2f1fe6477c9488e10f32835580916b",
+      "disposition": "platform-gap",
+      "reason": "Measure the reported small-file workload on native Mac with equal resources and cold/warm controls; Linux lifecycle rankings do not establish Mac filesystem throughput.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 201,
+        "url": "https://github.com/AndreKurait/asagiri/issues/201"
+      }
+    },
+    {
+      "number": 416,
+      "title": "Named volume is only partly populated when the container is reported started",
+      "state": "open",
+      "updated_at": "2026-11-16T22:40:42Z",
+      "body_sha256": "fdea53aaf2b201df59e30b9c34c89959a9f785129f1595e23b510a91fd71683c",
+      "disposition": "partial",
+      "reason": "Existing readiness checks cover root/volume preparation. Add or run the reported immediate post-start large-volume visibility case and preserve failure/cancellation evidence.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 202,
+        "url": "https://github.com/AndreKurait/asagiri/issues/202"
+      }
+    },
+    {
+      "number": 417,
+      "title": "Volumes not mounted or appear empty",
+      "state": "open",
+      "updated_at": "2026-11-17T15:49:24Z",
+      "body_sha256": "f092f812bd8c5fb2d5946edf9a0335d4efa77d247457fc31852eabdcc9b3b8fa",
+      "disposition": "platform-gap",
+      "reason": "Reproduce blank Windows bind mounts with the original path form and WSL mode; the later Mac report needs its own filesystem reproduction.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 203,
+        "url": "https://github.com/AndreKurait/asagiri/issues/203"
+      }
+    },
+    {
+      "number": 418,
+      "title": "Kiri refuses to disconnect a container from its first network, and .NET Aspire (DCP) fails",
+      "state": "open",
+      "updated_at": "2026-11-16T23:40:04Z",
+      "body_sha256": "757c3f9d1d1ee41eb5a471b909212d14448888a95112f6bdaf138903dcc59eca",
+      "disposition": "partial",
+      "reason": "Verify create on bridge, attach a user network, then disconnect the first network before start, including address/alias promotion. Review the #511 followup; distinguish running-container behavior.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 204,
+        "url": "https://github.com/AndreKurait/asagiri/issues/204"
+      }
+    },
+    {
+      "number": 420,
+      "title": "Linux host: engine creates /run/host-services as root 0700, so Docker Desktop for Linux can't start",
+      "state": "open",
+      "updated_at": "2026-11-17T00:26:18Z",
+      "body_sha256": "09a214925a3b5cea25c8e2d3db397eb2b6a382210caa599be85ae6d546bac193",
+      "disposition": "partial",
+      "reason": "Verify ordinary desktop-user traversal and access to /run/host-services while preserving ownership and socket authorization.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 205,
+        "url": "https://github.com/AndreKurait/asagiri/issues/205"
+      }
+    },
+    {
+      "number": 422,
+      "title": "docker inspect omits HostConfig.PortBindings for published ports",
+      "state": "closed",
+      "updated_at": "2026-11-17T07:39:59Z",
+      "body_sha256": "e624957a7b0ad64e19569bac025ac15bdda997bebdc9ebbafa461aaad9b9ab03",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
+    },
+    {
+      "number": 423,
+      "title": "Kiri reports a custom bridge name that it does not use",
+      "state": "open",
+      "updated_at": "2026-11-17T02:07:52Z",
+      "body_sha256": "fd16e75d024a15842dbad4929816e1b531acc708dc7a45cc24bdbd9a3e9f6ef7",
+      "disposition": "automated",
+      "reason": "Asagiri explicitly rejects unsupported bridge options before creating resources; this addresses silent acceptance, while arbitrary custom bridge naming remains unsupported."
+    },
+    {
+      "number": 424,
+      "title": "Windows: The interface gets stuck after installation",
+      "state": "open",
+      "updated_at": "2026-11-17T03:28:07Z",
+      "body_sha256": "30826a3e03a46956103a417754bacce6d8c19782faaa21b5f5b813139af6b97b",
+      "disposition": "platform-gap",
+      "reason": "Reproduce the stuck setup window and preserve the actual failing stage, startup state and WebView diagnostics.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 206,
+        "url": "https://github.com/AndreKurait/asagiri/issues/206"
+      }
+    },
+    {
+      "number": 425,
+      "title": "`--add-host host.docker.internal:<ip>` is ignored: Kiri's own entry comes first in /etc/hosts",
+      "state": "open",
+      "updated_at": "2026-11-17T03:40:39Z",
+      "body_sha256": "8d1d015f0802a0eea86b68400ed2cad964dbfa6169b4b968e3034aac06cba449",
+      "disposition": "partial",
+      "reason": "Verify user --add-host entries override built-in hostnames in the container's hosts file, including host-gateway and repeated entries; review #428/#511.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 207,
+        "url": "https://github.com/AndreKurait/asagiri/issues/207"
+      }
+    },
+    {
+      "number": 426,
+      "title": "Windows: Docker Desktop fails to start (\"Access is denied\" on \\.\\pipe\\docker_engine) while Kiri serves the pipe",
+      "state": "open",
+      "updated_at": "2026-11-17T03:44:07Z",
+      "body_sha256": "4349fe326d3d2db612ae679ef0b1d179aed2a31ad2ae7a3d025ae74e3df82e35",
+      "disposition": "platform-gap",
+      "reason": "Verify Docker Desktop pipe handoff with long-lived clients and racing bridge instances without taking over unrelated engine connections; review #430.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 208,
+        "url": "https://github.com/AndreKurait/asagiri/issues/208"
+      }
+    },
+    {
+      "number": 427,
+      "title": "Windows: Kiri opens on \"Install WSL\" when WSL is installed but slow to answer",
+      "state": "open",
+      "updated_at": "2026-11-17T03:55:17Z",
+      "body_sha256": "6fddfe549f40ad8252212cf3e3791fc89cb98d693fe6a823d35323fd300a6744",
+      "disposition": "platform-gap",
+      "reason": "Verify slow WSL probes distinguish missing, unavailable and still-starting distributions; review #429 and retain bounded retries.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 209,
+        "url": "https://github.com/AndreKurait/asagiri/issues/209"
+      }
+    },
+    {
+      "number": 432,
+      "title": "Linux host on kernel 5.15: containers get no network (\"kiri-init: no uplink: Invalid argument\")",
+      "state": "closed",
+      "updated_at": "2026-11-17T19:17:10Z",
+      "body_sha256": "6a515a43cd5d739621bf5a6221a2011389744567a5d8c8dd6dec44a8c100ed67",
+      "disposition": "partial",
+      "reason": "Reproduce nftables EINVAL on the reported Linux 5.15 host and establish supported-kernel behavior and a useful error before changing network rules.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 210,
+        "url": "https://github.com/AndreKurait/asagiri/issues/210"
+      }
+    },
+    {
+      "number": 433,
+      "title": "Compose network with an IPv6 subnet but enable_ipv6: false is rejected (Docker accepts it)",
+      "state": "open",
+      "updated_at": "2026-11-17T05:41:15Z",
+      "body_sha256": "739efcd687ca32e77707187ecf259e31ec4ba917d4a8ad997ef7d15ccc3645ca",
+      "disposition": "partial",
+      "reason": "Compare Docker's behavior for an IPv6 subnet supplied with IPv6 disabled; verify inspect and side effects before adopting #454/#511.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 211,
+        "url": "https://github.com/AndreKurait/asagiri/issues/211"
+      }
+    },
+    {
+      "number": 434,
+      "title": "buildx build --platform linux/amd64 on Apple Silicon produces an arm64 image labelled amd64 (no amd64 emulation registered)",
+      "state": "closed",
+      "updated_at": "2026-11-17T07:40:07Z",
+      "body_sha256": "e1be39c654d28a68e77229a4573d587c9df57a0a9c7b1964583a3dd5bea6db50",
+      "disposition": "partial",
+      "reason": "Cross-platform local-tag selection and OCI ELF checks already exist. Qualify the reported native host/foreign-image combination separately.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 212,
+        "url": "https://github.com/AndreKurait/asagiri/issues/212"
+      }
+    },
+    {
+      "number": 435,
+      "title": "Containers have no internet: VM never gets IPv4/uplink lease when another app binds UDP 67",
+      "state": "open",
+      "updated_at": "2026-11-17T06:19:13Z",
+      "body_sha256": "49877e9df62cdcb505c8e5820b5a8a8d3f5cb872e3d5bdbe4e6ef22ab96caba9",
+      "disposition": "platform-gap",
+      "reason": "Reproduce UDP/67 ownership conflict and review #503's DHCP fallback, address ownership, routing and shutdown on native Mac.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 213,
+        "url": "https://github.com/AndreKurait/asagiri/issues/213"
+      }
+    },
+    {
+      "number": 436,
+      "title": "let me choose a share name in the desktop app",
+      "state": "closed",
+      "updated_at": "2026-11-18T04:54:57Z",
+      "body_sha256": "4186619b562b35a7186c82277ef7755de9f4ada6701966f7d20cb39004f0d231",
+      "disposition": "deferred-feature",
+      "reason": "A user-selected share hostname needs collision, ownership, lifecycle and UI behavior defined; upstream #437 is a proposal.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 214,
+        "url": "https://github.com/AndreKurait/asagiri/issues/214"
+      }
+    },
+    {
+      "number": 438,
+      "title": "Engine: a damaged containers.json makes the engine delete every container's logs and files",
+      "state": "closed",
+      "updated_at": "2026-11-17T16:46:17Z",
+      "body_sha256": "a4884ffbaf00c1142583fc913999d1a16bf73b0260b94ec0b2f651a23613778c",
+      "disposition": "partial",
+      "reason": "Malformed and unreadable container records now fail Engine::boot before destructive cleanup, with actual production boot regressions. Combined-candidate CI remains pending; deliberate reconstruction of partially corrupt metadata is a separate recovery design.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 84,
+        "url": "https://github.com/AndreKurait/asagiri/issues/84"
+      }
+    },
+    {
+      "number": 439,
+      "title": "Linux: an agent crash goes unnoticed while an `--init` container runs, and the engine hangs until restarted",
+      "state": "open",
+      "updated_at": "2026-11-17T06:40:05Z",
+      "body_sha256": "20384253463c695009d268c480c30c04288aa381da4760e7ee75ea7d5357abc0",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
+    },
+    {
+      "number": 440,
+      "title": "Images: a damaged images.json is repaired without a warning, and the image made last drops out of the list",
+      "state": "open",
+      "updated_at": "2026-11-17T06:40:07Z",
+      "body_sha256": "c6588a224e63c74bbcdc77a8ce12729315fe060a4dfa119139e23ac127beb248",
+      "disposition": "partial",
+      "reason": "Asagiri rejects incomplete typed indexes and preserves originals; it backs up a complete array followed by stale bytes before repair. Verify visible warnings and Windows atomic-file behavior; do not replace this with unqualified partial salvage.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 215,
+        "url": "https://github.com/AndreKurait/asagiri/issues/215"
+      }
+    },
+    {
+      "number": 441,
+      "title": "macOS: ~/.kiri/daemon.log has no size limit and keeps growing",
+      "state": "open",
+      "updated_at": "2026-11-17T22:08:51Z",
+      "body_sha256": "73dbf79024acd02579d4d04c9d8299f3a357edf4d5237f71704db9dfdece3932",
+      "disposition": "partial",
+      "reason": "Verify launchd daemon-log growth and review #504's bounded rotation while preserving pre-crash output and ordinary terminal/journal behavior.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 216,
+        "url": "https://github.com/AndreKurait/asagiri/issues/216"
+      }
+    },
+    {
+      "number": 442,
+      "title": "Engine: `docker ps --filter ancestor=alpine` also lists containers of other alpine tags",
+      "state": "open",
+      "updated_at": "2026-11-17T06:40:11Z",
+      "body_sha256": "00e7862d24e02568749e9fa95e504e5b9c0ac00cff381aa5e9b3fc034f6c0fba",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
+    },
+    {
+      "number": 443,
+      "title": "Windows (WSL 2): a second Kiri engine in another distro takes over the first one's bridge and firewall table",
+      "state": "open",
+      "updated_at": "2026-11-17T06:40:14Z",
+      "body_sha256": "c11354f3612ec09674af9fe62395bb8f8a086f76706ccf8dab156bbf9d040a5f",
+      "disposition": "platform-gap",
+      "reason": "Reproduce two engines in WSL and verify ownership of global networking resources and independent teardown.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 217,
+        "url": "https://github.com/AndreKurait/asagiri/issues/217"
+      }
+    },
+    {
+      "number": 445,
+      "title": "docker run --entrypoint= (empty) fails: exec \"/usr/local/bin/\": is a directory (Docker resets the entrypoint)",
+      "state": "open",
+      "updated_at": "2026-11-17T07:06:22Z",
+      "body_sha256": "44e3d7859f9ca409549f7f38a9075a39c8dfb982771b35488e72d3317683e189",
+      "disposition": "partial",
+      "reason": "Verify Entrypoint [\"\"] reset semantics independently of missing and empty-array entrypoints, preserving image Cmd behavior; review #458/#511.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 218,
+        "url": "https://github.com/AndreKurait/asagiri/issues/218"
+      }
+    },
+    {
+      "number": 449,
+      "title": "A container on the default bridge that joins a user network can't resolve that network's names (k3d's load balancer fails)",
+      "state": "open",
+      "updated_at": "2026-11-18T04:03:00Z",
+      "body_sha256": "ba6ca8b502a80c8f241c42edb1c3dec4fa7d54e41e932bbf165f6dbc11b6f3f3",
+      "disposition": "partial",
+      "reason": "Verify DNS when a default-bridge container joins a user network before and after start, including the first application lookup and k3d; review #507.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 219,
+        "url": "https://github.com/AndreKurait/asagiri/issues/219"
+      }
+    },
+    {
+      "number": 450,
+      "title": "Engine: `--volumes-from` is ignored without a word, so backups made with it are empty",
+      "state": "open",
+      "updated_at": "2026-11-17T08:28:16Z",
+      "body_sha256": "aefd683106804af8f4a6e16a09a1195062367156ec583c630c1804243cb774ed",
+      "disposition": "partial",
+      "reason": "Verify --volumes-from for binds, named/anonymous volumes, ro overrides and destination precedence, including shared-volume lifetime after rm -v; review #511.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 220,
+        "url": "https://github.com/AndreKurait/asagiri/issues/220"
+      }
+    },
+    {
+      "number": 455,
+      "title": "User-defined network: embedded resolver does not fall back when the first --dns server refuses (default bridge does)",
+      "state": "open",
+      "updated_at": "2026-11-17T10:12:35Z",
+      "body_sha256": "0b33c7e9be84d019be605eab69e187055205afb8aff519e4e7488b3b77d4d29a",
+      "disposition": "partial",
+      "reason": "Verify fallback to later configured DNS servers after refusal, timeout and transient errors on user networks; review #460.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 221,
+        "url": "https://github.com/AndreKurait/asagiri/issues/221"
+      }
+    },
+    {
+      "number": 456,
+      "title": "Builds from `docker compose build` never appear in the Builds view (they run on buildx_buildkit_default, not buildx_buildkit_kiri)",
+      "state": "open",
+      "updated_at": "2026-11-17T10:17:58Z",
+      "body_sha256": "e74030f031b88a0c8cb4afba672c92d13218280eefdfa319d0e49397d2d89d1a",
+      "disposition": "partial",
+      "reason": "The built-in builder is released. Verify Buildx build-history discovery and UI behavior explicitly; driver operation alone does not establish history support.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 222,
+        "url": "https://github.com/AndreKurait/asagiri/issues/222"
+      }
+    },
+    {
+      "number": 457,
+      "title": "App exits with \"Permission denied (os error 13)\" when ~/.zshrc / ~/.zprofile are read-only",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:48:49Z",
+      "body_sha256": "4d1bc5b0b97f458b79ba6604f2232bf6768d523a30ecb60d62a6af87748d980f",
+      "disposition": "partial",
+      "reason": "Shell-profile failures are collected and logged while bundled_cli continues app setup; existing markers avoid rewriting managed files. Verify read-only symlink targets, the visible warning and the original Finder/Dock/home-manager launch flow. Shared with the native setup verification for upstream #250.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 131,
+        "url": "https://github.com/AndreKurait/asagiri/issues/131"
+      }
+    },
+    {
+      "number": 461,
+      "title": "docker image import (POST /images/create?fromSrc) is unsupported",
+      "state": "open",
+      "updated_at": "2026-11-17T11:00:36Z",
+      "body_sha256": "78583e9a863e5db0717d3bf0bf232c35082d416861a563cb06347832803818b0",
+      "disposition": "partial",
+      "reason": "Asagiri already implements POST /images/create?fromSrc for file, gzip, chunked and URL rootfs imports, including config changes and image identity. Qualify these existing paths against the frozen candidate and compare #462/#469 without replacing the broader implementation.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 223,
+        "url": "https://github.com/AndreKurait/asagiri/issues/223"
+      }
+    },
+    {
+      "number": 463,
+      "title": "A big `docker top` or Files-tab listing restarts the whole VM",
+      "state": "open",
+      "updated_at": "2026-11-17T11:09:33Z",
+      "body_sha256": "936cf6140ba548b518e281d4dcf8f7ad29ec8932ee6182a62911d6e124101eea",
+      "disposition": "known-limitation",
+      "reason": "Tracked in Asagiri #89: variable-size replies can exceed the 1 MiB frame limit. Require explicit bounded error/pagination semantics and continued agent responsiveness; review #464 without silently dropping records.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 89,
+        "url": "https://github.com/AndreKurait/asagiri/issues/89"
+      }
+    },
+    {
+      "number": 465,
+      "title": "docker load cannot read OCI layout archives (index.json / blobs)",
+      "state": "open",
+      "updated_at": "2026-11-17T11:13:53Z",
+      "body_sha256": "b7009e0607a957b21ff17b2d88408dcd61b8a5ee4845a0b680a7d7aa4da135fd",
+      "disposition": "known-limitation",
+      "reason": "OCI-only archive loading remains unsupported. Review #466's indexes, descriptors, platform selection, digest checks and malformed/traversing input before adding it.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 224,
+        "url": "https://github.com/AndreKurait/asagiri/issues/224"
+      }
+    },
+    {
+      "number": 467,
+      "title": "docker rename leaves stale DNS names on user-defined networks",
+      "state": "open",
+      "updated_at": "2026-11-17T11:26:07Z",
+      "body_sha256": "2640174a10ef2d9868591c0bbaecd92042908b2c89ee915f633e5d05acd68dc5",
+      "disposition": "partial",
+      "reason": "Verify DNS changes after rename: new name, removal of the old name, configured aliases and per-network scope; review #468.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 225,
+        "url": "https://github.com/AndreKurait/asagiri/issues/225"
+      }
+    },
+    {
+      "number": 471,
+      "title": "Coolify support: engine gaps left after #253 (`--pid host`, idle `builder prune`)",
+      "state": "closed",
+      "updated_at": "2026-11-18T04:55:02Z",
+      "body_sha256": "c5c6c88cde90fd6df07e0632c93c10ea5bf1897da04d6a91bc7b12f8984a3f76",
+      "disposition": "deferred-feature",
+      "reason": "Full Coolify qualification needs an isolated application fixture and explicit handling of its PID-mode and builder-prune requirements. Existing engine fixes do not establish full application support.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 226,
+        "url": "https://github.com/AndreKurait/asagiri/issues/226"
+      }
+    },
+    {
+      "number": 473,
+      "title": "macOS: Kubernetes LoadBalancer ports below 1024 are never published unless `--lan on` (binding 127.0.0.1 needs root)",
+      "state": "open",
+      "updated_at": "2026-11-17T13:04:20Z",
+      "body_sha256": "e8536da6a46b9d20a461bcba1f31fc08bf7d7c25941c126a8a65b683919c42e5",
+      "disposition": "platform-gap",
+      "reason": "Verify low-port loopback publishing on native Mac and DDEV/k8s. Preserve the requested bind address and avoid an implicit wildcard exposure.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 227,
+        "url": "https://github.com/AndreKurait/asagiri/issues/227"
+      }
+    },
+    {
+      "number": 474,
+      "title": "The Kubernetes node is killed \"for memory\" with no reason logged, so a real out-of-memory kill can't be told from Kiri's own restart",
+      "state": "open",
+      "updated_at": "2026-11-17T13:04:21Z",
+      "body_sha256": "778d866ba99d62804c0c72d3e7bd4725c559112a9f10cc5aaaa7260c7838184c",
+      "disposition": "partial",
+      "reason": "Verify memory-kill diagnostics, balloon pressure and recovery on a native guest with actual OOM/PSI evidence; review #484.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 228,
+        "url": "https://github.com/AndreKurait/asagiri/issues/228"
+      }
+    },
+    {
+      "number": 475,
+      "title": "Can't move window in Mac 14.8.9",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:02:26Z",
+      "body_sha256": "6d904eb799c87f27256173f56e6a21c9a6c01f983d8101008898c33d7b212724",
+      "disposition": "platform-gap",
+      "reason": "Duplicate of Mac window-drag issue #337; review #512 and verify the native window rather than only browser DOM behavior.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 156,
+        "url": "https://github.com/AndreKurait/asagiri/issues/156"
+      },
+      "duplicate_of": 337
+    },
+    {
+      "number": 477,
+      "title": "WSL 2 Linux host: user-defined bridge networks fail at gateway DNS bind (EINVAL)",
+      "state": "open",
+      "updated_at": "2026-11-17T15:01:49Z",
+      "body_sha256": "6afe444a200e131e52ba1c3600248933c6025ed9733692640d51b9cab1989212",
+      "disposition": "platform-gap",
+      "reason": "Reproduce fixed-port EINVAL in the reported WSL/Consomme environment and establish ownership before changing global port/network state.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 229,
+        "url": "https://github.com/AndreKurait/asagiri/issues/229"
+      }
+    },
+    {
+      "number": 478,
+      "title": "Feature request: run WASI/Wasm workloads (`--platform wasi/wasm`)",
+      "state": "closed",
+      "updated_at": "2026-11-17T20:41:50Z",
+      "body_sha256": "9a06fb2184138e9000a8fa8d70e05848d631efd85e629647ab0d63934229fba9",
+      "disposition": "deferred-feature",
+      "reason": "WASI/WASM execution needs a runtime and isolation design, resource accounting, networking and lifecycle tests; upstream fork prototypes are not qualified Asagiri implementations.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 230,
+        "url": "https://github.com/AndreKurait/asagiri/issues/230"
+      }
+    },
+    {
+      "number": 479,
+      "title": ".NET Testcontainers 4.11.0 hangs after container-start 204 response on Kiri 0.2.1",
+      "state": "open",
+      "updated_at": "2026-11-17T15:24:14Z",
+      "body_sha256": "1d1a6ccf1bdafc1783a1c32a3872dd15955869361b02c76b51dcef0a7f38f454",
+      "disposition": "partial",
+      "reason": "Tracked with Asagiri #80: strict HTTP framing and close handling exist, while the actual .NET Windows named-pipe 204/304 path requires native verification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      }
+    },
+    {
+      "number": 483,
+      "title": "Publishing ports below 1024 on 127.0.0.1 fails with “Permission denied (os error 13)”",
+      "state": "closed",
+      "updated_at": "2026-11-17T17:02:30Z",
+      "body_sha256": "54230383c6c944542cc9d4e1d9d8643dd805621dc4888d8208bb232beab240c8",
+      "disposition": "platform-gap",
+      "reason": "Duplicate of #473's native Mac low-port loopback case; retain DDEV-specific qualification.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 227,
+        "url": "https://github.com/AndreKurait/asagiri/issues/227"
+      },
+      "duplicate_of": 473
+    },
+    {
+      "number": 485,
+      "title": "kiri import: named volumes lose extended attributes (Supabase Storage returns 500 ENODATA)",
+      "state": "open",
+      "updated_at": "2026-11-17T17:23:51Z",
+      "body_sha256": "dedbd051efd8be9057bbb391de7d357215de0998a8eeef72d202d3d4d47c7503",
+      "disposition": "known-limitation",
+      "reason": "Verify migration preservation of xattrs, ACLs, capabilities, numeric ownership and timestamps; review #491/#506 without weakening read-only source and stopped-writer guards.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 231,
+        "url": "https://github.com/AndreKurait/asagiri/issues/231"
+      }
+    },
+    {
+      "number": 487,
+      "title": "Windows: file changes on C:\\ bind mounts fire no events in containers",
+      "state": "open",
+      "updated_at": "2026-11-17T17:20:38Z",
+      "body_sha256": "4d871ac88da566ebd5f1d74fe4b4f8f9e6fd87d5935e18dcd49199170ea9ed4e",
+      "disposition": "platform-gap",
+      "reason": "Windows C-drive bind notification behavior remains a separate native WSL qualification from Mac virtiofs and Linux inotify.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 232,
+        "url": "https://github.com/AndreKurait/asagiri/issues/232"
+      }
+    },
+    {
+      "number": 488,
+      "title": "Share containers on your own domain with optional Cloudflare Tunnel",
+      "state": "closed",
+      "updated_at": "2026-11-18T04:54:55Z",
+      "body_sha256": "d0afa56ca15409a8b212128a6dd995868615a4fa617e1a0df7896a3428f6b2d4",
+      "disposition": "deferred-feature",
+      "reason": "Cloudflare sharing is a separate optional integration requiring credential, routing, ownership and shutdown design; upstream #486 remains unqualified.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 233,
+        "url": "https://github.com/AndreKurait/asagiri/issues/233"
+      }
+    },
+    {
+      "number": 489,
+      "title": "Linux: default bridge takes 172.17.0.0/16 while docker0 already owns it — containers cannot reach their own gateway",
+      "state": "open",
+      "updated_at": "2026-11-17T18:57:55Z",
+      "body_sha256": "dc0d89dc1f88913da37daa15c3f29de9d918942687dfb43bea587d87fa462dea",
+      "disposition": "partial",
+      "reason": "Verify default-bridge allocation beside existing Docker and host routes, including restart and teardown, without replacing another engine's network resources.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 234,
+        "url": "https://github.com/AndreKurait/asagiri/issues/234"
+      }
+    },
+    {
+      "number": 492,
+      "title": "docker inspect leaves unpublished EXPOSE ports out of NetworkSettings.Ports, so Traefik's docker provider cannot find a container's port",
+      "state": "open",
+      "updated_at": "2026-11-18T04:55:06Z",
+      "body_sha256": "3a9a669fa73ced3fe2e53a69217c2340aa416044e6ca363607a9acbf06a1daea",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
+    },
+    {
+      "number": 494,
+      "title": "nfs support",
+      "state": "open",
+      "updated_at": "2026-11-17T21:41:46Z",
+      "body_sha256": "24880e6ca7ee66b0e9e0a900bd407903f1e90b3b3b8537eb38808618e8cbe6bf",
+      "disposition": "deferred-feature",
+      "reason": "Review #496's guest NFS client configuration and qualify a real mount, reconnect and failure path against both bundled kernel architectures.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 235,
+        "url": "https://github.com/AndreKurait/asagiri/issues/235"
+      }
+    },
+    {
+      "number": 495,
+      "title": "Windows: Blank screen on launch - assembled page exceeds WebView2 NavigateToString 2MB limit",
+      "state": "closed",
+      "updated_at": "2026-11-18T11:41:26Z",
+      "body_sha256": "2ac2840425b11a1f2a3f852aa83337f9fd3ce50366e18a139883c8d76f6726bc",
+      "disposition": "platform-gap",
+      "reason": "Review #519's in-memory page serving and verify every supported language, CSP/origin restrictions and large-page startup in real WebView2.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 236,
+        "url": "https://github.com/AndreKurait/asagiri/issues/236"
+      }
+    },
+    {
+      "number": 499,
+      "title": "Windows Server support for production use?",
+      "state": "open",
+      "updated_at": "2026-11-18T01:26:09Z",
+      "body_sha256": "3b7b567610b656b2ff777301337dcbf5218d7d32a676dbda046e05c5e86db2b1",
+      "disposition": "deferred-feature",
+      "reason": "Windows Server production use needs an explicit supported-environment and operational lifecycle design; desktop/WSL smoke tests do not establish that support.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 237,
+        "url": "https://github.com/AndreKurait/asagiri/issues/237"
+      }
+    },
+    {
+      "number": 500,
+      "title": "docker load: a load that worked can be reported as failed (\"broken pipe\")",
+      "state": "open",
+      "updated_at": "2026-11-18T02:08:37Z",
+      "body_sha256": "8aee5551f2475efe65ce2ff3b4612e970d92e690ab67c4b292fc7cadc0042e3b",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
+    },
+    {
+      "number": 509,
+      "title": "Containers on a user network get TCP resets under sustained load (Supabase local stack: Kong → PostgREST)",
+      "state": "open",
+      "updated_at": "2026-11-18T06:12:21Z",
+      "body_sha256": "965af883585294af88029bd4e36c10fd271def0eba15003dea45b4d42e8505ea",
+      "disposition": "partial",
+      "reason": "Reproduce the mixed Supabase/Kong/PostgREST workload with resets, timer and agent traces. Its root cause is unconfirmed; avoid attributing it solely to the TCP idle or FIFO fixes.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 238,
+        "url": "https://github.com/AndreKurait/asagiri/issues/238"
+      }
+    },
+    {
+      "number": 510,
+      "title": "Windows Defender quarantines kiri-win.exe from 0.2.1 x64 as Bearfoos.A!ml",
+      "state": "open",
+      "updated_at": "2026-11-18T07:46:03Z",
+      "body_sha256": "d002bdc690631fe78302c2119fae30b40ff02b1a98650fa3219475fd03267997",
+      "disposition": "platform-gap",
+      "reason": "Verify the exact Asagiri release artifact, signature and current Defender result. The report names a Kiri binary; no malware/false-positive conclusion or exclusion is established.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 239,
+        "url": "https://github.com/AndreKurait/asagiri/issues/239"
+      }
+    },
+    {
+      "number": 516,
+      "title": "Apache Iggy can't start: the host-boundary filter blocks io_uring, and `seccomp=unconfined` / `--privileged` can't lift it",
+      "state": "open",
+      "updated_at": "2026-11-18T08:42:07Z",
+      "body_sha256": "b2ebca5a4ba4219cb5027c69f6b42f1f155af4b33262d6a703a8b6f5b4d1ef0f",
+      "disposition": "partial",
+      "reason": "Document and verify inherited native-host io_uring restrictions separately from container seccomp profiles and explicit unconfined requests; preserve the host boundary.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 240,
+        "url": "https://github.com/AndreKurait/asagiri/issues/240"
+      }
+    },
+    {
+      "number": 517,
+      "title": "[Feature Request] Allow using an existing WSL distribution instead of installing a new one",
+      "state": "open",
+      "updated_at": "2026-11-18T10:19:05Z",
+      "body_sha256": "41ad542bc3c0e7482b0b194afad9806fe5d0c51d21c082fcf91d3fbab21b0bcc",
+      "disposition": "deferred-feature",
+      "reason": "Existing managed WSL distributions and rootless operation need ownership, install, upgrade, socket and resource-isolation design and native tests.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 241,
+        "url": "https://github.com/AndreKurait/asagiri/issues/241"
+      }
+    },
+    {
+      "number": 518,
+      "title": "Floci doesn't run the floci-ui sidecar container",
+      "state": "open",
+      "updated_at": "2026-11-18T10:42:37Z",
+      "body_sha256": "bb100351958f99c0b91c7cb053c9c61c9454a4ce991ae9ce809598e266b081a6",
+      "disposition": "deferred-feature",
+      "reason": "Verify the expected Floci UI integration/sidecar lifecycle and define startup/readiness, ports, image identity and shutdown before implementing the integration.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 242,
+        "url": "https://github.com/AndreKurait/asagiri/issues/242"
+      }
+    },
+    {
+      "number": 520,
+      "title": "Daemon ignores `Connection: close` on Windows named pipe; Docker.DotNet / Testcontainers hang on 204 responses",
+      "state": "open",
+      "updated_at": "2026-11-18T11:12:06Z",
+      "body_sha256": "de3a1b22e86b6c9dcdc42bc2483c5057c6645c5558b04cf22134034e90a9fe8d",
+      "disposition": "partial",
+      "reason": "Tracked with Asagiri #80: verify Connection: close reaches EOF through the actual Windows named-pipe bridge for 204/304 and ordinary responses.",
+      "tracking": {
+        "repository": "AndreKurait/asagiri",
+        "issue": 80,
+        "url": "https://github.com/AndreKurait/asagiri/issues/80"
+      }
+    },
+    {
+      "number": 522,
+      "title": "Duplicate of #523",
+      "state": "closed",
+      "updated_at": "2026-11-18T12:42:13Z",
+      "body_sha256": "bb74615fcd9e52450d1edcb0c5971710f9627e8f5a2e13156790eb2df230a65f",
+      "disposition": "informational",
+      "reason": "Duplicate of #523; share its swap-policy verification.",
+      "duplicate_of": 523
+    },
+    {
+      "number": 523,
+      "title": "Linux: containers with a memory limit get memory.swap.max = 0 (Docker gives swap equal to the limit), and --memory-swap is ignored",
+      "state": "open",
+      "updated_at": "2026-11-18T12:42:03Z",
+      "body_sha256": "32a98e88dced2c07fc58a4faef0ddf9ad8c127014006154bb1279fdb2632f68d",
+      "disposition": "automated",
+      "reason": "Reproducible checks are listed in issue-verification.json; execution is source-specific."
     }
   ],
   "additional_verification": [
@@ -1514,16 +2977,22 @@
       "evidence": "docs/verification/native-readiness-2026-11-16.json"
     }
   ],
-  "current_main_revision": "aa6c803072dd29fbeb06ed301e850a9a1ddb52ca",
-  "qualification_note": "Public review through the frozen 2026-11-16T13:52:12Z snapshot: 161 issues and 221 PRs. Runtime integration source 8064a186 includes the cgroup, seccomp, DNS, working-directory, GNU NSS and Armenian changes. The cgroup candidate passed 15 real guest tests after two baseline failures; the integrated source passed 17 DNS and 4 working-directory tests, and the locale passed 54 browser checks plus five language and one assembly test. Final platform/API, same-host performance and release qualification remain pending. Main last observed at 14:44 UTC is aa6c803; installed/published preview is dev.100 and stable is v0.1.5. These are dated evidence records, not complete feature or formal-verification claims.",
+  "current_main_revision": "fd504b2b0f3ee450016911bd04e83ac47dc32eee",
+  "qualification_note": "Frozen public inventory at 2026-11-18T14:50:42.991511+00:00: 231 issues and 280 PRs, including 70 new issue bodies and 73 new or changed PR heads since the prior inventory. All new issue bodies and 134 changed discussion comments were reviewed. Exact PR source identities and patch hashes are recorded; implementation-review-pending means the patch has not received a complete implementation review. 176 linked verification cases were published in AndreKurait/asagiri (170 new issues, six existing mappings). Candidate 9e980e477849 adds runtime proofs, fail-safe container records, relay/file-read fixes, cancellable layer admission and five API compatibility ports. Full qualification of this combined candidate is pending. Stable v0.1.13 already supplies the built-in Docker-driver builder and rootfs image import. Native Mac VM and Windows/WSL gaps remain explicit. Older runtime, native release and performance fields below are preserved dated evidence, not claims about this candidate.",
   "followup_updated_at": "2026-11-16T14:49:19.872501+00:00",
   "incremental_public_review": {
-    "snapshot_started_at": "2026-11-16T13:52:08.525378+00:00",
-    "snapshot_finished_at": "2026-11-16T13:52:12.676734+00:00",
-    "delta_sha256": "97df69cb250fe92f4f70e8f9d2b62c79aafcbecb51b7657acc5d21a2c2bb5ec0",
-    "updated_comments_sha256": "2ddbf1d06e9b516620bdd39859a45b79b5a5af3e395dd28a5a2622f75a8e5b4e",
-    "issues_reviewed": 33,
-    "pulls_reviewed": 13,
-    "documentation_status": "prepared_not_committed_or_published"
-  }
+    "snapshot_at": "2026-11-18T14:50:42.991511+00:00",
+    "issues": 231,
+    "pulls": 280,
+    "new_issue_bodies_reviewed": 70,
+    "changed_discussion_comments_reviewed": 134,
+    "new_or_changed_pr_heads": 73,
+    "published_verification_cases": 176,
+    "snapshot_file_sha256": {
+      "kiri-issues.json": "187fcb65ff1a91d123da53def614fb9dc58bf52f0c4a0efd297b850c9ac83ca4",
+      "kiri-prs.json": "f7fc08dfb6ca17ed88fee55c0abb28f7e693c973a0179a69b0495b264a63b8da",
+      "updated-public-discussion-comments.json": "8d9573a199ed857ebd5029e6cc7001ca3b9346e4a0425de636f53c5c505b86fa"
+    }
+  },
+  "previous_qualification_note": "Public review through the frozen 2026-11-16T13:52:12Z snapshot: 161 issues and 221 PRs. Runtime integration source 8064a186 includes the cgroup, seccomp, DNS, working-directory, GNU NSS and Armenian changes. The cgroup candidate passed 15 real guest tests after two baseline failures; the integrated source passed 17 DNS and 4 working-directory tests, and the locale passed 54 browser checks plus five language and one assembly test. Final platform/API, same-host performance and release qualification remain pending. Main last observed at 14:44 UTC is aa6c803; installed/published preview is dev.100 and stable is v0.1.5. These are dated evidence records, not complete feature or formal-verification claims."
 }
