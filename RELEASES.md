@@ -24,8 +24,17 @@ to completed source checks and failed Release runs. Once every required check
 passes for that source, it retries only a publication job that failed at the CI
 gate. Successful packages and the original version are retained. Recovery runs
 from the trusted default branch, requires the source in main's history, and
-stops after three release attempts. Package, integrity, upload, and canceled
-failures require investigation rather than an automatic retry.
+stops after three release attempts. That workflow does not retry package,
+integrity, upload, or cancellation failures.
+
+The Recover hosted Mac runners workflow handles one specific cancellation:
+GitHub confirms that a Mac job never acquired a hosted runner because of
+capacity constraints. It retries only that job and its dependents, retains
+successful jobs, and stops after three total attempts. It checks the exact
+attempt, source ancestry and provider annotations using trusted default-branch
+code. Manual cancellations, jobs that started running, real build failures,
+and ambiguous diagnostics still require investigation. macOS jobs use the
+explicit `macos-26` and `macos-26-intel` images for their native architectures.
 
 The pipeline builds Linux packages, static engines and AppImages on native
 x86_64 and arm64 runners; macOS apps and DMGs on Apple Silicon and Intel; and Windows
