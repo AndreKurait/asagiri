@@ -184,13 +184,31 @@ def check(args):
                       if not any(pool.version == 4 and pool.overlaps(ipaddress.ip_network(f"10.240.{octet}.0/24"))
                                  for pool in existing))
         ipv6 = f"fd{nonce[:2]}:{nonce[2:6]}:{nonce[6:10]}::/64"
-        _, off_id = network("ipv6-off", EnableIPv6=False, IPAM={
+        off_net, off_id = network("ipv6-off", EnableIPv6=False, IPAM={
             "Driver": "default", "Config": [{"Subnet": str(subnet)}, {"Subnet": ipv6}],
         })
         info = call("GET", "/networks/" + off_id)
         pools = [ipaddress.ip_network(config["Subnet"]) for config in info["IPAM"]["Config"]]
-        assert not info["EnableIPv6"] and pools == [subnet], info
-        passed("IPv6-disabled networks ignore IPv6 IPAM and preserve IPv4 IPAM")
+        # Docker retains the unused IPv6 entry in network inspection. Check
+        # the active address families rather than requiring that metadata
+        # to be removed.
+        assert not info["EnableIPv6"], info
+        assert [pool for pool in pools if pool.version == 4] == [subnet], info
+        assert {pool for pool in pools if pool.version == 6} <= {ipaddress.ip_network(ipv6)}, info
+        cid = container("ipv6-off", {
+            "Entrypoint": [], "Cmd": ["sleep", "120"],
+            "HostConfig": {"NetworkMode": off_net},
+        })["Id"]
+        start(cid)
+        endpoint = inspect(cid)["NetworkSettings"]["Networks"][off_net]
+        assert ipaddress.ip_address(endpoint["IPAddress"]) in subnet, endpoint
+        assert endpoint["IPPrefixLen"] == subnet.prefixlen, endpoint
+        assert not endpoint.get("GlobalIPv6Address") and not endpoint.get("GlobalIPv6PrefixLen"), endpoint
+        global_ipv6 = execute(cid, "ip", "-6", "addr", "show", "eth0", "scope", "global")
+        assert not global_ipv6, global_ipv6
+        record["disabled_ipv6"] = {"ipam": info["IPAM"]["Config"], "endpoint": endpoint,
+                                   "global_ipv6": global_ipv6}
+        passed("IPv6-disabled networks accept mixed IPAM and allocate only IPv4")
 
         cid = container("host-override", {
             "Entrypoint": [], "Cmd": ["sleep", "120"], "HostConfig": {
