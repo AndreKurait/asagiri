@@ -150,6 +150,9 @@ t user-name "uid=70(postgres)" $D run --rm -u postgres postgres:17-alpine id
 t user-group "gid=0(root)" $D run --rm -u 1000:0 alpine id
 t entrypoint "x" $D run --rm --entrypoint echo alpine x
 t entrypoint-image "nginx version" $D run --rm nginx:alpine nginx -v
+# An empty --entrypoint clears the image's (#445); with no command left, the create is refused, as in Docker.
+t entrypoint-cleared "ok" $D run --rm --entrypoint= alpine /bin/sh -c 'echo ok'
+t entrypoint-cleared-no-command "No command specified" $D run --rm --entrypoint= alpine
 t hostname-is-id "" $D run --rm alpine hostname
 t hostname-file "" $D run --rm alpine cat /etc/hostname
 t pid1 "1" $D run --rm alpine sh -c 'echo $$'
@@ -321,6 +324,7 @@ code none-no-internet 1 $D run --rm --network none alpine wget -qO- -T 2 http://
 t host-net "192.168.64." $D run --rm --network host alpine ip -4 addr show eth0
 t hosts-file "localhost" $D run --rm alpine cat /etc/hosts
 t add-host "1.2.3.4" $D run --rm --add-host foo:1.2.3.4 alpine getent hosts foo
+t add-host-override "10.9.8.7" $D run --rm --add-host host.docker.internal:10.9.8.7 alpine getent hosts host.docker.internal
 $D run -d --name peer nginx:alpine >/dev/null
 nginx_up peer
 PEER_IP=$($D inspect -f '{{.NetworkSettings.IPAddress}}' peer)
@@ -443,6 +447,8 @@ t ipv6-pool-ula " fd" $D network inspect v6net -f '{{range .IPAM.Config}} {{.Sub
 # A chosen subnet and gateway, as kind and Compose's ipam ask.
 t ipv6-subnet "fd00:db8:7::/64 fd00:db8:7::fe" bash -c "$D network create --ipv6 --subnet fd00:db8:7::/64 --gateway fd00:db8:7::fe v6sub >/dev/null && $D network inspect v6sub -f '{{range .IPAM.Config}}{{.Subnet}} {{.Gateway}} {{end}}'"
 t ipv6-overlap "Pool overlaps" $D network create --ipv6 --subnet fd00:db8:7::/80 v6dup
+# An IPv6 subnet without --ipv6 is ignored, as Docker does (#433).
+t ipv6-subnet-off "false" bash -c "$D network create --subnet 10.234.0.0/24 --subnet fd00:db8:8::/64 v6off >/dev/null && $D network inspect v6off -f '{{.EnableIPv6}}'; $D network rm v6off >/dev/null"
 # IPv6-only (--ipv4=false), as Docker 28 has: no IPv4 address on eth0.
 t ipv6-only-create "false" bash -c "$D network create --ipv6 --ipv4=false v6only >/dev/null && $D network inspect v6only -f '{{.EnableIPv4}}'"
 t ipv6-only-no-v4 "inet6 0" $D run --rm --network v6only alpine sh -c 'echo $(ip -6 addr show eth0 scope global | grep -o inet6 | head -1) $(ip -4 addr show eth0 | grep -c inet)'
@@ -656,6 +662,10 @@ $D network create --label team=a fnet >/dev/null
 t filter-network-label "fnet" $D network ls --filter label=team=a --format '{{.Name}}'
 t filter-network-type "fnet" $D network ls --filter type=custom --format '{{.Name}}'
 t filter-network-builtin "bridge" $D network ls --filter type=builtin --format '{{.Name}}'
+# A network's id filter is a regular expression, as in Docker: k3d finds its
+# cluster network with `^/?<id>$` together with its name.
+t filter-network-id-regex "fnet" bash -c "id=\$($D network inspect -f '{{.Id}}' fnet); $D network ls --filter \"id=^/?\$id\$\" --filter 'name=^/?fnet$' --format '{{.Name}}'"
+t filter-network-id-short "fnet" bash -c "$D network ls --filter id=\$($D network inspect -f '{{.Id}}' fnet | cut -c1-12) --format '{{.Name}}'"
 $D network rm fnet >/dev/null
 $D volume create --label team=a fvol >/dev/null
 $D volume create fvol2 >/dev/null

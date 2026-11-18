@@ -1668,9 +1668,11 @@ fn console_size(v: &Value) -> Option<(u16, u16)> {
 /// takes the image's Cmd like a missing one does (Testcontainers sends `[]`
 /// for its Ryuk container). Only a non-empty Entrypoint drops the image's
 /// Cmd; a missing one keeps the image's Entrypoint, an empty one clears it.
+/// `[""]` also clears the entrypoint, but does not inherit the image's Cmd.
 fn command(entrypoint: Option<Vec<String>>, cmd: Option<Vec<String>>, image_entrypoint: &[String], image_cmd: &[String]) -> (Vec<String>, Vec<String>) {
     let cmd = cmd.unwrap_or_default();
     match entrypoint {
+        Some(e) if e.len() == 1 && e[0].is_empty() => (vec![], cmd),
         Some(e) if !e.is_empty() => (e, cmd),
         e => {
             let cmd = if cmd.is_empty() { image_cmd.to_vec() } else { cmd };
@@ -1685,6 +1687,22 @@ fn strings(v: &Value) -> Option<Vec<String>> {
         Value::String(s) => Some(vec![s.clone()]),
         _ => None,
     }
+}
+
+/// Choose the first resolved endpoint when NetworkMode is empty or default.
+/// An explicitly listed bridge keeps bridge primary. Unknown endpoints are
+/// still rejected by create; JSON map keys make the choice deterministic.
+fn endpoints_primary<'a>(keys: impl Iterator<Item = &'a str>, resolve: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let mut primary = None;
+    for name in keys.filter(|key| !key.starts_with("container:")).filter_map(resolve) {
+        if name == "bridge" {
+            return None;
+        }
+        if primary.is_none() {
+            primary = Some(name);
+        }
+    }
+    primary
 }
 
 /// cgroup limits from a HostConfig (create) or an update body, on top of `base`.
@@ -1982,7 +2000,9 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     limits.validate()?;
     let restart = restart_policy(&host["RestartPolicy"], host["AutoRemove"].as_bool().unwrap_or(false))?;
     let network_mode = match host["NetworkMode"].as_str().unwrap_or("default") {
-        "" | "default" => "bridge".to_owned(),
+        "" | "default" => body["NetworkingConfig"]["EndpointsConfig"].as_object()
+            .and_then(|eps| endpoints_primary(eps.keys().map(String::as_str), |key| engine.lock_net().find(key).map(|n| n.name.clone())))
+            .unwrap_or_else(|| "bridge".to_owned()),
         m => m.to_owned(),
     };
     let network = match network_mode.strip_prefix("container:") {
@@ -1993,7 +2013,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         return Err(Error::NotFound(format!("network {network_mode} not found")));
     };
     // One endpoint per network (API 1.44+ allows several at create, which
-    // Compose uses); the one named by NetworkMode is the primary.
+    // Compose uses); NetworkMode or the endpoints above pick the primary.
     let mut aliases = Vec::new();
     let mut extra_networks = Vec::new();
     // `--ip`, `--mac-address` (Config.MacAddress before API 1.44).
@@ -2070,6 +2090,12 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     // Read and parse once: ports, volumes, health checks and stop signals all
     // use the same immutable config, including large image metadata.
     let image_cfg: Value = engine.store.read_config(&image.config_digest).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+    let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
+    // As in Docker: a create with nothing to run is refused here, not at start,
+    // where `docker run --rm` would wait for a removal that never comes.
+    if entrypoint.is_empty() && cmd.is_empty() {
+        return Err(Error::BadRequest("No command specified".into()));
+    }
     // Checked before mounts, which may create volumes.
     let labels = labels_from(&body, &image_cfg)?;
     let healthcheck = healthcheck_from(&body, &image_cfg)?;
@@ -2081,7 +2107,6 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
     let mounts = mounts(&body, engine, &image_cfg)?;
-    let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
     let given = strings(&body["Env"]).unwrap_or_default();
@@ -2723,7 +2748,7 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
 fn network_matches(f: &Filters, engine: &Engine, n: &super::network::Network) -> bool {
     let labels = if n.labels.is_object() { n.labels.clone() } else { json!({}) };
     f.name(&n.name)
-        && f.any("id", |v| n.id.starts_with(v))
+        && f.network_id(&n.id)
         && f.any("driver", |v| v == n.driver)
         && f.labels(&labels)
         && f.any("scope", |v| v == "local")
@@ -3980,6 +4005,53 @@ mod tests {
     fn an_empty_entrypoint_clears_the_images_entrypoint_but_keeps_its_cmd() {
         let (entrypoint, cmd) = command(Some(Vec::new()), None, &v(&["docker-entrypoint.sh"]), &v(&["postgres"]));
         assert_eq!((entrypoint, cmd), (Vec::new(), v(&["postgres"])));
+    }
+
+    #[test]
+    fn an_empty_entrypoint_string_resets_without_inheriting_cmd() {
+        let s = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let (ie, ic) = (s(&["/entry"]), s(&["/bin/ryuk"]));
+        // "Entrypoint": [""] (`--entrypoint=`) clears the image's and does not take its Cmd.
+        assert_eq!(command(Some(s(&[""])), Some(s(&["sh", "-c", "x"])), &ie, &ic), (vec![], s(&["sh", "-c", "x"])));
+        assert_eq!(command(strings(&json!([""])), None, &ie, &ic), (vec![], vec![]));
+        // Only exactly [""] is the reset.
+        assert_eq!(command(Some(s(&["", "x"])), None, &ie, &ic), (s(&["", "x"]), vec![]));
+        // The string form means the same as the one-element array.
+        assert_eq!(command(strings(&json!("")), Some(s(&["sh", "-c", "x"])), &ie, &ic), (vec![], s(&["sh", "-c", "x"])));
+    }
+
+    #[test]
+    fn endpoints_alone_choose_the_primary_network() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let resolve = |key: &str| {
+            asked.borrow_mut().push(key.to_owned());
+            match key {
+                "a" | "b" | "n" | "bridge" => Some(key.to_owned()),
+                "0123abc" => Some("n".to_owned()),
+                "4567def" => Some("bridge".to_owned()),
+                _ => None,
+            }
+        };
+        let cases: &[(&[&str], Option<&str>)] = &[
+            (&[], None),
+            (&["n"], Some("n")),
+            (&["0123abc"], Some("n")),
+            (&["a", "b"], Some("a")),
+            (&["bridge"], None),
+            (&["n", "bridge"], None),
+            (&["bridge", "n"], None),
+            (&["4567def"], None),
+            (&["n", "4567def"], None),
+            (&["container:x"], None),
+            (&["container:x", "n"], Some("n")),
+            (&["n", "container:x"], Some("n")),
+            (&["missing"], None),
+            (&["missing", "n"], Some("n")),
+        ];
+        for (keys, expected) in cases {
+            assert_eq!(endpoints_primary(keys.iter().copied(), resolve).as_deref(), *expected, "{keys:?}");
+        }
+        assert!(asked.borrow().iter().all(|k| !k.starts_with("container:")));
     }
 
     #[test]
