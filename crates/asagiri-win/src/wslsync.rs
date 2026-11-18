@@ -237,7 +237,9 @@ mod tests {
     fn a_failed_step_fails_the_script() {
         let (from, root, path) = stand_in("fail");
         let tools = path.split(':').next().unwrap();
-        std::fs::write(format!("{tools}/base64"), "#!/bin/sh\nexit 1\n").unwrap();
+        // Consume the encoded script before rejecting it, so the producer
+        // cannot add a timing-dependent broken-pipe diagnostic on macOS.
+        std::fs::write(format!("{tools}/base64"), "#!/bin/sh\ncat >/dev/null\nexit 1\n").unwrap();
         std::fs::set_permissions(format!("{tools}/base64"), std::fs::Permissions::from_mode(0o755)).unwrap();
         let out = Command::new("sh").args(["-c", &sync_script(&from, &root.to_string_lossy(), true)]).env("PATH", &path).output().unwrap();
         assert_eq!(out.status.code(), Some(1));
