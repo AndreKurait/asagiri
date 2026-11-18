@@ -1267,12 +1267,13 @@ const MAC_ROOT: &str = "/mnt/mac";
 const MAC_ROOT: &str = "";
 
 /// Bind sources under these come from the Mac (Docker Desktop's default file
-/// shares, plus /opt and /usr/local for workspace and Homebrew paths;
+/// shares, plus /opt and /usr/local for workspace and Homebrew paths and
+/// the system timezone databases for /etc/localtime links;
 /// /tmp and /var/folders are the Mac's links into /private). Any
 /// other path is the VM's own, as on Docker Desktop and OrbStack: kind's
 /// `-v /lib/modules:/lib/modules:ro` must not try to make /lib/modules on
 /// the Mac's read-only root.
-const MAC_SHARES: &[&str] = &["/Users", "/Volumes", "/private", "/tmp", "/var/folders", "/opt", "/usr/local"];
+const MAC_SHARES: &[&str] = &["/Users", "/Volumes", "/private", "/tmp", "/var/folders", "/opt", "/usr/local", "/usr/share/zoneinfo", "/usr/share/zoneinfo.default"];
 
 fn mac_shared(src: &str) -> bool {
     MAC_SHARES.iter().any(|s| src.strip_prefix(s).is_some_and(|rest| rest.is_empty() || rest.starts_with('/')))
@@ -4188,10 +4189,10 @@ mod tests {
 
     #[test]
     fn mac_shares_and_vm_paths() {
-        for p in ["/Users", "/Users/me/src", "/Volumes/ext", "/private/tmp/x", "/private/etc/hosts", "/tmp", "/tmp/kind", "/var/folders/ab/T", "/opt", "/opt/homebrew", "/opt/workspaces/app", "/usr/local", "/usr/local/src/app"] {
+        for p in ["/Users", "/Users/me/src", "/Volumes/ext", "/private/tmp/x", "/private/etc/hosts", "/tmp", "/tmp/kind", "/var/folders/ab/T", "/opt", "/opt/homebrew", "/opt/workspaces/app", "/usr/local", "/usr/local/src/app", "/usr/share/zoneinfo", "/usr/share/zoneinfo/Europe/Paris", "/usr/share/zoneinfo.default", "/usr/share/zoneinfo.default/UTC"] {
             assert!(mac_shared(p), "{p} should come from the Mac");
         }
-        for p in ["/lib/modules", "/etc/hostname", "/var/lib/x", "/var", "/run/foo", "/Users2", "/tmpx", "/privatefoo", "/var/folders2", "/optical", "/usr/locality", "/usr", "/"] {
+        for p in ["/lib/modules", "/etc/hostname", "/var/lib/x", "/var", "/run/foo", "/Users2", "/tmpx", "/privatefoo", "/var/folders2", "/optical", "/usr/locality", "/usr", "/usr/share", "/usr/share/zoneinfo-other", "/usr/share/zoneinfo.default-other", "/usr/share/zoneinfo.defaultx", "/"] {
             assert!(!mac_shared(p), "{p} should be the VM's");
         }
     }
@@ -4206,7 +4207,8 @@ mod tests {
         assert_eq!(guest_bind_source("/etc/hosts"), "/mnt/mac/private/etc/hosts");
         // /etc/localtime links to an absolute path, which the guest could not follow.
         let tz = mac_source("/etc/localtime").expect("the Mac has a time zone");
-        assert!(tz.starts_with("/private/var/db/timezone/"), "{tz}");
+        assert_eq!(Some(tz.as_str()), std::fs::canonicalize("/etc/localtime").unwrap().to_str());
+        assert_eq!(guest_bind_source("/etc/localtime"), format!("/mnt/mac{tz}"));
         assert_eq!(mac_source("/private/etc/localtime").as_deref(), Some(tz.as_str()));
         // What the Mac lacks, and paths outside the shares, stay the VM's.
         for p in ["/etc/fstab", "/etc/asagiri-no-such-file", "/lib/modules", "/var/lib/docker", "/var/run", "/etcetera"] {
@@ -4222,6 +4224,29 @@ mod tests {
         let real = std::fs::canonicalize(dir.join("real")).unwrap();
         assert_eq!(mac_source(dir.join("link").to_str().unwrap()).as_deref(), real.to_str());
         assert_eq!(mac_source("/tmp/asagiri-no-such-path").as_deref(), Some("/tmp/asagiri-no-such-path"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The active database can resolve into /private, while macOS's fallback
+    /// database stays under /usr/share. Both are real host files.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_system_timezone_sources_follow_the_host_database() {
+        let dir = std::env::temp_dir().join(format!("asagiri-system-zone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, source) in [("active", "/usr/share/zoneinfo/UTC"), ("default", "/usr/share/zoneinfo.default/UTC")] {
+            let real = std::fs::canonicalize(source).unwrap();
+            let link = dir.join(name);
+            std::os::unix::fs::symlink(source, &link).unwrap();
+            let link = link.to_str().unwrap();
+            assert_eq!(mac_source(link).as_deref(), real.to_str(), "{source}");
+            assert_eq!(guest_bind_source(link), format!("/mnt/mac{}", real.display()), "{source}");
+        }
+        for source in ["/usr/share/zoneinfo/UTC", "/usr/share/zoneinfo.default/UTC"] {
+            let real = std::fs::canonicalize(source).unwrap();
+            assert_eq!(mac_source(source).as_deref(), real.to_str(), "{source}");
+            assert_eq!(guest_bind_source(source), format!("/mnt/mac{}", real.display()), "{source}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

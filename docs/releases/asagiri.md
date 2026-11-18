@@ -14,6 +14,8 @@ The 0.1.14 changes include:
   remove retained container data. Quiet published TCP connections remain
   open, relay failures close both directions, and non-regular file reads
   cannot block the guest agent while opening a FIFO or device.
+- Mac bind sources follow timezone links into the system database as well
+  as the private database, including `/usr/share/zoneinfo.default`.
 - An empty entrypoint override clears the image entrypoint, and creates
   without a command fail before making mounts. Endpoint-only network
   requests select their requested network, network ID filters accept
