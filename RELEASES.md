@@ -8,7 +8,7 @@ Asagiri release notes are in `docs/releases/asagiri.md`.
 ## Automatic prereleases
 
 Every main build whose Platform builds, UI tests, Security, Speed,
-and CodeQL workflows succeed can publish one immutable prerelease. All gates
+CodeQL and Engine comparison workflows succeed can publish one immutable prerelease. All gates
 must refer to the exact source commit. Forks, PR runs, other branches, failed
 checks, and missing checks cannot publish.
 
@@ -64,6 +64,12 @@ The SLSA provenance records both the package source commit and the workflow
 commit, including when main advances while an earlier checked build is packaging.
 It also records GitHub's repository and owner IDs and requires a GitHub-hosted
 runner, as required by GitHub's workflow provenance format.
+Package provenance identifies the producing workflow run and the attempt at
+which its complete artifact set was selected. That set can include successful
+jobs retained from earlier attempts; it does not attribute every package to
+one build attempt. Recovery from another run retains the verified selection
+attempt from that run. The publisher's own invocation identifies its exact
+run and attempt separately.
 
 ## Stable releases
 

@@ -334,6 +334,18 @@ def provenance(repo, commit, version, env):
         raise ValueError("GitHub provenance requires repository and owner IDs")
     if runner != "github-hosted":
         raise ValueError("Release provenance requires a GitHub-hosted runner")
+    publication_run = env["GITHUB_RUN_ID"]
+    publication_attempt = env["GITHUB_RUN_ATTEMPT"]
+    package_run = env.get("ASAGIRI_PACKAGE_RUN_ID", publication_run)
+    # A partial rerun retains successful packages and the plan job's old
+    # outputs. The selected set can therefore span several build attempts.
+    # Identify the producing run, and separately record when its complete
+    # artifact set was selected. A recovered run keeps its verified attempt.
+    package_attempt = (publication_attempt if package_run == publication_run
+                       else env.get("ASAGIRI_PACKAGE_RUN_ATTEMPT", ""))
+    if not all(isinstance(value, str) and re.fullmatch(r"[1-9]\d*", value)
+               for value in (publication_run, publication_attempt, package_run, package_attempt)):
+        raise ValueError("Release provenance requires positive run and selection attempt IDs")
     return {
         "buildDefinition": {
             "buildType": "https://actions.github.io/buildtypes/workflow/v1",
@@ -357,15 +369,14 @@ def provenance(repo, commit, version, env):
                 {"uri": f"git+{server}/{repo}@{commit}", "digest": {"gitCommit": commit},
                  "annotations": {
                      "role": "package source",
-                     "buildInvocation": f"{server}/{repo}/actions/runs/"
-                         f"{env.get('ASAGIRI_PACKAGE_RUN_ID', env['GITHUB_RUN_ID'])}/attempts/"
-                         f"{env.get('ASAGIRI_PACKAGE_RUN_ATTEMPT', env['GITHUB_RUN_ATTEMPT'])}",
+                      "buildInvocation": f"{server}/{repo}/actions/runs/{package_run}",
+                      "artifactSelectionAttempt": package_attempt,
                  }},
             ],
         },
         "runDetails": {
             "builder": {"id": f"{server}/{workflow_ref}"},
-            "metadata": {"invocationId": f"{server}/{repo}/actions/runs/{env['GITHUB_RUN_ID']}/attempts/{env['GITHUB_RUN_ATTEMPT']}"},
+            "metadata": {"invocationId": f"{server}/{repo}/actions/runs/{publication_run}/attempts/{publication_attempt}"},
         },
     }
 

@@ -652,7 +652,7 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           COMMIT: ${{ needs.plan.outputs.commit }}
           ASAGIRI_PACKAGE_RUN_ID: ${{ needs.plan.outputs.artifact_run || github.run_id }}
-          ASAGIRI_PACKAGE_RUN_ATTEMPT: ${{ needs.plan.outputs.artifact_attempt }}
+          ASAGIRI_PACKAGE_RUN_ATTEMPT: ${{ needs.plan.outputs.artifact_run != '' && needs.plan.outputs.artifact_attempt || github.run_attempt }}
         run: python3 scripts/ci/release.py collect dist "$VERSION" "$COMMIT" --source-root release-source
       - name: Attest the release artifacts
         id: provenance
