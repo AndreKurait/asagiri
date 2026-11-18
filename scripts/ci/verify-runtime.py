@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 import importlib.util
 import json
 from pathlib import Path
-import shutil
-import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = {
     "health-transition": {
         "source": "crates/asagiri/src/daemon/health_transition.rs",
         "signature": "pub(super) fn after_probe(success: bool, starting: bool, in_start_period: bool, failures: u32, retries: u32) -> (u32, Option<bool>) {",
+        "negative_diagnostics": ("postcondition not satisfied", "possible arithmetic underflow/overflow"),
         "mutants": {
             "overflow-streak": ("failures == u32::MAX", "false"),
             "skip-failure": ("failures + 1", "failures"),
@@ -59,24 +58,30 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     tools = support()
+    checkout_before = tools.source_state()
     pin = json.loads((ROOT / "scripts/ci/verus.json").read_text())
     record = {
         "schema": "asagiri.runtime-proof.v1",
         "started_at": datetime.now(timezone.utc).isoformat(),
-        "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "worktree_clean": not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip(),
+        **checkout_before,
         "verus": pin["version"], "verus_commit": pin["commit"],
         "no_cheating": True, "contracts": {}, "status": "running",
     }
     extracted = None
     try:
+        inputs = {
+            name: ((ROOT / contract["source"]).read_text(), (ROOT / ("proofs/" + name + ".rs")).read_text())
+            for name, contract in CONTRACTS.items()
+        }
+        record["source_state_after_read"] = tools.source_state()
+        if record["source_state_after_read"] != checkout_before:
+            raise ValueError("Checkout changed while reading proof inputs")
         extracted, binary, asset = tools.install_verus(args.cache, pin)
         record["verus_archive"] = asset
         for name, contract in CONTRACTS.items():
             folder = args.output / name
             folder.mkdir()
-            source = (ROOT / contract["source"]).read_text()
-            template = (ROOT / ("proofs/" + name + ".rs")).read_text()
+            source, template = inputs[name]
             body = executable(source, contract["signature"])
             generated = folder / "production.rs"
             generated.write_text(render(source, contract["signature"], template))
@@ -101,18 +106,18 @@ def main():
                 mutant.write_text(render(source.replace(before, after), contract["signature"], template))
                 rc, verified = tools.verify(binary, mutant, folder / mutation, pin)
                 result["negative_controls"][mutation] = verified
-                if rc == 0 or verified["success"] or verified["errors"] < 1 or verified["encountered-vir-error"]:
+                if not tools.rejected_by_proof(rc, verified, contract["negative_diagnostics"]):
                     raise ValueError("Broken production variant was not rejected by the prover: " + mutation)
+        record["source_state_after_proof"] = tools.source_state()
+        if record["source_state_after_proof"] != checkout_before:
+            raise ValueError("Checkout changed during proof verification")
         record["status"] = "passed"
     except BaseException as error:
         record["status"] = "failed"
         record["error"] = type(error).__name__ + ": " + str(error)
         raise
     finally:
-        if extracted is not None:
-            shutil.rmtree(extracted)
-        record["completed_at"] = datetime.now(timezone.utc).isoformat()
-        (args.output / "verification.json").write_text(json.dumps(record, indent=2) + "\n")
+        tools.finish_record(record, args.output, extracted)
     print(json.dumps(record, indent=2))
 
 

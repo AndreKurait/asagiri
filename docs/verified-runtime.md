@@ -15,7 +15,7 @@ count and retry threshold, Verus proves:
   container is starting.
 - Every other failure increments the count, saturating at `u32::MAX`.
 - A counted failure makes the container unhealthy exactly when the resulting
-  count reaches the retry threshold; otherwise it preserves the status.
+  count is at least the retry threshold; otherwise it preserves the status.
 - Failure never decreases the count.
 
 The production regression calls `Health::record` at the maximum count, crosses
@@ -42,7 +42,10 @@ Concrete calls establish non-vacuous boundary cases. Six deliberately broken
 health implementations must fail the prover: an overflowing counter, an
 uncounted failure, a late retry threshold, a success that retains its count,
 an overly broad grace period and a failure reported as healthy. Compilation
-failure alone does not satisfy a negative control.
+failure or solver resource exhaustion does not satisfy a negative control.
+The runner requires the expected proof diagnostic and clears environment
+overrides for Verus's libraries and solvers. Cleanup failures are recorded
+without replacing an earlier proof failure.
 
 Rust, Verus, the solver and Verus's standard-library specifications are trusted
 components. The caller's Boolean inputs are not claims about real elapsed time

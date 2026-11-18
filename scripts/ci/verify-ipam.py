@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -106,8 +107,8 @@ def install_verus(cache, pin):
 def verify(binary, file, out, pin):
     command = [str(binary), str(file), "--no-cheating", "--output-json", "--num-threads", "2"]
     env = dict(os.environ, RUSTUP_TOOLCHAIN=pin["rust"])
-    env.pop("VERUS_Z3_PATH", None)
-    env.pop("VERUS_CVC5_PATH", None)
+    for name in ("VERUS_Z3_PATH", "VERUS_CVC5_PATH", "VERUS_ROOT", "VARGO_TARGET_DIR"):
+        env.pop(name, None)
     result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=120)
     out.with_suffix(".stdout.json").write_text(result.stdout)
     out.with_suffix(".stderr.txt").write_text(result.stderr)
@@ -115,7 +116,48 @@ def verify(binary, file, out, pin):
     if parsed["verus"]["version"] != pin["version"] or parsed["verus"]["commit"] != pin["commit"]:
         raise ValueError("Unexpected Verus version or source commit")
     verification = parsed["verification-results"]
+    verification["error_diagnostics"] = [
+        message for message in re.findall(r"^error: (.+)$", result.stderr, re.MULTILINE)
+        if not message.startswith("aborting due to ")
+    ]
     return result.returncode, verification
+
+
+def rejected_by_proof(returncode, result, expected):
+    """A compile error or exhausted solver budget is not a negative control."""
+    diagnostics = result.get("error_diagnostics", [])
+    return (
+        returncode != 0 and not result["success"] and result["errors"] > 0
+        and not result["encountered-vir-error"] and bool(diagnostics)
+        and all(message in expected for message in diagnostics)
+    )
+
+
+def source_state():
+    status = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)
+    return {
+        "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "worktree_clean": not status.strip(),
+        "worktree_status_sha256": sha256(status),
+    }
+
+
+def finish_record(record, output, extracted):
+    """Cleanup must never mask a proof failure or prevent its manifest."""
+    cleanup_error = None
+    try:
+        if extracted is not None:
+            shutil.rmtree(extracted)
+    except OSError as error:
+        cleanup_error = error
+        record["cleanup_error"] = type(error).__name__ + ": " + str(error)
+    already_failed = record["status"] == "failed"
+    if cleanup_error is not None:
+        record["status"] = "failed"
+    record["completed_at"] = datetime.now(timezone.utc).isoformat()
+    (output / "verification.json").write_text(json.dumps(record, indent=2) + "\n")
+    if cleanup_error is not None and not already_failed:
+        raise cleanup_error
 
 
 def main():
@@ -162,7 +204,13 @@ def main():
             mutant.write_text(render(source.replace(old, new), template, invariant))
             rc, result = verify(binary, mutant, args.output / name, pin)
             record["negative_controls"][name] = result
-            if rc == 0 or result["success"] or result["errors"] < 1 or result["encountered-vir-error"]:
+            if not rejected_by_proof(rc, result, (
+                "postcondition not satisfied",
+                "possible arithmetic underflow/overflow",
+                "invariant not satisfied before loop",
+                "invariant not satisfied at end of loop body",
+                "assertion failed",
+            )):
                 raise ValueError("Negative control was not rejected by the prover: " + name)
         record["status"] = "passed"
     except BaseException as error:
@@ -170,10 +218,7 @@ def main():
         record["error"] = type(error).__name__ + ": " + str(error)
         raise
     finally:
-        if extracted is not None:
-            shutil.rmtree(extracted)
-        record["completed_at"] = datetime.now(timezone.utc).isoformat()
-        (args.output / "verification.json").write_text(json.dumps(record, indent=2) + "\n")
+        finish_record(record, args.output, extracted)
     print(json.dumps(record, indent=2))
 
 

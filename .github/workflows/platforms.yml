@@ -39,7 +39,9 @@ jobs:
       - name: Install the pinned Rust toolchain for formal verification
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
       - name: Verify IPAM contracts and prover negative controls
-        run: python3 scripts/ci/verify-ipam.py --cache "$RUNNER_TEMP/verus-cache" --output "$RUNNER_TEMP/ipam-proof"
+        run: |
+          python3 scripts/ci/test-proof-runner.py
+          python3 scripts/ci/verify-ipam.py --cache "$RUNNER_TEMP/verus-cache" --output "$RUNNER_TEMP/ipam-proof"
       - name: Verify runtime contracts and prover negative controls
         run: python3 scripts/ci/verify-runtime.py --cache "$RUNNER_TEMP/verus-cache" --output "$RUNNER_TEMP/runtime-proof"
       - name: Preserve runtime proofs and rejected production variants
