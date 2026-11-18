@@ -1689,6 +1689,22 @@ fn strings(v: &Value) -> Option<Vec<String>> {
     }
 }
 
+/// Choose the first resolved endpoint when NetworkMode is empty or default.
+/// An explicitly listed bridge keeps bridge primary. Unknown endpoints are
+/// still rejected by create; JSON map keys make the choice deterministic.
+fn endpoints_primary<'a>(keys: impl Iterator<Item = &'a str>, resolve: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let mut primary = None;
+    for name in keys.filter(|key| !key.starts_with("container:")).filter_map(resolve) {
+        if name == "bridge" {
+            return None;
+        }
+        if primary.is_none() {
+            primary = Some(name);
+        }
+    }
+    primary
+}
+
 /// cgroup limits from a HostConfig (create) or an update body, on top of `base`.
 /// Capability names as Docker writes them (`NET_ADMIN`, `CAP_NET_ADMIN`, `ALL`).
 const CAPS: [&str; 41] = [
@@ -1984,7 +2000,9 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     limits.validate()?;
     let restart = restart_policy(&host["RestartPolicy"], host["AutoRemove"].as_bool().unwrap_or(false))?;
     let network_mode = match host["NetworkMode"].as_str().unwrap_or("default") {
-        "" | "default" => "bridge".to_owned(),
+        "" | "default" => body["NetworkingConfig"]["EndpointsConfig"].as_object()
+            .and_then(|eps| endpoints_primary(eps.keys().map(String::as_str), |key| engine.lock_net().find(key).map(|n| n.name.clone())))
+            .unwrap_or_else(|| "bridge".to_owned()),
         m => m.to_owned(),
     };
     let network = match network_mode.strip_prefix("container:") {
@@ -1995,7 +2013,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         return Err(Error::NotFound(format!("network {network_mode} not found")));
     };
     // One endpoint per network (API 1.44+ allows several at create, which
-    // Compose uses); the one named by NetworkMode is the primary.
+    // Compose uses); NetworkMode or the endpoints above pick the primary.
     let mut aliases = Vec::new();
     let mut extra_networks = Vec::new();
     // `--ip`, `--mac-address` (Config.MacAddress before API 1.44).
@@ -4000,6 +4018,40 @@ mod tests {
         assert_eq!(command(Some(s(&["", "x"])), None, &ie, &ic), (s(&["", "x"]), vec![]));
         // The string form means the same as the one-element array.
         assert_eq!(command(strings(&json!("")), Some(s(&["sh", "-c", "x"])), &ie, &ic), (vec![], s(&["sh", "-c", "x"])));
+    }
+
+    #[test]
+    fn endpoints_alone_choose_the_primary_network() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let resolve = |key: &str| {
+            asked.borrow_mut().push(key.to_owned());
+            match key {
+                "a" | "b" | "n" | "bridge" => Some(key.to_owned()),
+                "0123abc" => Some("n".to_owned()),
+                "4567def" => Some("bridge".to_owned()),
+                _ => None,
+            }
+        };
+        let cases: &[(&[&str], Option<&str>)] = &[
+            (&[], None),
+            (&["n"], Some("n")),
+            (&["0123abc"], Some("n")),
+            (&["a", "b"], Some("a")),
+            (&["bridge"], None),
+            (&["n", "bridge"], None),
+            (&["bridge", "n"], None),
+            (&["4567def"], None),
+            (&["n", "4567def"], None),
+            (&["container:x"], None),
+            (&["container:x", "n"], Some("n")),
+            (&["n", "container:x"], Some("n")),
+            (&["missing"], None),
+            (&["missing", "n"], Some("n")),
+        ];
+        for (keys, expected) in cases {
+            assert_eq!(endpoints_primary(keys.iter().copied(), resolve).as_deref(), *expected, "{keys:?}");
+        }
+        assert!(asked.borrow().iter().all(|k| !k.starts_with("container:")));
     }
 
     #[test]
