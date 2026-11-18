@@ -46,6 +46,7 @@ python3 "$src/tests/network-dns-order.py" /var/run/docker.sock alpine:3.21 --ref
 python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/top-arguments.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+python3 "$src/tests/api-compatibility.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 compose_evidence=$(python3 "$src/scripts/ci/compose-health-client.py" "${bin}-health-compose") || exit 2
 python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
   --output "$compose_evidence/health-docker.json" || exit 2
@@ -79,7 +80,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|healthchecks|compose-health)
+    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|api-compatibility|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -120,6 +121,7 @@ run image-remove alpine:3.21
 run image-order
 run container-ancestor
 run top-arguments alpine:3.21
+run api-compatibility alpine:3.21
 run image-label-inheritance
 run many-layers alpine:3.21
 run image-inspect-healthcheck
