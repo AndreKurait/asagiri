@@ -201,10 +201,23 @@ def check(args):
         hosts = execute(cid, "cat", "/etc/hosts")
         matches = [line.split()[0] for line in hosts.splitlines()
                    if "host.docker.internal" in line.split("#", 1)[0].split()[1:]]
-        assert matches and matches[0] == "203.0.113.19", hosts
+        assert matches == ["203.0.113.19"], hosts
         resolved = execute(cid, "getent", "hosts", "host.docker.internal").splitlines()
-        assert resolved and resolved[0].split()[0] == "203.0.113.19", resolved
-        passed("explicit host.docker.internal overrides precede built-in aliases")
+        assert resolved and {line.split()[0] for line in resolved} == {"203.0.113.19"}, resolved
+        passed("explicit host.docker.internal overrides have no built-in fallback")
+
+        cid = container("host-override-ipv6", {
+            "Entrypoint": [], "Cmd": ["sleep", "120"], "HostConfig": {
+                "NetworkMode": "none", "ExtraHosts": ["HOST.DOCKER.INTERNAL:2001:db8::19"],
+            },
+        })["Id"]
+        start(cid)
+        hosts = execute(cid, "cat", "/etc/hosts")
+        matches = [line.split()[0] for line in hosts.splitlines()
+                   if "host.docker.internal" in
+                   [name.lower() for name in line.split("#", 1)[0].split()[1:]]]
+        assert matches == ["2001:db8::19"], hosts
+        passed("uppercase IPv6 host overrides have no built-in IPv4 fallback")
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=str(error))

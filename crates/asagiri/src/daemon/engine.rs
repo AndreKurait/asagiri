@@ -2346,13 +2346,7 @@ impl Engine {
             flags |= run_flags::INIT;
         }
         flags |= spec.security_flags();
-        // Every container can reach the Mac, as with Docker Desktop and OrbStack.
-        // --add-host and links come first: /etc/hosts takes the first match,
-        // so `--add-host host.docker.internal:IP` overrides Asagiri's, as on Docker.
-        let mut hosts = spec.extra_hosts.clone();
-        hosts.extend(links);
-        hosts.push(format!("{}\thost.docker.internal host.asagiri.internal", super::ports::HOST_ADDR));
-        hosts.push(format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR));
+        let hosts = hosts_lines(&spec.extra_hosts, links);
         let mut opts = net_opts(&spec, joined.as_deref(), &domainname);
         opts.extend(net6_opts);
         let net_args = asagiri_proto::Net { bridge: &bridge, ip, prefix, gateway, extra_hosts: &hosts, dns_names: &dns_names, opts: &opts };
@@ -3853,6 +3847,100 @@ fn take_ifnum(taken: &mut Vec<(String, u32)>, network: &str) -> u32 {
 /// network may have joined again, under another number, since.
 fn drop_ifnum(taken: &mut Vec<(String, u32)>, network: &str, n: u32) {
     taken.retain(|(x, t)| !(x == network && *t == n));
+}
+
+/// Keep explicit host mappings and links in order. A mapped host name must
+/// not also resolve to a built-in address, including with different casing.
+fn hosts_lines(extra: &[String], links: Vec<String>) -> Vec<String> {
+    let mut hosts = extra.to_vec();
+    hosts.extend(links);
+    let mapped = |name: &str| hosts.iter().any(|line| line.split_whitespace().skip(1).any(|alias| alias.eq_ignore_ascii_case(name)));
+    let docker = !mapped("host.docker.internal");
+    let asagiri = !mapped("host.asagiri.internal");
+    let gateway = !mapped("gateway.docker.internal");
+    let names = match (docker, asagiri) {
+        (true, true) => Some("host.docker.internal host.asagiri.internal"),
+        (true, false) => Some("host.docker.internal"),
+        (false, true) => Some("host.asagiri.internal"),
+        (false, false) => None,
+    };
+    if let Some(names) = names {
+        hosts.push(format!("{}\t{names}", super::ports::HOST_ADDR));
+    }
+    if gateway {
+        hosts.push(format!("{}\tgateway.docker.internal", super::ports::HOST_ADDR));
+    }
+    hosts
+}
+
+#[cfg(test)]
+mod hosts_tests {
+    use super::hosts_lines;
+
+    fn lines(input: &[&str]) -> Vec<String> {
+        input.iter().map(|line| (*line).to_owned()).collect()
+    }
+
+    fn addresses<'a>(hosts: &'a [String], name: &str) -> Vec<&'a str> {
+        hosts.iter().filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let address = fields.next()?;
+            fields.any(|alias| alias.eq_ignore_ascii_case(name)).then_some(address)
+        }).collect()
+    }
+
+    #[test]
+    fn defaults_and_unrelated_mappings_keep_their_order() {
+        let hosts = hosts_lines(&lines(&["203.0.113.1\tcustom"]), lines(&["203.0.113.2\tpeer"]));
+        assert_eq!(&hosts[..2], &lines(&["203.0.113.1\tcustom", "203.0.113.2\tpeer"]));
+        for name in ["host.docker.internal", "host.asagiri.internal", "gateway.docker.internal"] {
+            assert_eq!(addresses(&hosts, name), [super::super::ports::HOST_ADDR]);
+        }
+        assert_eq!(hosts.len(), 4);
+        assert_eq!(hosts_lines(&[], Vec::new()), hosts[2..]);
+    }
+
+    #[test]
+    fn an_ipv4_override_keeps_the_other_default_aliases() {
+        let hosts = hosts_lines(&lines(&["203.0.113.19\thost.docker.internal"]), Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.19"]);
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), [super::super::ports::HOST_ADDR]);
+        assert_eq!(addresses(&hosts, "gateway.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn uppercase_ipv6_overrides_do_not_get_an_ipv4_fallback() {
+        let hosts = hosts_lines(&lines(&["2001:db8::19\tHOST.DOCKER.INTERNAL"]), Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["2001:db8::19"]);
+    }
+
+    #[test]
+    fn explicit_aliases_can_replace_every_builtin() {
+        let extra = lines(&["203.0.113.19 host.docker.internal HOST.ASAGIRI.INTERNAL", "203.0.113.20\tgateway.docker.internal"]);
+        assert_eq!(hosts_lines(&extra, Vec::new()), extra);
+    }
+
+    #[test]
+    fn repeated_user_addresses_are_preserved_without_an_extra_fallback() {
+        let extra = lines(&["203.0.113.19\thost.docker.internal", "203.0.113.20\thost.docker.internal"]);
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(&hosts[..2], &extra);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), ["203.0.113.19", "203.0.113.20"]);
+    }
+
+    #[test]
+    fn links_can_override_a_builtin_alias() {
+        let hosts = hosts_lines(&[], lines(&["203.0.113.21\tpeer host.asagiri.internal"]));
+        assert_eq!(addresses(&hosts, "host.asagiri.internal"), ["203.0.113.21"]);
+        assert_eq!(addresses(&hosts, "host.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
+
+    #[test]
+    fn an_expanded_host_gateway_is_not_duplicated() {
+        let extra = vec![format!("{}\thost.docker.internal", super::super::ports::HOST_ADDR)];
+        let hosts = hosts_lines(&extra, Vec::new());
+        assert_eq!(addresses(&hosts, "host.docker.internal"), [super::super::ports::HOST_ADDR]);
+    }
 }
 
 /// A Docker event in Asagiri's log: containers and images coming and going,
