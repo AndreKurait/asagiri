@@ -183,17 +183,13 @@ impl Health {
         }
         let ok = probe.exit_code == 0;
         self.log.push_back(probe);
-        if ok {
-            self.failing_streak = 0;
-            self.status = HEALTHY.into();
-            return;
-        }
-        if self.status == STARTING && since_start < check.start_period() {
-            return;
-        }
-        self.failing_streak += 1;
-        if self.failing_streak >= check.retries() {
-            self.status = UNHEALTHY.into();
+        let (failures, healthy) = super::health_transition::after_probe(
+            ok, self.status == STARTING, since_start < check.start_period(),
+            self.failing_streak, check.retries(),
+        );
+        self.failing_streak = failures;
+        if let Some(healthy) = healthy {
+            self.status = if healthy { HEALTHY } else { UNHEALTHY }.into();
         }
     }
 
@@ -268,6 +264,33 @@ mod tests {
 
     fn probe(code: i64) -> Probe {
         Probe { start: String::new(), end: String::new(), exit_code: code, output: String::new() }
+    }
+
+    #[test]
+    fn failure_streak_saturates_and_a_success_still_recovers() {
+        let mut health = Health { status: UNHEALTHY.into(), failing_streak: u32::MAX - 1, ..Health::default() };
+        let check = Healthcheck { retries: i64::from(u32::MAX), ..Healthcheck::default() };
+        for _ in 0..3 {
+            health.record(probe(1), Duration::from_secs(1), &check);
+            assert_eq!(health.failing_streak, u32::MAX);
+            assert_eq!(health.status, UNHEALTHY);
+        }
+        health.record(probe(0), Duration::from_secs(1), &check);
+        assert_eq!(health.failing_streak, 0);
+        assert_eq!(health.status, HEALTHY);
+        assert_eq!(health.log.len(), 4);
+    }
+
+    #[test]
+    fn start_period_failure_preserves_even_a_maximum_streak() {
+        let mut health = Health { failing_streak: u32::MAX, ..Health::default() };
+        let check = Healthcheck { start_period: 2_000_000_000, ..Healthcheck::default() };
+        health.record(probe(1), Duration::from_secs(1), &check);
+        assert_eq!(health.failing_streak, u32::MAX);
+        assert_eq!(health.status, STARTING);
+        health.record(probe(1), Duration::from_secs(2), &check);
+        assert_eq!(health.failing_streak, u32::MAX);
+        assert_eq!(health.status, UNHEALTHY);
     }
 
     #[test]

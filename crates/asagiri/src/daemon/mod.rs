@@ -19,6 +19,7 @@ mod domains;
 mod engine;
 mod filters;
 mod health;
+mod health_transition;
 mod hostetc;
 mod hostopts;
 mod mirror;
