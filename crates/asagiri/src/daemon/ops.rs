@@ -139,12 +139,9 @@ fn stats(req: &Request, engine: &Engine, key: &str, w: &mut UnixStream) -> io::R
 }
 
 fn top(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
-    if !matches!(req.query("ps_args"), None | Some("" | "-ef")) {
-        return Err(Error::BadRequest("unsupported ps_args: Asagiri top supports only the default -ef columns".into()));
-    }
-    let lines = engine.top(key)?;
-    let procs: Vec<Vec<&str>> = lines.iter().map(|l| l.splitn(8, '\t').collect()).collect();
-    Ok(json!({"Titles": ["UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"], "Processes": procs}))
+    let args = req.query("ps_args").unwrap_or_default();
+    super::top::check(args)?;
+    super::top::answer(args, &engine.top(key)?)
 }
 
 fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
