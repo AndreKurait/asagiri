@@ -48,6 +48,13 @@ def check(path, reference_docker=False):
         return subprocess.run(['docker', '-H', 'unix://' + path, 'image', 'inspect', name],
                               capture_output=True, timeout=15)
 
+    def published(name):
+        result = inspect(name)
+        if result.returncode == 0:
+            return True
+        assert b'No such image' in result.stderr, (name, result.stderr)
+        return False
+
     try:
         for chunked in (() if reference_docker else (False, True)):
             name, data = archive()
@@ -57,7 +64,7 @@ def check(path, reference_docker=False):
                 stream.shutdown(socket.SHUT_WR)  # Missing declared padding or terminal chunk.
                 status, body = response(stream)
                 assert status == 400, (chunked, status, body)
-                assert inspect(name).returncode != 0, 'Incomplete HTTP upload published an image'
+                assert not published(name), 'Incomplete HTTP upload published an image'
             print('PASS truncated ' + ('chunked' if chunked else 'content-length') + ' load publishes no image')
         if not reference_docker:
             name, data = archive()
@@ -66,11 +73,11 @@ def check(path, reference_docker=False):
                 stream.sendall(data)
                 # Protocol check: no success response while advertised bytes remain unsent.
                 assert not select.select([stream], [], [], 0.2)[0], 'Load replied before the whole body arrived'
-                assert inspect(name).returncode != 0, 'Load published before the whole body arrived'
+                assert not published(name), 'Load published before the whole body arrived'
                 stream.sendall(padding)
                 status, body = response(stream)
                 assert status == 200, (status, body)
-                assert inspect(name).returncode == 0
+                assert published(name)
             print('PASS padded load waits for full body, then publishes image')
         for case, encode, expected in (
             ('plain tar', lambda data: data, 200),
@@ -87,11 +94,11 @@ def check(path, reference_docker=False):
                 stream.sendall(payload)
                 status, body = response(stream)
             if reference_docker:
-                published = inspect(name).returncode == 0
-                print('Docker reference:', case, 'HTTP', status, 'published:', published, 'response:', body)
+                visible = published(name)
+                print('Docker reference:', case, 'HTTP', status, 'published:', visible, 'response:', body)
                 continue
             assert status == expected, (case, status, body)
-            assert (inspect(name).returncode == 0) == (expected == 200), case
+            assert published(name) == (expected == 200), case
             print('PASS', case, 'load publication matches response status')
     finally:
         for name in names:
