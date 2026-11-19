@@ -1768,6 +1768,9 @@ impl Engine {
                     .map(|c| restart_backoff(c.restart_count.saturating_sub(1))).max();
                 st.vm_recovery_at = delay.map(|delay| std::time::Instant::now() + delay);
                 for e in st.execs.values_mut() {
+                    if e.running {
+                        e.exit_code = Some(255);
+                    }
                     e.running = false;
                     e.attached.clear();
                 }
