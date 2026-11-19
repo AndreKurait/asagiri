@@ -1661,6 +1661,12 @@ fn ports_map(c: &Container) -> Value {
             }
         }
     }
+    let mode = c.spec.network_mode.as_str();
+    if c.status == Status::Running && !matches!(mode, "host" | "none") && !mode.starts_with("container:") {
+        for (port, _) in inspect_exposed_ports(&c.spec) {
+            m.entry(port).or_insert(Value::Null);
+        }
+    }
     Value::Object(m)
 }
 
