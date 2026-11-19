@@ -173,6 +173,9 @@ fn descriptor_blob(files: &HashMap<String, (String, u64)>, descriptor: &Value) -
     if actual != digest {
         return Err(invalid(format!("OCI blob {digest} is damaged: its bytes hash to {actual}")));
     }
+    if descriptor["size"].as_u64() != Some(size) {
+        return Err(invalid(format!("OCI blob {digest} has an incorrect descriptor size")));
+    }
     Ok((actual, size))
 }
 
