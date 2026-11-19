@@ -39,7 +39,7 @@ CONTRACTS = {
     "http-number": {
         "source": "crates/asagiri/src/daemon/http_number.rs",
         "signature": "pub(super) fn parse_number(bytes: &[u8], hex: bool) -> Option<u64> {",
-        "minimum_verified": 5,
+        "minimum_verified": 7,
         "negative_diagnostics": (
             "postcondition not satisfied", "invariant not satisfied before loop",
             "invariant not satisfied at end of loop body", "assertion failed",
