@@ -130,6 +130,7 @@ keep_health_result /tmp/health-asagiri.json health-asagiri.json
 run image-rootfs-digests alpine:3.21
 run layer-hardlinks
 run image-load-completion
+run oci-image-load
 run volume-owner alpine:3.21
 run volume-labels alpine:3.21
 run image-tag-retention alpine:3.21
