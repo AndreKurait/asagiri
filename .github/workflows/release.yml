@@ -94,6 +94,14 @@ jobs:
             ${{ runner.temp }}/cargo-target
             ${{ runner.temp }}/cargo-registry
           key: linux-musl-v2-${{ runner.arch }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '.cargo/config.toml', 'scripts/ci/images.json', 'scripts/ci/build-linux.sh') }}
+      - name: Restore GNU compiler dependencies and pinned AppImage downloads
+        id: appimage_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # Select the source's Platform cache before release stamping changes
+        # Cargo.toml and Cargo.lock. The builds still compile stamped packages.
+        with:
+          path: ${{ runner.temp }}/appimage-cache
+          key: appimage-native-v2-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'packaging/linux/appimage-build.json', 'packaging/linux/native-build.json') }}
       - name: Restore pinned CLI downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         # zizmor: ignore[cache-poisoning] release-only key; fetch scripts verify every download against committed SHA-256 pins
@@ -192,12 +200,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/maven
           key: ${{ steps.maven_cache.outputs.cache-primary-key }}
-      - name: Restore GNU compiler dependencies and pinned AppImage downloads
-        id: appimage_cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/appimage-cache
-          key: appimage-native-v2-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'packaging/linux/appimage-build.json', 'packaging/linux/native-build.json') }}
       - name: Build the native GNU engine and verify real NSS admission
         run: bash scripts/ci/build-linux-native.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/native-bin" "$RUNNER_TEMP/appimage-cache" tests
       - name: Preserve native GNU binaries and NSS evidence
