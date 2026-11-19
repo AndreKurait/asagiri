@@ -60,9 +60,12 @@ def check(path, image):
                 assert row['HostConfig'].get('PortBindings') == expected, (phase, row['HostConfig'].get('PortBindings'), expected)
                 exposed = row['Config'].get('ExposedPorts')
                 assert exposed == {'8080/tcp': {}, '5353/udp': {}, '9000/tcp': {}}, (phase, exposed)
+                ports = row['NetworkSettings']['Ports']
                 if phase != 'running':
+                    assert not ports, (phase, ports)
                     continue
-                actual = row['NetworkSettings']['Ports']['8080/tcp']
+                assert ports['5353/udp'] is None and ports['9000/tcp'] is None, ports
+                actual = ports['8080/tcp']
                 assert len(actual) == 1 and actual[0]['HostIp'] == '127.0.0.1', actual
                 port = int(actual[0]['HostPort'])
                 assert port > 0 and (requested == '0' or port == int(requested)), actual
