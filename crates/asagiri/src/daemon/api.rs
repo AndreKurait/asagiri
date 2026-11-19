@@ -739,7 +739,17 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
 
 /// `docker load`: store the archive and prepare its layers before reporting success.
 fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
-    let loaded = asagiri_image::archive::load(&engine.store, http::Body::new(req, r));
+    let platform = match req.query("platform").filter(|value| !value.is_empty()) {
+        Some(value) => match Platform::parse(value) {
+            Some(platform) => Some(platform),
+            None => {
+                error_with(w, Error::BadRequest(format!("invalid platform: {value}")), "Connection: close\r\n")?;
+                return Ok(Next::Close);
+            }
+        },
+        None => None,
+    };
+    let loaded = asagiri_image::archive::load_with_platform(&engine.store, http::Body::new(req, r), platform.as_ref());
     match loaded {
         Ok(images) => {
             http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
