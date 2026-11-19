@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Require full Docker load HTTP-body completion before an image is published."""
+import bz2
+import gzip
 import http.client
 import io
 import json
@@ -69,6 +71,21 @@ def check(path):
             assert status == 200, (status, body)
             assert inspect(name).returncode == 0
         print('PASS padded load waits for full body, then publishes image')
+        for case, encode, expected in (
+            ('gzip', gzip.compress, 200),
+            ('multiple gzip members', lambda data: gzip.compress(data[:777]) + gzip.compress(data[777:]), 200),
+            ('damaged gzip checksum', lambda data: gzip.compress(data)[:-8] + bytes(8), 400),
+            ('truncated gzip trailer', lambda data: gzip.compress(data)[:-3], 400),
+            ('unsupported bzip2', bz2.compress, 400),
+        ):
+            name, data = archive()
+            payload = encode(data)
+            with connect(b'Content-Length: ' + str(len(payload)).encode() + b'\r\n') as stream:
+                stream.sendall(payload)
+                status, body = response(stream)
+            assert status == expected, (case, status, body)
+            assert (inspect(name).returncode == 0) == (expected == 200), case
+            print('PASS', case, 'load publication matches response status')
     finally:
         for name in names:
             subprocess.run(['docker', '-H', 'unix://' + path, 'image', 'rm', name],
