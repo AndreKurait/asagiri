@@ -655,6 +655,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_wrong_oci_descriptor_size() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let mut archive = tar::Builder::new(Vec::new());
+        let mut descriptor = add_image(&mut archive, &store, "arm64");
+        descriptor["size"] = json!(descriptor["size"].as_u64().unwrap() + 1);
+        add_index(&mut archive, vec![descriptor]);
+        let bytes = archive.into_inner().unwrap();
+
+        let target = Store::open(dir.join("target")).unwrap();
+        let error = load(&target, bytes.as_slice()).unwrap_err();
+        assert!(error.to_string().contains("incorrect descriptor size"), "{error}");
+        assert!(target.images().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn save_then_load_round_trips() {
         let dir = scratch();
         let store = Store::open(&dir).unwrap();
