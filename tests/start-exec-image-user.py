@@ -128,6 +128,8 @@ def main():
             body["User"] = "dev"
         started = time.monotonic_ns()
         eid = value("POST", "/containers/" + cid + "/exec", body, (201,))["Id"]
+        created = value("GET", "/exec/" + eid + "/json")
+        assert created["Running"] is False and type(created["ExitCode"]) is int and created["ExitCode"] == 0, created
         text = unframe(request("POST", "/exec/" + eid + "/start", {"Detach": False, "Tty": False})[1])
         deadline = time.monotonic() + 5
         while True:
