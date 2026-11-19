@@ -14,7 +14,7 @@ import tarfile
 import uuid
 
 
-def check(path):
+def check(path, reference_docker=False):
     assert os.environ.get('ASAGIRI_TEST_ENGINE') == '1', 'Use a disposable engine only'
     names = []
 
@@ -49,7 +49,7 @@ def check(path):
                               capture_output=True, timeout=15)
 
     try:
-        for chunked in (False, True):
+        for chunked in (() if reference_docker else (False, True)):
             name, data = archive()
             head = b'Transfer-Encoding: chunked\r\n' if chunked else b'Content-Length: ' + str(len(data)+1024).encode() + b'\r\n'
             with connect(head) as stream:
@@ -59,18 +59,19 @@ def check(path):
                 assert status == 400, (chunked, status, body)
                 assert inspect(name).returncode != 0, 'Incomplete HTTP upload published an image'
             print('PASS truncated ' + ('chunked' if chunked else 'content-length') + ' load publishes no image')
-        name, data = archive()
-        padding = bytes(32768)
-        with connect(b'Content-Length: '+str(len(data)+len(padding)).encode()+b'\r\n') as stream:
-            stream.sendall(data)
-            # Protocol check: no success response while advertised bytes remain unsent.
-            assert not select.select([stream], [], [], 0.2)[0], 'Load replied before the whole body arrived'
-            assert inspect(name).returncode != 0, 'Load published before the whole body arrived'
-            stream.sendall(padding)
-            status, body = response(stream)
-            assert status == 200, (status, body)
-            assert inspect(name).returncode == 0
-        print('PASS padded load waits for full body, then publishes image')
+        if not reference_docker:
+            name, data = archive()
+            padding = bytes(32768)
+            with connect(b'Content-Length: '+str(len(data)+len(padding)).encode()+b'\r\n') as stream:
+                stream.sendall(data)
+                # Protocol check: no success response while advertised bytes remain unsent.
+                assert not select.select([stream], [], [], 0.2)[0], 'Load replied before the whole body arrived'
+                assert inspect(name).returncode != 0, 'Load published before the whole body arrived'
+                stream.sendall(padding)
+                status, body = response(stream)
+                assert status == 200, (status, body)
+                assert inspect(name).returncode == 0
+            print('PASS padded load waits for full body, then publishes image')
         for case, encode, expected in (
             ('gzip', gzip.compress, 200),
             ('multiple gzip members', lambda data: gzip.compress(data[:777]) + gzip.compress(data[777:]), 200),
@@ -83,6 +84,10 @@ def check(path):
             with connect(b'Content-Length: ' + str(len(payload)).encode() + b'\r\n') as stream:
                 stream.sendall(payload)
                 status, body = response(stream)
+            if reference_docker:
+                published = inspect(name).returncode == 0
+                print('Docker reference:', case, 'HTTP', status, 'published:', published, 'response:', body)
+                continue
             assert status == expected, (case, status, body)
             assert (inspect(name).returncode == 0) == (expected == 200), case
             print('PASS', case, 'load publication matches response status')
@@ -93,4 +98,4 @@ def check(path):
 
 
 if __name__ == '__main__':
-    check(sys.argv[1])
+    check(sys.argv[1], sys.argv[2:] == ["--reference-docker"])
