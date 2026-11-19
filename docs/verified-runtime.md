@@ -7,12 +7,14 @@ boundaries; they do not certify the entire engine or its Docker compatibility.
 ## Health results
 
 `Health::record` calls `health_transition::after_probe` to update the consecutive
-failure count and health status. For all Boolean inputs and every `u32` failure
-count and retry threshold, Verus proves:
+failure count and health status. The contract covers every signed `i64` exit code, both starting states,
+every pair of `u128` elapsed and start-period nanosecond values, and every `u32`
+failure count and retry threshold. Verus proves the following properties.
 
-- Success resets the count to zero and makes the container healthy.
-- Failure during the start period preserves both count and status while the
-  container is starting.
+- Exit code zero resets the count to zero and makes the container healthy.
+- A nonzero exit code preserves both count and status while the container is
+  starting and elapsed time is strictly less than the start period. A failure
+  exactly at the end of the period counts.
 - Every other failure increments the count, saturating at `u32::MAX`.
 - A counted failure makes the container unhealthy exactly when the resulting
   count is at least the retry threshold; otherwise it preserves the status.

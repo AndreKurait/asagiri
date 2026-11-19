@@ -181,12 +181,11 @@ impl Health {
         while self.log.len() >= LOG_ENTRIES {
             self.log.pop_front();
         }
-        let ok = probe.exit_code == 0;
-        self.log.push_back(probe);
         let (failures, healthy) = super::health_transition::after_probe(
-            ok, self.status == STARTING, since_start < check.start_period(),
+            probe.exit_code, self.status == STARTING, since_start.as_nanos(), check.start_period().as_nanos(),
             self.failing_streak, check.retries(),
         );
+        self.log.push_back(probe);
         self.failing_streak = failures;
         if let Some(healthy) = healthy {
             self.status = if healthy { HEALTHY } else { UNHEALTHY }.into();
@@ -364,15 +363,11 @@ mod tests {
     }
 
     #[test]
-    fn the_start_period_forgives_failures_until_the_first_success() {
-        let check = Healthcheck { retries: 1, start_period: 10_000_000_000, start_interval: 1_000_000_000, ..Default::default() };
-        let mut h = Health::default();
-        h.record(probe(1), Duration::from_secs(3), &check);
-        assert_eq!((h.status.as_str(), h.failing_streak), (STARTING, 0));
+    fn next_wait_switches_to_the_normal_interval_at_the_end_of_startup_grace() {
+        let check = Healthcheck { start_period: 10_000_000_000, start_interval: 1_000_000_000, ..Default::default() };
+        let h = Health::default();
         assert_eq!(h.next_wait(Duration::from_secs(3), &check), Duration::from_secs(1));
-        assert_eq!(h.next_wait(Duration::from_secs(11), &check), DEFAULT_INTERVAL);
-        h.record(probe(1), Duration::from_secs(11), &check);
-        assert_eq!(h.status, UNHEALTHY);
+        assert_eq!(h.next_wait(Duration::from_secs(10), &check), DEFAULT_INTERVAL);
     }
 
     #[test]
