@@ -73,6 +73,8 @@ def check(path, reference_docker=False):
                 assert inspect(name).returncode == 0
             print('PASS padded load waits for full body, then publishes image')
         for case, encode, expected in (
+            ('plain tar', lambda data: data, 200),
+
             ('gzip', gzip.compress, 200),
             ('multiple gzip members', lambda data: gzip.compress(data[:777]) + gzip.compress(data[777:]), 200),
             ('damaged gzip checksum', lambda data: gzip.compress(data)[:-8] + bytes(8), 400),
