@@ -60,12 +60,12 @@ def main():
         finally:
             connection.close()
 
-    def create(name, target, mounts):
+    def create(name, target, mounts, volumes_from=None):
         containers.append(name)
         value = json.loads(request("POST", "/containers/create?" + urlencode({"name": name}), {
             "Image": args.image, "Entrypoint": [], "Cmd": ["sh", "-ec", SCRIPT, "sh", target],
             "Labels": {"io.asagiri.test": "volume-owner"},
-            "HostConfig": {"NetworkMode": "none", "Mounts": mounts},
+            "HostConfig": {"NetworkMode": "none", "Mounts": mounts, "VolumesFrom": volumes_from},
         }, (201,)))
         return value["Id"]
 
@@ -120,7 +120,11 @@ def main():
             mount, = json.loads(request("GET", "/containers/" + cid + "/json"))["Mounts"]
             volume = mount["Name"]
             volumes.append(volume)
-            reader_id = create(reader, "/shared", [{"Type": "volume", "Source": volume, "Target": "/shared", "ReadOnly": True}])
+            reader_id = create(reader, "/etc/apk", [], [owner + ":ro"])
+            reader_info = json.loads(request("GET", "/containers/" + reader_id + "/json"))
+            assert reader_info["HostConfig"]["VolumesFrom"] == [owner + ":ro"], reader_info
+            inherited_mount, = reader_info["Mounts"]
+            assert inherited_mount["Name"] == volume and inherited_mount["RW"] is False, inherited_mount
             request("DELETE", "/containers/" + cid + "?v=1", expected=(204,))
             containers.remove(owner)
             request("GET", "/volumes/" + volume)
