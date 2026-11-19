@@ -125,13 +125,18 @@ def main():
             assert reader_info["HostConfig"]["VolumesFrom"] == [owner + ":ro"], reader_info
             inherited_mount, = reader_info["Mounts"]
             assert inherited_mount["Name"] == volume and inherited_mount["RW"] is False, inherited_mount
-            request("DELETE", "/containers/" + cid + "?v=1", expected=(204,))
-            containers.remove(owner)
+            # The Docker reference removes this volume with its original owner.
+            # Keep the owner alive to check reference inheritance separately.
+            if not args.reference_docker:
+                request("DELETE", "/containers/" + cid + "?v=1", expected=(204,))
+                containers.remove(owner)
             request("GET", "/volumes/" + volume)
             inherited = observe(reader_id)
             assert original["repositories_sha256"] and inherited["repositories_sha256"] == original["repositories_sha256"], inherited
             record["shared_anonymous_sha256"] = inherited["repositories_sha256"]
             remove_container(reader)
+            if args.reference_docker:
+                remove_container(owner)
             for name, target in [("empty", "/tmp"), ("contents", "/etc/apk")]:
                 container = prefix + "-baseline-" + name
                 baseline[name] = observe(create(container, target, []))
