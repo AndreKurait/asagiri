@@ -108,14 +108,11 @@ def check(args):
         ]:
             query = urllib.parse.urlencode({"ps_args": value})
             status, body = request("GET", "/containers/" + name + "/top?" + query)
-            if args.reference_docker:
-                processes = body.get("Processes", []) if isinstance(body, dict) else []
-                passed = (status == 200 and body.get("Titles") == expected_columns and processes
-                          and all(len(row) == len(expected_columns) for row in processes))
-                if value == "-eo pid,rss,args":
-                    passed = passed and all(row[0].isdigit() and row[1].isdigit() for row in processes)
-            else:
-                passed = status == 400 and "ps_args" in str(body.get("message", "")) and "-ef" in str(body)
+            processes = body.get("Processes", []) if isinstance(body, dict) else []
+            passed = (status == 200 and body.get("Titles") == expected_columns and processes
+                      and all(len(row) == len(expected_columns) for row in processes))
+            if value == "-eo pid,rss,args":
+                passed = passed and all(row[0].isdigit() and row[1].isdigit() for row in processes)
             result("custom-" + value, passed, http_status=status, response=body)
         status, body = request(
             "GET", "/containers/" + name + "/top?" +
