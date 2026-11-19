@@ -18,13 +18,15 @@ def check(path, reference_docker=False):
     assert os.environ.get('ASAGIRI_TEST_ENGINE') == '1', 'Use a disposable engine only'
     names = []
 
-    def archive():
-        name = 'asagiri-load-completion-' + uuid.uuid4().hex + ':test'
-        names.append(name)
+    def archive(existing=None):
+        unique = 'asagiri-load-completion-' + uuid.uuid4().hex + ':test'
+        name = existing or unique
+        if existing is None:
+            names.append(name)
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode='w') as tar:
             for member, value in [('config.json', {'os': 'linux', 'architecture': 'amd64',
-                    'config': {'Env': ['CASE=' + name]}, 'rootfs': {'type': 'layers', 'diff_ids': []}}),
+                    'config': {'Env': ['CASE=' + unique]}, 'rootfs': {'type': 'layers', 'diff_ids': []}}),
                     ('manifest.json', [{'Config': 'config.json', 'RepoTags': [name], 'Layers': []}])]:
                 data = json.dumps(value).encode()
                 info = tarfile.TarInfo(member)
@@ -100,6 +102,19 @@ def check(path, reference_docker=False):
             assert status == expected, (case, status, body)
             assert published(name) == (expected == 200), case
             print('PASS', case, 'load publication matches response status')
+        if not reference_docker:
+            name, data = archive()
+            with connect(b'Content-Length: ' + str(len(data)).encode() + b'\r\n') as stream:
+                stream.sendall(data)
+                assert response(stream)[0] == 200
+            original_id = json.loads(inspect(name).stdout)[0]['Id']
+            _, replacement = archive(name)
+            damaged = gzip.compress(replacement)[:-3]
+            with connect(b'Content-Length: ' + str(len(damaged)).encode() + b'\r\n') as stream:
+                stream.sendall(damaged)
+                assert response(stream)[0] == 400
+            assert json.loads(inspect(name).stdout)[0]['Id'] == original_id
+            print('PASS damaged gzip preserves the existing image tag')
     finally:
         for name in names:
             subprocess.run(['docker', '-H', 'unix://' + path, 'image', 'rm', name],
