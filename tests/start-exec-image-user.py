@@ -128,8 +128,6 @@ def main():
             body["User"] = "dev"
         started = time.monotonic_ns()
         eid = value("POST", "/containers/" + cid + "/exec", body, (201,))["Id"]
-        created = value("GET", "/exec/" + eid + "/json")
-        assert created["Running"] is False and type(created["ExitCode"]) is int and created["ExitCode"] == 0, created
         text = unframe(request("POST", "/exec/" + eid + "/start", {"Detach": False, "Tty": False})[1])
         deadline = time.monotonic() + 5
         while True:
@@ -159,6 +157,29 @@ def main():
                 return status, state, text
             assert time.monotonic() < deadline, "working-directory exec did not finish"
             time.sleep(.01)
+
+    def exec_lifecycle(cid):
+        marker = "/tmp/finish-exec-" + uuid.uuid4().hex
+        eid = value("POST", "/containers/" + cid + "/exec", {
+            "Cmd": ["sh", "-c", 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 23', "sh", marker],
+        }, (201,))["Id"]
+        path = "/exec/" + eid + "/json"
+        created = value("GET", path)
+        assert created["Running"] is False, created
+        request("POST", "/exec/" + eid + "/start", {"Detach": True})
+        running = value("GET", path)
+        assert running["Running"] is True, running
+        if not args.reference_docker:
+            for state in (created, running):
+                assert type(state["ExitCode"]) is int and state["ExitCode"] == 0, state
+        _, release, _ = run_exec(cid, "touch " + marker)
+        assert release["ExitCode"] == 0, release
+        deadline = time.monotonic() + 5
+        while (finished := value("GET", path))["Running"]:
+            assert time.monotonic() < deadline, finished
+            time.sleep(0.01)
+        assert finished["ExitCode"] == 23, finished
+        return [state["ExitCode"] for state in (created, running, finished)]
 
     def workdirs(committed, base_id):
         cases = [
@@ -273,6 +294,7 @@ def main():
                 "execs": [explicit, inherited], "passed": True,
             })
             if iteration == 0:
+                record["exec_lifecycle_exit_codes"] = exec_lifecycle(cid)
                 missing_user = "missing-" + uuid.uuid4().hex
                 eid = value("POST", "/containers/" + cid + "/exec", {
                     "Cmd": ["id"], "User": missing_user, "AttachStderr": True,
