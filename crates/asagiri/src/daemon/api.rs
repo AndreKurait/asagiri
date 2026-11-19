@@ -3039,7 +3039,7 @@ fn exec_inspect(e: &super::engine::Exec) -> Value {
         "ID": e.id,
         "ContainerID": e.container_id,
         "Running": e.running,
-        "ExitCode": e.exit_code,
+        "ExitCode": e.exit_code.unwrap_or(0),
         "Pid": e.pid,
         "OpenStdin": e.config.stdin,
         "OpenStdout": true,
