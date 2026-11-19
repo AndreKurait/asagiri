@@ -1712,7 +1712,7 @@ impl Engine {
                 }
                 // `--rm` takes the container's anonymous volumes with it.
                 for v in anon {
-                    self.delete_volume_data(&v);
+                    let _ = self.volume_remove(&v, false);
                 }
                 self.changed.notify_all();
                 if persist {
@@ -2668,7 +2668,7 @@ impl Engine {
             }
             lock_log(&c.log).remove();
             for v in c.spec.anon_volumes {
-                self.delete_volume_data(&v);
+                let _ = self.volume_remove(&v, false);
             }
             if let Some((image, attrs)) = actor {
                 self.emit_container_with("destroy", id, &image, attrs, &[]);
@@ -3542,7 +3542,7 @@ impl Engine {
         }
         if with_volumes {
             for v in anon {
-                self.delete_volume_data(&v);
+                let _ = self.volume_remove(&v, false);
             }
         }
         Ok(())

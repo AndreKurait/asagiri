@@ -113,6 +113,21 @@ def main():
         json.loads(request("GET", "/images/" + args.image + "/json"))
         baseline = {}
         if not args.missing_only:
+            owner = prefix + "-anonymous-owner"
+            reader = prefix + "-anonymous-reader"
+            cid = create(owner, "/etc/apk", [{"Type": "volume", "Target": "/etc/apk"}])
+            original = observe(cid)
+            mount, = json.loads(request("GET", "/containers/" + cid + "/json"))["Mounts"]
+            volume = mount["Name"]
+            volumes.append(volume)
+            reader_id = create(reader, "/shared", [{"Type": "volume", "Source": volume, "Target": "/shared", "ReadOnly": True}])
+            request("DELETE", "/containers/" + cid + "?v=1", expected=(204,))
+            containers.remove(owner)
+            request("GET", "/volumes/" + volume)
+            inherited = observe(reader_id)
+            assert original["repositories_sha256"] and inherited["repositories_sha256"] == original["repositories_sha256"], inherited
+            record["shared_anonymous_sha256"] = inherited["repositories_sha256"]
+            remove_container(reader)
             for name, target in [("empty", "/tmp"), ("contents", "/etc/apk")]:
                 container = prefix + "-baseline-" + name
                 baseline[name] = observe(create(container, target, []))
