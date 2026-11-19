@@ -34,6 +34,19 @@ def check(upstream):
         assert stream.recv(1) == b'', 'Connection: close was not honored'
     print('PASS direct keepalive serves successive requests then closes')
 
+    with socket.socket(socket.AF_UNIX) as stream:
+        stream.settimeout(5)
+        stream.connect(upstream)
+        for header in (b'Connection: Keep-Alive\r\n', b''):
+            stream.sendall(b'HEAD /_ping HTTP/1.0\r\n' + header + b'\r\n')
+            response = http.client.HTTPResponse(stream, method='HEAD')
+            response.begin()
+            assert response.status == 200
+            assert (response.getheader('Connection', '').lower() == 'close') == (not header)
+            response.read()
+            response.close()
+        assert stream.recv(1) == b'', 'HTTP/1.0 default closure did not reach EOF'
+
     class Forward(socketserver.BaseRequestHandler):
         def handle(self):
             try:
