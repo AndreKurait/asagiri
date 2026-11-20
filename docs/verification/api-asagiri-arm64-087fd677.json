@@ -1,0 +1,756 @@
+{
+  "probe": "api-compatibility",
+  "status": "passed",
+  "reference_docker": false,
+  "fixture_sha256": "71f83f0fbe4d93da651a947b79ca209565baccc00bc0725080fbb48e0afa28ac",
+  "owner": "a7785a6996564e67b1a2c99fd43ded2b",
+  "checks": [
+    "empty entrypoint sentinel runs the explicit command",
+    "missing and empty commands reject before container or volume creation",
+    "endpoint-only creates select the requested name or ID without joining bridge",
+    "endpoint-only peers resolve immediately on their selected network",
+    "single host and none networks work by name or ID",
+    "mixed host and none endpoints reject before container or volume creation",
+    "network ID filters accept prefix, anchored and unanchored regexes",
+    "IPv6-disabled networks accept mixed IPAM and allocate only IPv4",
+    "endpoint-only name and ID selectors preserve requested IPv4 addresses",
+    "explicit host.docker.internal overrides have no built-in fallback",
+    "uppercase IPv6 host overrides have no built-in IPv4 fallback"
+  ],
+  "cleanup": [
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-host-override-ipv6"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-host-override"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-static-1"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-static-0"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-ipv6-off"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-none-single-1"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-none-single-0"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-host-single-1"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-host-single-0"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-peer"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-3"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-2"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-1"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-0"
+    },
+    {
+      "kind": "containers",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-reset"
+    },
+    {
+      "kind": "networks",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-ipv6-off"
+    },
+    {
+      "kind": "networks",
+      "name": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+    }
+  ],
+  "version": {
+    "ApiVersion": "1.47",
+    "Arch": "arm64",
+    "AsagiriVersion": "0.0.0",
+    "Components": [
+      {
+        "Details": {
+          "ApiVersion": "1.47",
+          "Arch": "arm64",
+          "AsagiriVersion": "0.0.0",
+          "MinAPIVersion": "1.24",
+          "Os": "linux"
+        },
+        "Name": "Engine",
+        "Version": "27.5.1-asagiri"
+      }
+    ],
+    "GitCommit": "",
+    "GoVersion": "n/a (Rust)",
+    "KernelVersion": "6.18.58",
+    "MinAPIVersion": "1.24",
+    "Os": "linux",
+    "Platform": {
+      "Name": "Asagiri"
+    },
+    "Version": "27.5.1-asagiri"
+  },
+  "image": "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee",
+  "incompatible_networks": [
+    {
+      "mode": null,
+      "endpoints": [
+        "host",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine host and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "686f737400000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine host and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "host",
+      "endpoints": [
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine host and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "686f737400000000000000000000000000000000000000000000000000000000"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and host networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": null,
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "default",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "none",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "none",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000",
+        "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    },
+    {
+      "mode": "none",
+      "endpoints": [
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine none and z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints networks"
+    },
+    {
+      "mode": "b36d81304d6afc873cacd9d7ed06a52021537a0427c73851d1005aa94c83272d",
+      "endpoints": [
+        "6e6f6e6500000000000000000000000000000000000000000000000000000000"
+      ],
+      "create_status": 400,
+      "rejected_at": "create",
+      "message": "conflicting options: cannot combine z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoints and none networks"
+    }
+  ],
+  "disabled_ipv6": {
+    "ipam": [
+      {
+        "Gateway": "10.240.1.1",
+        "Subnet": "10.240.1.0/24"
+      }
+    ],
+    "endpoint": {
+      "Aliases": null,
+      "DNSNames": [
+        "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-ipv6-off",
+        "e8954d77ae86"
+      ],
+      "DriverOpts": null,
+      "EndpointID": "3138ee70d3b8d8ebe77c9280665780e96594981acc9bfa671fa202cb30284ead",
+      "Gateway": "10.240.1.1",
+      "GlobalIPv6Address": "",
+      "GlobalIPv6PrefixLen": 0,
+      "IPAMConfig": null,
+      "IPAddress": "10.240.1.2",
+      "IPPrefixLen": 24,
+      "IPv6Gateway": "",
+      "Links": null,
+      "MacAddress": "02:42:0a:f0:01:02",
+      "NetworkID": "2c0880bc240e5ffcfde8e04355cb8500a2bbe26a03f4d65ced6b53c1d660586a"
+    },
+    "global_ipv6": ""
+  },
+  "endpoint_static_addresses": [
+    {
+      "selector": "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-ipv6-off",
+      "requested": "10.240.1.42",
+      "endpoint": {
+        "Aliases": null,
+        "DNSNames": [
+          "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-static-0",
+          "f09f569a343a"
+        ],
+        "DriverOpts": null,
+        "EndpointID": "03dc7fd0c0a97c65652df04c0e321264cd9a49287c775e630cfc906be937dfc0",
+        "Gateway": "10.240.1.1",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "IPAMConfig": {
+          "IPv4Address": "10.240.1.42"
+        },
+        "IPAddress": "10.240.1.42",
+        "IPPrefixLen": 24,
+        "IPv6Gateway": "",
+        "Links": null,
+        "MacAddress": "02:42:0a:f0:01:2a",
+        "NetworkID": "2c0880bc240e5ffcfde8e04355cb8500a2bbe26a03f4d65ced6b53c1d660586a"
+      },
+      "interfaces": "2: eth0    inet 10.240.1.42/24 scope global eth0\\       valid_lft forever preferred_lft forever"
+    },
+    {
+      "selector": "2c0880bc240e5ffcfde8e04355cb8500a2bbe26a03f4d65ced6b53c1d660586a",
+      "requested": "10.240.1.43",
+      "endpoint": {
+        "Aliases": null,
+        "DNSNames": [
+          "z-api-compat-a7785a6996564e67b1a2c99fd43ded2b-endpoint-static-1",
+          "f728c7e1d266"
+        ],
+        "DriverOpts": null,
+        "EndpointID": "bb5893a99bcbf66a65bd17928ccf78cabceb2c0b437ded12b2aea48174ce30f3",
+        "Gateway": "10.240.1.1",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "IPAMConfig": {
+          "IPv4Address": "10.240.1.43"
+        },
+        "IPAddress": "10.240.1.43",
+        "IPPrefixLen": 24,
+        "IPv6Gateway": "",
+        "Links": null,
+        "MacAddress": "02:42:0a:f0:01:2b",
+        "NetworkID": "2c0880bc240e5ffcfde8e04355cb8500a2bbe26a03f4d65ced6b53c1d660586a"
+      },
+      "interfaces": "2: eth0    inet 10.240.1.43/24 scope global eth0\\       valid_lft forever preferred_lft forever"
+    }
+  ]
+}
