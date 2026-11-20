@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 17 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 16 open pull requests and 177 open issues.
 
 See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot.
 
@@ -34,7 +34,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Verify each Pages publication by ID. Eleven local tests and the hosted Pages build passed (run 44638959682). Live deployment verification remains pending. Auto-merge enabled. [#295](https://github.com/AndreKurait/asagiri/pull/295)
 
-- [ ] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Auto-merge is enabled. [#296](https://github.com/AndreKurait/asagiri/pull/296)
+- [x] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Merged on `main` as `d74d0120`. [#296](https://github.com/AndreKurait/asagiri/pull/296)
 
 - [ ] Verify container lifecycle generation checks. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. Hosted CI and merge remain pending. [#299](https://github.com/AndreKurait/asagiri/pull/299)
 

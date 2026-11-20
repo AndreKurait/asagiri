@@ -2,7 +2,7 @@
 
 GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation roadmap](implementation-roadmap.md) for sequencing and qualification evidence.
 
-## Open pull requests (17)
+## Open pull requests (16)
 
 - [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes
 - [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal
@@ -13,7 +13,6 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#292](https://github.com/AndreKurait/asagiri/pull/292) Prove arbitrary HTTP number padding and retire sampled value tests
 - [#294](https://github.com/AndreKurait/asagiri/pull/294) Support OCI image layout archives in docker load
 - [#295](https://github.com/AndreKurait/asagiri/pull/295) Verify the identity of each Pages publication
-- [#296](https://github.com/AndreKurait/asagiri/pull/296) Verify Docker exec inspection after VM loss
 - [#297](https://github.com/AndreKurait/asagiri/pull/297) Track the Asagiri implementation roadmap
 - [#298](https://github.com/AndreKurait/asagiri/pull/298) Expand Docker reference coverage for mixed none networks
 - [#299](https://github.com/AndreKurait/asagiri/pull/299) Verify container lifecycle generation checks
@@ -202,12 +201,13 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#285](https://github.com/AndreKurait/asagiri/issues/285) Verify Kiri #587: Kiri doesn't render UI
 - [#286](https://github.com/AndreKurait/asagiri/issues/286) Verify Kiri #586: Windows terminal loses input focus during refresh
 
-## Merged pull requests from the roadmap queue (4)
+## Merged pull requests from the roadmap queue (5)
 
 - [#281](https://github.com/AndreKurait/asagiri/pull/281) Support Docker top process formats and memory columns
 - [#282](https://github.com/AndreKurait/asagiri/pull/282) Include unpublished exposed ports in running endpoint inspection
 - [#283](https://github.com/AndreKurait/asagiri/pull/283) Honor HTTP/1.0 default closure and explicit keep-alive
 - [#293](https://github.com/AndreKurait/asagiri/pull/293) Accept streamed gzip archives on image load
+- [#296](https://github.com/AndreKurait/asagiri/pull/296) Verify Docker exec inspection after VM loss
 
 ## Remaining roadmap work
 
