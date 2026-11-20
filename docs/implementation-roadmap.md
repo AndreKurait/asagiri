@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 15 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 16 open pull requests and 177 open issues.
 
 ## Work sequence
 
@@ -37,6 +37,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [ ] Verify container lifecycle generation checks. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. Hosted CI and merge remain pending. [#299](https://github.com/AndreKurait/asagiri/pull/299)
 
 - [ ] Refresh embedded DNS after renaming a running container. The paired macOS daemon and Linux guest passed all seven live DNS scenarios. Hosted Linux and merge remain pending. [#300](https://github.com/AndreKurait/asagiri/pull/300)
+
+- [ ] Serve Windows setup and desktop documents from memory. Windows cross-compilation passed. The hosted fixture exercises a document above 2 MiB, each supported language, and origin restrictions. [#301](https://github.com/AndreKurait/asagiri/pull/301)
 
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
@@ -208,7 +210,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #488: Share containers on your own domain with optional Cloudflare Tunnel [#233](https://github.com/AndreKurait/asagiri/issues/233)
 - [ ] Verify Kiri #489: Linux: default bridge takes 172.17.0.0/16 while docker0 already owns it — containers cannot reach their own gateway [#234](https://github.com/AndreKurait/asagiri/issues/234)
 - [ ] Verify Kiri #494: nfs support [#235](https://github.com/AndreKurait/asagiri/issues/235)
-- [ ] Verify Kiri #495: Windows: Blank screen on launch - assembled page exceeds WebView2 NavigateToString 2MB limit [#236](https://github.com/AndreKurait/asagiri/issues/236)
+- [ ] Verify Kiri #495: Windows: Blank screen on launch - assembled page exceeds WebView2 NavigateToString 2MB limit. PR #301 routes both documents through the in-memory response handler. Native WebView2 job `135999185324` is queued. [#236](https://github.com/AndreKurait/asagiri/issues/236)
 - [ ] Verify Kiri #499: Windows Server support for production use? [#237](https://github.com/AndreKurait/asagiri/issues/237)
 - [ ] Verify Kiri #509: Containers on a user network get TCP resets under sustained load (Supabase local stack: Kong → PostgREST) [#238](https://github.com/AndreKurait/asagiri/issues/238)
 - [ ] Verify Kiri #510: Windows Defender quarantines kiri-win.exe from 0.2.1 x64 as Bearfoos.A!ml [#239](https://github.com/AndreKurait/asagiri/issues/239)
