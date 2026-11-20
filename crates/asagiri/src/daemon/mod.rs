@@ -27,6 +27,8 @@ mod http;
 mod http_number;
 mod identity;
 mod layer_admission;
+mod lifecycle_advance;
+mod lifecycle_generation;
 mod layer_transfers;
 mod logfile;
 mod names;
