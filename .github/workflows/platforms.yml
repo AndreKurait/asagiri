@@ -446,6 +446,8 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test
         run: cargo test --locked -p asagiri-image -p asagiri-win -p xtask
+      - name: Exercise large documents in native WebView2
+        run: cargo test --locked -p asagiri-win webview2_shows_the_page_at_its_largest_and_only_it -- --ignored --nocapture
       - name: Check WSL prerequisite command and restart handling
         run: ./tests/windows-wsl-setup.ps1
       - name: Build
