@@ -1362,6 +1362,47 @@ fn resolve_server(host: &str) -> Option<String> {
     addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).map(|a| a.ip().to_string())
 }
 
+fn parse_volumes_from(spec: &str) -> Result<(&str, bool), Error> {
+    if spec.is_empty() {
+        return Err(Error::BadRequest("volumes-from specification cannot be an empty string".into()));
+    }
+    let (name, mode) = spec.split_once(':').unwrap_or((spec, ""));
+    let parts: Vec<&str> = mode.split(',').filter(|m| !m.is_empty()).collect();
+    let rw_modes = parts.iter().filter(|m| matches!(**m, "ro" | "rw")).count();
+    if name.is_empty() || rw_modes > 1 || parts.iter().any(|m| !matches!(*m, "ro" | "rw" | "z" | "Z" | "nocopy")) || (!mode.is_empty() && parts.is_empty()) {
+        return Err(Error::BadRequest(format!("invalid mode: {mode}")));
+    }
+    Ok((name, parts.contains(&"ro")))
+}
+
+/// The mounts `--volumes-from` takes from a container: its guest lines and
+/// inspect entries (one per line), without tmpfs mounts, which Docker does
+/// not share either. With `ro` each becomes read-only; otherwise each keeps
+/// its own mode, so `:rw` does not make a read-only mount writable.
+fn volumes_from_mounts(guest: &[String], info: &[Value], ro: bool) -> Vec<(String, Value)> {
+    guest
+        .iter()
+        .zip(info)
+        .filter(|(_, i)| i["Type"] != "tmpfs")
+        .map(|(line, i)| {
+            let mut i = i.clone();
+            if !ro {
+                return (line.clone(), i);
+            }
+            // `source\ttarget\tflags[\t…]`: "ro" joins the flags.
+            let mut fields: Vec<String> = line.split('\t').map(str::to_owned).collect();
+            if fields.len() < 3 {
+                fields.resize(3, String::new());
+            }
+            if !fields[2].split(',').any(|f| f == "ro") {
+                fields[2] = if fields[2].is_empty() { "ro".to_owned() } else { format!("{},ro", fields[2]) };
+            }
+            i["RW"] = json!(false);
+            (fields.join("\t"), i)
+        })
+        .collect()
+}
+
 /// `-v`, `--mount`, `--tmpfs`, `-v /path` and the image's VOLUME lines.
 fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Error> {
     let host = &body["HostConfig"];
@@ -1459,6 +1500,12 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
         }
         Ok(())
     };
+    // Resolve sources before allocating volumes or creating bind directories.
+    let mut inherited = Vec::new();
+    for spec in strings(&host["VolumesFrom"]).unwrap_or_default() {
+        let (name, ro) = parse_volumes_from(&spec)?;
+        inherited.extend(engine.with(name, |c| volumes_from_mounts(&c.spec.mounts, &c.spec.mount_info, ro))?);
+    }
     // From the docker CLI on Windows (into WSL), `C:\src:/app` and the like.
     let wsl = super::binds::wsl();
     for b in strings(&host["Binds"]).unwrap_or_default() {
@@ -1508,6 +1555,21 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
             let opts = opts.as_str().unwrap_or("").split(',').filter(|o| !o.is_empty() && *o != "tmpfs").collect::<Vec<_>>().join(",");
             add("tmpfs", "", dst, false, &opts, false, &Value::Null, &mut out)?;
         }
+    }
+    for (line, i) in inherited {
+        let dst = i["Destination"].as_str().unwrap_or_default().trim_end_matches('/').to_owned();
+        if out.info.iter().any(|m| m["Destination"].as_str().map(|d| d.trim_end_matches('/')) == Some(dst.as_str())) {
+            continue;
+        }
+        // The volume is the other container's too: kept, never taken
+        // with this one on `--rm`.
+        if let Some(v) = i["Name"].as_str().filter(|_| i["Type"] == "volume")
+            && !out.volumes.iter().any(|x| x == v)
+        {
+            out.volumes.push(v.to_owned());
+        }
+        out.guest.push(line);
+        out.info.push(i);
     }
     // `-v /path` (no source) arrives in `Volumes`; the image's VOLUME lines
     // are in its config. Each becomes an anonymous volume, unless something
@@ -2622,6 +2684,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "CpuPeriod": c.spec.limits.cpu_period,
             "CpuShares": if c.spec.limits.cpu_shares > 0 { c.spec.limits.cpu_shares } else { cpu_shares(c.spec.limits.cpu_weight) },
             "PidsLimit": if c.spec.limits.pids_max > 0 { Value::from(c.spec.limits.pids_max) } else { Value::Null },
+            "VolumesFrom": c.spec.host_opts["VolumesFrom"],
             "PidMode": c.spec.host_opts["PidMode"].as_str().unwrap_or(""),
             "NetworkMode": c.spec.network_mode,
             "Dns": c.spec.dns,
@@ -3451,6 +3514,47 @@ pub(super) fn parse_signal(raw: &str) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--volumes-from` entries: the container and its mode, as Docker parses them.
+    #[test]
+    fn volumes_from_takes_a_container_and_a_mode() {
+        assert_eq!(parse_volumes_from("db").unwrap(), ("db", false));
+        assert_eq!(parse_volumes_from("db:ro").unwrap(), ("db", true));
+        assert_eq!(parse_volumes_from("db:rw").unwrap(), ("db", false));
+        assert_eq!(parse_volumes_from("db:").unwrap(), ("db", false), "an empty mode is rw, as in Docker");
+        assert_eq!(parse_volumes_from("db:ro,z").unwrap(), ("db", true));
+        for bad in ["", "db:rx", "db:ro,rw", ":ro", "db:,"] {
+            assert!(matches!(parse_volumes_from(bad), Err(Error::BadRequest(_))), "{bad:?}");
+        }
+        assert!(matches!(parse_volumes_from("db:rx"), Err(Error::BadRequest(m)) if m == "invalid mode: rx"));
+    }
+
+    /// The other container's volumes and binds come at their paths, tmpfs
+    /// mounts do not; `ro` makes each read-only, and without it a read-only
+    /// mount stays read-only.
+    #[test]
+    fn volumes_from_copies_volumes_and_binds() {
+        let guest = vec![
+            "/var/lib/asagiri/volumes/named\t/vol\tcreate,copyup".to_owned(),
+            "/host/dir\t/data\tro".to_owned(),
+            "tmpfs\t/scratch\ttmpfs,noexec".to_owned(),
+            "/var/lib/asagiri/volumes/x\t/nfs\tcreate\tnfs\t:/export\t0\taddr=1".to_owned(),
+        ];
+        let info = vec![
+            json!({"Type": "volume", "Name": "named", "Destination": "/vol", "RW": true}),
+            json!({"Type": "bind", "Source": "/host/dir", "Destination": "/data", "RW": false}),
+            json!({"Type": "tmpfs", "Destination": "/scratch", "RW": true}),
+            json!({"Type": "volume", "Name": "x", "Destination": "/nfs", "RW": true}),
+        ];
+        let rw = volumes_from_mounts(&guest, &info, false);
+        assert_eq!(rw.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), [guest[0].as_str(), guest[1].as_str(), guest[3].as_str()]);
+        assert_eq!(rw[1].1["RW"], false, "a read-only mount stays so");
+        let ro = volumes_from_mounts(&guest, &info, true);
+        assert_eq!(ro[0].0, "/var/lib/asagiri/volumes/named\t/vol\tcreate,copyup,ro");
+        assert_eq!(ro[1].0, "/host/dir\t/data\tro", "not twice");
+        assert_eq!(ro[2].0, "/var/lib/asagiri/volumes/x\t/nfs\tcreate,ro\tnfs\t:/export\t0\taddr=1", "the volume's own fields stay");
+        assert!(ro.iter().all(|(_, i)| i["RW"] == false));
+    }
 
     #[test]
     fn digest_named_images_keep_provenance_out_of_repo_tags() {
