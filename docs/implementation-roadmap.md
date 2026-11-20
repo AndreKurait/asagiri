@@ -15,14 +15,14 @@ See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot
 
 The main ruleset required the retired `limit` check. Removed that check from ruleset `27075130` so the remaining CI checks govern merges.
 
-Audited the quota bot’s historical comments. PRs #35, #279, #282, and #283 are merged. PRs #284, #287, and #289 are open again. The sole closed record, #6, is the completed disposable quota test.
+Audited the quota bot’s historical comments. PRs #35, #279, #282, and #283 are merged. PR #284 merged after reopening. PRs #287 and #289 are open again. The sole closed record, #6, is the completed disposable quota test.
 
 Check required jobs, fix failures, update branches after earlier merges, and confirm each change landed on `main`. Validate the linked issue against the merged behavior before closing it.
 
 - [x] Support Docker top process formats and memory columns. All nine required checks passed. Merged as `fff93d86155367c7e4ee3fa8fa849d8609a9c4fa`. [#281](https://github.com/AndreKurait/asagiri/pull/281)
 - [x] Include unpublished exposed ports in running endpoint inspection. Live fixture passed on disposable ARM64 Linux. GitHub merged the change as `6f93083d6948b2e147ec5b9da008acdf33dd8f7b`. [#282](https://github.com/AndreKurait/asagiri/pull/282)
 - [x] Honor HTTP/1.0 default closure and explicit keep-alive. Live ARM64 Linux and macOS HTTP fixtures passed. The isolated macOS daemon at `202b4626` also passed 33 upload framing cases and 10 image load cases. All nine required checks passed and GitHub merged `1e94949d`. Native Windows end-to-end qualification remains open. [#283](https://github.com/AndreKurait/asagiri/pull/283)
-- [ ] Support volumes-from and preserve shared anonymous volumes — auto-merge enabled. Corrected Docker reference fixture passed on Docker 28.0.4. The live volume ownership fixture also passed on disposable ARM64 Asagiri. [#284](https://github.com/AndreKurait/asagiri/pull/284)
+- [x] Support volumes-from and preserve shared anonymous volumes. Merged as `66e7523`. Corrected Docker reference fixture passed on Docker 28.0.4. The live volume ownership fixture also passed on disposable ARM64 Asagiri. [#284](https://github.com/AndreKurait/asagiri/pull/284)
 - [ ] Handle repeated container actions and build history removal — auto-merge enabled. The Linux package smoke test hit Docker Hub HTTP 429 for docker:cli and nginx:alpine. GitHub queued attempt 2. [#287](https://github.com/AndreKurait/asagiri/pull/287)
 - [ ] Flag unusually long short translations in changed locales — blocked, auto-merge enabled. [#288](https://github.com/AndreKurait/asagiri/pull/288)
 - [ ] Add Serbian Latin to the desktop and installer — blocked, auto-merge enabled. [#289](https://github.com/AndreKurait/asagiri/pull/289)

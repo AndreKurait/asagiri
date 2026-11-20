@@ -2,10 +2,9 @@
 
 GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation roadmap](implementation-roadmap.md) for sequencing and qualification evidence.
 
-## Open pull requests (15)
+## Open pull requests (14)
 
 - [#307](https://github.com/AndreKurait/asagiri/pull/307) Exercise WebView2 cleanup on native Windows (BLOCKED, auto-merge enabled)
-- [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes (BLOCKED, auto-merge enabled)
 - [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal (BLOCKED, auto-merge enabled)
 - [#288](https://github.com/AndreKurait/asagiri/pull/288) Flag unusually long short translations in changed locales (BLOCKED, auto-merge enabled)
 - [#289](https://github.com/AndreKurait/asagiri/pull/289) Add Serbian Latin to the desktop and installer (BLOCKED, auto-merge enabled)
@@ -212,7 +211,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Remaining roadmap work
 
-- Follow the restored PRs #284, #287, and #289 through merge. The quota audit is recorded in the implementation roadmap.
+- Restored PR #284 merged as `66e7523`. Merged-main platform run `44691804940` is queued. Follow #287 and #289 through merge. The quota audit is recorded in the implementation roadmap.
 - Resolve CI failures and merge the remaining review queue.
 - Qualify and resolve open issues, keeping active roadmap items open.
 - Finish HTTP framing and lifecycle ownership proofs tracked in #80 and #81. Continue through the production paths listed in the implementation roadmap.
