@@ -60,12 +60,12 @@ def main():
         finally:
             connection.close()
 
-    def create(name, target, mounts):
+    def create(name, target, mounts, volumes_from=None, command=None):
         containers.append(name)
         value = json.loads(request("POST", "/containers/create?" + urlencode({"name": name}), {
-            "Image": args.image, "Entrypoint": [], "Cmd": ["sh", "-ec", SCRIPT, "sh", target],
+            "Image": args.image, "Entrypoint": [], "Cmd": command if command is not None else ["sh", "-ec", SCRIPT, "sh", target],
             "Labels": {"io.asagiri.test": "volume-owner"},
-            "HostConfig": {"NetworkMode": "none", "Mounts": mounts},
+            "HostConfig": {"NetworkMode": "none", "Mounts": mounts, "VolumesFrom": volumes_from},
         }, (201,)))
         return value["Id"]
 
@@ -113,6 +113,30 @@ def main():
         json.loads(request("GET", "/images/" + args.image + "/json"))
         baseline = {}
         if not args.missing_only:
+            owner = prefix + "-anonymous-owner"
+            reader = prefix + "-anonymous-reader"
+            cid = create(owner, "/etc/apk", [{"Type": "volume", "Target": "/etc/apk"}])
+            original = observe(cid)
+            mount, = json.loads(request("GET", "/containers/" + cid + "/json"))["Mounts"]
+            volume = mount["Name"]
+            volumes.append(volume)
+            reader_id = create(reader, "/etc/apk", [], [owner + ":ro"])
+            reader_info = json.loads(request("GET", "/containers/" + reader_id + "/json"))
+            assert reader_info["HostConfig"]["VolumesFrom"] == [owner + ":ro"], reader_info
+            inherited_mount, = reader_info["Mounts"]
+            assert inherited_mount["Name"] == volume and inherited_mount["RW"] is False, inherited_mount
+            # The Docker reference removes this volume with its original owner.
+            # Keep the owner alive to check reference inheritance separately.
+            if not args.reference_docker:
+                request("DELETE", "/containers/" + cid + "?v=1", expected=(204,))
+                containers.remove(owner)
+            request("GET", "/volumes/" + volume)
+            inherited = observe(reader_id)
+            assert original["repositories_sha256"] and inherited["repositories_sha256"] == original["repositories_sha256"], inherited
+            record["shared_anonymous_sha256"] = inherited["repositories_sha256"]
+            remove_container(reader)
+            if args.reference_docker:
+                remove_container(owner)
             for name, target in [("empty", "/tmp"), ("contents", "/etc/apk")]:
                 container = prefix + "-baseline-" + name
                 baseline[name] = observe(create(container, target, []))
@@ -123,6 +147,29 @@ def main():
             (host / "keep.txt").write_text("host contents\n")
             (host / "apk").mkdir()
             (host / "apk" / "host-only.txt").write_text("must not populate the volume\n")
+            source = prefix + "-running-source"
+            child = prefix + "-running-reader"
+            named = prefix + "-shared-named"
+            volumes.append(named)
+            mounts = [{"Type": "bind", "Source": str(host), "Target": "/input", "ReadOnly": True},
+                      {"Type": "volume", "Source": named, "Target": "/data"}]
+            source_id = create(source, "/data", mounts, command=["sleep", "120"])
+            request("POST", "/containers/" + source_id + "/start", expected=(204,))
+            child_id = create(child, "/data", [], [source + ":rw"], command=["sh", "-ec",
+                'test "$(cat /input/keep.txt)" = "host contents"; ! touch /input/unexpected; echo shared > /data/check'])
+            request("POST", "/containers/" + child_id + "/start", expected=(204,))
+            assert json.loads(request("POST", "/containers/" + child_id + "/wait"))["StatusCode"] == 0
+            assert not (host / "unexpected").exists()
+            remove_container(child)
+            override = [{"Type": "bind", "Source": str(host / "apk"), "Target": "/input", "ReadOnly": True}]
+            child_id = create(child, "/data", override, [source + ":ro"], command=["sh", "-ec",
+                'test -f /input/host-only.txt; test ! -e /input/keep.txt; test "$(cat /data/check)" = shared; '
+                'if touch /data/unexpected; then exit 1; fi'])
+            request("POST", "/containers/" + child_id + "/start", expected=(204,))
+            assert json.loads(request("POST", "/containers/" + child_id + "/wait"))["StatusCode"] == 0
+            remove_container(child)
+            remove_container(source)
+            record["running_volumes_from"] = True
             before = host.stat()
             host_metadata = (before.st_uid, before.st_gid, before.st_mode)
         record["baseline"] = baseline
