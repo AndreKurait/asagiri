@@ -227,3 +227,4 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 - Qualify Arch desktop packaging for #268, including build, install, upgrade, removal, and launch on an isolated Arch host.
 - Finish native Windows CLI and bridge qualification for #266 using merged PR #293 (`7100bdff`). The ARM64 Linux baseline rejected gzip and accepted plain tar. The fixed engine passed ten live cases, including tag preservation after corrupt input. Docker 28.0.4 accepted bzip2 and published images with corrupt trailers. Asagiri supports plain tar and gzip and validates gzip through EOF before publishing image records.
+- ARM64 Docker-first qualification for #234 used the checksummed CI binaries at `be6fddcd` with Docker 29.1.3. Docker reached its gateway before Asagiri started. During image pull, the guest console reported `ENOTSUP` while moving PID 1 into `/sys/fs/cgroup/asagiri-host`. Gateway coexistence and restart checks remain open.
