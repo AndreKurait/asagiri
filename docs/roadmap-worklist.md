@@ -537,3 +537,5 @@ Merged `main` at `cfbeab94` passed runtime and IPAM contracts and negative contr
 PR #302 is open at `5538aea0`. Its updated [platform verification run](https://github.com/AndreKurait/asagiri/actions/runs/44715400533) is queued.
 
 Pinned Verus verified three IPAM obligations and rejected six negative controls on clean PR #302 revision `5538aea0`. [Local proof report](verification/ipam-proof-5538aea0.json).
+
+PR #302 passed hosted IPAM and runtime proofs, negative controls, and the controlled IPv4 and IPv6 allocation benchmark. The [hosted IPAM report](verification/ipam-proof-ff9bd0e7.json) records CI checkout `ff9bd0e7`.
