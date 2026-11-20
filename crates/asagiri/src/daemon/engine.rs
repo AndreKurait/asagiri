@@ -1320,7 +1320,7 @@ impl Engine {
                 // A concurrent docker stop owns this same generation lock;
                 // never put back the restart that it has just canceled.
                 let current = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-                let rehold = *current == generation && self.is_stopped() && {
+                let rehold = super::lifecycle_generation::is_current(*current, generation) && self.is_stopped() && {
                     let mut st = self.lock();
                     let c = st.containers.get_mut(&id).filter(|c| c.status != Status::Running && comes_back(c));
                     c.map(|c| c.restart_pending = true).is_some()
@@ -2139,7 +2139,7 @@ impl Engine {
         let _preparing = self.image_preparation();
         let prepared = self.vm_inner(reason == Start::VmRecovery);
         let _starting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        if *_starting != generation {
+        if !super::lifecycle_generation::is_current(*_starting, generation) {
             return Err(Error::Conflict("container start was canceled".into()));
         }
         let vm = match prepared {
@@ -3343,7 +3343,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut stopping = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
-        *stopping = stopping.wrapping_add(1);
+        *stopping = super::lifecycle_advance::advance(*stopping);
         self.thaw_for_signal(&id);
         let cancelled = self.mark_stopped(&id);
         if !self.wait_started(&id) {
@@ -3440,7 +3440,7 @@ impl Engine {
             if (signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32)
                 && self.with(&id, recover_after_vm_loss)?
             {
-                *killing = killing.wrapping_add(1);
+                *killing = super::lifecycle_advance::advance(*killing);
                 self.mark_stopped(&id);
                 self.save();
                 return Ok(());
@@ -3448,7 +3448,7 @@ impl Engine {
             return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
         }
         if signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32 {
-            *killing = killing.wrapping_add(1);
+            *killing = super::lifecycle_advance::advance(*killing);
             self.mark_stopped(&id);
         }
         self.emit_container("kill", &id, &[("signal", signal.to_string())]);
@@ -3507,7 +3507,7 @@ impl Engine {
                 st = self.changed.wait_timeout(st, AGAIN).unwrap_or_else(|e| e.into_inner()).0;
             }
         }
-        *removing = removing.wrapping_add(1);
+        *removing = super::lifecycle_advance::advance(*removing);
         // Keep the stopped container addressable if cleanup times out. The
         // lifecycle guard excludes a new start while the guest finishes, and
         // a failed removal can be retried without losing its writable layer.
