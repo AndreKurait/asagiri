@@ -439,7 +439,10 @@ def main():
             diagnostic = engine("cat", "/tmp/firewall-docker.log", check=False, timeout=10)
             (output / "reference-docker.log").write_text(diagnostic.stdout + diagnostic.stderr)
             if args.docker_first:
-                diagnostic = engine("cat", "/tmp/asagiri.log", "/tmp/gateway.log", check=False, timeout=10)
+                diagnostic = engine(
+                    "cat", "/tmp/asagiri.log", "/tmp/gateway.log",
+                    "/root/.asagiri/logs/guest-console.log", check=False, timeout=10,
+                )
                 (output / "docker-first-runtime.log").write_text(diagnostic.stdout + diagnostic.stderr)
         for name in reversed(hosts):
             logs = run("docker", "logs", name, check=False, timeout=20)
