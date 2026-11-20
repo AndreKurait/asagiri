@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 /// The HostConfig keys kept with a container.
-const KEYS: [&str; 8] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode", "Tmpfs"];
+const KEYS: [&str; 9] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode", "Tmpfs", "VolumesFrom"];
 
 /// `nofile` when the run sets none: what containers get on Docker Desktop
 /// and on Docker Engine under containerd's `LimitNOFILE=infinity`. Without
@@ -98,8 +98,8 @@ pub fn check_unsupported(host: &Value) -> Result<Vec<String>, String> {
     }
     match &host["VolumesFrom"] {
         Value::Null => {}
-        Value::Array(values) if values.is_empty() => {}
-        Value::Array(_) => return Err("Asagiri does not support --volumes-from (Compose volumes_from); mount the volumes by name instead".into()),
+        Value::Array(values) if values.iter().all(Value::is_string) => {}
+        Value::Array(_) => return Err("VolumesFrom entries must be strings".into()),
         _ => return Err("VolumesFrom must be an array".into()),
     }
     match &host["StorageOpt"] {
@@ -344,7 +344,7 @@ mod tests {
             (json!({"CgroupnsMode": "host"}), "--cgroupns=host"),
             (json!({"Runtime": "nvidia"}), "--runtime=nvidia"),
             (json!({"Isolation": "hyperv"}), "--isolation=hyperv"),
-            (json!({"VolumesFrom": ["db:ro"]}), "--volumes-from"),
+            (json!({"VolumesFrom": [17]}), "VolumesFrom entries must be strings"),
             (json!({"StorageOpt": {"size": "1G"}}), "--storage-opt"),
             (json!({"PidMode": false}), "PidMode must be a string"),
             (json!({"IpcMode": []}), "IpcMode must be a string"),
