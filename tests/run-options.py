@@ -62,7 +62,7 @@ def check(args):
             ({"UTSMode": "host"}, "--uts=host"), ({"CgroupnsMode": "host"}, "--cgroupns=host"),
             ({"Runtime": "nvidia"}, "--runtime=nvidia"), ({"Isolation": "hyperv"}, "--isolation=hyperv"),
             ({"UsernsMode": "private"}, "UsernsMode"), ({"CgroupParent": "/tenant"}, "CgroupParent"),
-            ({"VolumesFrom": ["db:ro"]}, "--volumes-from"), ({"StorageOpt": {"size": "1G"}}, "--storage-opt"),
+            ({"VolumesFrom": [17]}, "VolumesFrom entries must be strings"), ({"StorageOpt": {"size": "1G"}}, "--storage-opt"),
             ({"PidMode": False}, "PidMode must be a string"), ({"IpcMode": []}, "IpcMode must be a string"),
             ({"VolumesFrom": ""}, "VolumesFrom must be an array"), ({"StorageOpt": []}, "StorageOpt must be an object"),
             ({"MemorySwappiness": False}, "MemorySwappiness must be an integer"),
