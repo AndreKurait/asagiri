@@ -229,6 +229,8 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ## 3. Expand Verus and retire covered tests one change at a time
 
+The pinned Verus runtime harness passed locally on macOS for the health-transition PR #291 at `77943863` and the HTTP number padding PR #292 at `4e2d7868`. Hosted checks and verification after merge remain pending.
+
 - [ ] Confirm the health-transition and HTTP zero-padding proofs from PRs #291 and #292 pass on merged `main`.
 - [x] Establish a reproducible baseline by crate. Revision `242a64ac` has 1,069 literal `#[test]` declarations under `crates/`.
 
