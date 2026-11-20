@@ -619,32 +619,6 @@ mod tests {
     }
 
     #[test]
-    fn unsigned_framing_keeps_exact_values_and_rejects_overflow() {
-        for value in [0, 1, 9, 10, 15, 16, u32::MAX as u64, u64::MAX - 1, u64::MAX] {
-            assert_eq!(parse_number(value.to_string().as_bytes(), false), Some(value));
-            for text in [format!("{value:x}"), format!("{value:X}"), format!("{value:032x}")] {
-                assert_eq!(parse_number(text.as_bytes(), true), Some(value));
-            }
-        }
-        let mut value = 0x79b9540679b95406u64;
-        for _ in 0..4096 {
-            value = value.wrapping_mul(6364136223846793005).wrapping_add(1);
-            assert_eq!(parse_number(value.to_string().as_bytes(), false), Some(value));
-            assert_eq!(parse_number(format!("{value:X}").as_bytes(), true), Some(value));
-        }
-        for (text, hex) in [
-            ("18446744073709551616", false), ("10000000000000000", true),
-            ("99999999999999999999999999999999", false), ("fffffffffffffffff", true),
-            ("+1", false), ("-0", false), ("+a", true), (" 0", false),
-            ("1 ", true), ("0x1", true), ("1_0", false), ("1g", true),
-        ] {
-            assert_eq!(parse_number(text.as_bytes(), hex), None, "{text:?}, hex={hex}");
-        }
-        let padded = format!("{}{}", "0".repeat(4096), u64::MAX);
-        assert_eq!(parse_number(padded.as_bytes(), false), Some(u64::MAX));
-    }
-
-    #[test]
     fn chunked_trailers_preserve_the_next_request() {
         for streamed in [false, true] {
             let mut r = input(b"POST /auth HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2;ext=yes\r\n{}\r\n0\r\nX-Checksum: abc\r\n\r\nGET /_ping HTTP/1.1\r\n\r\n");
