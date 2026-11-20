@@ -243,7 +243,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ## 3. Expand Verus and retire covered tests one change at a time
 
-The [pinned runtime verification report](verification/runtime-proof-d74d0120.json) records nine passing obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission. A [fresh run on clean main at `ac4a738f`](verification/runtime-proof-ac4a738f.json) passed after the quota removal merged.
+The [pinned runtime verification report](verification/runtime-proof-d74d0120.json) records nine passing obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission. A [fresh run on clean main at `ac4a738f`](verification/runtime-proof-ac4a738f.json) passed after the quota removal merged. The [clean main run at `bd80ab7a`](verification/runtime-proof-bd80ab7a.json) passed the pinned runtime harness after the roadmap merged. The [IPAM report from the same revision](verification/ipam-proof-bd80ab7a.json) records the passing production proof and negative controls.
 
 The pinned Verus runtime harness passed on clean updated PR heads. Health transition PR #291 at `a3d95d07` verified two obligations and rejected eight broken variants. It removes two sampled unit tests and keeps the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 at `0042060e` verified seven obligations and rejected six broken variants. It removes one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed. Hosted checks and verification after merge remain pending.
 
@@ -260,7 +260,7 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
   | asagiri-vmm | 12 |
   | asagiri-win | 77 |
 
-  Merged `main` at `7100bdff` has 1,074 declarations. The net increase of five is in `asagiri`. The three proposed unit-test removals in #291 and #292 remain pending.
+  Merged `main` at `bd80ab7a` has 1,074 declarations. The net increase of five is in `asagiri`. The three proposed unit-test removals in #291 and #292 remain pending.
 
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [ ] Start with issue #80 for HTTP framing and #81 for lifecycle cancellation and layer ownership. Inventory the production callers, requirements, and test assertions for one behavior at a time.
