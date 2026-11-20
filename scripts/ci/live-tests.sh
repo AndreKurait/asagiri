@@ -37,6 +37,7 @@ python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || 
 python3 "$src/tests/image-digest-export.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/image-remove.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
+ASAGIRI_TEST_ENGINE=1 python3 "$src/tests/image-load-completion.py" /var/run/docker.sock --reference-docker || exit 2
 python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
 python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
