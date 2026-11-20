@@ -51,7 +51,7 @@ jobs:
                 "
               runuser -u nobody -- env HOME=/build/gui XDG_RUNTIME_DIR=/build/gui GDK_BACKEND=wayland \
                 WAYLAND_DISPLAY=arch-smoke LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- bash -euc "
-                  weston --backend=headless --socket=arch-smoke --idle-time=0 &
+                  WAYLAND_DEBUG=server weston --backend=headless --socket=arch-smoke --idle-time=0 2>/build/gui/wayland.log &
                   compositor=\$!
                   trap \"kill \${compositor}\" EXIT
                   for attempt in {1..50}; do
@@ -59,8 +59,13 @@ jobs:
                     sleep 0.2
                   done
                   test -S /build/gui/arch-smoke
-                  WAYLAND_DEBUG=client gio launch /usr/share/applications/asagiri.desktop 2>/build/gui/wayland.log
-                  timeout 30 bash -c \"until grep -Fq xdg_surface@ /build/gui/wayland.log; do sleep 0.2; done\"
+                  gio launch /usr/share/applications/asagiri.desktop
+                  for attempt in {1..150}; do
+                    grep -Eq xdg_toplevel.*set_title.*Asagiri /build/gui/wayland.log && exit 0
+                    sleep 0.2
+                  done
+                  tail -100 /build/gui/wayland.log
+                  exit 1
                 "
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
