@@ -20,10 +20,10 @@ failure count and retry threshold. Verus proves the following properties.
   count is at least the retry threshold; otherwise it preserves the status.
 - Failure never decreases the count.
 
-The production regression calls `Health::record` at the maximum count, crosses
-the retry and start-period boundaries, and then recovers on success. Before
-this change, the unchecked increment panicked in the same production method
-with overflow checks enabled; optimized execution could wrap the count.
+The contract covers the saturation, recovery and grace-period assertions from
+two retired unit tests. The remaining `Health::record` test exercises status
+mapping and log capacity. Before the saturation fix, an unchecked increment
+could panic or wrap the count.
 
 The proof does not cover probe scheduling, clock conversion, command execution,
 container generations or OS process cancellation. Existing module tests and
