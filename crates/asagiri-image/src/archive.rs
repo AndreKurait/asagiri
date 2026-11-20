@@ -208,7 +208,12 @@ fn oci_candidates(
     }
     let (digest, _) = descriptor_blob(files, descriptor)?;
     let doc: Value = serde_json::from_slice(&store.read_config(&digest)?).map_err(|e| invalid(format!("OCI blob: {e}")))?;
-    let tag = descriptor["annotations"]["org.opencontainers.image.ref.name"].as_str().or(tag).map(str::to_owned);
+    let annotations = &descriptor["annotations"];
+    let tag = annotations["io.containerd.image.name"]
+        .as_str()
+        .or_else(|| annotations["org.opencontainers.image.ref.name"].as_str())
+        .or(tag)
+        .map(str::to_owned);
     if let Some(manifests) = doc["manifests"].as_array() {
         let host = Platform::host_linux();
         let mut host_hits = Vec::new();
@@ -611,7 +616,7 @@ mod tests {
         add_blob(&mut b, &store, &nested_digest);
         add_index(&mut b, vec![json!({
             "mediaType": "application/vnd.oci.image.index.v1+json", "digest": nested_digest, "size": nested_size,
-            "annotations": {"org.opencontainers.image.ref.name": "demo/multi:1"},
+            "annotations": {"org.opencontainers.image.ref.name": "1", "io.containerd.image.name": "docker.io/demo/multi:1"},
         })]);
         let bytes = b.into_inner().unwrap();
 
