@@ -1,0 +1,28 @@
+# Desktop packaging follows the scope proposed in libracoder/kiri#526.
+pkgname=asagiri-desktop
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Asagiri container desktop window'
+arch=(x86_64)
+url='https://github.com/AndreKurait/asagiri'
+license=(Apache-2.0)
+depends=(glibc gtk3 webkit2gtk-4.1 hicolor-icon-theme)
+makedepends=(rustup)
+optdepends=('asagiri-lite: local engine')
+conflicts=(asagiri)
+source=(asagiri-arch-c9179f64.tar.gz)
+sha256sums=('3d9a366e62b2b58c999656caf7b1cd52d9d67a8e1a3fb8f1dfda13ed526ab77f')
+
+build() {
+  cd "$srcdir/asagiri"
+  cargo +1.99.1 build --release --locked -p asagiri --features window
+}
+
+package() {
+  cd "$srcdir/asagiri"
+  install -Dm755 target/release/asagiri "$pkgdir/usr/lib/asagiri/asagiri-window"
+  install -Dm644 contrib/linux/asagiri.desktop "$pkgdir/usr/share/applications/asagiri.desktop"
+  install -Dm644 brand/icon/asagiri-app-icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/asagiri.svg"
+  install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
