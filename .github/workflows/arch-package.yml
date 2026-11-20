@@ -24,7 +24,7 @@ jobs:
           docker run --rm -v "$stage:/input:ro" \
             archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
             bash -euc '
-              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1
+              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus
               install -d -o nobody -g nobody /build
               cp /input/* /build/
               cd /build
@@ -40,6 +40,11 @@ jobs:
               pacman -U --noconfirm ./asagiri-desktop-*-2-x86_64.pkg.tar.zst
               test "$(pacman -Q asagiri-desktop)" != "$initial_version"
               pacman -Qk asagiri-desktop
+              install -d -o nobody -g nobody -m 700 /build/gui
+              runuser -u nobody -- env HOME=/build/gui LIBGL_ALWAYS_SOFTWARE=1                 dbus-run-session -- xvfb-run -a bash -e -c "
+                  gio launch /usr/share/applications/asagiri.desktop
+                  timeout 30 xdotool search --sync --onlyvisible --name \"^Asagiri$\"
+                "
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
             '
