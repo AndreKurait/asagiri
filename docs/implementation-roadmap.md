@@ -40,7 +40,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Serve Windows setup and desktop documents from memory. Windows cross-compilation passed. The hosted fixture exercises a document above 2 MiB, each supported language, and origin restrictions. [#301](https://github.com/AndreKurait/asagiri/pull/301)
 
-- [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. Live macOS and hosted CI remain pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
+- [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. The isolated macOS fixture passed dense dual-stack allocation, static and auxiliary reservations, exhaustion, rollback, and reuse. Hosted CI remains pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
 
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
