@@ -243,6 +243,8 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ## 3. Expand Verus and retire covered tests one change at a time
 
+The pinned runtime verifier passed nine obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission.
+
 The pinned Verus runtime harness passed on clean updated PR heads. Health transition PR #291 at `a3d95d07` verified two obligations and rejected eight broken variants. It removes two sampled unit tests and keeps the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 at `0042060e` verified seven obligations and rejected six broken variants. It removes one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed. Hosted checks and verification after merge remain pending.
 
 - [ ] Confirm the health-transition and HTTP zero-padding proofs from PRs #291 and #292 pass on merged `main`.
