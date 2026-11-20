@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub snapshot taken 2026-11-19 22:13 UTC. At that point, 12 pull requests and 177 issues were open. After #282 merged, the remaining 11 pull requests entered another CI cycle. Each link opens the live record.
+GitHub queue checked on 2026-11-20. There were 13 open pull requests and 177 open issues.
 
 ## Work sequence
 
@@ -33,6 +33,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [ ] Verify each Pages publication by ID. Eleven local tests and the hosted Pages build passed (run 44638959682). Live deployment verification remains pending. Auto-merge enabled. [#295](https://github.com/AndreKurait/asagiri/pull/295)
 
 - [ ] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Auto-merge is enabled. [#296](https://github.com/AndreKurait/asagiri/pull/296)
+
+- [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
 ## 2. Resolve the issue backlog
 
