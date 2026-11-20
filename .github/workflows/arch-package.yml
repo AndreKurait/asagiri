@@ -34,6 +34,12 @@ jobs:
               pacman -U --noconfirm ./asagiri-desktop-*.pkg.tar.zst
               pacman -Qk asagiri-desktop
               test -x /usr/lib/asagiri/asagiri-window
+              initial_version=$(pacman -Q asagiri-desktop)
+              sed -i "s/^pkgrel=1$/pkgrel=2/" PKGBUILD
+              runuser -u nobody -- env HOME=/build makepkg --repackage
+              pacman -U --noconfirm ./asagiri-desktop-*-2-x86_64.pkg.tar.zst
+              test "$(pacman -Q asagiri-desktop)" != "$initial_version"
+              pacman -Qk asagiri-desktop
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
             '
