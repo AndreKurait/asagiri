@@ -53,7 +53,7 @@ jobs:
                 WAYLAND_DISPLAY=arch-smoke LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- bash -euc "
                   weston --backend=headless --socket=arch-smoke --idle-time=0 &
                   compositor=\$!
-                  trap \"kill \\${compositor}\" EXIT
+                  trap \"kill \${compositor}\" EXIT
                   for attempt in {1..50}; do
                     test ! -S /build/gui/arch-smoke || break
                     sleep 0.2
