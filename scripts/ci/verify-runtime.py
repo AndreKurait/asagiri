@@ -8,6 +8,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = {
+    "lifecycle-advance": {
+        "source": "crates/asagiri/src/daemon/lifecycle_advance.rs",
+        "signature": "pub(super) fn advance(current: u64) -> u64 {",
+        "negative_diagnostics": ("postcondition not satisfied", "possible arithmetic underflow/overflow"),
+        "minimum_verified": 2,
+        "mutants": {
+            "retain-token": ("current + 1", "current"),
+            "skip-wrap": ("current == u64::MAX", "false"),
+        },
+    },
+    "lifecycle-generation": {
+        "source": "crates/asagiri/src/daemon/lifecycle_generation.rs",
+        "signature": "pub(super) fn is_current(current: u64, captured: u64) -> bool {",
+        "negative_diagnostics": ("postcondition not satisfied",),
+        "minimum_verified": 2,
+        "mutants": {
+            "accept-stale": ("current == captured", "current >= captured"),
+            "reject-current": ("current == captured", "current != captured"),
+        },
+    },
     "layer-admission": {
         "source": "crates/asagiri/src/daemon/layer_admission.rs",
         "signature": "pub(super) fn transition(active: usize, limit: usize, acquiring: bool, busy: bool, cancelled: bool) -> Option<usize> {",
