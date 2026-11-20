@@ -280,3 +280,5 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
 - PR #292 verified seven HTTP number obligations and rejected six negative controls. [Report](verification/runtime-proof-0a299981.json)
 - PR #299 verified four lifecycle obligations and rejected four negative controls. [Report](verification/runtime-proof-4b2190d0.json)
 - PR #302 verified three IPAM obligations and rejected six negative controls. [Report](verification/ipam-proof-1468c706.json)
+
+Pinned Verus passed locally on clean merged revision `09387bd2`. [Proof report](verification/runtime-proof-09387bd2.json).
