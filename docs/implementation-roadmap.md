@@ -75,7 +75,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ### Upstream issue qualification (150)
 
-- [ ] Verify Kiri #14: Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota) [#91](https://github.com/AndreKurait/asagiri/issues/91)
+- [ ] Verify Kiri #14: Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota). The installed macOS v0.1.13 guest (Linux 6.18.58) passed [all 56 kernel probes](verification/guest-kernel-macos-0.1.13.txt), including the reported expressions, using signed Alpine packages staged locally. Other guest architectures remain unverified. [#91](https://github.com/AndreKurait/asagiri/issues/91)
 - [ ] Verify Kiri #25: macOS: Allow hiding the Dock icon while Kiri runs in the background [#92](https://github.com/AndreKurait/asagiri/issues/92)
 - [ ] Verify Kiri #27: Container DNS fails on Macs with Cisco Umbrella [#93](https://github.com/AndreKurait/asagiri/issues/93)
 - [ ] Verify Kiri #38: Cilium does not start in kind: the guest kernel needs BPF JIT, perf events and BTF [#94](https://github.com/AndreKurait/asagiri/issues/94)
