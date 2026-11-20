@@ -15,10 +15,10 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#298](https://github.com/AndreKurait/asagiri/pull/298) Expand Docker reference coverage for mixed none networks (BLOCKED, auto-merge enabled)
 - [#299](https://github.com/AndreKurait/asagiri/pull/299) Verify container lifecycle generation checks (BLOCKED, auto-merge enabled)
 - [#300](https://github.com/AndreKurait/asagiri/pull/300) Refresh embedded DNS after container rename (BLOCKED, auto-merge enabled)
-- [#301](https://github.com/AndreKurait/asagiri/pull/301) Serve Windows desktop documents from memory (BLOCKED, auto-merge enabled)
 - [#302](https://github.com/AndreKurait/asagiri/pull/302) Retire sampled address-gap checks covered by Verus (BLOCKED, auto-merge enabled)
 - [#303](https://github.com/AndreKurait/asagiri/pull/303) Verify default bridge reachability when Docker starts first (BLOCKED, auto-merge enabled)
 - [#305](https://github.com/AndreKurait/asagiri/pull/305) Record roadmap queue and merged-main proof evidence (BLOCKED, auto-merge enabled)
+- [#306](https://github.com/AndreKurait/asagiri/pull/306) Add an Arch desktop package recipe (draft, BEHIND)
 
 ## Open issues (176)
 
@@ -220,13 +220,10 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Immediate follow-ups
 
-- Check PR #300’s refreshed platform run `44673701001`. The original run `44665123025` ended with Linux cancelled. Both registry mirror failures from hosted job `136052427279` passed locally on exact PR head `f6a7db3d` as part of the locked image crate suite (88 unit and six integration tests passed). Investigate runner-specific conditions if the failures recur.
-- Qualify mixed-network behavior on merged source for #265. The issue records the 11 live cases and the decision to retain explicit rejection until the engine can preserve all requested attachments.
-- Collect PR #303’s hosted Docker-first bridge evidence. Staging signed Alpine packages let the local fixture pass package installation. It then stopped during host inspection because the local Asagiri daemon omitted `CgroupnsMode`. The initial hosted Linux job was cancelled before gateway verification. Refreshed run `44673683810` still needs to exercise gateway reachability.
-- After merging the proof PRs, verify their obligations on `main` and recount unit tests by crate.
-
-- Qualify Arch desktop packaging for #268, including build, install, upgrade, removal, and launch on an isolated Arch host.
-- Finish native Windows CLI and bridge qualification for #266 using merged PR #293 (`7100bdff`). The ARM64 Linux baseline rejected gzip and accepted plain tar. The fixed engine passed ten live cases, including tag preservation after corrupt input. Docker 28.0.4 accepted bzip2 and published images with corrupt trailers. Asagiri supports plain tar and gzip and validates gzip through EOF before publishing image records.
-- ARM64 Docker-first qualification for #234 used the checksummed CI binaries at `be6fddcd` with Docker 29.1.3. Docker reached its gateway before Asagiri started. During image pull, the guest console reported `ENOTSUP` while moving PID 1 into `/sys/fs/cgroup/asagiri-host`. Gateway coexistence and restart checks remain open.
-
-- PR #302 hosted run `44673688473` verified three IPAM obligations and rejected six negative controls at `62ab88ab`. Full CI and merge remain pending.
+- Finish the platform checks and merge the ready PRs in the queue above. Check #287 speed run `44679797226` and #288 Docker reference run `44679901363` before retrying either.
+- Qualify #301’s merged Windows desktop change for issue #236. The merge includes native WebView tests for the in-memory document path.
+- Collect fresh CI for #302 at `ec46d50c`. The previous head passed three IPAM obligations and rejected six negative controls. After merge, rerun the proofs on `main` and recount the unit tests by crate.
+- Resolve #303’s guest startup failure before collecting Docker-first gateway reachability evidence. The ARM64 guest reported `ENOTSUP` during cgroup migration. The hosted x64 guest also failed to start.
+- Finish Arch packaging for #268 in draft #306. Check hosted native build `44681245966`, then qualify install, upgrade, removal, and launch. The source integrity check accepted the original archive and rejected the modified one.
+- Qualify mixed-network behavior on merged source for #265, including explicit rejection when the engine cannot preserve the requested attachments.
+- Finish native Windows CLI and bridge qualification for #266 using merged PR #293. The fixed ARM64 engine passed ten live image-load cases, including tag preservation after corrupt input.
