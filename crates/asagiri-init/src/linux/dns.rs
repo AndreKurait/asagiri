@@ -280,6 +280,10 @@ impl Dns {
 
     pub fn unregister(&mut self, bridge: &str, ip: [u8; 4]) {
         self.clients.remove(&ip);
+        self.unregister_names(bridge, ip);
+    }
+
+    fn unregister_names(&mut self, bridge: &str, ip: [u8; 4]) {
         if let Some(table) = self.names.get_mut(bridge) {
             for list in table.values_mut() {
                 list.retain(|a| *a != ip);
@@ -291,6 +295,21 @@ impl Dns {
                 list.retain(|(owner, _)| *owner != ip);
             }
             table.retain(|_, list| !list.is_empty());
+        }
+    }
+
+    /// Replace only address records. Resolver settings and enabled families stay intact.
+    pub fn rename(&mut self, bridge: &str, ip: [u8; 4], names: asagiri_proto::StrList<'_>) {
+        let has_ipv4 = self.names.get(bridge).is_some_and(|table| table.values().any(|list| list.contains(&ip)));
+        let ipv6 = self.names6.get(bridge).into_iter().flat_map(|table| table.values()).flatten()
+            .filter(|(owner, _)| *owner == ip).map(|(_, address)| *address)
+            .collect::<std::collections::BTreeSet<_>>();
+        self.unregister_names(bridge, ip);
+        if has_ipv4 {
+            self.register(bridge, names.iter(), ip);
+        }
+        for address in ipv6 {
+            self.register6(bridge, names.iter(), ip, address);
         }
     }
 

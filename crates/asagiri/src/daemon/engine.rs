@@ -3066,6 +3066,8 @@ impl Engine {
     /// `docker network connect`.
     pub fn connect(&self, network: &str, key: &str, aliases: Vec<String>, ipv4_address: String, ipv6_address: String, mac_address: String) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _connecting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let net = self.lock_networks().find(network).cloned().ok_or_else(|| Error::NotFound(format!("network {network} not found")))?;
         if let Some(ip) = super::network::parse_ip(&ipv4_address) {
             net.check_static(ip).map_err(Error::BadRequest)?;
@@ -3078,7 +3080,7 @@ impl Engine {
         let extra = ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address };
         let running = {
             let mut st = self.lock();
-            let c = st.containers.get_mut(&id).expect("resolved");
+            let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             if c.spec.network_mode == net.name || c.spec.extra_networks.iter().any(|x| x.name == net.name) {
                 return Err(Error::Conflict(format!("endpoint with name {} already exists in network {}", c.name, net.name)));
             }
@@ -3108,10 +3110,12 @@ impl Engine {
     /// `docker network disconnect`.
     pub fn disconnect(&self, network: &str, key: &str) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _disconnecting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let net = self.lock_networks().find(network).cloned().ok_or_else(|| Error::NotFound(format!("network {network} not found")))?;
         let (n, ip, ip6) = {
             let mut st = self.lock();
-            let c = st.containers.get_mut(&id).expect("resolved");
+            let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             if c.spec.network_mode == net.name {
                 return Err(Error::BadRequest(format!("Asagiri cannot disconnect a container from its first network ({})", net.name)));
             }
@@ -3302,20 +3306,39 @@ impl Engine {
         if !valid_container_name(new) {
             return Err(Error::BadRequest(format!("Invalid container name ({new}), only [a-zA-Z0-9][a-zA-Z0-9_.-] are allowed")));
         }
-        let id = {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _renaming = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let updates = {
             let mut st = self.lock();
-            let id = resolve(&st, key)?;
             if st.containers.values().any(|c| c.name == new && c.id != id) {
                 return Err(Error::Conflict(format!("Conflict. The container name \"/{new}\" is already in use by another container.")));
             }
-            let c = st.containers.get_mut(&id).expect("resolved");
+            let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             if c.name == new {
                 return Err(Error::Conflict(format!("Renaming a container with the same name as its current name")));
             }
             c.name = new.to_owned();
-            id
+            let networks = self.lock_networks();
+            let primary = c.ip.map(|ip| (c.spec.network_mode.as_str(), ip, c.spec.aliases.as_slice()));
+            let extra = c.spec.extra_networks.iter().filter_map(|endpoint| {
+                let (_, ip) = c.extra_ips.iter().find(|(name, _)| *name == endpoint.name)?;
+                Some((endpoint.name.as_str(), *ip, endpoint.aliases.as_slice()))
+            });
+            primary.into_iter().chain(extra).filter_map(|(network, ip, aliases)| {
+                let net = networks.find(network).filter(|net| !net.builtin())?;
+                Some((net.bridge.clone(), ip, endpoint_names(new, aliases, &id, &c.spec.hostname)))
+            }).collect::<Vec<_>>()
         };
         self.save();
+        if let Some(vm) = self.awake() {
+            for (bridge, ip, names) in updates {
+                if let Err(error) = vm.dns_rename(&id, &bridge, ip, &names) {
+                    crate::diag::warn!("container DNS rename could not reach the guest", id = &id[..12], error = error.to_string());
+                    break;
+                }
+            }
+        }
         self.emit_container("rename", &id, &[]);
         Ok(())
     }
