@@ -4,11 +4,6 @@ Issues and pull requests are welcome in AndreKurait/asagiri. Describe the
 problem, what changes for users, and how you verified it. Discuss larger
 features in an issue before doing substantial work.
 
-Keep at most **two ready pull requests and two drafts** open per person. The
-PR limit workflow converts an excess ready PR to a draft when there is room;
-otherwise it closes the excess PR. Bots are excluded. Reopen it when there is
-room. This rule also applies to maintainers.
-
 ## Development and checks
 
 See [development](docs/development.md) for platform prerequisites. Keep the
