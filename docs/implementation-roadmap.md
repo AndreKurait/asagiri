@@ -1,5 +1,7 @@
 # Asagiri implementation roadmap
 
+See the [roadmap worklist](roadmap-worklist.md) for the pull request queue, issue inventory, and verification evidence.
+
 GitHub queue checked on 2026-11-20. There were 15 open pull requests and 177 open issues.
 
 See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot.
