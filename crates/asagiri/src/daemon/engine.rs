@@ -4630,6 +4630,20 @@ mod vm_recovery_tests {
         }
         engine.stop(&ids[3], Duration::ZERO).unwrap();
         for count in 1..=2 {
+            let config = ExecConfig {
+                console_size: None,
+                argv: vec!["sleep".into(), "600".into()],
+                env: Vec::new(),
+                cwd: "/".into(),
+                user: String::new(),
+                tty: false,
+                stdin: false,
+                privileged: false,
+                internal: false,
+            };
+            let exec_id = engine.exec_create(&ids[0], config).unwrap();
+            let (_tty, _output) = engine.exec_start(&exec_id).unwrap();
+            assert_eq!(engine.with_exec(&exec_id, |exec| exec.exit_code).unwrap(), None);
             let shared = engine.k8s_forward([10, 42, 0, 2], 8080).unwrap();
             let vm = engine.awake().unwrap();
             assert!(!vm.wait_stopped(Duration::ZERO), "force-stop this test's VM");
@@ -4641,12 +4655,29 @@ mod vm_recovery_tests {
                 assert!(!left.is_zero(), "policy containers stayed down without a new VM request");
                 st = engine.changed.wait_timeout(st, left.min(Duration::from_millis(100))).unwrap().0;
             }
+            assert_eq!(st.execs[&exec_id].exit_code, Some(255));
             for id in &ids[2..] {
                 assert_eq!(st.containers[id].status, Status::Exited);
                 assert_eq!(st.containers[id].restart_count, 0);
             }
             assert!(engine.k8s_fwd.lock().unwrap().is_empty(), "VM loss must release old Kubernetes shares");
             let _rebound = std::net::TcpListener::bind(("127.0.0.1", shared)).expect("the old share's listening socket must be released");
+            drop(st);
+            use std::io::{Read, Write};
+            let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+            let api_engine = Arc::clone(&engine);
+            let handler = std::thread::spawn(move || super::super::api::serve(server, api_engine));
+            write!(client, "GET /exec/{exec_id}/json HTTP/1.0\r\n\r\n").unwrap();
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+            client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            handler.join().unwrap().unwrap();
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            assert_eq!(headers.split_whitespace().nth(1), Some("200"));
+            let inspect: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(inspect["ExitCode"], 255);
+            assert_eq!(inspect["Running"], false);
             println!("PASS: actual VM loss {count} recovered without a boot request; RestartCount={count}; excluded policies stayed down");
         }
         for (fault, count) in [("missing", 3), ("truncated", 4)] {
