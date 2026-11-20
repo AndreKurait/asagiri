@@ -220,7 +220,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Immediate follow-ups
 
-- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. Confirm its proof run on `main` and check #299 again after merge.
+- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. The normal runtime verifier passed locally on clean merged commit `04dfe1a`, verifying two health-transition obligations and rejecting all eight negative controls. Hosted Linux run `44686355712` and merged-main verification of #299 remain pending.
 
 - PR #292’s hosted test merge `4bf6a03c` verified seven HTTP number parsing obligations and rejected six negative controls in run `44680187361`. Finish required checks and verify on merged `main`.
 
