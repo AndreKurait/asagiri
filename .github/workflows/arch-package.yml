@@ -1,0 +1,39 @@
+name: Arch package
+on:
+  pull_request:
+    paths:
+      - packaging/linux/arch/**
+      - .github/workflows/arch-package.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build and inspect the desktop package
+        run: |
+          stage=$(mktemp -d)
+          cp packaging/linux/arch/PKGBUILD "$stage/"
+          git archive --format=tar.gz --prefix=asagiri/ \
+            -o "$stage/asagiri-arch-c9179f64.tar.gz" c9179f64d476434e4ba5bcfd0ec5dc1fe9c93818
+          docker run --rm -v "$stage:/input:ro" \
+            archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
+            bash -euc '
+              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1
+              install -d -o nobody -g nobody /build
+              cp /input/* /build/
+              cd /build
+              runuser -u nobody -- env HOME=/build rustup toolchain install 1.99.1 --profile minimal
+              runuser -u nobody -- env HOME=/build makepkg --verifysource
+              runuser -u nobody -- env HOME=/build makepkg
+              pacman -U --noconfirm ./asagiri-desktop-*.pkg.tar.zst
+              pacman -Qk asagiri-desktop
+              test -x /usr/lib/asagiri/asagiri-window
+              pacman -R --noconfirm asagiri-desktop
+              test ! -e /usr/lib/asagiri/asagiri-window
+            '
