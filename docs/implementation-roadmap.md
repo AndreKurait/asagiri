@@ -247,7 +247,8 @@ The [pinned runtime verification report](verification/runtime-proof-d74d0120.jso
 
 The pinned Verus runtime harness passed on clean updated PR heads. Health transition PR #291 at `a3d95d07` verified two obligations and rejected eight broken variants. It removes two sampled unit tests and keeps the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 at `0042060e` verified seven obligations and rejected six broken variants. It removes one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed. Hosted checks and verification after merge remain pending.
 
-- [ ] Confirm the health-transition and HTTP zero-padding proofs from PRs #291 and #292 pass on merged `main`.
+- [x] Confirm the health-transition proof from PR #291 on merged `main`. Hosted run `44686355712` verified two obligations and rejected eight negative controls on `04dfe1a`.
+- [ ] Confirm the HTTP zero-padding proof from PR #292 on merged `main`.
 - [x] Establish a reproducible baseline by crate. Revision `242a64ac` has 1,069 literal `#[test]` declarations under `crates/`.
 
   | Crate | Declarations |
@@ -260,7 +261,7 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
   | asagiri-vmm | 12 |
   | asagiri-win | 77 |
 
-  Merged `main` at `bd80ab7a` has 1,074 declarations. The net increase of five is in `asagiri`. The three proposed unit-test removals in #291 and #292 remain pending.
+  Merged `main` at `bd80ab7a` has 1,074 declarations. The net increase of five is in `asagiri`. Merged `main` at `04dfe1a` has 1,077 declarations after #291 removed two. The proposed removal in #292 remains pending.
 
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [ ] Start with issue #80 for HTTP framing and #81 for lifecycle cancellation and layer ownership. Inventory the production callers, requirements, and test assertions for one behavior at a time.
