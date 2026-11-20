@@ -222,7 +222,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 - PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. It removed two unit tests. The source count of `#[test]` and `#[tokio::test]` declarations in `crates/asagiri` fell from 666 to 664 across the merge. The normal runtime verifier passed locally on clean merged commit `04dfe1a`, verifying two health-transition obligations and rejecting all eight negative controls. The `runtime-proof-X64` artifact from hosted Linux run `44686355712` confirms the same result on `04dfe1a`. Merged-main verification of #299 remains pending.
 
-- PR #292’s hosted test merge `4bf6a03c` verified seven HTTP number parsing obligations and rejected six negative controls in run `44680187361`. Finish required checks and verify on merged `main`.
+- PR #292’s hosted test merge `44c31f1e` verified seven HTTP number parsing obligations and rejected six negative controls in run `44686466168`. The PR removes one Rust test declaration. Finish required checks and verify on merged `main`.
 
 - Finish the platform checks and merge the ready PRs in the queue above. Check #287 speed run `44679797226` and #288 Docker reference run `44679901363` before retrying either.
 - Finish issue #236 qualification after #307 merges. Native Windows job `136122423289` passed the WebView2 regression, including the assertion that replacing the document releases the previous page. Confirm the cleanup regression on merged `main`.
