@@ -19,7 +19,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#302](https://github.com/AndreKurait/asagiri/pull/302) Retire sampled address-gap checks covered by Verus (BLOCKED, auto-merge enabled)
 - [#303](https://github.com/AndreKurait/asagiri/pull/303) Verify default bridge reachability when Docker starts first (BLOCKED, auto-merge enabled)
 
-## Open issues (177)
+## Open issues (176)
 
 - [#78](https://github.com/AndreKurait/asagiri/issues/78) Track Kiri compatibility and expanded Verus verification
 - [#80](https://github.com/AndreKurait/asagiri/issues/80) Verify HTTP framing, connection closure, and numeric parsing with Verus
@@ -192,7 +192,6 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#266](https://github.com/AndreKurait/asagiri/issues/266) Verify and fix gzip-compressed docker load (Kiri #528)
 - [#267](https://github.com/AndreKurait/asagiri/issues/267) Define supported behavior when the host blocks clone3 (Kiri #529)
 - [#268](https://github.com/AndreKurait/asagiri/issues/268) Review and qualify an Arch desktop package (Kiri PR #526)
-- [#269](https://github.com/AndreKurait/asagiri/issues/269) Define a self-contained headless Linux package (Kiri #532)
 - [#274](https://github.com/AndreKurait/asagiri/issues/274) Verify download consistency during same-source Pages refreshes
 - [#275](https://github.com/AndreKurait/asagiri/issues/275) Measure native Mac networking and file sharing before kernel-bypass work
 - [#280](https://github.com/AndreKurait/asagiri/issues/280) Verify and port the nine reports covered by Kiri Docker compatibility PR 588
