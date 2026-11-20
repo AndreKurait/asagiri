@@ -282,3 +282,4 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
 - PR #302 verified three IPAM obligations and rejected six negative controls. [Report](verification/ipam-proof-1468c706.json)
 
 Pinned Verus passed locally on clean merged revision `09387bd2`. [Proof report](verification/runtime-proof-09387bd2.json).
+Hosted run `44697940643` passed the IPAM and runtime proofs and their negative controls on that revision. GitHub preserved the runtime report as artifact `14613318814`.
