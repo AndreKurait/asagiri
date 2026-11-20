@@ -74,6 +74,7 @@ pub fn refusal(e: &io::Error) -> Option<u16> {
 
 #[derive(Debug)]
 pub struct Request {
+    http10: bool,
     pub method: String,
     /// Path without the `/v1.xx` prefix or the query string.
     pub path: String,
@@ -114,15 +115,16 @@ impl Request {
     /// closes then; a client that reads a 204 to the end of the stream waits
     /// for that close and times out if it never comes.
     pub fn wants_close(&self) -> bool {
-        self.headers.iter().filter(|(key, _)| key.eq_ignore_ascii_case("Connection"))
-            .any(|(_, value)| value.split(',').any(|token| token.trim().eq_ignore_ascii_case("close")))
+        let has_token = |token: &str| self.all_headers().filter(|(key, _)| key.eq_ignore_ascii_case("Connection"))
+            .any(|(_, value)| value.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)));
+        has_token("close") || (self.http10 && !has_token("keep-alive"))
     }
 
     /// A request the daemon makes of itself (the managed builder's
     /// container create), so it goes through the same code as a client's.
     pub fn internal(method: &str, path: &str, query: &[(&str, &str)], body: Vec<u8>) -> Request {
         let query = query.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        Request { method: method.to_owned(), path: path.to_owned(), api_version: None, query, headers: Vec::new(), body, awaits_continue: AtomicBool::new(false) }
+        Request { http10: false, method: method.to_owned(), path: path.to_owned(), api_version: None, query, headers: Vec::new(), body, awaits_continue: AtomicBool::new(false) }
     }
 
     /// Tells a client waiting on `Expect: 100-continue` to send the body.
@@ -164,7 +166,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
     CLOSE_RESPONSE.with(|close| close.set(false));
     // The request line and headers are read through a cap, so a client
     // cannot exhaust memory with an endless line. The body is read after.
-    let (method, path, api_version, query, headers) = {
+    let (method, path, api_version, query, headers, http10) = {
         let mut head = (&mut *r).take(MAX_HEAD);
         let mut line = String::new();
         if head.read_line(&mut line)? == 0 {
@@ -174,6 +176,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         let (Some(method), Some(target)) = (parts.next(), parts.next()) else {
             return Err(Refused::Malformed("bad request line").into());
         };
+        let http10 = parts.next() == Some("HTTP/1.0");
         let method = method.to_owned();
         let (raw_path, raw_query) = target.split_once('?').unwrap_or((target, ""));
         // Decoded before the version is stripped, as Docker routes: an
@@ -215,7 +218,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
             };
             headers.push((k.to_owned(), v.trim_matches([' ', '\t']).to_owned()));
         }
-        (method, path, api_version, query, headers)
+        (method, path, api_version, query, headers, http10)
     };
     let path = match path {
         Ok(path) => path,
@@ -228,7 +231,7 @@ pub fn read_request(r: &mut BufReader<UnixStream>, stream: impl Fn(&str, &str) -
         }
     };
     let streamed = stream(&method, &path);
-    let mut req = Request { method, path, api_version, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
+    let mut req = Request { http10, method, path, api_version, query, headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) };
     CLOSE_RESPONSE.with(|close| close.set(req.wants_close()));
     validate_framing(&req)?;
     let length = req.header("content-length").and_then(|v| parse_number(v.as_bytes(), false));
@@ -912,10 +915,14 @@ mod tests {
 
     #[test]
     fn response_closure_follows_each_request_without_breaking_upgrade() {
-        for header in ["Connection: close\r\n", "", "Connection: keep-alive, CLOSE\r\n", ""] {
+        for (version, header, expected_close) in [
+            ("1.1", "Connection: close\r\n", true), ("1.1", "", false), ("1.0", "", true),
+            ("1.0", "Connection: Keep-Alive\r\n", false), ("1.0", "Connection: keep-alive\r\nConnection: CLOSE\r\n", true),
+        ] {
             let (mut client, server) = UnixStream::pair().unwrap();
-            client.write_all(format!("HEAD /_ping HTTP/1.1\r\n{header}\r\n").as_bytes()).unwrap();
+            client.write_all(format!("HEAD /_ping HTTP/{version}\r\n{header}\r\n").as_bytes()).unwrap();
             let req = read_request(&mut BufReader::new(server), |_, _| false).unwrap().unwrap();
+            assert_eq!(req.wants_close(), expected_close);
             for (status, extra) in [(200, ""), (204, ""), (101, "Connection: Upgrade\r\nUpgrade: tcp\r\n"), (200, "Connection: close\r\n")] {
                 let mut out = Vec::new();
                 empty_with(&mut out, status, extra).unwrap();
@@ -929,7 +936,7 @@ mod tests {
 
     fn with_connection(value: Option<&str>) -> Request {
         let headers = value.map(|v| vec![("connection".to_owned(), v.to_owned())]).unwrap_or_default();
-        Request { method: "POST".to_owned(), path: "/containers/x/start".to_owned(), api_version: None, query: Vec::new(), headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) }
+        Request { http10: false, method: "POST".to_owned(), path: "/containers/x/start".to_owned(), api_version: None, query: Vec::new(), headers, body: Vec::new(), awaits_continue: AtomicBool::new(false) }
     }
 
     /// Docker.DotNet sends `Connection: close` on every request and reads a
