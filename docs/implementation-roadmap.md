@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 14 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 15 open pull requests and 177 open issues.
 
 ## Work sequence
 
@@ -35,6 +35,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [ ] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Auto-merge is enabled. [#296](https://github.com/AndreKurait/asagiri/pull/296)
 
 - [ ] Verify container lifecycle generation checks. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. Hosted CI and merge remain pending. [#299](https://github.com/AndreKurait/asagiri/pull/299)
+
+- [ ] Refresh embedded DNS after renaming a running container. The paired macOS daemon and Linux guest passed all seven live DNS scenarios. Hosted Linux and merge remain pending. [#300](https://github.com/AndreKurait/asagiri/pull/300)
 
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
@@ -195,7 +197,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #455: User-defined network: embedded resolver does not fall back when the first --dns server refuses (default bridge does) [#221](https://github.com/AndreKurait/asagiri/issues/221)
 - [ ] Verify Kiri #456: Builds from `docker compose build` never appear in the Builds view (they run on buildx_buildkit_default, not buildx_buildkit_kiri) [#222](https://github.com/AndreKurait/asagiri/issues/222)
 - [ ] Verify Kiri #465: docker load cannot read OCI layout archives (index.json / blobs). Reproduced through `docker load` with an OCI-only archive on the installed engine. It returned `no manifest.json`. PR #294 passed 15 archive tests (including rejection of incorrect descriptor sizes without publishing an image), 33 HTTP tests, and live ARM64 Linux loading with AMD64 and ARM64 selected through the API. The local integration with #293 passed compressed OCI loading and all ten gzip regression cases. Candidate `b3594a88` passed live macOS `docker load --platform` for AMD64 and ARM64 with API 1.48 negotiation. Hosted Linux CI and merge remain open. [#224](https://github.com/AndreKurait/asagiri/issues/224)
-- [ ] Verify Kiri #467: docker rename leaves stale DNS names on user-defined networks [#225](https://github.com/AndreKurait/asagiri/issues/225)
+- [ ] Verify Kiri #467: docker rename leaves stale DNS names on user-defined networks. The local baseline failed to resolve the new name. PR #300 passed live checks for new and old names plus aliases scoped to two attached networks. Hosted Linux and release verification remain open. [#225](https://github.com/AndreKurait/asagiri/issues/225)
 - [ ] Verify Kiri #471: Coolify support: engine gaps left after #253 (`--pid host`, idle `builder prune`) [#226](https://github.com/AndreKurait/asagiri/issues/226)
 - [ ] Verify Kiri #473: macOS: Kubernetes LoadBalancer ports below 1024 are never published unless `--lan on` (binding 127.0.0.1 needs root) [#227](https://github.com/AndreKurait/asagiri/issues/227)
 - [ ] Verify Kiri #474: The Kubernetes node is killed "for memory" with no reason logged, so a real out-of-memory kill can't be told from Kiri's own restart [#228](https://github.com/AndreKurait/asagiri/issues/228)
