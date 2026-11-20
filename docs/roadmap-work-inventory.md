@@ -2,13 +2,12 @@
 
 GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation roadmap](implementation-roadmap.md) for sequencing and qualification evidence.
 
-## Open pull requests (16)
+## Open pull requests (15)
 
 - [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes
 - [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal
 - [#288](https://github.com/AndreKurait/asagiri/pull/288) Flag unusually long short translations in changed locales
 - [#289](https://github.com/AndreKurait/asagiri/pull/289) Add Serbian Latin to the desktop and installer
-- [#290](https://github.com/AndreKurait/asagiri/pull/290) Remove the per-person pull request limit
 - [#291](https://github.com/AndreKurait/asagiri/pull/291) Verify health probe exit codes and the startup grace boundary
 - [#292](https://github.com/AndreKurait/asagiri/pull/292) Prove arbitrary HTTP number padding and retire sampled value tests
 - [#294](https://github.com/AndreKurait/asagiri/pull/294) Support OCI image layout archives in docker load
@@ -201,17 +200,17 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#285](https://github.com/AndreKurait/asagiri/issues/285) Verify Kiri #587: Kiri doesn't render UI
 - [#286](https://github.com/AndreKurait/asagiri/issues/286) Verify Kiri #586: Windows terminal loses input focus during refresh
 
-## Merged pull requests from the roadmap queue (5)
+## Merged pull requests from the roadmap queue (6)
 
 - [#281](https://github.com/AndreKurait/asagiri/pull/281) Support Docker top process formats and memory columns
 - [#282](https://github.com/AndreKurait/asagiri/pull/282) Include unpublished exposed ports in running endpoint inspection
 - [#283](https://github.com/AndreKurait/asagiri/pull/283) Honor HTTP/1.0 default closure and explicit keep-alive
+- [#290](https://github.com/AndreKurait/asagiri/pull/290) Remove the per-person pull request limit
 - [#293](https://github.com/AndreKurait/asagiri/pull/293) Accept streamed gzip archives on image load
 - [#296](https://github.com/AndreKurait/asagiri/pull/296) Verify Docker exec inspection after VM loss
 
 ## Remaining roadmap work
 
-- Confirm quota workflow deletion on `main` and verify the disposition of PRs closed by the bot.
 - Restore PRs closed solely by the quota bot where their changes still need review. Track restored or superseded PRs in the implementation roadmap.
 - Resolve CI failures and merge the remaining review queue.
 - Qualify and resolve open issues, keeping active roadmap items open.

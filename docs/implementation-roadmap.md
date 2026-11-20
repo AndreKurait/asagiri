@@ -26,7 +26,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [ ] Handle repeated container actions and build history removal — auto-merge enabled. The Linux package smoke test hit Docker Hub HTTP 429 for docker:cli and nginx:alpine. GitHub queued attempt 2. [#287](https://github.com/AndreKurait/asagiri/pull/287)
 - [ ] Flag unusually long short translations in changed locales — blocked, auto-merge enabled. [#288](https://github.com/AndreKurait/asagiri/pull/288)
 - [ ] Add Serbian Latin to the desktop and installer — blocked, auto-merge enabled. [#289](https://github.com/AndreKurait/asagiri/pull/289)
-- [ ] Remove the per-person pull request limit. GitHub confirms the workflow is disabled and the main ruleset no longer requires its check. The deletion PR has auto-merge enabled. Linux run `44646867090` passed on `143c04fc`. The two cargo-deny checks were queued at the time of this update. [#290](https://github.com/AndreKurait/asagiri/pull/290)
+- [x] Removed the per-person pull request limit. All nine required checks passed, and the workflow is absent from `main` at `ac4a738f`. [#290](https://github.com/AndreKurait/asagiri/pull/290)
 - [ ] Verify health probe exit codes and the startup grace boundary — blocked, auto-merge enabled. [#291](https://github.com/AndreKurait/asagiri/pull/291)
 - [ ] Prove arbitrary HTTP number padding and retire sampled value tests — blocked, auto-merge enabled. [#292](https://github.com/AndreKurait/asagiri/pull/292)
 - [x] Accept streamed gzip archives on image load. All nine required checks passed. Merged as `7100bdff`. [#293](https://github.com/AndreKurait/asagiri/pull/293)
