@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 13 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 14 open pull requests and 177 open issues.
 
 ## Work sequence
 
@@ -34,6 +34,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Auto-merge is enabled. [#296](https://github.com/AndreKurait/asagiri/pull/296)
 
+- [ ] Verify container lifecycle generation checks. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. Hosted CI and merge remain pending. [#299](https://github.com/AndreKurait/asagiri/pull/299)
+
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
 ## 2. Resolve the issue backlog
@@ -44,7 +46,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 - [ ] Track Kiri compatibility and expanded Verus verification [#78](https://github.com/AndreKurait/asagiri/issues/78)
 - [ ] Verify HTTP framing, connection closure, and numeric parsing with Verus [#80](https://github.com/AndreKurait/asagiri/issues/80)
-- [ ] Verify lifecycle cancellation and layer preparation ownership [#81](https://github.com/AndreKurait/asagiri/issues/81)
+- [ ] Verify lifecycle cancellation and layer preparation ownership. PR #299 proves a single counter advance invalidates the captured generation, and both callers require equality under the same lifecycle lock. Whole-counter wraparound, lock and process behavior, and layer readiness remain outside those contracts. The live lifecycle checks retain their independent coverage. [#81](https://github.com/AndreKurait/asagiri/issues/81)
 
 ### Upstream change reviews (12)
 
