@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 16 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 15 open pull requests and 177 open issues.
 
 See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot.
 
@@ -75,14 +75,14 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ### Upstream issue qualification (150)
 
-- [ ] Verify Kiri #14: Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota) [#91](https://github.com/AndreKurait/asagiri/issues/91)
+- [ ] Verify Kiri #14: Guest kernel: missing nftables expressions (reject, queue, ct label, socket, tproxy, log, limit, quota). The installed macOS v0.1.13 guest (Linux 6.18.58) passed [all 56 kernel probes](verification/guest-kernel-macos-0.1.13.txt), including the reported expressions, using signed Alpine packages staged locally. Other guest architectures remain unverified. [#91](https://github.com/AndreKurait/asagiri/issues/91)
 - [ ] Verify Kiri #25: macOS: Allow hiding the Dock icon while Kiri runs in the background [#92](https://github.com/AndreKurait/asagiri/issues/92)
 - [ ] Verify Kiri #27: Container DNS fails on Macs with Cisco Umbrella [#93](https://github.com/AndreKurait/asagiri/issues/93)
 - [ ] Verify Kiri #38: Cilium does not start in kind: the guest kernel needs BPF JIT, perf events and BTF [#94](https://github.com/AndreKurait/asagiri/issues/94)
 - [ ] Verify Kiri #40: macOS: the Finder mount hides an existing ~/Kiri folder and force-unmounts other mounts [#95](https://github.com/AndreKurait/asagiri/issues/95)
 - [ ] Verify Kiri #41: Crash on Typesense startup (SIGSEGV): kernel missing CONFIG_TASK_IO_ACCOUNTING (/proc/self/io) [#96](https://github.com/AndreKurait/asagiri/issues/96)
 - [ ] Verify Kiri #44: Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets) [#97](https://github.com/AndreKurait/asagiri/issues/97)
-- [ ] Verify Kiri #45: silly question, is it needed Docker installed so kiri works? [#98](https://github.com/AndreKurait/asagiri/issues/98)
+- [ ] Verify Kiri #45: silly question, is it needed Docker installed so kiri works? Windows release CI runs silent MSI installation and removal on x64 and ARM64. Qualify first-run WSL setup and fresh macOS onboarding without Docker installed. [#98](https://github.com/AndreKurait/asagiri/issues/98)
 - [ ] Verify Kiri #48: Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp [#99](https://github.com/AndreKurait/asagiri/issues/99)
 - [ ] Verify Kiri #49: Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver [#100](https://github.com/AndreKurait/asagiri/issues/100)
 - [ ] Verify Kiri #50: macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down [#101](https://github.com/AndreKurait/asagiri/issues/101)
@@ -232,7 +232,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Prevent container file browsing from blocking the shared agent (Kiri #521) [#87](https://github.com/AndreKurait/asagiri/issues/87)
 - [ ] Verify and repair Windows host-relay teardown and connection ownership (Kiri #515) [#88](https://github.com/AndreKurait/asagiri/issues/88)
 - [ ] Bound guest replies without silently losing records or restarting the VM (Kiri #463) [#89](https://github.com/AndreKurait/asagiri/issues/89)
-- [ ] Define and verify mixed none/custom network endpoint behavior. Hosted Linux job `135935807043` recorded Docker create/start outcomes and interface addresses across repeated fixture runs. The fixture covers four request variants per special network. PR [#298](https://github.com/AndreKurait/asagiri/pull/298) adds 52 Docker reference requests covering network mode and endpoint name/ID combinations across two repetitions. Hosted reference job `135992128917` recorded 56 creates, 13 successful starts, 42 HTTP 400 start responses and one HTTP 500. Successful starts showed two different interface counts and three sets of inspected endpoints. All 11 checks in the [live API compatibility fixture](verification/api-asagiri-arm64-087fd677.json) passed on disposable ARM64 Linux at `087fd677`. Asagiri rejected mixed host and none endpoints before creating containers or volumes. The compatibility decision remains open. [#265](https://github.com/AndreKurait/asagiri/issues/265)
+- [ ] Define and verify mixed none/custom network endpoint behavior. Hosted Linux job `135935807043` recorded Docker create/start outcomes and interface addresses across repeated fixture runs. The fixture covers four request variants per special network. PR [#298](https://github.com/AndreKurait/asagiri/pull/298) adds 52 Docker reference requests covering network mode and endpoint name/ID combinations across two repetitions. Hosted reference job `135992128917` recorded 56 creates, 13 successful starts, 42 HTTP 400 start responses and one HTTP 500. Successful starts showed two different interface counts and three sets of inspected endpoints. All 11 checks in the [live API compatibility fixture](verification/api-asagiri-arm64-087fd677.json) passed on disposable ARM64 Linux at `087fd677`. Asagiri rejected mixed host and none endpoints before creating containers or volumes. Keep the explicit pre-creation rejection for the current engine. The Docker successes expose differing interfaces and inspected endpoints, so successful start alone does not establish an attachment contract to implement. Before changing that behavior, identify a reproducible request variant whose complete attachment semantics can be preserved, then verify it through the live engine. [#265](https://github.com/AndreKurait/asagiri/issues/265)
 - [ ] Verify and fix gzip-compressed docker load (Kiri #528). [PR #293](https://github.com/AndreKurait/asagiri/pull/293) adds streaming gzip support and five live API cases. All 33 HTTP module tests passed locally. Baseline via `docker --context asagiri load` on `27.5.1-asagiri`: gzip exited 1 with `failed to read entire block`; the same tar loaded successfully. The test tag was removed. All ten live cases passed on a disposable ARM64 Linux engine, including preservation of an existing image tag after a corrupt upload. Docker 28.0.4 published images in all six reference cases, including damaged checksum, truncated trailer, and bzip2. Asagiri rejects these three cases with HTTP 400. Hosted Linux job `135971488693` passed and PR #293 merged as `7100bdff`. On isolated macOS at `202b4626`, `docker image load` accepted a real Alpine gzip archive with a `.payload` filename and `docker run --pull never` ran its command. Native Windows CLI qualification remains open. [#266](https://github.com/AndreKurait/asagiri/issues/266)
 - [ ] Define supported behavior when the host blocks clone3 (Kiri #529) [#267](https://github.com/AndreKurait/asagiri/issues/267)
 - [ ] Review and qualify an Arch desktop package (Kiri PR #526) [#268](https://github.com/AndreKurait/asagiri/issues/268)
@@ -243,7 +243,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ## 3. Expand Verus and retire covered tests one change at a time
 
-The [pinned runtime verification report](verification/runtime-proof-d74d0120.json) records nine passing obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission.
+The [pinned runtime verification report](verification/runtime-proof-d74d0120.json) records nine passing obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission. A [fresh run on clean main at `ac4a738f`](verification/runtime-proof-ac4a738f.json) passed after the quota removal merged.
 
 The pinned Verus runtime harness passed on clean updated PR heads. Health transition PR #291 at `a3d95d07` verified two obligations and rejected eight broken variants. It removes two sampled unit tests and keeps the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 at `0042060e` verified seven obligations and rejected six broken variants. It removes one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed. Hosted checks and verification after merge remain pending.
 
