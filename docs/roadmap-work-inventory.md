@@ -212,6 +212,8 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 ## Remaining roadmap work
 
 - Confirm quota workflow deletion on `main` and verify the disposition of PRs closed by the bot.
+- Restore PRs closed solely by the quota bot where their changes still need review. Track restored or superseded PRs in the implementation roadmap.
 - Resolve CI failures and merge the remaining review queue.
 - Qualify and resolve open issues, keeping active roadmap items open.
-- Expand production-path Verus proofs one behavior at a time, retire unit tests whose assertions are covered, and record proof, runtime qualification, and test-count evidence.
+- Finish HTTP framing and lifecycle ownership proofs tracked in #80 and #81. Continue through the production paths listed in the implementation roadmap.
+- For each proof, record the production entry point, covered behavior, verifier result, and before-and-after test counts. Remove unit tests once their assertions are covered and retain runtime checks for behavior outside the proof.

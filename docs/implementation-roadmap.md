@@ -44,6 +44,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. The isolated macOS fixture passed dense dual-stack allocation, static and auxiliary reservations, exhaustion, rollback, and reuse. Hosted CI remains pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
 
+- [ ] Expand Docker reference coverage for mixed none networks. Auto-merge is enabled. Follow-up semantics qualification is tracked in issue #265. [#298](https://github.com/AndreKurait/asagiri/pull/298)
+- [ ] Verify default bridge reachability when Docker starts first. Auto-merge is enabled. The hosted fixture is part of the qualification for issue #234. [#303](https://github.com/AndreKurait/asagiri/pull/303)
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
 ## 2. Resolve the issue backlog
