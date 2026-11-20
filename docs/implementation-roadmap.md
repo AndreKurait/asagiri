@@ -40,7 +40,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Refresh embedded DNS after renaming a running container. The paired macOS daemon and Linux guest passed all seven live DNS scenarios. Hosted Linux and merge remain pending. [#300](https://github.com/AndreKurait/asagiri/pull/300)
 
-- [ ] Serve Windows setup and desktop documents from memory. Windows cross-compilation passed. The hosted fixture exercises a document above 2 MiB, each supported language, and origin restrictions. [#301](https://github.com/AndreKurait/asagiri/pull/301)
+- [x] Serve Windows setup and desktop documents from memory. Merged as `8370cdc5`. Native WebView2 job `136080488407` passed setup and desktop loads across supported locales, blocked external navigation, and rendered the error page. Cleanup qualification remains open in issue #236. [#301](https://github.com/AndreKurait/asagiri/pull/301)
 
 - [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. The isolated macOS fixture passed dense dual-stack allocation, static and auxiliary reservations, exhaustion, rollback, and reuse. Hosted CI remains pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
 
