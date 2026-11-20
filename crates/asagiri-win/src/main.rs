@@ -13,6 +13,8 @@
 
 #[cfg(windows)]
 mod app;
+#[cfg(windows)]
+mod page;
 // The window's page, put together as on the Mac and Linux.
 #[cfg(windows)]
 #[path = "../../asagiri/src/ui/assemble.rs"]
