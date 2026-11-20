@@ -2,7 +2,7 @@
 
 GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation roadmap](implementation-roadmap.md) for sequencing and qualification evidence.
 
-## Open pull requests (14)
+## Open pull requests (15)
 
 - [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes (BLOCKED, auto-merge enabled)
 - [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal (BLOCKED, auto-merge enabled)
@@ -18,6 +18,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#301](https://github.com/AndreKurait/asagiri/pull/301) Serve Windows desktop documents from memory (BLOCKED, auto-merge enabled)
 - [#302](https://github.com/AndreKurait/asagiri/pull/302) Retire sampled address-gap checks covered by Verus (BLOCKED, auto-merge enabled)
 - [#303](https://github.com/AndreKurait/asagiri/pull/303) Verify default bridge reachability when Docker starts first (BLOCKED, auto-merge enabled)
+- [#305](https://github.com/AndreKurait/asagiri/pull/305) Record roadmap queue and merged-main proof evidence (BLOCKED, auto-merge enabled)
 
 ## Open issues (176)
 
@@ -223,3 +224,6 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - Qualify mixed-network behavior on merged source for #265. The issue records the 11 live cases and the decision to retain explicit rejection until the engine can preserve all requested attachments.
 - Collect PR #303’s hosted Docker-first bridge evidence. Staging signed Alpine packages let the local fixture pass package installation. It then stopped during host inspection because the local Asagiri daemon omitted `CgroupnsMode`. The initial hosted Linux job was cancelled before gateway verification. Refreshed run `44673683810` still needs to exercise gateway reachability.
 - After merging the proof PRs, verify their obligations on `main` and recount unit tests by crate.
+
+- Qualify Arch desktop packaging for #268, including build, install, upgrade, removal, and launch on an isolated Arch host.
+- Finish native Windows CLI and bridge qualification for #266 using merged PR #293 (`7100bdff`). The ARM64 Linux baseline rejected gzip and accepted plain tar. The fixed engine passed ten live cases, including tag preservation after corrupt input. Docker 28.0.4 accepted bzip2 and published images with corrupt trailers. Asagiri supports plain tar and gzip and validates gzip through EOF before publishing image records.
