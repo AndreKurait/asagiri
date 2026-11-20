@@ -274,3 +274,9 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
 
 - PR #279 merged. Live engine results resolved issues #278 (exec exit codes), #257 (image labels), and #258 (supplementary groups).
 - The PR quota workflow was disabled. Draft #6 was closed after its disposable quota test finished.
+
+## Verification on pending pull request commits
+
+- PR #292 verified seven HTTP number obligations and rejected six negative controls. [Report](verification/runtime-proof-0a299981.json)
+- PR #299 verified four lifecycle obligations and rejected four negative controls. [Report](verification/runtime-proof-4b2190d0.json)
+- PR #302 verified three IPAM obligations and rejected six negative controls. [Report](verification/ipam-proof-1468c706.json)
