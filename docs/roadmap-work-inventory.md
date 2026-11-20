@@ -224,6 +224,6 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - Qualify #301’s merged Windows desktop change for issue #236. The merge includes native WebView tests for the in-memory document path.
 - Collect fresh CI for #302 at `ec46d50c`. The previous head passed three IPAM obligations and rejected six negative controls. After merge, rerun the proofs on `main` and recount the unit tests by crate.
 - Resolve #303’s guest startup failure before collecting Docker-first gateway reachability evidence. The ARM64 guest reported `ENOTSUP` during cgroup migration. The hosted x64 guest also failed to start.
-- Finish Arch packaging for #268 in draft #306. Check hosted native build `44681245966`, then qualify install, upgrade, removal, and launch. The source integrity check accepted the original archive and rejected the modified one.
+- Finish Arch packaging for #268 in draft #306. Check hosted run `44682701256` for build, install, upgrade, X11 desktop launch, and removal. Engine data preservation and Wayland launch still need qualification. The source integrity check accepted the original archive and rejected the modified one.
 - Qualify mixed-network behavior on merged source for #265, including explicit rejection when the engine cannot preserve the requested attachments.
 - Finish native Windows CLI and bridge qualification for #266 using merged PR #293. The fixed ARM64 engine passed ten live image-load cases, including tag preservation after corrupt input.
