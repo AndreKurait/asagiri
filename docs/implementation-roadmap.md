@@ -212,7 +212,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #517: [Feature Request] Allow using an existing WSL distribution instead of installing a new one [#241](https://github.com/AndreKurait/asagiri/issues/241)
 - [ ] Verify Kiri #518: Floci doesn't run the floci-ui sidecar container [#242](https://github.com/AndreKurait/asagiri/issues/242)
 - [ ] Verify Kiri #587: Kiri doesn't render UI [#285](https://github.com/AndreKurait/asagiri/issues/285)
-- [ ] Verify Kiri #586: Windows terminal loses input focus during refresh [#286](https://github.com/AndreKurait/asagiri/issues/286)
+- [ ] Verify Kiri #586: Windows terminal loses input focus during refresh. The [native regression runbook](../tests/native-window-regressions.md#windows-terminal-focus-during-status-refresh-286) defines the WebView2 check. Native execution remains pending. [#286](https://github.com/AndreKurait/asagiri/issues/286)
 
 ### Asagiri implementation and qualification (12)
 
