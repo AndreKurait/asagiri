@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::http_number::parse_number;
 
 /// API version this daemon speaks. The Docker CLI negotiates down to it.
-pub const API_VERSION: &str = "1.47";
+pub const API_VERSION: &str = "1.48";
 pub const MIN_API_VERSION: &str = "1.24";
 
 /// Largest request body read into memory (container create, etc.). Archives
@@ -1001,8 +1001,8 @@ mod tests {
             (API_VERSION, false),
             ("1.47.0", false),
             ("1.24.0", false),
-            ("1.47.1", true),
-            ("1.48", true),
+            ("1.47.1", false),
+            ("1.49", true),
             ("2.0", true),
             ("1", true),
             ("2", true),
@@ -1033,8 +1033,8 @@ mod tests {
         };
         assert_eq!(error("/v1.23/info").as_deref(), Some("client version 1.23 is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
         assert_eq!(error("/v1./info").as_deref(), Some("client version 1. is too old. Minimum supported API version is 1.24, please upgrade your client to a newer version"));
-        assert_eq!(error("/v2/info").as_deref(), Some("client version 2 is too new. Maximum supported API version is 1.47"));
-        assert_eq!(error("/v1.47.1/info").as_deref(), Some("client version 1.47.1 is too new. Maximum supported API version is 1.47"));
+        assert_eq!(error("/v2/info").as_deref(), Some("client version 2 is too new. Maximum supported API version is 1.48"));
+        assert_eq!(error("/v1.48.1/info").as_deref(), Some("client version 1.48.1 is too new. Maximum supported API version is 1.48"));
         // Not a version prefix at all: the router answers these with 404.
         for target in ["/v/info", "/v1.x/info", "/V1.47/info", "/info"] {
             assert_eq!(error(target), None, "{target}");

@@ -22,6 +22,10 @@ try:
    stream.sendall(f'POST /v1.47/images/load?platform=linux%2F{arch} HTTP/1.1\r\nHost: docker\r\nContent-Length: {len(archive)}\r\n\r\n'.encode()+archive)
    reply=http.client.HTTPResponse(stream);reply.begin();body=reply.read();assert reply.status==200 and b'Loaded image:' in body, (reply.status,body)
   assert subprocess.check_output(cli+['image','inspect',tag,'--format','{{.Architecture}}'],text=True).strip()==arch
-  print('PASS OCI load selected',arch)
+  print('PASS OCI API load selected',arch)
+ for arch in ('amd64','arm64'):
+  subprocess.run(cli+['load','--platform','linux/'+arch],input=archive,check=True,timeout=30)
+  assert subprocess.check_output(cli+['image','inspect',tag,'--format','{{.Architecture}}'],text=True,timeout=15).strip()==arch
+  print('PASS OCI CLI load selected',arch)
 finally:
  subprocess.run(cli+["image","rm",tag],capture_output=True,timeout=15)
