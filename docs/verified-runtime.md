@@ -90,8 +90,8 @@ Six broken parser variants must fail proof verification: accepting empty input,
 accepting an invalid digit, ignoring overflow, using decimal base for hex,
 misreading uppercase letters and discarding a parsed digit. Production-module
 tests compare every one- and two-byte input with the standard Rust parser plus
-HTTP's digit restrictions, test 4,096 additional integer encodings, and exercise
-numeric limits and long zero prefixes.
+HTTP's digit restrictions. Verus also proves that prepending any number of
+zero digits preserves the mathematical prefix value in both bases.
 
 This function proof does not establish header tokenization, connection closure,
 stream cancellation, memory bounds in the surrounding HTTP reader or the
