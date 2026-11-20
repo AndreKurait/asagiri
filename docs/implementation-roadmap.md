@@ -1,6 +1,6 @@
 # Asagiri implementation roadmap
 
-GitHub queue checked on 2026-11-20. There were 16 open pull requests and 177 open issues.
+GitHub queue checked on 2026-11-20. There were 17 open pull requests and 177 open issues.
 
 ## Work sequence
 
@@ -39,6 +39,8 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [ ] Refresh embedded DNS after renaming a running container. The paired macOS daemon and Linux guest passed all seven live DNS scenarios. Hosted Linux and merge remain pending. [#300](https://github.com/AndreKurait/asagiri/pull/300)
 
 - [ ] Serve Windows setup and desktop documents from memory. Windows cross-compilation passed. The hosted fixture exercises a document above 2 MiB, each supported language, and origin restrictions. [#301](https://github.com/AndreKurait/asagiri/pull/301)
+
+- [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. Live macOS and hosted CI remain pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
 
 - [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
@@ -252,7 +254,9 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
   | asagiri-vmm | 12 |
   | asagiri-win | 77 |
 
-  Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
+  Merged `main` at `7100bdff` has 1,074 declarations. The net increase of five is in `asagiri`. The three proposed unit-test removals in #291 and #292 remain pending.
+
+  Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [ ] Start with issue #80 for HTTP framing and #81 for lifecycle cancellation and layer ownership. Inventory the production callers, requirements, and test assertions for one behavior at a time.
 - [ ] State the contract, prove the production implementation, and confirm a deliberately incorrect implementation fails verification.
 - [ ] Remove unit tests whose assertions the contract covers. Exercise the normal entry point and retain checks for caller wiring, I/O, platform behavior, or independent compatibility comparisons.
