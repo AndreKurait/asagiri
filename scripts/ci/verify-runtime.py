@@ -24,7 +24,7 @@ CONTRACTS = {
     },
     "health-transition": {
         "source": "crates/asagiri/src/daemon/health_transition.rs",
-        "signature": "pub(super) fn after_probe(success: bool, starting: bool, in_start_period: bool, failures: u32, retries: u32) -> (u32, Option<bool>) {",
+        "signature": "pub(super) fn after_probe(exit_code: i64, starting: bool, elapsed_ns: u128, start_period_ns: u128, failures: u32, retries: u32) -> (u32, Option<bool>) {",
         "negative_diagnostics": ("postcondition not satisfied", "possible arithmetic underflow/overflow"),
         "minimum_verified": 2,
         "mutants": {
@@ -32,7 +32,9 @@ CONTRACTS = {
             "skip-failure": ("failures + 1", "failures"),
             "delay-unhealthy": ("counted >= retries", "counted > retries"),
             "success-keeps-streak": ("return (0, Some(true));", "return (failures, Some(true));"),
-            "extend-grace": ("starting && in_start_period", "starting || in_start_period"),
+            "extend-grace": ("starting && elapsed_ns < start_period_ns", "starting || elapsed_ns < start_period_ns"),
+            "include-grace-end": ("elapsed_ns < start_period_ns", "elapsed_ns <= start_period_ns"),
+            "negative-exit-is-success": ("exit_code == 0", "exit_code <= 0"),
             "failure-reports-healthy": ("Some(false)", "Some(true)"),
         },
     },
