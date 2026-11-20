@@ -953,6 +953,9 @@ mod tests {
             }));
             CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &data, None, &done).unwrap();
             let env = pump(&rx, 60).expect("no WebView2 environment").unwrap().unwrap();
+            let mut version = PWSTR::null();
+            env.BrowserVersionString(&mut version).unwrap();
+            println!("WebView2 {}", CoTaskMemPWSTR::from(version).to_string());
             let (tx, rx) = mpsc::channel();
             let done = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |r, ctl: Option<ICoreWebView2Controller>| {
                 let _ = tx.send(r.map(|()| ctl));
@@ -969,7 +972,7 @@ mod tests {
     }
 
     /// The next navigation's end: whether it succeeded, or None if none ended.
-    fn completed(wv: &ICoreWebView2, secs: u64) -> Option<bool> {
+    fn completed(wv: &ICoreWebView2, secs: u64, start: impl FnOnce()) -> Option<bool> {
         let (tx, rx) = mpsc::channel();
         let mut token = 0;
         // SAFETY: a live webview, on this thread.
@@ -986,6 +989,7 @@ mod tests {
                 &mut token,
             )
             .unwrap();
+            start();
             let r = pump(&rx, secs);
             wv.remove_NavigationCompleted(token).unwrap();
             r
@@ -1021,8 +1025,7 @@ mod tests {
             page.push_str("-->");
         }
         let (wv, _ctl) = webview();
-        load(&wv, page);
-        assert_eq!(completed(&wv, 60), Some(true), "the page did not load");
+        assert_eq!(completed(&wv, 60, || load(&wv, page)), Some(true), "the large page did not load");
         assert_eq!(eval(&wv, "location.href"), format!("\"{}\"", crate::page::PAGE_URL));
         let len: usize = eval(&wv, "document.documentElement.outerHTML.length").parse().unwrap();
         assert!(len > 1_048_576, "the page has only {len} characters");
@@ -1053,12 +1056,22 @@ mod tests {
         assert_eq!(status("/favicon.ico"), "404");
         assert_eq!(status("/?again"), "404");
         // Navigating away is refused, and the page stays.
-        eval(&wv, "location.href = 'https://example.com/'");
-        assert_ne!(completed(&wv, 10), Some(true), "the window left the page");
+        let external = || { eval(&wv, "location.href = 'https://example.com/'"); };
+        assert_ne!(completed(&wv, 10, external), Some(true), "the window left the page");
         assert_eq!(eval(&wv, "location.href"), format!("\"{}\"", crate::page::PAGE_URL));
         // A failure shows its reason, not a blank window.
-        show_error(&wv, "a reason for the test");
-        assert_eq!(completed(&wv, 30), Some(true), "the error page did not load");
+        unsafe { wv.remove_WebMessageReceived(token).unwrap(); }
+        for tag in std::iter::once("en").chain(crate::lang::FILES.iter().map(|(tag, _)| *tag)) {
+            let main = crate::assemble::page(PAGE, Some(tag));
+            let setup = crate::assemble::words(SETUP_PAGE, Some(tag));
+            for (page, selector) in [(setup, "#steps"), (main, "#strip")] {
+                assert_eq!(completed(&wv, 15, || load(&wv, page)), Some(true), "{tag} {selector}");
+                assert_eq!(eval(&wv, "document.documentElement.lang"), serde_json::to_string(tag).unwrap());
+                assert_eq!(eval(&wv, &format!("document.querySelector('{selector}').getBoundingClientRect().width > 0")), "true", "{tag} {selector}");
+            }
+        }
+        println!("Loaded setup and desktop for {} languages", crate::lang::FILES.len() + 1);
+        assert_eq!(completed(&wv, 30, || show_error(&wv, "a reason for the test")), Some(true), "the error page did not load");
         assert!(eval(&wv, "document.body.innerText").contains("a reason for the test"));
         // The error page can't reach the host commands.
         assert_eq!(eval(&wv, "location.href"), "\"about:blank\"");
