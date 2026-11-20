@@ -15,7 +15,7 @@ See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot
 
 The main ruleset required the retired `limit` check. Removed that check from ruleset `27075130` so the remaining CI checks govern merges.
 
-Audited the quota bot’s historical comments. PRs #35 and #279 are merged. PRs #282, #283, #284, #287, and #289 are open again. The sole closed record, #6, is the completed disposable quota test.
+Audited the quota bot’s historical comments. PRs #35, #279, #282, and #283 are merged. PRs #284, #287, and #289 are open again. The sole closed record, #6, is the completed disposable quota test.
 
 Check required jobs, fix failures, update branches after earlier merges, and confirm each change landed on `main`. Validate the linked issue against the merged behavior before closing it.
 
