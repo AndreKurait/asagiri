@@ -223,5 +223,5 @@ GitHub reported `BLOCKED` for all 15 PRs when checked on November 20.
 
 - Retry the macOS job for PR #300 after platform run `44665123025` reaches a terminal state. Both registry mirror failures from hosted job `136052427279` passed locally on exact PR head `f6a7db3d` as part of the locked image crate suite (88 unit and six integration tests passed). Investigate runner-specific conditions if the failures recur.
 - Record the mixed-network compatibility decision in #265 using the 11 live cases from PR #298.
-- Rerun PR #303’s gateway fixture once the Alpine image pull succeeds, then record the default-bridge result.
+- Collect PR #303’s hosted Docker-first bridge evidence. Staging signed Alpine packages let the local fixture pass package installation. It then stopped during host inspection because the local Asagiri daemon omitted `CgroupnsMode`. Gateway reachability still needs a run on a Docker host.
 - After merging the proof PRs, verify their obligations on `main` and recount unit tests by crate.
