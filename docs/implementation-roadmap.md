@@ -82,7 +82,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #40: macOS: the Finder mount hides an existing ~/Kiri folder and force-unmounts other mounts [#95](https://github.com/AndreKurait/asagiri/issues/95)
 - [ ] Verify Kiri #41: Crash on Typesense startup (SIGSEGV): kernel missing CONFIG_TASK_IO_ACCOUNTING (/proc/self/io) [#96](https://github.com/AndreKurait/asagiri/issues/96)
 - [ ] Verify Kiri #44: Bridge-network containers have no outbound connectivity on Windows/WSL 2 (no MASQUERADE rule for bridge subnets) [#97](https://github.com/AndreKurait/asagiri/issues/97)
-- [ ] Verify Kiri #45: silly question, is it needed Docker installed so kiri works? [#98](https://github.com/AndreKurait/asagiri/issues/98)
+- [ ] Verify Kiri #45: silly question, is it needed Docker installed so kiri works? Windows release CI runs silent MSI installation and removal on x64 and ARM64. Qualify first-run WSL setup and fresh macOS onboarding without Docker installed. [#98](https://github.com/AndreKurait/asagiri/issues/98)
 - [ ] Verify Kiri #48: Gaps against OrbStack: engine doesn't restart after update, docker build fails (buildkit layer not unpacked), no inotify on bind mounts, no default seccomp [#99](https://github.com/AndreKurait/asagiri/issues/99)
 - [ ] Verify Kiri #49: Built-in builder: Serve Docker's build endpoints (/session, /grpc) so buildx works with its docker driver [#100](https://github.com/AndreKurait/asagiri/issues/100)
 - [ ] Verify Kiri #50: macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down [#101](https://github.com/AndreKurait/asagiri/issues/101)
