@@ -24,7 +24,7 @@ jobs:
           docker run --rm -v "$stage:/input:ro" \
             archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
             bash -euc '
-              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus
+              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus weston
               install -d -o nobody -g nobody /build
               cp /input/* /build/
               cd /build
@@ -48,6 +48,19 @@ jobs:
               runuser -u nobody -- env HOME=/build/gui LIBGL_ALWAYS_SOFTWARE=1                 dbus-run-session -- xvfb-run -a bash -e -c "
                   gio launch /usr/share/applications/asagiri.desktop
                   timeout 30 xdotool search --sync --onlyvisible --name \"^Asagiri$\"
+                "
+              runuser -u nobody -- env HOME=/build/gui XDG_RUNTIME_DIR=/build/gui GDK_BACKEND=wayland \
+                WAYLAND_DISPLAY=arch-smoke LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- bash -euc "
+                  weston --backend=headless --socket=arch-smoke --idle-time=0 &
+                  compositor=\$!
+                  trap \"kill \\${compositor}\" EXIT
+                  for attempt in {1..50}; do
+                    test ! -S /build/gui/arch-smoke || break
+                    sleep 0.2
+                  done
+                  test -S /build/gui/arch-smoke
+                  WAYLAND_DEBUG=client gio launch /usr/share/applications/asagiri.desktop 2>/build/gui/wayland.log
+                  timeout 30 bash -c \"until grep -Fq xdg_surface@ /build/gui/wayland.log; do sleep 0.2; done\"
                 "
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
