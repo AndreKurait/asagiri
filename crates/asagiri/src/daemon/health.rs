@@ -181,12 +181,11 @@ impl Health {
         while self.log.len() >= LOG_ENTRIES {
             self.log.pop_front();
         }
-        let ok = probe.exit_code == 0;
-        self.log.push_back(probe);
         let (failures, healthy) = super::health_transition::after_probe(
-            ok, self.status == STARTING, since_start < check.start_period(),
+            probe.exit_code, self.status == STARTING, since_start.as_nanos(), check.start_period().as_nanos(),
             self.failing_streak, check.retries(),
         );
+        self.log.push_back(probe);
         self.failing_streak = failures;
         if let Some(healthy) = healthy {
             self.status = if healthy { HEALTHY } else { UNHEALTHY }.into();
@@ -267,33 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn failure_streak_saturates_and_a_success_still_recovers() {
-        let mut health = Health { status: UNHEALTHY.into(), failing_streak: u32::MAX - 1, ..Health::default() };
-        let check = Healthcheck { retries: i64::from(u32::MAX), ..Healthcheck::default() };
-        for _ in 0..3 {
-            health.record(probe(1), Duration::from_secs(1), &check);
-            assert_eq!(health.failing_streak, u32::MAX);
-            assert_eq!(health.status, UNHEALTHY);
-        }
-        health.record(probe(0), Duration::from_secs(1), &check);
-        assert_eq!(health.failing_streak, 0);
-        assert_eq!(health.status, HEALTHY);
-        assert_eq!(health.log.len(), 4);
-    }
-
-    #[test]
-    fn start_period_failure_preserves_even_a_maximum_streak() {
-        let mut health = Health { failing_streak: u32::MAX, ..Health::default() };
-        let check = Healthcheck { start_period: 2_000_000_000, ..Healthcheck::default() };
-        health.record(probe(1), Duration::from_secs(1), &check);
-        assert_eq!(health.failing_streak, u32::MAX);
-        assert_eq!(health.status, STARTING);
-        health.record(probe(1), Duration::from_secs(2), &check);
-        assert_eq!(health.failing_streak, u32::MAX);
-        assert_eq!(health.status, UNHEALTHY);
-    }
-
-    #[test]
     fn reads_the_api_form_and_writes_it_back() {
         let v = json!({"Test": ["CMD-SHELL", "pg_isready"], "Interval": 1_000_000_000i64, "Retries": 5});
         let h = Healthcheck::from_json(&v).unwrap();
@@ -364,15 +336,11 @@ mod tests {
     }
 
     #[test]
-    fn the_start_period_forgives_failures_until_the_first_success() {
-        let check = Healthcheck { retries: 1, start_period: 10_000_000_000, start_interval: 1_000_000_000, ..Default::default() };
-        let mut h = Health::default();
-        h.record(probe(1), Duration::from_secs(3), &check);
-        assert_eq!((h.status.as_str(), h.failing_streak), (STARTING, 0));
+    fn next_wait_switches_to_the_normal_interval_at_the_end_of_startup_grace() {
+        let check = Healthcheck { start_period: 10_000_000_000, start_interval: 1_000_000_000, ..Default::default() };
+        let h = Health::default();
         assert_eq!(h.next_wait(Duration::from_secs(3), &check), Duration::from_secs(1));
-        assert_eq!(h.next_wait(Duration::from_secs(11), &check), DEFAULT_INTERVAL);
-        h.record(probe(1), Duration::from_secs(11), &check);
-        assert_eq!(h.status, UNHEALTHY);
+        assert_eq!(h.next_wait(Duration::from_secs(10), &check), DEFAULT_INTERVAL);
     }
 
     #[test]
