@@ -13,3 +13,5 @@ makepkg --syncdeps
 ```
 
 Configure the local engine separately. The full Asagiri package already owns the desktop paths.
+
+Source verification on x86-64 Arch accepted the archive above and rejected a copy with an appended byte. Build and desktop qualification are tracked in issue #268.
