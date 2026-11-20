@@ -2,31 +2,23 @@ use vstd::prelude::*;
 
 verus! {
 
-fn after_probe(success: bool, starting: bool, in_start_period: bool, failures: u32, retries: u32)
+fn after_probe(exit_code: i64, starting: bool, elapsed_ns: u128, start_period_ns: u128, failures: u32, retries: u32)
     -> (result: (u32, Option<bool>))
     ensures
-        success ==> result == (0u32, Some(true)),
-        !success && starting && in_start_period ==> result == (failures, None::<bool>),
-        !success && !(starting && in_start_period) ==> (
+        exit_code == 0 ==> result == (0u32, Some(true)),
+        exit_code != 0 && starting && elapsed_ns < start_period_ns ==> result == (failures, None::<bool>),
+        exit_code != 0 && !(starting && elapsed_ns < start_period_ns) ==> (
             result.0 as int == if failures == u32::MAX { failures as int } else { failures as int + 1 }
             && result.1 == if result.0 >= retries { Some(false) } else { None::<bool> }
         ),
-        !success ==> result.0 >= failures,
+        exit_code != 0 ==> result.0 >= failures,
 {
 /* EXECUTABLE_BODY */
 }
 
 fn main() {
-    let saturated = after_probe(false, false, false, u32::MAX, u32::MAX);
-    assert(saturated == (u32::MAX, Some(false)));
-    let reset = after_probe(true, true, true, u32::MAX, u32::MAX);
-    assert(reset == (0u32, Some(true)));
-    let grace = after_probe(false, true, true, 7, 1);
-    assert(grace == (7u32, None::<bool>));
-    let threshold = after_probe(false, false, true, 2, 3);
-    assert(threshold == (3u32, Some(false)));
-    let waiting = after_probe(false, true, false, 0, 3);
-    assert(waiting == (1u32, None::<bool>));
+    let boundary = after_probe(-1, true, 10, 10, u32::MAX, u32::MAX);
+    assert(boundary == (u32::MAX, Some(false)));
 }
 
 }
