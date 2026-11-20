@@ -189,7 +189,7 @@ def check(args):
                 (special, {net: {}}),
                 (net_id, {special_id: {}}),
             )
-            if args.reference_docker and special == "none":
+            if special == "none":
                 mixed_cases = tuple(
                     (mode, {special_key: {}, custom_key: {}})
                     for mode in (None, "default", special, special_id, net, net_id)
