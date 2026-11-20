@@ -1024,7 +1024,7 @@ mod tests {
             page.push_str(&" ".repeat(2_097_153 - bytes));
             page.push_str("-->");
         }
-        let (wv, _ctl) = webview();
+        let (wv, ctl) = webview();
         assert_eq!(completed(&wv, 60, || load(&wv, page)), Some(true), "the large page did not load");
         assert_eq!(eval(&wv, "location.href"), format!("\"{}\"", crate::page::PAGE_URL));
         let len: usize = eval(&wv, "document.documentElement.outerHTML.length").parse().unwrap();
@@ -1070,10 +1070,16 @@ mod tests {
                 assert_eq!(eval(&wv, &format!("document.querySelector('{selector}').getBoundingClientRect().width > 0")), "true", "{tag} {selector}");
             }
         }
+        let previous = SERVED.with(|page| Rc::downgrade(&page.borrow()));
+        assert_eq!(completed(&wv, 15, || load(&wv, "<html>Replacement</html>".into())), Some(true));
+        assert!(eval(&wv, "document.body.innerText").contains("Replacement"));
+        assert!(previous.upgrade().is_none(), "the replaced page is still retained");
         println!("Loaded setup and desktop for {} languages", crate::lang::FILES.len() + 1);
         assert_eq!(completed(&wv, 30, || show_error(&wv, "a reason for the test")), Some(true), "the error page did not load");
         assert!(eval(&wv, "document.body.innerText").contains("a reason for the test"));
         // The error page can't reach the host commands.
         assert_eq!(eval(&wv, "location.href"), "\"about:blank\"");
+        // SAFETY: the test owns this controller on the current thread.
+        unsafe { ctl.Close().unwrap() };
     }
 }
