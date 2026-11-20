@@ -126,3 +126,16 @@ These checks have not been performed by the pure filesystem regression suite.
 
 The reporter's exact launch failure still needs reproduction; the filesystem
 tests establish two setup failure cases, not the cause on that machine.
+
+## Windows terminal focus during status refresh (#286)
+
+1. Open a running container's terminal in the Windows desktop app. Type
+   `printf '%s\n' AC` without submitting it, then move the caret left once.
+2. Leave the terminal focused through three observed container status refreshes.
+   Use a second container started or stopped from a separate CLI to make status
+   changes visible. Keep the desktop app in the foreground while observing.
+3. Without clicking the terminal again, type `B` and press Enter. Confirm the
+   command runs once and prints `ABC`. This checks retained focus, caret
+   position, and pending input together.
+4. Repeat while the terminal is receiving periodic output. Record the source
+   commit, Windows and WebView2 versions, and each observed refresh and result.
