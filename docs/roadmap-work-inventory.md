@@ -220,7 +220,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Immediate follow-ups
 
-- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. The normal runtime verifier passed locally on clean merged commit `04dfe1a`, verifying two health-transition obligations and rejecting all eight negative controls. The `runtime-proof-X64` artifact from hosted Linux run `44686355712` confirms the same result on `04dfe1a`. Merged-main verification of #299 remains pending.
+- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. It removed two unit tests. The source count of `#[test]` and `#[tokio::test]` declarations in `crates/asagiri` fell from 666 to 664 across the merge. The normal runtime verifier passed locally on clean merged commit `04dfe1a`, verifying two health-transition obligations and rejecting all eight negative controls. The `runtime-proof-X64` artifact from hosted Linux run `44686355712` confirms the same result on `04dfe1a`. Merged-main verification of #299 remains pending.
 
 - PR #292’s hosted test merge `4bf6a03c` verified seven HTTP number parsing obligations and rejected six negative controls in run `44680187361`. Finish required checks and verify on merged `main`.
 
