@@ -2,6 +2,8 @@
 
 GitHub queue checked on 2026-11-20. There were 17 open pull requests and 177 open issues.
 
+See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot.
+
 ## Work sequence
 
 1. Confirm the quota workflow removal lands and audit PRs closed by the bot.
