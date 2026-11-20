@@ -535,3 +535,5 @@ PR #292 passed the required Linux job `136199690051`, including package build an
 Merged `main` at `cfbeab94` passed runtime and IPAM contracts and negative controls. The [runtime](verification/runtime-proof-cfbeab94.json) and [IPAM](verification/ipam-proof-cfbeab94.json) reports record the merged revision.
 
 PR #302 is open at `5538aea0`. Its updated [platform verification run](https://github.com/AndreKurait/asagiri/actions/runs/44715400533) is queued.
+
+Pinned Verus verified three IPAM obligations and rejected six negative controls on clean PR #302 revision `5538aea0`. [Local proof report](verification/ipam-proof-5538aea0.json).
