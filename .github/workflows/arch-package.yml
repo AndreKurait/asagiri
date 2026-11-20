@@ -34,17 +34,22 @@ jobs:
               pacman -U --noconfirm ./asagiri-desktop-*.pkg.tar.zst
               pacman -Qk asagiri-desktop
               test -x /usr/lib/asagiri/asagiri-window
+              data_dir=/build/gui/.local/share/asagiri
+              install -d -o nobody -g nobody -m 700 /build/gui
+              runuser -u nobody -- mkdir -p "$data_dir"
+              runuser -u nobody -- touch "$data_dir/package-lifecycle-sentinel"
               initial_version=$(pacman -Q asagiri-desktop)
               sed -i "s/^pkgrel=1$/pkgrel=2/" PKGBUILD
               runuser -u nobody -- env HOME=/build makepkg --repackage
               pacman -U --noconfirm ./asagiri-desktop-*-2-x86_64.pkg.tar.zst
               test "$(pacman -Q asagiri-desktop)" != "$initial_version"
               pacman -Qk asagiri-desktop
-              install -d -o nobody -g nobody -m 700 /build/gui
+              test -f "$data_dir/package-lifecycle-sentinel"
               runuser -u nobody -- env HOME=/build/gui LIBGL_ALWAYS_SOFTWARE=1                 dbus-run-session -- xvfb-run -a bash -e -c "
                   gio launch /usr/share/applications/asagiri.desktop
                   timeout 30 xdotool search --sync --onlyvisible --name \"^Asagiri$\"
                 "
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
+              test -f "$data_dir/package-lifecycle-sentinel"
             '
