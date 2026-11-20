@@ -749,7 +749,14 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
         },
         None => None,
     };
-    let loaded = asagiri_image::archive::load_with_platform(&engine.store, http::Body::new(req, r), platform.as_ref());
+    use std::io::Read;
+    let mut body = http::Body::new(req, r);
+    let mut head = Vec::with_capacity(6);
+    let loaded = (&mut body).take(6).read_to_end(&mut head)
+        .map_err(|e| Error::BadRequest(e.to_string()))
+        .and_then(|_| upload_reader(head, body))
+        .and_then(|archive| asagiri_image::archive::load_with_platform(&engine.store, archive, platform.as_ref())
+            .map_err(|e| Error::BadRequest(e.to_string())));
     match loaded {
         Ok(images) => {
             http::begin_stream_with(w, 200, "application/json", "Connection: close\r\n")?;
@@ -770,7 +777,7 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
             }
             http::end(w)?;
         }
-        Err(e) => error_with(w, Error::BadRequest(e.to_string()), "Connection: close\r\n")?,
+        Err(e) => error_with(w, e, "Connection: close\r\n")?,
     }
     // A failed load may leave part of the body unread.
     Ok(Next::Close)
