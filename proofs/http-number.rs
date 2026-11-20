@@ -38,6 +38,38 @@ spec fn prefix(bytes: Seq<u8>, hex: bool, end: int) -> Option<int>
     }
 }
 
+// Adding any number of leading zeroes preserves the numeric prefix value.
+proof fn zero_padding(bytes: Seq<u8>, zeros: Seq<u8>, hex: bool, end: int)
+    requires
+        0 <= end <= bytes.len(),
+        forall|i: int| 0 <= i < zeros.len() ==> zeros[i] == b'0',
+    ensures prefix(zeros + bytes, hex, zeros.len() + end) == prefix(bytes, hex, end),
+    decreases zeros.len() + end,
+{
+    if end > 0 {
+        zero_padding(bytes, zeros, hex, end - 1);
+        assert((zeros + bytes)[zeros.len() + end - 1] == bytes[end - 1]);
+    } else if zeros.len() > 0 {
+        let shorter = zeros.drop_last();
+        zero_padding(Seq::empty(), shorter, hex, 0);
+        assert(shorter + Seq::empty() =~= shorter);
+        assert((zeros + bytes).take(zeros.len() - 1) =~= shorter);
+        prefix_agrees(zeros + bytes, shorter, hex, zeros.len() - 1);
+        assert((zeros + bytes)[zeros.len() - 1] == b'0');
+    }
+}
+
+proof fn prefix_agrees(a: Seq<u8>, b: Seq<u8>, hex: bool, end: int)
+    requires 0 <= end <= a.len(), end <= b.len(), forall|i: int| 0 <= i < end ==> a[i] == b[i],
+    ensures prefix(a, hex, end) == prefix(b, hex, end),
+    decreases end,
+{
+    if end > 0 {
+        assert(a[end - 1] == b[end - 1]);
+        prefix_agrees(a, b, hex, end - 1);
+    }
+}
+
 proof fn rejected_prefix_stays_rejected(bytes: Seq<u8>, hex: bool, at: int, end: int)
     requires
         0 <= at <= end <= bytes.len(),
