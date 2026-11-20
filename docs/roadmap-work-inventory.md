@@ -4,11 +4,11 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Open pull requests (15)
 
+- [#307](https://github.com/AndreKurait/asagiri/pull/307) Exercise WebView2 cleanup on native Windows (BLOCKED, auto-merge enabled)
 - [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes (BLOCKED, auto-merge enabled)
 - [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal (BLOCKED, auto-merge enabled)
 - [#288](https://github.com/AndreKurait/asagiri/pull/288) Flag unusually long short translations in changed locales (BLOCKED, auto-merge enabled)
 - [#289](https://github.com/AndreKurait/asagiri/pull/289) Add Serbian Latin to the desktop and installer (BLOCKED, auto-merge enabled)
-- [#291](https://github.com/AndreKurait/asagiri/pull/291) Verify health probe exit codes and the startup grace boundary (BLOCKED, auto-merge enabled)
 - [#292](https://github.com/AndreKurait/asagiri/pull/292) Prove arbitrary HTTP number padding and retire sampled value tests (BLOCKED, auto-merge enabled)
 - [#294](https://github.com/AndreKurait/asagiri/pull/294) Support OCI image layout archives in docker load (BLOCKED, auto-merge enabled)
 - [#295](https://github.com/AndreKurait/asagiri/pull/295) Verify the identity of each Pages publication (BLOCKED, auto-merge enabled)
@@ -220,10 +220,14 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 
 ## Immediate follow-ups
 
+- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. PR #291 merged as `04dfe1a`. Confirm its proof run on `main` and check #299 again after merge.
+
+- PR #292’s hosted test merge `4bf6a03c` verified seven HTTP number parsing obligations and rejected six negative controls in run `44680187361`. Finish required checks and verify on merged `main`.
+
 - Finish the platform checks and merge the ready PRs in the queue above. Check #287 speed run `44679797226` and #288 Docker reference run `44679901363` before retrying either.
 - Qualify #301’s merged Windows desktop change for issue #236. The merge includes native WebView tests for the in-memory document path.
 - Collect fresh CI for #302 at `ec46d50c`. The previous head passed three IPAM obligations and rejected six negative controls. After merge, rerun the proofs on `main` and recount the unit tests by crate.
 - Resolve #303’s guest startup failure before collecting Docker-first gateway reachability evidence. The ARM64 guest reported `ENOTSUP` during cgroup migration. The hosted x64 guest also failed to start.
-- Finish Arch packaging for #268 in draft #306. Check hosted run `44682701256` for build, install, upgrade, X11 desktop launch, and removal. Engine data preservation and Wayland launch still need qualification. The source integrity check accepted the original archive and rejected the modified one.
+- Finish Arch packaging for #268 in draft #306. Hosted run `44682701256` failed to link `ring`. Run `44684998339` tests the makepkg LTO fix and checks build, install, upgrade, X11 desktop launch, and removal. Engine data preservation and Wayland launch still need qualification. The source integrity check accepted the original archive and rejected the modified one.
 - Qualify mixed-network behavior on merged source for #265, including explicit rejection when the engine cannot preserve the requested attachments.
 - Finish native Windows CLI and bridge qualification for #266 using merged PR #293. The fixed ARM64 engine passed ten live image-load cases, including tag preservation after corrupt input.
