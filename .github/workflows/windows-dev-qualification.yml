@@ -1,0 +1,45 @@
+name: Native Windows developer WSL bundle
+on:
+  push:
+    branches: [qualification/windows-dev-260]
+    paths: [.github/workflows/windows-dev-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  native-wsl:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare a WSL user distro on the disposable runner
+        run: |
+          wsl.exe --version
+          wsl.exe --install --distribution Ubuntu-24.04 --no-launch --web-download
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wsl.exe -d Ubuntu-24.04 -u root -- bash -ec 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl python3-venv unzip ca-certificates && curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/qualification-rustup && sh /tmp/qualification-rustup -y --profile minimal'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Set a runtime-only distro as the WSL default
+        run: |
+          $tar = "$env:RUNNER_TEMP\alpine.tar.gz"
+          curl.exe -fsSL --retry 3 https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.3-x86_64.tar.gz -o $tar
+          if ((Get-FileHash $tar).Hash.ToLower() -ne 'f8e1cafba9b1b283b5d30d06f9885c8d2bc161ffe9083ade8e2e157813a53407') { throw 'Alpine checksum mismatch' }
+          wsl.exe --import Asagiri-qualification "$env:RUNNER_TEMP\runtime-distro" $tar --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wsl.exe --set-default Asagiri-qualification
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wsl.exe --list --verbose
+      - name: Build the real developer bundle and execute its binaries
+        run: |
+          if ($env:ASAGIRI_WSL_DISTRO -or $env:ASAGIRI_WINDOWS_LINUX_DIR) { throw 'Unexpected WSL or prebuilt override' }
+          cargo xtask windows-dev
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bundle = 'target/asagiri-windows-x86_64'
+          foreach ($name in 'asagiri','asagiri-init','asagiri-linux.tar.gz','asagiri-win.exe','bin/docker.exe') {
+            if (!(Test-Path "$bundle/$name" -PathType Leaf)) { throw "Missing $name" }
+          }
+          & "$bundle/bin/docker.exe" --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          wsl.exe -d Ubuntu-24.04 --exec "./$bundle/asagiri" --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
