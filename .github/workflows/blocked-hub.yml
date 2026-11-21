@@ -46,3 +46,23 @@ jobs:
           "$cli" registry-mirror remove "$mirror"
           if "$cli" registry-mirror list | grep -F "$mirror"; then exit 1; fi
           BASH
+      - name: Pull public Alpine through the Google Docker Hub mirror
+        run: |
+          sudo unshare --mount --propagation private bash -eu <<'BASH'
+          cp /etc/hosts /tmp/mirror-hosts
+          echo '127.0.0.1 registry-1.docker.io auth.docker.io' >> /tmp/mirror-hosts
+          mount --bind /tmp/mirror-hosts /etc/hosts
+          export ASAGIRI_SOCKET=/tmp/asagiri-public-mirror.sock ASAGIRI_DATA_DIR=/tmp/public-mirror-store
+          export DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+          cli="$PWD/target/debug/asagiri"
+          "$cli" daemon > /tmp/public-mirror-engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" || true; tail -25 /tmp/public-mirror-engine.log' EXIT
+          for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
+          docker version
+          if docker pull alpine:3.21; then exit 1; fi
+          "$cli" registry-mirror add https://mirror.gcr.io
+          docker pull alpine:3.21
+          docker run --rm --network none alpine:3.21 cat /etc/alpine-release | grep '^3\.21\.'
+          "$cli" registry-mirror remove https://mirror.gcr.io
+          BASH
