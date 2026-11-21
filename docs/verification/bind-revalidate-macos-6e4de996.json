@@ -1,0 +1,212 @@
+{
+  "schema": "asagiri.native-mac-bind-cache-validation.v1",
+  "status": "passed",
+  "kernel_pr_head": "6e4de996fa6d856a231b31aa6a50dc9c9dd1b387",
+  "host_app_release": "v0.1.14-dev.152",
+  "host_app_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "host": "macOS 26.7.3 ARM64",
+  "assembly": "Copied the release app, replaced its ARM64 guest kernel with the verified CI artifact, and re-signed with the app\u2019s virtualization entitlement. The app ran with an isolated HOME, data directory, and socket.",
+  "kernel_run": 44873889552,
+  "kernel_job": 136754201281,
+  "guest_kernel_report": {
+    "schema": "asagiri.guest-fsnotify.v1",
+    "status": "passed",
+    "started_at": "2026-11-21T06:20:27.135809+00:00",
+    "source": "643e0e9b653de03bb1c4912894feced33c98ce8e",
+    "expected_missing_interface": false,
+    "checks": [
+      {
+        "architecture": "arm64",
+        "kernel_sha256": "19d20c2e7186d431271b70aff3d2a9597226f55a9a13b173d2f488798daa608d",
+        "init_sha256": "05fe6ca394a33932307d27c71d236297804f2d48c30fc71d148cbe961f1a1b27",
+        "initramfs_sha256": "f14639af0816a52faaa97f1f429b1edcc6830a52857a704f371f893f709e2288",
+        "qemu": "/usr/bin/qemu-system-aarch64",
+        "command": [
+          "qemu-system-aarch64",
+          "-machine",
+          "virt",
+          "-cpu",
+          "cortex-a57",
+          "-accel",
+          "tcg",
+          "-m",
+          "256M",
+          "-display",
+          "none",
+          "-monitor",
+          "none",
+          "-serial",
+          "none",
+          "-device",
+          "virtio-serial-pci",
+          "-chardev",
+          "stdio,id=console,signal=off",
+          "-device",
+          "virtconsole,chardev=console",
+          "-no-reboot",
+          "-nic",
+          "none",
+          "-kernel",
+          "/home/runner/work/asagiri/asagiri/guest/out/Image",
+          "-initrd",
+          "/home/runner/work/_temp/guest-fsnotify/arm64.cpio",
+          "-append",
+          "console=hvc0 rdinit=/init panic=-1 asagiri.fsnotify-selftest=1"
+        ],
+        "exit": 0,
+        "log_sha256": "15d844ef24a94045d11603f42db298c0fc858c561a41e2f8580ca7b743381edc",
+        "controls": {
+          "C directory=": true,
+          "M directory=": true,
+          "A directory=": true,
+          "D directory=": true,
+          "unprivileged open denied": true,
+          "container namespace denied with inherited descriptor": true,
+          "rejected outside-share path": true,
+          "rejected parent traversal": true,
+          "rejected symlink traversal": true,
+          "rejected nested mount": true,
+          "replacement looks up new inode and preserves open file": true,
+          "replacement expires cache without watchers": true,
+          "deletion expires cache without watchers": true
+        },
+        "passed": true
+      },
+      {
+        "architecture": "x86_64",
+        "kernel_sha256": "3b2c44ab7214260ac885c65cf0954d07a588b5818d6eebfa193d5716bbe173f1",
+        "init_sha256": "34f6b7bbc46c206df6578aa5ddc27c8d5301f0872fed343bf43496d861efec71",
+        "initramfs_sha256": "9ab666512f959f27f14b46279f77ed18135b071814b4f34a70d119dcf6eaf4fa",
+        "qemu": "/usr/bin/qemu-system-x86_64",
+        "command": [
+          "qemu-system-x86_64",
+          "-accel",
+          "tcg",
+          "-m",
+          "256M",
+          "-display",
+          "none",
+          "-monitor",
+          "none",
+          "-serial",
+          "none",
+          "-device",
+          "virtio-serial-pci",
+          "-chardev",
+          "stdio,id=console,signal=off",
+          "-device",
+          "virtconsole,chardev=console",
+          "-no-reboot",
+          "-nic",
+          "none",
+          "-kernel",
+          "/home/runner/work/asagiri/asagiri/guest/out/x86_64/bzImage",
+          "-initrd",
+          "/home/runner/work/_temp/guest-fsnotify/x86_64.cpio",
+          "-append",
+          "console=hvc0 rdinit=/init panic=-1 asagiri.fsnotify-selftest=1"
+        ],
+        "exit": 0,
+        "log_sha256": "417a95cd69eef9910e1b52d37c8b449902f8d77c91174f152783ab4ef0aaf5b5",
+        "controls": {
+          "C directory=": true,
+          "M directory=": true,
+          "A directory=": true,
+          "D directory=": true,
+          "unprivileged open denied": true,
+          "container namespace denied with inherited descriptor": true,
+          "rejected outside-share path": true,
+          "rejected parent traversal": true,
+          "rejected symlink traversal": true,
+          "rejected nested mount": true,
+          "replacement looks up new inode and preserves open file": true,
+          "replacement expires cache without watchers": true,
+          "deletion expires cache without watchers": true
+        },
+        "passed": true
+      }
+    ],
+    "init_source_sha256": "ca015ce0f46b7f52de4e365103586098e1ce8f5babb179fc0362c6c90a835513",
+    "harness_sha256": "08eb2ae5a7e79dfada56890991ad4096882e7a57d16d28b15f44c1c91514d523",
+    "helper_sha256": "9a5703567a0c1356db2b13de71ab2a8a5d6eb73adeb8e73312cdd6992becb27b",
+    "host_filesystems_shared": false,
+    "host_devices_shared": false,
+    "network_enabled": false
+  },
+  "baseline_failure_lines": 40,
+  "native_bind_result": "PASS bind recreate and replace, with and without a watcher (30 attempts)",
+  "vite_version": "7.2.2",
+  "vite_checks": [
+    {
+      "save": "write",
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795242092690,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | 6:21:30 AM [vite] (client) Re-optimizing dependencies because vite config has changed",
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 156 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 6:21:32 AM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    {
+      "save": "rename",
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795242095348,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 110 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 6:21:35 AM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    {
+      "save": "rename",
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795242098233,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 110 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 6:21:38 AM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    {
+      "save": "rename",
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795242100877,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 110 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 6:21:40 AM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    }
+  ],
+  "vite_cleanup_verified": true,
+  "remaining": "Protected merge and verification with the final published release."
+}
