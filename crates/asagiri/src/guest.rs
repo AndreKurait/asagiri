@@ -294,7 +294,7 @@ impl Guest {
         let none: &[String] = &[];
         let net = asagiri_proto::Net { bridge: "", ip: [0; 4], prefix: 0, gateway: [0; 4], extra_hosts: none, dns_names: none, opts: none };
         asagiri_proto::encode_run(
-            &mut self.out, req.id, req.layers, req.argv, req.env, req.cwd, req.user, req.hostname, req.flags, net, none, &asagiri_proto::Limits::default(), 0, none,
+            &mut self.out, req.id, req.layers, req.argv, req.env, req.cwd, req.user, req.hostname, req.flags, net, none, &asagiri_proto::Limits::default(), 0, none, &[],
         );
         let t = Instant::now();
         self.conn.write_all(&self.out)?;

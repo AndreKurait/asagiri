@@ -666,7 +666,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 Ok(Msg::NetAttach { id, ifname, net: n }) => match running_pid(&procs, id) {
                     Some(pid) => {
                         let num: u32 = ifname.strip_prefix("eth").and_then(|v| v.parse().ok()).unwrap_or(1);
-                        let host_if = extra_veth(id, num);
+                        let host_if = net::extra_veth(id, num);
                         // A previous run's veth can outlive its namespace for a moment;
                         // the name is this container's own, so it can go.
                         let _ = net::detach(&host_if);
@@ -750,7 +750,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         let num: u32 = ifname.strip_prefix("eth").and_then(|v| v.parse().ok()).unwrap_or(1);
                         dns.unregister(bridge, ip);
                         dns.leave(pid, bridge);
-                        let host_if = extra_veth(id, num);
+                        let host_if = net::extra_veth(id, num);
                         let mut macvlan = None;
                         if let Some(p) = procs.get_mut(id) {
                             p.run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
@@ -855,10 +855,6 @@ fn running_pid(procs: &Procs, id: &str) -> Option<libc::pid_t> {
 }
 
 /// The host side of a container's `eth{n}` for n > 0: 15 characters at most.
-fn extra_veth(id: &str, n: u32) -> String {
-    format!("kx{}{n}", &id[..id.len().min(9)])
-}
-
 /// The init's mounted view, including volumes and binds in its private mount
 /// namespace. fsview still resolves every requested path inside this root.
 /// Reaped entries remain unavailable while their asynchronous cleanup runs.

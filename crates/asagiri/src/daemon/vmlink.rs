@@ -478,11 +478,12 @@ impl VmLink {
         limits: &asagiri_proto::Limits,
         caps: u64,
         opts: &[String],
+        extra_networks: &[asagiri_proto::RunNetwork<'_, String>],
     ) -> io::Result<u32> {
         self.wait_cleanup(id)?;
         self.windows.open(id);
         let r = loop {
-            let r = self.call(|o| asagiri_proto::encode_run(o, id, layers, argv, env, cwd, user, hostname, flags, net.clone(), mounts, limits, caps, opts), None).and_then(started);
+            let r = self.call(|o| asagiri_proto::encode_run(o, id, layers, argv, env, cwd, user, hostname, flags, net.clone(), mounts, limits, caps, opts, extra_networks), None).and_then(started);
             if !matches!(&r, Err(error) if error.to_string() == asagiri_proto::ROOT_CLEANUP_PENDING) { break r; }
             // A copy reply travels on another socket, so the next Run may
             // arrive before its root's CleanupPending was read. The guest
@@ -808,7 +809,7 @@ mod tests {
         let mut frame = Vec::new();
         let net = asagiri_proto::Net { bridge: "", ip: [0; 4], prefix: 0, gateway: [0; 4], extra_hosts: &[], dns_names: &[], opts: &[] };
         asagiri_proto::encode_run(&mut frame, "c1", &["sha256:layer".into()], &["sh".into(), "-c".into(), "true".into()],
-            env, "/", "", "c1", 0, net, &["/source\t/target\tro".into()], &asagiri_proto::Limits::default(), 0, opts);
+            env, "/", "", "c1", 0, net, &["/source\t/target\tro".into()], &asagiri_proto::Limits::default(), 0, opts, &[]);
         frame
     }
 

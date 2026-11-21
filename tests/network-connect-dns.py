@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Check that a container started on the default bridge resolves the names of a network it joins later."""
+"""Check DNS and reachability for containers connected before and after startup."""
+import ipaddress
 import http.client
 import io
 import json
@@ -101,7 +102,9 @@ def check(path, image):
     cases = 0
     try:
         name = tag + "-net"
-        network = request("POST", "/networks/create", {"Name": name}, (201,))["Id"]
+        network = request("POST", "/networks/create", {
+            "Name": name, "IPAM": {"Config": [{"Subnet": "10.249.73.0/24"}]},
+        }, (201,))["Id"]
         primary_alias = tag + "-primary-alias"
         peer = run(tag + "-peer", {"NetworkMode": name}, {name: {"Aliases": [primary_alias]}})
         peer_ip = address(peer, name)
@@ -170,15 +173,70 @@ def check(path, image):
         # A container that starts on a user network already asks 127.0.0.11,
         # and resolves a second network's names once it joins.
         other = tag + "-other"
-        second = request("POST", "/networks/create", {"Name": other}, (201,))["Id"]
+        second = request("POST", "/networks/create", {
+            "Name": other, "IPAM": {"Config": [{"Subnet": "10.249.74.0/24"}]},
+        }, (201,))["Id"]
         far = run(tag + "-far", {"NetworkMode": other})
-        assert not resolves(peer, tag + "-far", address(far, other))
+        far_ip = address(far, other)
+        assert not resolves(peer, tag + "-far", far_ip)
         second_alias = tag + "-second-alias"
         join(second, peer, [second_alias])
         assert nameservers(peer) == ["127.0.0.11"], resolv(peer)
-        assert resolves(peer, tag + "-far", address(far, other)), sh(peer, "nslookup -type=a " + tag + "-far")
+        assert resolves(peer, tag + "-far", far_ip), sh(peer, "nslookup -type=a " + tag + "-far")
         print("PASS a container on a user network joins a second one", flush=True)
         cases += 1
+
+        # The application checks the resolver, resolves both peers without
+        # retries, and sends traffic through both extra interfaces.
+        for i in range(3):
+            client = request("POST", "/containers/create?name=" + tag + f"-prejoined-{i}", {
+                "Image": image, "HostConfig": {"NetworkMode": "bridge"},
+                "Cmd": ["sh", "-exc",
+                        'cat /etc/resolv.conf; grep -Fx "nameserver 127.0.0.11" /etc/resolv.conf; '
+                        'nslookup -type=a "$1" | grep -Fx "Address: $2"; '
+                        'nslookup -type=a "$3" | grep -Fx "Address: $4"; '
+                        'ip -4 addr show eth1 | grep "inet "; ip -4 addr show eth2 | grep "inet "; '
+                        'ping -c 1 -W 2 "$2"; ping -c 1 -W 2 "$4"',
+                        "sh", tag + "-peer", peer_ip, tag + "-far", far_ip],
+            }, (201,))["Id"]
+            join(network, client)
+            join(second, client)
+            request("POST", "/containers/" + client + "/start", statuses=(204,))
+            outcome = request("POST", "/containers/" + client + "/wait")
+            if outcome["StatusCode"] != 0:
+                connection = Connection(path)
+                try:
+                    connection.request("GET", "/v1.47/containers/" + client + "/logs?stdout=1&stderr=1")
+                    logs = connection.getresponse().read().decode(errors="replace")
+                finally:
+                    connection.close()
+                raise AssertionError((outcome, logs))
+        print("PASS a preconnected bridge container resolves its peer from its first lookup", flush=True)
+        cases += 1
+
+        # The second reservation fails. A different container can claim
+        # the first reservation's address before the failed one is removed.
+        free_ip = str(ipaddress.IPv4Address(peer_ip) + 40)
+        for suffix in ("blocked", "retry"):
+            cid = request("POST", "/containers/create?name=" + tag + "-" + suffix, {
+                "Image": image, "HostConfig": {"NetworkMode": "bridge"}, "Cmd": ["sleep", "120"],
+            }, (201,))["Id"]
+            request("POST", "/networks/" + network + "/connect", {
+                "Container": cid, "EndpointConfig": {"IPAMConfig": {"IPv4Address": free_ip}},
+            }, (200, 204))
+            if suffix == "blocked":
+                request("POST", "/networks/" + second + "/connect", {
+                    "Container": cid, "EndpointConfig": {"IPAMConfig": {"IPv4Address": far_ip}},
+                }, (200, 204))
+                error = request("POST", "/containers/" + cid + "/start", statuses=(409,))
+                assert "Address already in use" in error["message"], error
+                assert not request("GET", "/containers/" + cid + "/json")["State"]["Running"]
+            else:
+                request("POST", "/containers/" + cid + "/start", statuses=(204,))
+                assert address(cid, name) == free_ip
+        print("PASS failed preconnection releases the address reserved on the first network", flush=True)
+        cases += 1
+
         old = tag + "-peer"
         new = tag + "-renamed"
         second_ip = address(peer, other)
