@@ -1,0 +1,37 @@
+name: Intel Mac disk growth qualification
+on:
+  push:
+    branches: [qualification/intel-disk-185]
+    paths: [.github/workflows/intel-bind-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  disk-growth:
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the candidate host and guest
+        run: |
+          set -eu
+          test "$(uname -m)" = x86_64
+          sysctl kern.hv_support
+          rustup target add x86_64-unknown-linux-musl
+          cargo xtask guest --arch x86_64
+          cargo xtask host --arch x86_64
+      - name: Verify growth, exclusivity and preservation through Docker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset=Asagiri-0.1.14-dev.159-x86_64.tar.gz
+          gh release download v0.1.14-dev.159 -p "$asset" -D "$RUNNER_TEMP"
+          (cd "$RUNNER_TEMP" && echo "2c82306a3391f23304b5905afc19d70015f3afbdd416c9c839818f72ab2345a3  $asset" | shasum -a 256 -c - && tar xzf "$asset")
+          resources="$RUNNER_TEMP/Asagiri.app/Contents/Resources"
+          cp "$resources/guest/bzImage" "$resources/guest/data.img.tgz" guest/out/x86_64/
+          export PATH="$resources/bin:$PATH"
+          brew install skopeo
+          skopeo copy docker://docker.io/library/alpine@sha256:2d8a11041a92082ba21e364dec73559ce44f1de69b60fa68315f6d3774e59117 "docker-archive:$RUNNER_TEMP/alpine.tar:alpine:3.21"
+          python3 tests/disk-grow.py target/release/asagiri --guest-dir guest/out/x86_64 --image-archive "$RUNNER_TEMP/alpine.tar" --image-id sha256:e50d940e9d2c4d81e5b3506b2ed87bfc7e91267b36ff016eb4b4cb21c39a3331
