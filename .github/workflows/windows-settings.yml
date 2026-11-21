@@ -33,13 +33,16 @@ jobs:
           if ($LASTEXITCODE) { throw 'UI driver installation failed' }
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=19227 --remote-debugging-address=127.0.0.1'
           $env:ASAGIRI_TEST_CLI = Join-Path $bundle 'bin/asagiri.exe'
-          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'asagiri-settings-profile'
-          New-Item -ItemType Directory -Path $env:LOCALAPPDATA | Out-Null
+          $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          if (Test-Path $profileDir) { throw 'Expected a fresh hosted Windows user profile' }
           $window = Start-Process $app -ArgumentList '--distro','Asagiri-mcp-107','--pipe','\\.\pipe\asagiri-mcp-107' -PassThru
           try {
             python "$env:GITHUB_WORKSPACE/tests/windows-mcp-settings.py"
             if ($LASTEXITCODE) { throw 'Settings qualification failed' }
           } finally {
+            Get-Process asagiri-win,msedgewebview2 -ErrorAction SilentlyContinue | Select-Object ProcessName,Id,SessionId
+            $appLog = Join-Path $profileDir 'asagiri-win.log'
+            if (Test-Path $appLog) { Get-Content $appLog -Tail 50 }
             if (!$window.HasExited) { Stop-Process -Id $window.Id -Force }
             wsl.exe --terminate Asagiri-mcp-107
           }
