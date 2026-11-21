@@ -37,11 +37,14 @@ jobs:
           git -C "$GITHUB_WORKSPACE" rev-parse HEAD > native/SOURCE_COMMIT
           cp published/usr/libexec/asagiri/bin/docker published/usr/libexec/asagiri/cli-plugins/docker-* cli/
           cd "$GITHUB_WORKSPACE"
+          python3 scripts/ci/release.py stamp 0.1.14-dev.159
           rustup toolchain install 1.99.1 --profile minimal
           cargo +1.99.1 build --locked --release -p asagiri --features window
           bash packaging/linux/build.sh "$RUNNER_TEMP/native" "$RUNNER_TEMP/packages" x86_64 "$RUNNER_TEMP/cli" "$PWD/target/release/asagiri"
           sudo apt-get install -y "$RUNNER_TEMP"/packages/asagiri_*.deb
           test -x /usr/lib/asagiri/asagiri-window
+          test "$(dpkg-query -W -f='${Version}' asagiri)" = '0.1.14~dev.159'
+          test "$(/usr/lib/asagiri/asagiri-window --version)" = 'Asagiri 0.1.14-dev.159'
           dpkg-query -W asagiri
           asagiri --version
           xvfb-run -a dbus-run-session -- bash -ec '
