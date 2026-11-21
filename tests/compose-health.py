@@ -118,6 +118,9 @@ def check(args):
     version = api("GET", "/version")
     if args.reference_docker:
         assert not version.get("AsagiriVersion") and "Podman" not in json.dumps(version), version
+    elif args.disposable_wsl:
+        assert version.get("AsagiriVersion") and os.environ.get("WSL_DISTRO_NAME") == "Asagiri-health-168"
+        assert "microsoft" in platform.release().lower() and args.socket == "/var/lib/asagiri-daemon/.asagiri/run/docker.sock"
     else:
         assert (version.get("AsagiriVersion") and Path("/.dockerenv").exists()
                 and os.environ.get("ASAGIRI_TEST_ENGINE") == "1"
@@ -285,6 +288,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("socket")
     parser.add_argument("image")
+    parser.add_argument("--disposable-wsl", action="store_true")
     parser.add_argument("--reference-docker", action="store_true")
     parser.add_argument("--compose-plugin", type=Path, required=True)
     parser.add_argument("--output", type=Path)
