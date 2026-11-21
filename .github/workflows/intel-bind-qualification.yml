@@ -36,7 +36,10 @@ jobs:
           scratch=$(mktemp -d /tmp/asagiri-112.XXXXXX)
           export ASAGIRI_SOCKET="$scratch/engine.sock" DOCKER_HOST="unix://$scratch/engine.sock"
           unset DOCKER_CONTEXT
-          mkdir -p "$HOME"
+          mkdir -p "$HOME/.docker"
+          jq -n --arg dir "$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin/cli-plugins" '{cliPluginsExtraDirs:[$dir]}' > "$HOME/.docker/config.json"
+          docker buildx version
+          docker compose version
           Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -100 "$scratch/daemon.log"' EXIT
