@@ -75,7 +75,12 @@ cycle("full screen exit")
 let target = NSRunningApplication(processIdentifier: pid_t(CommandLine.arguments[1])!)!
 let finder = NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.finder").first!
 _ = finder.activate(options: [.activateIgnoringOtherApps]); waitFor("focus Finder") { finder.isActive }
-_ = target.activate(options: [.activateIgnoringOtherApps]); waitFor("refocus app") { target.isActive }
+let frame = geometry(window)
+let point = CGPoint(x: frame.midX, y: frame.minY + 22)
+for kind in [CGEventType.leftMouseDown, .leftMouseUp] {
+    CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+}
+waitFor("refocus app by clicking window") { target.isActive }
 cycle("refocus")
 
 // This check runs on a disposable hosted Mac and restores its initial appearance.
