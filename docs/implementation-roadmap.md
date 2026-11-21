@@ -140,7 +140,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #324: Linux: a signal can reach a reused process ID after a container exits [#151](https://github.com/AndreKurait/asagiri/issues/151)
 - [ ] Verify Kiri #326: Adjust swap memory [#152](https://github.com/AndreKurait/asagiri/issues/152)
 - [ ] Verify Kiri #329: Support insecure-registries (plain-HTTP and self-signed private registries), and read Docker's daemon.json [#153](https://github.com/AndreKurait/asagiri/issues/153)
-- [ ] Verify Kiri #330: Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused [#154](https://github.com/AndreKurait/asagiri/issues/154)
+- [x] Verify Kiri #330: Linux: containers have no DNS on the default bridge; Compose/BuildKit builds can't resolve a digest-pinned base; bun install gets ConnectionRefused [#154](https://github.com/AndreKurait/asagiri/issues/154)
 - [ ] Verify Kiri #336: Windows: would you consider a libkrun/WHP VM backend instead of a WSL 2 distro? [#155](https://github.com/AndreKurait/asagiri/issues/155)
 - [ ] Verify Kiri #337: macOS 26: Cannot move the window [#156](https://github.com/AndreKurait/asagiri/issues/156)
 - [ ] Verify Kiri #338: Can't execute commands properly inside built in container terminal [#157](https://github.com/AndreKurait/asagiri/issues/157)
