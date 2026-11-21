@@ -1,15 +1,15 @@
-name: Intel Mac bind mount qualification
+name: Published DDEV project on Intel macOS
 on:
   workflow_dispatch:
   push:
-    branches: [qualification/intel-bind-190]
+    branches: [qualification/intel-ddev-112]
     paths: [.github/workflows/intel-bind-qualification.yml]
 permissions:
   contents: read
 jobs:
   published-app:
     runs-on: macos-26-intel
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,7 +33,7 @@ jobs:
           codesign --verify --deep --strict Asagiri.app
           export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
           export HOME="$RUNNER_TEMP/qualification-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/qualification-store"
-          scratch=$(mktemp -d /tmp/asagiri-190.XXXXXX)
+          scratch=$(mktemp -d /tmp/asagiri-112.XXXXXX)
           export ASAGIRI_SOCKET="$scratch/engine.sock" DOCKER_HOST="unix://$scratch/engine.sock"
           unset DOCKER_CONTEXT
           mkdir -p "$HOME"
@@ -46,5 +46,26 @@ jobs:
             sleep 1
           done
           docker version
-          docker pull alpine:3.21
-          bash "$GITHUB_WORKSPACE/tests/bind-recreate.sh"
+          for attempt in 1 2 3; do
+            if docker run --rm alpine:3.21 true; then break; fi
+            test "$attempt" != 3
+          done
+          asset=ddev_macos-amd64.v1.25.2.tar.gz
+          gh release download v1.25.2 -R ddev/ddev -p "$asset"
+          echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
+          mkdir ddev-bin && tar xzf "$asset" -C ddev-bin
+          ddev_exe=$(find "$PWD/ddev-bin" -type f -name ddev -print -quit)
+          export PATH="$(dirname "$ddev_exe"):$PATH" DDEV_NONINTERACTIVE=true
+          mkdir -p "$HOME/project/public"
+          cp "$GITHUB_WORKSPACE/tests/ddev/index.php" "$HOME/project/public/index.php"
+          cd "$HOME/project"
+          ddev config global --instrumentation-opt-in=false --omit-containers=ddev-ssh-agent
+          mkcert -install
+          ddev config --project-name=asagiri-ddev --project-type=php --docroot=public --php-version=8.4 --database=mariadb:11.8 --router-http-port=8080 --router-https-port=8443 --performance-mode=none
+          for action in start restart; do
+            ddev "$action"
+            test "$(curl -fsS --max-time 30 --resolve asagiri-ddev.ddev.site:8080:127.0.0.1 http://asagiri-ddev.ddev.site:8080/)" = asagiri-ddev:42
+            test "$(curl -fsS --max-time 30 --cacert "$(mkcert -CAROOT)/rootCA.pem" --resolve asagiri-ddev.ddev.site:8443:127.0.0.1 https://asagiri-ddev.ddev.site:8443/)" = asagiri-ddev:42
+            echo "PASS HTTP and trusted HTTPS with MariaDB after ddev $action"
+          done
+          ddev poweroff
