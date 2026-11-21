@@ -1,7 +1,7 @@
 name: Published Ubuntu x86 Compose Bun build
 on:
   push:
-    branches: [qualification/linux-compose-bun-154]
+    branches: [qualification/linux-compose-coexist-154]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -24,7 +24,8 @@ jobs:
           archive=asagiri-0.1.14-dev.159-linux-x86_64.tar.gz
           gh release download v0.1.14-dev.159 --pattern "$archive" --dir "$work"
           (cd "$work" && echo "77e6972afb66005bd33692f379f9b3dd42f13095cbab469130a7bfad805f9165  $archive" | sha256sum -c - && tar xzf "$archive")
-          sudo systemctl stop docker.socket docker.service
+          docker -H unix:///var/run/docker.sock info --format 'Reference Docker {{.ServerVersion}}'
+          sudo iptables -S DOCKER-USER
           sock="$work/asagiri.sock"
           sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
           trap 'tail -40 "$work/engine.log"' EXIT
@@ -33,8 +34,7 @@ jobs:
           sudo chmod 660 "$sock"
           sudo chown "$(id -u):$(id -g)" "$sock"
           cd "$work"
-          docker pull oven/bun:1-alpine
-          pinned=$(docker image inspect --format '{{index .RepoDigests 0}}' oven/bun:1-alpine)
+          pinned=oven/bun:1-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
           test -n "$pinned"
           docker pull "$pinned"
           echo "Testing $pinned"
