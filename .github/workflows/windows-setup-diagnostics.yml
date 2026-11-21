@@ -2,7 +2,6 @@ name: Windows first-run setup pull diagnostics
 on:
   push:
     branches: [qualification/windows-setup-diagnostics-109]
-    paths: [.github/workflows/windows-rtl.yml, tests/windows-rtl-restart.py]
 permissions:
   contents: read
 jobs:
