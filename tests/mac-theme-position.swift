@@ -44,7 +44,9 @@ func measure(_ phase: String) {
         let box = geometry(attr(window,key) as! AXUIElement)
         let x = rtl ? frame.maxX - box.maxX : box.minX - frame.minX, y = box.midY - frame.minY
         print(phase, key, "outer inset", x, "center from top", y)
-        precondition(abs(y-22) <= 1 && abs(x-CGFloat(20+20*index)) <= 1)
+        guard abs(y-22) <= 1 && abs(x-CGFloat(20+20*index)) <= 1 else {
+            print("FAIL", phase, key, "window", frame, "button", box); exit(1)
+        }
     }
 }
 
