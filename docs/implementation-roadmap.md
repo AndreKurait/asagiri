@@ -90,7 +90,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #50: macOS: the VM stops several times a day under load (guest kernel BUG in skb_segment on ip_forward); --restart always containers stay down [#101](https://github.com/AndreKurait/asagiri/issues/101)
 - [ ] Verify Kiri #57: Builds for a foreign platform use the local image of the same tag and ignore --platform (Invalid ELF image for this architecture) [#102](https://github.com/AndreKurait/asagiri/issues/102)
 - [ ] Verify Kiri #59: Allow running linux/arm64 containers on Intel Macs via QEMU user-mode emulation (currently hard-rejected with "Kiri does not emulate Arm") [#103](https://github.com/AndreKurait/asagiri/issues/103)
-- [ ] Verify Kiri #66: bun install aborts under linux/amd64 emulation on Apple Silicon (QEMU SIGABRT), works on OrbStack [#104](https://github.com/AndreKurait/asagiri/issues/104)
+- [x] Verify Kiri #66: bun install aborts under linux/amd64 emulation on Apple Silicon (QEMU SIGABRT), works on OrbStack [#104](https://github.com/AndreKurait/asagiri/issues/104)
 - [x] Verify Kiri #72: macOS bind mounts support creating write-only files and Node's native `fs.cpSync`. Node 22 and 24 each passed six checks on the Apple Silicon `v0.1.14-dev.152` release. Both new files retained mode `0200` on the Mac, and recursive copies preserved content and modes. [Verification report](verification/bind-create-macos-6857850b.json) [#105](https://github.com/AndreKurait/asagiri/issues/105)
 - [ ] Verify Kiri #73: Control Kiri from browser. [#106](https://github.com/AndreKurait/asagiri/issues/106)
 - [ ] Verify Kiri #74: Create an MCP server to allow agents to work smoother [#107](https://github.com/AndreKurait/asagiri/issues/107)
