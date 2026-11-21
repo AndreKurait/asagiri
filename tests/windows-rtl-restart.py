@@ -35,18 +35,25 @@ with sync_playwright() as driver:
     for expected, select in [('en', 'ar'), ('ar', 'fa'), ('fa', None)]:
         proc = subprocess.Popen([os.environ['RTL_APP'], '--distro', 'Asagiri-rtl-140', '--pipe', r'\\.\pipe\asagiri-rtl-140'])
         try:
-            endpoint = 'http://127.0.0.1:19227'
+            profile = Path(os.environ['LOCALAPPDATA']) / 'Asagiri' / 'WebView2'
+            local_http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             deadline = time.monotonic() + 120
             last_targets = None
             last_connection_error = None
             while time.monotonic() < deadline:
                 assert proc.poll() is None, proc.returncode
                 try:
-                    with urllib.request.urlopen(endpoint + '/json/list', timeout=2) as response:
+                    ports = list(profile.rglob('DevToolsActivePort'))
+                    if not ports:
+                        time.sleep(0.2)
+                        continue
+                    port = int(max(ports, key=lambda path: path.stat().st_mtime_ns).read_text().splitlines()[0])
+                    endpoint = f'http://127.0.0.1:{port}'
+                    with local_http.open(endpoint + '/json/list', timeout=2) as response:
                         last_targets = [(t.get('type'), t.get('url', '')[:140]) for t in json.load(response)]
                         if ('page', 'https://asagiri.invalid/') in last_targets:
                             break
-                except OSError as error:
+                except (OSError, IndexError, ValueError) as error:
                     last_connection_error = str(error)
                 time.sleep(0.5)
             else:
