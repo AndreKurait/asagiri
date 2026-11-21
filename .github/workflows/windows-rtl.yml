@@ -29,9 +29,8 @@ jobs:
           wsl.exe --version
           wsl.exe --import Asagiri-rtl-140 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m pip install playwright pywin32
+          python -m pip install pywinauto pywin32
           if ($LASTEXITCODE) { throw 'UI driver installation failed' }
-          $env:ASAGIRI_DEVTOOLS = '1'
           $env:NO_PROXY = '127.0.0.1,localhost'
           $env:ASAGIRI_TEST_CLI = Join-Path $bundle 'bin/asagiri.exe'
           $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
