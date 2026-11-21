@@ -1,10 +1,8 @@
 //! `docker import`, `docker load` and `docker save`: root filesystems and
-//! image tarballs in Docker's format
-//! (`manifest.json` naming a config and layer files per image), which is
-//! also what `docker buildx build --load` produces. Archives are streamed:
-//! each file goes straight into the blob store as it is read.
+//! image tarballs in Docker or OCI layout format. Archive blobs are streamed
+//! to a temporary store, then the selected images and their blobs are published.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -64,17 +62,14 @@ pub fn load(store: &Store, archive: impl Read) -> io::Result<Vec<Image>> {
     load_with_platform(store, archive, None)
 }
 
-/// As [`load`], but picks the matching entry of a multi-platform OCI index
-/// when `platform` is given (`docker load --platform`).
+/// As [`load`], but selects a platform for `docker load --platform`.
 pub fn load_with_platform(store: &Store, archive: impl Read, platform: Option<&Platform>) -> io::Result<Vec<Image>> {
+    let stage = store.stage_archive()?;
     let mut tar = tar::Archive::new(archive);
     // Archive path → blob digest and size, for every regular file.
     let mut files: HashMap<String, (String, u64)> = HashMap::new();
     let mut manifest: Option<Vec<u8>> = None;
     let mut index: Option<Vec<u8>> = None;
-    let before: Vec<Image> = store.images()?;
-    let existed = |d: &str| before.iter().any(|i| i.config_digest == d || i.layers.iter().any(|l| l.digest == d));
-    let mut ingested: Vec<String> = Vec::new();
     for entry in tar.entries()? {
         let mut entry = entry?;
         if !entry.header().entry_type().is_file() {
@@ -91,15 +86,10 @@ pub fn load_with_platform(store: &Store, archive: impl Read, platform: Option<&P
             }
             continue;
         }
-        // Every other file is kept, `.json` ones too: in the classic layout
-        // (podman save, older docker save) the image config is a top-level
-        // `<hex>.json`. Files no image names are removed after the manifest.
-        let mut w = store.ingest()?;
+        // In the classic layout the image config can be a top-level JSON file.
+        let mut w = stage.0.ingest()?;
         io::copy(&mut entry, &mut w)?;
         let (digest, size) = w.finish()?;
-        if !existed(&digest) {
-            ingested.push(digest.clone());
-        }
         files.insert(path, (digest, size));
     }
     // A tar terminator can precede the upload's padding or framing trailer.
@@ -109,18 +99,17 @@ pub fn load_with_platform(store: &Store, archive: impl Read, platform: Option<&P
     // A docker-archive has manifest.json; an OCI layout has index.json. A
     // hybrid has both, and docker's wins: that keeps existing loads intact.
     let loaded = if let Some(manifest) = manifest {
-        load_docker(store, &files, &manifest)?
+        load_docker(&stage.0, &files, &manifest, platform)?
     } else if let Some(index) = index {
-        load_oci(store, &files, &index, platform)?
+        load_oci(&stage.0, &files, &index, platform)?
     } else {
         return Err(invalid("not an image archive: no manifest.json or index.json"));
     };
-    // Files no image uses (OCI index blobs and the like) do not stay.
-    let used = |d: &str| loaded.iter().any(|i| i.config_digest == d || i.layers.iter().any(|l| l.digest == d));
-    for d in ingested.iter().filter(|d| !used(d)) {
-        if let Ok(path) = store.blob_path(d) {
-            let _ = std::fs::remove_file(path);
-        }
+    if let Some(platform) = platform && loaded.is_empty() {
+        return Err(invalid(format!("requested platform ({}) not found: image might be filtered out", platform_name(platform))));
+    }
+    if !loaded.is_empty() {
+        store.publish_archive(&stage.0, &loaded)?;
     }
     Ok(loaded)
 }
@@ -133,13 +122,16 @@ fn lookup(files: &HashMap<String, (String, u64)>, path: &str) -> io::Result<(Str
     files.get(path.trim_start_matches("./")).cloned().ok_or_else(|| invalid(format!("archive is missing {path}")))
 }
 
-fn load_docker(store: &Store, files: &HashMap<String, (String, u64)>, manifest: &[u8]) -> io::Result<Vec<Image>> {
+fn load_docker(store: &Store, files: &HashMap<String, (String, u64)>, manifest: &[u8], want: Option<&Platform>) -> io::Result<Vec<Image>> {
     let entries: Vec<Value> = serde_json::from_slice(manifest).map_err(|e| invalid(format!("manifest.json: {e}")))?;
     let mut loaded = Vec::new();
     for m in &entries {
         let (config_digest, _) = lookup(files, m["Config"].as_str().unwrap_or_default())?;
         let config: Value = serde_json::from_slice(&store.read_config(&config_digest)?)
             .map_err(|e| invalid(format!("image config: {e}")))?;
+        if let Some(want) = want && !matches_platform(want, &config, &Value::Null) {
+            continue;
+        }
         let mut layers = Vec::new();
         for l in m["Layers"].as_array().into_iter().flatten() {
             let (digest, size) = lookup(files, l.as_str().unwrap_or_default())?;
@@ -156,9 +148,7 @@ fn load_docker(store: &Store, files: &HashMap<String, (String, u64)>, manifest: 
         // An untagged image is known by its id.
         let names = if names.is_empty() { vec![config_digest.clone()] } else { names };
         for name in names {
-            let image = from_config(name, &config_digest, &config, layers.clone());
-            store.put_image(image.clone())?;
-            loaded.push(image);
+            loaded.push(from_config(name, &config_digest, &config, layers.clone()));
         }
     }
     Ok(loaded)
@@ -179,22 +169,44 @@ fn descriptor_blob(files: &HashMap<String, (String, u64)>, descriptor: &Value) -
     Ok((actual, size))
 }
 
-/// The os/architecture an OCI image config says it runs on.
-fn config_platform(store: &Store, config_digest: &str) -> io::Result<(String, String)> {
-    let config: Value = serde_json::from_slice(&store.read_config(config_digest)?).map_err(|e| invalid(format!("image config: {e}")))?;
-    Ok((config["os"].as_str().unwrap_or("linux").to_owned(), config["architecture"].as_str().unwrap_or_default().to_owned()))
+fn platform_name(platform: &Platform) -> String {
+    match platform.variant.as_deref() {
+        Some(variant) => format!("{platform}/{variant}"),
+        None => platform.to_string(),
+    }
 }
 
-#[derive(Debug, Clone)]
+fn matches_platform(want: &Platform, config: &Value, descriptor_platform: &Value) -> bool {
+    let os = config["os"].as_str().or_else(|| descriptor_platform["os"].as_str()).unwrap_or("linux");
+    let arch = config["architecture"].as_str().or_else(|| descriptor_platform["architecture"].as_str());
+    let variant = config["variant"].as_str().filter(|v| !v.is_empty())
+        .or_else(|| descriptor_platform["variant"].as_str().filter(|v| !v.is_empty()));
+    let default_variant = match want.architecture.as_str() {
+        "arm" => "v7",
+        "arm64" => "v8",
+        "amd64" => "v1",
+        _ => "",
+    };
+    let variant = variant.unwrap_or(default_variant);
+    os == want.os && arch == Some(want.architecture.as_str())
+        && want.variant.as_deref().is_none_or(|v| v.trim_start_matches('v') == variant.trim_start_matches('v'))
+}
+
 struct Candidate {
-    manifest: String,
+    manifest: Value,
+    config_digest: String,
+    config: Value,
     tag: Option<String>,
+    native: bool,
 }
 
-/// Walks an OCI index down to image manifests. A nested index is a
-/// multi-platform image: take the host's entry (or the one asked for), not
-/// every architecture. The `org.opencontainers.image.ref.name` annotation is
-/// the image's tag, inherited from the outer descriptor.
+fn prefer_host(candidates: &mut Vec<Candidate>, include_untagged: bool) {
+    let host_tags: HashSet<_> = candidates.iter().filter(|c| c.native).map(|c| c.tag.clone()).collect();
+    candidates.retain(|c| c.native || (!include_untagged && c.tag.is_none()) || !host_tags.contains(&c.tag));
+}
+
+/// Walks an OCI index down to image manifests. Index annotations supply the
+/// tag to children without their own name.
 fn oci_candidates(
     store: &Store,
     files: &HashMap<String, (String, u64)>,
@@ -206,43 +218,54 @@ fn oci_candidates(
     if depth > 8 {
         return Err(invalid("OCI index is nested too deeply"));
     }
+    if let Some(media_type) = descriptor["mediaType"].as_str()
+        && !matches!(media_type, "application/vnd.oci.image.index.v1+json"
+            | "application/vnd.oci.image.manifest.v1+json"
+            | "application/vnd.docker.distribution.manifest.list.v2+json"
+            | "application/vnd.docker.distribution.manifest.v2+json")
+    {
+        return Ok(Vec::new());
+    }
+    let advertised = &descriptor["platform"];
+    if advertised["os"] == "unknown" && advertised["architecture"] == "unknown" {
+        return Ok(Vec::new());
+    }
+    if let Some(want) = want
+        && (advertised["os"].as_str().is_some_and(|os| os != want.os)
+            || advertised["architecture"].as_str().is_some_and(|arch| arch != want.architecture))
+    {
+        return Ok(Vec::new());
+    }
     let (digest, _) = descriptor_blob(files, descriptor)?;
     let doc: Value = serde_json::from_slice(&store.read_config(&digest)?).map_err(|e| invalid(format!("OCI blob: {e}")))?;
     let annotations = &descriptor["annotations"];
     let tag = annotations["io.containerd.image.name"]
         .as_str()
         .or_else(|| annotations["org.opencontainers.image.ref.name"].as_str())
-        .or(tag)
-        .map(str::to_owned);
+        .map(|name| Reference::parse(name).map(|r| r.short()).map_err(|e| invalid(format!("invalid image ref name {name:?}: {e}"))))
+        .transpose()?
+        .or_else(|| tag.map(str::to_owned));
     if let Some(manifests) = doc["manifests"].as_array() {
-        let host = Platform::host_linux();
-        let mut host_hits = Vec::new();
         let mut all = Vec::new();
         for child in manifests {
-            let p = &child["platform"];
-            if let Some(want) = want
-                && (p["os"].as_str().is_some() || p["architecture"].as_str().is_some())
-                && (p["os"].as_str() != Some(want.os.as_str()) || p["architecture"].as_str() != Some(want.architecture.as_str()))
-            {
-                continue;
-            }
-            let found = oci_candidates(store, files, child, want, tag.as_deref(), depth + 1)?;
-            if want.is_none() && p["os"].as_str() == Some(host.os.as_str()) && p["architecture"].as_str() == Some(host.architecture.as_str()) {
-                host_hits.extend(found.clone());
-            }
-            all.extend(found);
+            all.extend(oci_candidates(store, files, child, want, tag.as_deref(), depth + 1)?);
         }
-        return Ok(if want.is_none() && !host_hits.is_empty() { host_hits } else { all });
+        if want.is_none() {
+            prefer_host(&mut all, true);
+        }
+        return Ok(all);
     }
     if doc["config"].is_object() && doc["layers"].is_array() {
-        if let Some(want) = want {
-            let config_digest = descriptor_blob(files, &doc["config"])?.0;
-            let (os, arch) = config_platform(store, &config_digest)?;
-            if os != want.os || arch != want.architecture {
-                return Ok(Vec::new());
-            }
+        if doc["artifactType"].as_str().is_some() {
+            return Ok(Vec::new());
         }
-        return Ok(vec![Candidate { manifest: digest, tag }]);
+        let config_digest = descriptor_blob(files, &doc["config"])?.0;
+        let config: Value = serde_json::from_slice(&store.read_config(&config_digest)?).map_err(|e| invalid(format!("image config: {e}")))?;
+        if let Some(want) = want && !matches_platform(want, &config, advertised) {
+            return Ok(Vec::new());
+        }
+        let native = matches_platform(&Platform::host_linux(), &config, advertised);
+        return Ok(vec![Candidate { manifest: doc, config_digest, config, tag, native }]);
     }
     Err(invalid(format!("OCI blob {digest} is neither an image manifest nor an index")))
 }
@@ -254,18 +277,13 @@ fn load_oci(store: &Store, files: &HashMap<String, (String, u64)>, index: &[u8],
     for d in descriptors {
         candidates.extend(oci_candidates(store, files, d, want, None, 0)?);
     }
-    if let Some(want) = want
-        && candidates.is_empty()
-    {
-        return Err(invalid(format!("requested platform ({}/{}) not found: image might be filtered out", want.os, want.architecture)));
+    if want.is_none() {
+        prefer_host(&mut candidates, false);
     }
     let mut loaded = Vec::new();
     for candidate in candidates {
-        let manifest: Value = serde_json::from_slice(&store.read_config(&candidate.manifest)?).map_err(|e| invalid(format!("OCI manifest: {e}")))?;
-        let config_digest = descriptor_blob(files, &manifest["config"])?.0;
-        let config: Value = serde_json::from_slice(&store.read_config(&config_digest)?).map_err(|e| invalid(format!("image config: {e}")))?;
         let mut layers = Vec::new();
-        for l in manifest["layers"].as_array().into_iter().flatten() {
+        for l in candidate.manifest["layers"].as_array().into_iter().flatten() {
             let (digest, size) = descriptor_blob(files, l)?;
             let media_type = l["mediaType"]
                 .as_str()
@@ -274,13 +292,8 @@ fn load_oci(store: &Store, files: &HashMap<String, (String, u64)>, index: &[u8],
                 .unwrap_or_else(|| media_type_of(&store.blob_path(&digest).unwrap_or_default()).unwrap_or("application/vnd.oci.image.layer.v1.tar").to_owned());
             layers.push(Layer { digest, size, media_type });
         }
-        let name = match candidate.tag {
-            Some(tag) => Reference::parse(&tag).map(|r| r.short()).map_err(|e| invalid(format!("invalid image ref name {tag:?}: {e}")))?,
-            None => config_digest.clone(),
-        };
-        let image = from_config(name, &config_digest, &config, layers);
-        store.put_image(image.clone())?;
-        loaded.push(image);
+        let name = candidate.tag.unwrap_or_else(|| candidate.config_digest.clone());
+        loaded.push(from_config(name, &candidate.config_digest, &candidate.config, layers));
     }
     Ok(loaded)
 }
@@ -531,11 +544,18 @@ mod tests {
     /// One image manifest and its config/layer blobs, in `b`. Returns the
     /// descriptor an OCI index would use to point at it.
     fn add_image(b: &mut tar::Builder<Vec<u8>>, store: &Store, arch: &str) -> Value {
-        let config = serde_json::to_vec(&json!({
+        add_image_variant(b, store, arch, None)
+    }
+
+    fn add_image_variant(b: &mut tar::Builder<Vec<u8>>, store: &Store, arch: &str, variant: Option<&str>) -> Value {
+        let mut config = json!({
             "architecture": arch, "os": "linux", "created": "2026-01-01T00:00:00Z",
             "config": {"Cmd": ["echo", "hi"], "Env": ["A=1"]}, "rootfs": {"type": "layers", "diff_ids": []},
-        }))
-        .unwrap();
+        });
+        if let Some(variant) = variant {
+            config["variant"] = json!(variant);
+        }
+        let config = serde_json::to_vec(&config).unwrap();
         let (config_digest, config_size) = put(store, &config);
         let mut layer = tar::Builder::new(Vec::new());
         add_file(&mut layer, "etc/hi", b"hi");
@@ -560,6 +580,108 @@ mod tests {
     fn add_index(b: &mut tar::Builder<Vec<u8>>, descriptors: Vec<Value>) {
         add_file(b, "oci-layout", br#"{"imageLayoutVersion":"1.0.0"}"#);
         add_file(b, "index.json", &serde_json::to_vec(&json!({"schemaVersion": 2, "manifests": descriptors})).unwrap());
+    }
+
+    #[test]
+    fn prefers_host_for_the_same_root_tag_and_skips_unknown_media_types() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let mut tar = tar::Builder::new(Vec::new());
+        let host = Platform::host_linux();
+        let foreign = if host.architecture == "amd64" { "arm64" } else { "amd64" };
+        let mut native = add_image(&mut tar, &store, &host.architecture);
+        native["annotations"] = json!({"io.containerd.image.name": "demo/root:1"});
+        let mut other = add_image(&mut tar, &store, foreign);
+        other["annotations"] = json!({"org.opencontainers.image.ref.name": "docker.io/demo/root:1"});
+        let mut different_tag = other.clone();
+        different_tag["annotations"] = json!({"io.containerd.image.name": "demo/foreign:1"});
+        let (digest, size) = put(&store, b"<auxiliary/>");
+        add_blob(&mut tar, &store, &digest);
+        add_index(&mut tar, vec![native, other, different_tag, json!({
+            "mediaType": "application/xml", "digest": digest, "size": size
+        })]);
+
+        let target = Store::open(dir.join("target")).unwrap();
+        let bytes = tar.into_inner().unwrap();
+        assert_eq!(load(&target, bytes.as_slice()).unwrap().len(), 2);
+        assert_eq!(target.find("demo/root:1").unwrap().unwrap().platform, host.to_string());
+        assert_eq!(target.find("demo/foreign:1").unwrap().unwrap().platform, format!("linux/{foreign}"));
+        assert!(!target.blob_path(&digest).unwrap().exists());
+        assert_eq!(std::fs::read_dir(target.root().join("tmp")).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn parallel_oci_loads_keep_each_selected_variants_blobs() {
+        let dir = scratch();
+        let store = Store::open(&dir).unwrap();
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut v7 = add_image_variant(&mut tar, &store, "arm", Some("v7"));
+        let mut v6 = add_image_variant(&mut tar, &store, "arm", Some("v6"));
+        v7["annotations"] = json!({"io.containerd.image.name": "demo/arm:1"});
+        v6["annotations"] = v7["annotations"].clone();
+        add_index(&mut tar, vec![v7, v6]);
+        let bytes = tar.into_inner().unwrap();
+
+        struct Rendezvous<'a> {
+            input: &'a [u8],
+            barrier: Option<&'a std::sync::Barrier>,
+        }
+        impl Read for Rendezvous<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let count = self.input.read(buf)?;
+                if count == 0 && let Some(barrier) = self.barrier.take() {
+                    barrier.wait();
+                }
+                Ok(count)
+            }
+        }
+        let target = Store::open(dir.join("target")).unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let (target, barrier, bytes) = (&target, &barrier, bytes.as_slice());
+            let loads = ["v7", "v6"].map(|variant| scope.spawn(move || {
+                let requested = Platform::parse(&format!("linux/arm/{variant}")).unwrap();
+                let upload = Rendezvous { input: bytes, barrier: Some(barrier) };
+                let images = load_with_platform(target, upload, Some(&requested)).unwrap();
+                assert_eq!(images.len(), 1);
+                (variant, images.into_iter().next().unwrap())
+            }));
+            for loaded in loads {
+                let (variant, image) = loaded.join().unwrap();
+                let config: Value = serde_json::from_slice(&target.read_config(&image.config_digest).unwrap()).unwrap();
+                assert_eq!(config["variant"], variant);
+                assert!(target.find(&image.config_digest).unwrap().is_some());
+                for layer in image.layers {
+                    assert!(target.has_blob(&layer.digest, layer.size));
+                }
+            }
+        });
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn classic_archive_load_filters_the_requested_variant() {
+        let dir = scratch();
+        let target = Store::open(&dir).unwrap();
+        let mut tar = tar::Builder::new(Vec::new());
+        add_file(&mut tar, "v6.json", br#"{"os":"linux","architecture":"arm","variant":"v6"}"#);
+        add_file(&mut tar, "v7.json", br#"{"os":"linux","architecture":"arm","variant":"v7"}"#);
+        add_file(&mut tar, "manifest.json", br#"[
+            {"Config":"v6.json","RepoTags":["demo/v6:1"],"Layers":[]},
+            {"Config":"v7.json","RepoTags":["demo/v7:1"],"Layers":[]}
+        ]"#);
+        let archive = tar.into_inner().unwrap();
+        let absent = Platform::parse("linux/arm/v5").unwrap();
+        assert!(load_with_platform(&target, archive.as_slice(), Some(&absent)).unwrap_err().to_string().contains("linux/arm/v5"));
+        assert!(target.images().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(target.root().join("blobs/sha256")).unwrap().count(), 0);
+        let platform = Platform::parse("linux/arm/v7").unwrap();
+        let images = load_with_platform(&target, archive.as_slice(), Some(&platform)).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].name, "demo/v7:1");
+        assert!(target.find("demo/v6:1").unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -629,14 +751,14 @@ mod tests {
 
         // An explicit platform picks that entry instead.
         let foreign = Store::open(dir.join("foreign")).unwrap();
-        let wanted = Platform { os: "linux".into(), architecture: other_arch.into() };
+        let wanted = Platform { os: "linux".into(), architecture: other_arch.into(), variant: None };
         let images = load_with_platform(&foreign, bytes.as_slice(), Some(&wanted)).unwrap();
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].platform, format!("linux/{other_arch}"));
 
         // And a platform nobody carries is a clear error, not a silent load.
         let missing = Store::open(dir.join("missing")).unwrap();
-        let wanted = Platform { os: "linux".into(), architecture: "s390x".into() };
+        let wanted = Platform { os: "linux".into(), architecture: "s390x".into(), variant: None };
         let err = load_with_platform(&missing, bytes.as_slice(), Some(&wanted)).unwrap_err();
         assert!(err.to_string().contains("linux/s390x"), "{err}");
         std::fs::remove_dir_all(&dir).unwrap();
@@ -673,6 +795,8 @@ mod tests {
         let error = load(&target, bytes.as_slice()).unwrap_err();
         assert!(error.to_string().contains("incorrect descriptor size"), "{error}");
         assert!(target.images().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(target.root().join("tmp")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(target.root().join("blobs/sha256")).unwrap().count(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

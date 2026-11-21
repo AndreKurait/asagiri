@@ -745,12 +745,19 @@ fn parse_load_platform(value: &str) -> Option<Platform> {
     struct LoadPlatform {
         os: String,
         architecture: String,
+        variant: Option<String>,
     }
     let platform: LoadPlatform = serde_json::from_str(value).ok()?;
     if platform.os.contains('/') || platform.architecture.contains('/') {
         return None;
     }
-    Platform::parse(&format!("{}/{}", platform.os, platform.architecture))
+    let mut parsed = Platform::parse(&format!("{}/{}", platform.os, platform.architecture))?;
+    parsed.variant = match platform.variant.as_deref() {
+        Some(variant) if variant.contains('/') => return None,
+        Some("") | None => None,
+        Some(variant) => Some(variant.to_owned()),
+    };
+    Some(parsed)
 }
 
 /// `docker load`: store the archive and prepare its layers before reporting success.
@@ -1147,7 +1154,7 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     let mut result = client.fetch_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
     // An image built only for amd64 runs through Rosetta, as on Docker Desktop.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
-        let amd64 = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let amd64 = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         if req.query("platform").is_none_or(str::is_empty) && wanted != amd64 && available.iter().any(|a| a == "linux/amd64") && asagiri_vmm::rosetta_installed() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/amd64 through Rosetta", reference.short())}));
             result = client.fetch_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
@@ -1155,7 +1162,7 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     }
     // On an Intel Mac an arm64-only image runs through qemu, when shared in.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
-        let arm64 = Platform { os: "linux".into(), architecture: "arm64".into() };
+        let arm64 = Platform { os: "linux".into(), architecture: "arm64".into(), variant: None };
         if req.query("platform").is_none_or(str::is_empty) && wanted != arm64 && available.iter().any(|a| a == "linux/arm64") && crate::guest::emulator_dir().is_some() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/arm64 through qemu", reference.short())}));
             result = client.fetch_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);
