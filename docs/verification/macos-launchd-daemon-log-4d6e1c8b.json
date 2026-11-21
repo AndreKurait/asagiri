@@ -1,0 +1,45 @@
+{
+  "schema": "asagiri.macos-launchd-daemon-log.v1",
+  "issue": 216,
+  "pull_request": 320,
+  "host": "macOS 26.7.3 ARM64",
+  "baseline": {
+    "source_commit": "321dd51bb123bcd235f3bd89c08cac7870cb9cf3",
+    "result": {
+      "host": "macOS",
+      "at": "2026-11-21T15:50:39.594037+00:00",
+      "ephemeral_launchd_job": "dev.asagiri.fixture.log-rotation-808ae9ced5a5418cb156bf53de09e2a1",
+      "native_job_running": true,
+      "original_len": 5800036,
+      "final_len": 5800843,
+      "inode_retained": true,
+      "previous_process_line": true,
+      "native_daemon_started": true,
+      "native_daemon_error": true,
+      "daemon_shutdown": true,
+      "mode": "0o600"
+    }
+  },
+  "candidate": {
+    "source_commit": "4d6e1c8b821125c34d06b7f57675d2484183381f",
+    "result": {
+      "host": "macOS",
+      "at": "2026-11-21T15:54:53.753207+00:00",
+      "ephemeral_launchd_job": "dev.asagiri.fixture.log-rotation-43e397b28e3344c2aa57d1e70d2d374e",
+      "native_job_running": true,
+      "original_len": 5800036,
+      "final_len": 1049252,
+      "inode_retained": true,
+      "previous_process_line": true,
+      "native_daemon_started": true,
+      "native_daemon_error": true,
+      "daemon_shutdown": true,
+      "mode": "0o600"
+    },
+    "diagnostics_unit_tests": 55,
+    "host_sha256": "fdb5db583af689d49cbf260dbf5f5887adcfb2aead8f76408ddee7057a9c5ecb"
+  },
+  "pending": [
+    "merged and released build qualification"
+  ]
+}
