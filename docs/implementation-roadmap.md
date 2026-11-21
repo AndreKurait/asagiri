@@ -24,11 +24,11 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [x] Honor HTTP/1.0 default closure and explicit keep-alive. Live ARM64 Linux and macOS HTTP fixtures passed. The isolated macOS daemon at `202b4626` also passed 33 upload framing cases and 10 image load cases. All nine required checks passed and GitHub merged `1e94949d`. Native Windows end-to-end qualification remains open. [#283](https://github.com/AndreKurait/asagiri/pull/283)
 - [x] Support volumes-from and preserve shared anonymous volumes. Merged as `66e7523`. Corrected Docker reference fixture passed on Docker 28.0.4. The live volume ownership fixture also passed on disposable ARM64 Asagiri. [#284](https://github.com/AndreKurait/asagiri/pull/284)
 - [ ] Handle repeated container actions and build history removal — auto-merge enabled. The Linux package smoke test hit Docker Hub HTTP 429 for docker:cli and nginx:alpine. GitHub queued attempt 2. [#287](https://github.com/AndreKurait/asagiri/pull/287)
-- [ ] Flag unusually long short translations in changed locales — blocked, auto-merge enabled. [#288](https://github.com/AndreKurait/asagiri/pull/288)
+- [x] Flag unusually long short translations in changed locales. All nine required checks passed and GitHub merged `6857850b` to `main`. [#288](https://github.com/AndreKurait/asagiri/pull/288)
 - [ ] Add Serbian Latin to the desktop and installer — blocked, auto-merge enabled. [#289](https://github.com/AndreKurait/asagiri/pull/289)
 - [x] Removed the per-person pull request limit. All nine required checks passed, and the workflow is absent from `main` at `ac4a738f`. [#290](https://github.com/AndreKurait/asagiri/pull/290)
-- [x] Verify health probe exit codes and the startup grace boundary. Merged as `04dfe1a1`. [#291](https://github.com/AndreKurait/asagiri/pull/291)
-- [ ] Prove arbitrary HTTP number padding and retire sampled value tests — blocked, auto-merge enabled. [#292](https://github.com/AndreKurait/asagiri/pull/292)
+- [x] Verify health probe exit codes and the startup grace boundary. Merged as `04dfe1a1`. Hosted Verus run `44686355712` verified two obligations and rejected eight negative controls on that revision. [#291](https://github.com/AndreKurait/asagiri/pull/291)
+- [x] Prove arbitrary HTTP number padding and retire sampled value tests. Required CI passed and GitHub merged `cfbeab94`. The [merged-main runtime proof](verification/runtime-proof-cfbeab94.json) passed. [#292](https://github.com/AndreKurait/asagiri/pull/292)
 - [x] Accept streamed gzip archives on image load. All nine required checks passed. Merged as `7100bdff`. [#293](https://github.com/AndreKurait/asagiri/pull/293)
 - [ ] Support OCI image layout archives in docker load — blocked, auto-merge enabled. [#294](https://github.com/AndreKurait/asagiri/pull/294)
 
@@ -42,7 +42,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [x] Serve Windows setup and desktop documents from memory. Merged as `8370cdc5`. Native WebView2 job `136080488407` passed setup and desktop loads across supported locales, blocked external navigation, and rendered the error page. Cleanup qualification remains open in issue #236. [#301](https://github.com/AndreKurait/asagiri/pull/301)
 
-- [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. The isolated macOS fixture passed dense dual-stack allocation, static and auxiliary reservations, exhaustion, rollback, and reuse. Hosted CI remains pending. [#302](https://github.com/AndreKurait/asagiri/pull/302)
+- [ ] Retire sampled address-gap assertions. PR #302 removes 262,144 sampled range queries and keeps production adapter, iterator consumption, and allocation coverage. Clean Verus verified three obligations and rejected six broken variants. All 20 network unit tests passed. The isolated macOS fixture passed dense dual-stack allocation, static and auxiliary reservations, exhaustion, rollback, and reuse. All nine required checks passed at `5538aea0`. The branch was updated to `780b67a8` after #288 merged. Required checks on that revision are running with auto-merge enabled. [#302](https://github.com/AndreKurait/asagiri/pull/302)
 
 - [ ] Expand Docker reference coverage for mixed none networks. Auto-merge is enabled. Follow-up semantics qualification is tracked in issue #265. [#298](https://github.com/AndreKurait/asagiri/pull/298)
 - [ ] Verify default bridge reachability when Docker starts first. Auto-merge is enabled. The hosted fixture is part of the qualification for issue #234. [#303](https://github.com/AndreKurait/asagiri/pull/303)
@@ -146,7 +146,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #342: Manage compose yamls in Kiri dashboard [#159](https://github.com/AndreKurait/asagiri/issues/159)
 - [ ] Verify Kiri #344: macOS 14 (Apple silicon): every linux/amd64 container aborts with Rosetta "Failed to find vdso DT_HASH" [#160](https://github.com/AndreKurait/asagiri/issues/160)
 - [ ] Verify Kiri #345: kiri import copies a volume while a running container is writing to it, and reports done [#161](https://github.com/AndreKurait/asagiri/issues/161)
-- [ ] Verify Kiri #346: `/info` returns an empty `SystemTime`, which breaks attached `docker compose up` and `docker compose logs -f` on Compose 5.7+ [#162](https://github.com/AndreKurait/asagiri/issues/162)
+- [x] Verify Kiri #346: `/info` supplies daemon time for attached `docker compose up` and `docker compose logs -f`. On macOS ARM64, the published `v0.1.14-dev.152` build at `6857850b` passed five clock and event replay checks. Compose v5.7.1 streamed a marker emitted after each command attached. [Verification report](verification/compose-daemon-time-macos-6857850b.json) [#162](https://github.com/AndreKurait/asagiri/issues/162)
 - [ ] Verify Kiri #349: Setup fails with "no account named <user>" for directory (non-/etc/passwd) users [#163](https://github.com/AndreKurait/asagiri/issues/163)
 - [ ] Verify Kiri #350: macOS: while the VM runs, host traffic loses the DF bit (pf 'scrub ... no-df' on the primary NIC), breaking large TLS 1.3 ClientHellos on some networks [#164](https://github.com/AndreKurait/asagiri/issues/164)
 - [ ] Verify Kiri #354: UI: squircle corners, rounded font and flat neutral palette (proposal) [#165](https://github.com/AndreKurait/asagiri/issues/165)
@@ -245,10 +245,9 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 The [pinned runtime verification report](verification/runtime-proof-d74d0120.json) records nine passing obligations on clean `main` at `d74d0120`, covering health transitions, HTTP numeric parsing, and layer admission. A [fresh run on clean main at `ac4a738f`](verification/runtime-proof-ac4a738f.json) passed after the quota removal merged. The [clean main run at `bd80ab7a`](verification/runtime-proof-bd80ab7a.json) passed the pinned runtime harness after the roadmap merged. The [IPAM report from the same revision](verification/ipam-proof-bd80ab7a.json) records the passing production proof and negative controls.
 
-The pinned Verus runtime harness passed on clean updated PR heads. Health transition PR #291 at `a3d95d07` verified two obligations and rejected eight broken variants. It removes two sampled unit tests and keeps the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 at `0042060e` verified seven obligations and rejected six broken variants. It removes one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed. Hosted checks and verification after merge remain pending.
+Health transition PR #291 removed two sampled unit tests and kept the status/log wiring and startup interval checks. Nine remaining health unit tests and seven live macOS cases passed. HTTP number padding PR #292 removed one sampled unit test with 4,096 iterations. All 32 remaining HTTP tests passed.
 
-- [x] Confirm the health-transition proof from PR #291 on merged `main`. Hosted run `44686355712` verified two obligations and rejected eight negative controls on `04dfe1a`.
-- [ ] Confirm the HTTP zero-padding proof from PR #292 on merged `main`.
+- [x] Confirm the health-transition and HTTP zero-padding proofs from PRs #291 and #292 pass on merged `main`. The [hosted runtime proof report](verification/runtime-proof-cfbeab94.json) for `cfbeab94` records two health-transition and seven HTTP numeric parsing obligations, with eight and six rejected negative controls respectively.
 - [x] Establish a reproducible baseline by crate. Revision `242a64ac` has 1,069 literal `#[test]` declarations under `crates/`.
 
   | Crate | Declarations |
@@ -261,7 +260,7 @@ The pinned Verus runtime harness passed on clean updated PR heads. Health transi
   | asagiri-vmm | 12 |
   | asagiri-win | 77 |
 
-  Merged `main` at `bd80ab7a` has 1,074 declarations. The net increase of five is in `asagiri`. Merged `main` at `04dfe1a` has 1,077 declarations after #291 removed two. The proposed removal in #292 remains pending.
+  Merged `main` at `cfbeab94` has 1,081 declarations, twelve above the baseline. The net increases are six each in `asagiri` and `asagiri-win`. The total includes the removal of two sampled health tests in #291 and one sampled HTTP numeric parsing test in #292.
 
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [ ] Start with issue #80 for HTTP framing and #81 for lifecycle cancellation and layer ownership. Inventory the production callers, requirements, and test assertions for one behavior at a time.
