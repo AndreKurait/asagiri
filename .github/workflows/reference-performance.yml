@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'crates/**'
+      - '!crates/asagiri/src/ui/lang/*.json'
       - 'xtask/**'
       - '.cargo/**'
       - Cargo.toml
