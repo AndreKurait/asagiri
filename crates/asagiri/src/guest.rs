@@ -102,9 +102,14 @@ pub struct RunResult {
     pub guest_run: Duration,
 }
 
+#[cfg(target_os = "macos")]
+mod disk;
+
 #[derive(Debug)]
 pub struct Guest {
     vm: Vm,
+    #[cfg(target_os = "macos")]
+    _disk_lock: Option<File>,
     conn: File,
     /// Reused for every frame, so steady-state traffic does not allocate.
     frame: Vec<u8>,
@@ -146,8 +151,16 @@ impl Guest {
             nat_mac: None,
         };
         #[cfg(target_os = "macos")]
+        let disk_lock = if opts.data_disk {
+            let vm = asagiri_image::Store::default_root()?.join("vm");
+            std::fs::create_dir_all(&vm)?;
+            let lock = File::open(vm)?;
+            lock.try_lock().map_err(|e| io::Error::other(format!("lock VM data directory: {e}")))?;
+            Some(lock)
+        } else { None };
+        #[cfg(target_os = "macos")]
         let cfg = Self::vm_config(opts)?;
-        Self::start(cfg)
+        Self::start(cfg, #[cfg(target_os = "macos")] disk_lock)
     }
 
     /// The VM: kernel, initramfs, data disk, NAT, the Mac's files, Rosetta.
@@ -185,7 +198,7 @@ impl Guest {
         Ok(cfg)
     }
 
-    fn start(cfg: Config) -> io::Result<Guest> {
+    fn start(cfg: Config, #[cfg(target_os = "macos")] disk_lock: Option<File>) -> io::Result<Guest> {
         let t0 = Instant::now();
         let vm = Vm::start(cfg)?;
         let vm_started = t0.elapsed();
@@ -197,6 +210,8 @@ impl Guest {
             None => return Err(io::Error::new(io::ErrorKind::TimedOut, "guest did not connect within 10 s")),
         };
         let mut guest = Guest {
+            #[cfg(target_os = "macos")]
+            _disk_lock: disk_lock,
             vm,
             conn,
             frame: Vec::with_capacity(256),
@@ -384,6 +399,7 @@ fn agent_binary() -> PathBuf {
 /// The guest's data disk, copied from the empty template on first use. On
 /// APFS the copy is a clone: instant, and it takes no space until written.
 fn data_disk(guest_dir: &std::path::Path) -> io::Result<PathBuf> {
+    let requested = disk::requested_size()?;
     let vm = asagiri_image::Store::default_root()?.join("vm");
     std::fs::create_dir_all(&vm)?;
     let disk = vm.join("data.img");
@@ -411,6 +427,7 @@ fn data_disk(guest_dir: &std::path::Path) -> io::Result<PathBuf> {
         }
         std::fs::rename(tmp, &disk)?;
     }
+    disk::grow(&disk, requested)?;
     Ok(disk)
 }
 
