@@ -76,7 +76,8 @@ fn command(args: &[&str]) -> io::Result<Command> {
     let mut c = Command::new(grype()?);
     c.args(args)
         .env("GRYPE_DB_CACHE_DIR", root()?.join("scanner/db"))
-        .env("GRYPE_CHECK_FOR_APP_UPDATE", "false");
+        .env("GRYPE_CHECK_FOR_APP_UPDATE", "false")
+        .env("NO_COLOR", "1");
     let p = crate::daemon::proxy::effective();
     if let Some(u) = &p.https {
         c.env("HTTPS_PROXY", u);
@@ -96,9 +97,9 @@ fn run(mut c: Command, what: &str) -> io::Result<()> {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&out.stderr);
-    // Grype's log lines carry colour codes; keep the last plain line.
-    let line = err.lines().rev().map(|l| l.replace('\u{1b}', "")).map(|l| l.trim_start_matches(|c: char| c == '[' || c.is_ascii_digit() || c == ';' || c == 'm').to_string()).find(|l| !l.trim().is_empty()).unwrap_or_default();
-    Err(io::Error::other(format!("{what}: {}", line.trim())))
+    let detail = err.lines().rev().map(str::trim).find(|line| !line.is_empty())
+        .map(str::to_owned).unwrap_or_else(|| out.status.to_string());
+    Err(io::Error::other(format!("{what}: {detail}")))
 }
 
 /// Downloads Grype if it isn't there yet, checked against its pinned SHA-256.
@@ -182,7 +183,7 @@ pub fn scan(name: &str, progress: &mut dyn FnMut(&str, u8)) -> io::Result<Value>
         let has_db = root()?.join("scanner/db").read_dir().is_ok_and(|mut d| d.next().is_some());
         // Offline with a database already here: scan with what's here, and
         // Grype says so itself if it's too old.
-        if let Err(e) = run(command(&["db", "update", "-q"])?, "Could not update the vulnerability database") {
+        if let Err(e) = run(command(&["db", "update"])?, "Could not update the vulnerability database") {
             if !has_db {
                 return Err(e);
             }
