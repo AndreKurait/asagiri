@@ -226,9 +226,6 @@ def main():
                 "addresses": json.loads(engine("ip", "-j", "-4", "address", "show", "dev", "docker0").stdout)[0]["addr_info"],
             }
 
-        before = docker_bridge()
-        assert any(route.get("dst") == str(docker_subnet) for route in before["routes"]), before
-        record["docker_bridge_before"] = before
         engine("sh", "-ec",
                "mkdir -p /tmp/gateway; printf 'asagiri-gateway' > /tmp/gateway/index.html; "
                "python3 -m http.server 18473 --bind 0.0.0.0 --directory /tmp/gateway > /tmp/gateway.log 2>&1 &")
@@ -240,6 +237,11 @@ def main():
         reference("pull", IMAGE)
         reference("run", "-d", "--name", "firewall-reference", IMAGE, "sleep", "3600")
         gateway_request(reference, "firewall-reference", "172.17.0.1")
+        # With no containers attached, Docker's route still has linkdown.
+        # Compare against the same running reference container after shutdown.
+        before = docker_bridge()
+        assert any(route.get("dst") == str(docker_subnet) for route in before["routes"]), before
+        record["docker_bridge_before"] = before
         result("Docker can reach its gateway before Asagiri starts")
         for attempt in range(1, 3):
             engine("sh", "-ec",
