@@ -1,7 +1,7 @@
-name: Published macOS LaunchServices startup
+name: Published macOS launch error alert
 on:
   push:
-    branches: [qualification/mac-launchservices-131]
+    branches: [qualification/mac-launch-alert-131]
     paths: [.github/workflows/mac-homebrew-qualification.yml]
 permissions:
   contents: read
@@ -29,24 +29,33 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/asagiri" --version
           "$app/Contents/Resources/bin/docker" --version
+          # This disposable user's Docker context path cannot contain directories.
+          conflict=$(mktemp "$RUNNER_TEMP/context-file.XXXXXX")
+          launchctl setenv DOCKER_CONFIG "$conflict"
+          trap 'launchctl unsetenv DOCKER_CONFIG' EXIT
           open -a "$app"
           swift - <<'SWIFT'
           import AppKit
           import ApplicationServices
-          let deadline = Date().addingTimeInterval(90)
+          func attribute(_ el: AXUIElement, _ key: String) -> CFTypeRef? {
+              var value: CFTypeRef?
+              return AXUIElementCopyAttributeValue(el, key as CFString, &value) == .success ? value : nil
+          }
+          func labels(_ el: AXUIElement, depth: Int) -> [String] {
+              guard depth < 9 else { return [] }
+              let text = ["AXTitle", "AXValue", "AXDescription"].compactMap { attribute(el, $0) as? String }
+              return text + ((attribute(el, "AXChildren") as? [AXUIElement]) ?? []).flatMap { labels($0, depth: depth + 1) }
+          }
+          let deadline = Date().addingTimeInterval(60)
           while Date() < deadline {
-              for process in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.asagiri.app") {
-                  var windows: CFTypeRef?
-                  let result = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(process.processIdentifier), kAXWindowsAttribute as CFString, &windows)
-                  if result == .success, let list = windows as? [AXUIElement], !list.isEmpty {
-                      print("PASS LaunchServices opened a native window for PID \(process.processIdentifier)"); exit(0)
+              for app in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.asagiri.app") {
+                  let text = labels(AXUIElementCreateApplication(app.processIdentifier), depth: 0)
+                  if ["Asagiri could not finish opening", "write the Docker context", "Quit"].allSatisfy({ phrase in text.contains(where: { $0.contains(phrase) }) }) {
+                      print("PASS native alert exposes the failed setup operation and Quit"); exit(0)
                   }
               }
               RunLoop.current.run(until: Date().addingTimeInterval(0.25))
           }
           exit(1)
           SWIFT
-          agent="$HOME/Library/LaunchAgents/dev.asagiri.daemon.plist"
-          plutil -lint "$agent"
-          launchctl print "gui/$(id -u)/dev.asagiri.daemon"
-          "$app/Contents/Resources/bin/docker" --host "unix://$HOME/.asagiri/run/docker.sock" version --format '{{.Server.Version}}'
+          grep -F 'app-launch' "$HOME/.asagiri/logs/ui.log" | grep -F 'write the Docker context'
