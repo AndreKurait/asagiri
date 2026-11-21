@@ -1259,17 +1259,22 @@ fn parse_mounts(list: StrList<'_>) -> io::Result<Vec<Mount>> {
             out.push(Mount { source: None, target, ro, dir: true, copy_up: false, tmpfs_opts: Some(CString::new(opts)?), tmpfs_flags });
             continue;
         }
+        // Keep translating the conventional socket path on every mount,
+        // including containers created before an agent restart or upgrade.
+        let ssh_agent = (src == super::relay::SSH_AGENT_SOCK)
+            .then(|| super::relay::ssh_agent_path(super::transport::host_dir().map(PathBuf::as_path)));
+        let source_path = ssh_agent.as_deref().unwrap_or_else(|| Path::new(src));
         // A missing source becomes a directory, as Docker does; one that is
         // there already (a file such as /etc/hostname, too) is used as it is.
-        if flags.contains(&"create") && fs::symlink_metadata(src).is_err() {
-            fs::create_dir_all(src)?;
+        if flags.contains(&"create") && fs::symlink_metadata(source_path).is_err() {
+            fs::create_dir_all(source_path)?;
         }
         if let (Some(kind), Some(device), Some(mflags), data) = (parts.next().filter(|k| !k.is_empty()), parts.next(), parts.next(), parts.next()) {
             super::volmount::ensure(src, kind, device, mflags, data.unwrap_or(""))?;
         }
-        let meta = fs::metadata(src).map_err(|e| io::Error::new(e.kind(), format!("mount source {src}: {e}")))?;
+        let meta = fs::metadata(source_path).map_err(|e| io::Error::new(e.kind(), format!("mount source {}: {e}", source_path.display())))?;
         out.push(Mount {
-            source: Some(sys::cstr(src)?),
+            source: Some(sys::cstr(source_path)?),
             target,
             ro,
             dir: meta.is_dir(),

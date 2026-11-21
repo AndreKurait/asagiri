@@ -89,9 +89,36 @@ def inner():
         assert expected == set(current.values()) and len(current) == len(expected), ("old mounts were stacked instead of reclaimed", current)
 
     try:
+        # Model a desktop user's runtime directory and proxy. The outer
+        # container gives /run a private mount, so this is never the host's.
+        shared_run = Path("/run/host-services")
+        shared_run.mkdir(mode=0o700)
+        os.chown(shared_run, 65534, 65534)
+        original = shared_run.stat()
+        proxy = shared_run / "docker.proxy.sock"
+        desktop = ["python3", "-c"]
+        become_desktop = "import os; os.setgroups([]); os.setgid(65534); os.setuid(65534); "
+        subprocess.run(desktop + [become_desktop + "import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])", str(proxy)], check=True)
         launch()
         image = json.loads(Path("/src/scripts/ci/images.json").read_text())["perf"]["image"]
         call("pull", "-q", image, timeout=120)
+        current = shared_run.stat()
+        assert (current.st_ino, current.st_mode, current.st_uid, current.st_gid) == (
+            original.st_ino, original.st_mode, original.st_uid, original.st_gid)
+        subprocess.run(desktop + [become_desktop + "import sys; os.unlink(sys.argv[1])", str(proxy)], check=True)
+        assert not list(shared_run.iterdir()), "Asagiri created a socket in the desktop user's directory"
+        source = "/run/host-services/ssh-auth.sock"
+        socket_mount = call("create", "--network", "none", "--user", "65534:65534",
+                            "--mount", f"type=bind,source={source},target=/ssh-agent,readonly",
+                            image, "sh", "-ec", 'test -S /ssh-agent && test "$(stat -c %a /ssh-agent)" = 777')
+        extra_ids.append(socket_mount)
+        mount, = state(socket_mount)["Mounts"]
+        assert mount["Source"] == source and mount["Destination"] == "/ssh-agent" and not mount["RW"], mount
+        call("start", socket_mount)
+        assert call("wait", socket_mount) == "0", state(socket_mount)
+        call("rm", socket_mount)
+        extra_ids.remove(socket_mount)
+        print("PASS Linux agent leaves the desktop user's proxy directory alone and mounts its own SSH socket", flush=True)
         for policy in ("no", "always"):
             cid = call("run", "-d", "--network", "none", "--restart", policy, image, "sleep", "3600")
             ids.append(cid)
@@ -239,6 +266,7 @@ def outer(binaries):
     try:
         subprocess.run([
             "docker", "run", "--name", name, "--label", label, "--privileged",
+            "--tmpfs", "/run",
             "-e", "ASAGIRI_TEST_ENGINE=1", "-e", "ASAGIRI_DATA_DIR=/test-store",
             "-e", "ASAGIRI_SOCKET=/run/asagiri/docker.sock",
             "-v", str(source) + ":/src:ro", "-v", str(binaries) + ":/opt/asagiri:ro",
