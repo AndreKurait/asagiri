@@ -46,6 +46,15 @@ jobs:
             sleep 1
           done
           docker version
+          # Boot with the native platform first to distinguish cold guest startup from ARM emulation.
+          for attempt in 1 2 3; do
+            if docker run --rm --platform linux/amd64 alpine:3.21 uname -m; then break; fi
+            if [ "$attempt" = 3 ]; then
+              find "$HOME" "$ASAGIRI_DATA_DIR" -name 'guest-console.log' -exec tail -80 {} \;
+              exit 1
+            fi
+            sleep 3
+          done
           docker pull --platform linux/arm64 alpine:3.21
           test "$(docker image inspect alpine:3.21 --format '{{.Architecture}}')" = arm64
           arch=$(docker run --rm --platform linux/arm64 alpine:3.21 uname -m)
