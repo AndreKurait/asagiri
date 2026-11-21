@@ -3122,9 +3122,12 @@ function setPrompt() {
    last one ended in, and reports back who and where it is, after a marker. */
 const PS1_MARK = "\x1e";
 const shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+// Both native hosts echo the submitted script in their reply. Distinguish
+// repeated commands even after clear or reopening the same container.
+let nextExec = 0;
 function wrapped(t, cmd) {
   const cd = t.cwd ? `cd -- ${shq(t.cwd)} 2>/dev/null\n` : "";
-  return `${cd}${cmd}\n__asagiri=$?; printf '\\n\\036%s\\037%s\\037%s' "$(id -un 2>/dev/null || whoami 2>/dev/null)" "$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null)" "$PWD"; exit $__asagiri`;
+  return `# asagiri exec ${++nextExec}\n${cd}${cmd}\n__asagiri=$?; printf '\\n\\036%s\\037%s\\037%s' "$(id -un 2>/dev/null || whoami 2>/dev/null)" "$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null)" "$PWD"; exit $__asagiri`;
 }
 function probePrompt() {
   const d = ui.detail;
@@ -3138,16 +3141,21 @@ function runCommand(cmd) {
   d.term.history.push(cmd);
   d.term.at = d.term.history.length;
   const block = document.createElement("div");
-  block.dataset.pending = "1";
+  const script = wrapped(d.term, cmd);
+  block.dataset.pending = script;
   block.innerHTML = `<div class="cmd"><span class="ps1"></span><span class="typed"></span></div><div class="body quiet">${tr("running…")}</div>`;
   block.querySelector(".ps1").textContent = ps1(d.term, d.info);
   block.querySelector(".typed").textContent = cmd;
   out.append(block);
   termEl.scrollTop = termEl.scrollHeight;
-  send("exec", { id: d.id, path: wrapped(d.term, cmd) });
+  send("exec", { id: d.id, path: script });
 }
 
 function finishExec(e) {
+  const out = termEl.querySelector("#term-out");
+  const block = out.querySelector("[data-pending]");
+  const probe = e.cmd === ui.detail.term.probed;
+  if (probe ? ui.detail.term.history.length !== 0 : !block || block.dataset.pending !== e.cmd) return;
   // Split off what the shell reported (user, host, directory) and keep it for the prompt.
   let output = e.output.replace(/\r\n/g, "\n");
   const at = output.lastIndexOf(PS1_MARK);
@@ -3157,10 +3165,7 @@ function finishExec(e) {
     output = output.slice(0, at).replace(/\n$/, "");
     setPrompt();
   }
-  const out = $("term-out") ?? termEl.querySelector("#term-out");
-  const block = out.querySelector("[data-pending]");
-  // The opening probe has no block of its own.
-  if (!block || e.cmd === ui.detail.term.probed) return;
+  if (probe) return;
   block.removeAttribute("data-pending");
   const body = block.querySelector(".body");
   body.className = "body";
@@ -3180,6 +3185,7 @@ termEl.querySelector("#term-form").addEventListener("submit", (ev) => {
   const cmd = input.value.trim();
   if (!cmd) return;
   if (cmd === "clear") { termEl.querySelector("#term-out").textContent = ""; input.value = ""; return; }
+  if (termEl.querySelector("#term-out [data-pending]")) return;
   runCommand(cmd);
   input.value = "";
 });
