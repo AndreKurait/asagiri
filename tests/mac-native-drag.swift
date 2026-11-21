@@ -34,8 +34,11 @@ for _ in 0..<80 {
         Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
         mouse(.mouseMoved, start)
         mouse(.leftMouseDown, start)
-        Thread.sleep(forTimeInterval: 0.25)
-        for step in 1...12 {
+        // The pointer is already moving when WebKit delivers the strip message.
+        // Leave the button down and give AppKit time to process that first move.
+        mouse(.leftMouseDragged, CGPoint(x: start.x + 12, y: start.y + 8))
+        Thread.sleep(forTimeInterval: 0.12)
+        for step in 5...12 {
             mouse(.leftMouseDragged, CGPoint(x: start.x + CGFloat(step * 3), y: start.y + CGFloat(step * 2)))
             Thread.sleep(forTimeInterval: 0.04)
         }
