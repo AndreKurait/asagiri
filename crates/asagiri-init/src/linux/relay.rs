@@ -5,6 +5,9 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
 
 use super::sys;
 
@@ -476,30 +479,25 @@ impl Relay {
 pub const SSH_AGENT_SOCK: &str = "/run/host-services/ssh-auth.sock";
 pub const SSH_VSOCK_PORT: u32 = 1027;
 
+/// Host-process sockets live in the current agent's private runtime directory.
+pub(super) fn ssh_agent_path(host_dir: Option<&Path>) -> PathBuf {
+    host_dir.map_or_else(|| PathBuf::from(SSH_AGENT_SOCK), |dir| dir.join("ssh-auth.sock"))
+}
+
 pub fn listen_ssh_agent() -> io::Result<OwnedFd> {
-    std::fs::create_dir_all("/run/host-services")?;
-    let _ = std::fs::remove_file(SSH_AGENT_SOCK);
-    // SAFETY: plain unix socket setup; the fd is owned immediately.
-    unsafe {
-        // The socket below is 0777 for any user in a container. On a Linux
-        // host this directory is the host's own, so only root, which
-        // bind-mounts the socket into containers, may reach it by path.
-        let dir = std::ffi::CString::new("/run/host-services").expect("no NUL");
-        sys::check(libc::chmod(dir.as_ptr(), 0o700) as _, "chmod /run/host-services")?;
-        let fd = sys::check(libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK, 0) as _, "socket")?;
-        let sock = OwnedFd::from_raw_fd(fd as RawFd);
-        let mut a: libc::sockaddr_un = std::mem::zeroed();
-        a.sun_family = libc::AF_UNIX as libc::sa_family_t;
-        for (d, s) in a.sun_path.iter_mut().zip(SSH_AGENT_SOCK.bytes()) {
-            *d = s as libc::c_char;
-        }
-        sys::check(libc::bind(sock.as_raw_fd(), (&a as *const libc::sockaddr_un).cast(), std::mem::size_of::<libc::sockaddr_un>() as u32) as _, "bind")?;
-        // Any user in a container may use it, as with Docker Desktop.
-        let path = std::ffi::CString::new(SSH_AGENT_SOCK).expect("no NUL");
-        libc::chmod(path.as_ptr(), 0o777);
-        sys::check(libc::listen(sock.as_raw_fd(), 64) as _, "listen")?;
-        Ok(sock)
+    let host_dir = super::transport::host_dir().map(PathBuf::as_path);
+    let path = ssh_agent_path(host_dir);
+    if host_dir.is_none() {
+        let dir = path.parent().expect("the guest socket has a parent");
+        std::fs::create_dir_all(dir)?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        let _ = std::fs::remove_file(&path);
     }
+    let sock = UnixListener::bind(&path)?;
+    sock.set_nonblocking(true)?;
+    // Any user in a container explicitly given the mount may use it.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o777))?;
+    Ok(sock.into())
 }
 
 pub fn accept_ssh_agent(listener: &OwnedFd) -> Option<Relay> {
