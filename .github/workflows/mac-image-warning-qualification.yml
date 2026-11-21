@@ -25,8 +25,9 @@ jobs:
           chmod +x asagiri
           export HOME="$RUNNER_TEMP/images-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/images-store"
           scratch=$(mktemp -d /tmp/images215.XXXXXX)
-          export ASAGIRI_SOCKET="$scratch/engine.sock"
-          mkdir -p "$HOME/.asagiri"
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           ./asagiri raw pull alpine:3.21
           index="$ASAGIRI_DATA_DIR/images.json"
