@@ -1,0 +1,27 @@
+{
+  "schema": "asagiri.native-stopped-volumes-from.v1",
+  "release": "v0.1.14-dev.152",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "at": "2026-11-21T06:17:25.705021+00:00",
+  "host": "macOS 26.7.3 ARM64",
+  "status": "passed",
+  "checks": [
+    {
+      "case": "stopped source with named, anonymous and bind mounts",
+      "observed": "naoriginal"
+    },
+    {
+      "case": "read-only inheritance, explicit bind precedence and anonymous volume retained after rm -v",
+      "observed": "nareplacement"
+    }
+  ],
+  "cleanup": true,
+  "commands": [
+    "docker run --name <source> -v <named>:/vol -v /anon -v <host>:/bind:ro alpine:3.22 sh -ec \"printf n >/vol/f; printf a >/anon/f\"",
+    "docker run --rm --volumes-from <source> alpine:3.22 cat /vol/f /anon/f /bind/marker",
+    "docker create --name <reader> --volumes-from <source>:ro -v <host>/alt:/bind:ro alpine:3.22 sh -ec <read and check read-only mounts>",
+    "docker inspect <reader>",
+    "docker rm -v <source>",
+    "docker start -a <reader>"
+  ]
+}
