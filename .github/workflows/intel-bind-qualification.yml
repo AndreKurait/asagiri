@@ -1,0 +1,50 @@
+name: Intel Mac bind mount qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [qualification/intel-bind-190]
+    paths: [.github/workflows/intel-bind-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  published-app:
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Identify Intel virtualization capability
+        run: |
+          uname -m
+          sw_vers
+          sysctl kern.hv_support
+          test "$(uname -m)" = x86_64
+      - name: Exercise the published Intel app and guest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset=Asagiri-0.1.14-dev.158-x86_64.tar.gz
+          gh release download v0.1.14-dev.158 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
+          cd "$RUNNER_TEMP"
+          echo "120bf91342eee2dc611efa3eeebb6a8512c2b58f33046f0dec8a1007d456a7cb  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
+          export HOME="$RUNNER_TEMP/qualification-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/qualification-store"
+          scratch=$(mktemp -d /tmp/asagiri-190.XXXXXX)
+          export ASAGIRI_SOCKET="$scratch/engine.sock" DOCKER_HOST="unix://$scratch/engine.sock"
+          unset DOCKER_CONTEXT
+          mkdir -p "$HOME"
+          Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -100 "$scratch/daemon.log"' EXIT
+          for attempt in {1..60}; do
+            if docker version >/dev/null 2>&1; then break; fi
+            kill -0 "$daemon"
+            sleep 1
+          done
+          docker version
+          docker pull alpine:3.21
+          bash "$GITHUB_WORKSPACE/tests/bind-recreate.sh"
