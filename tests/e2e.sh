@@ -597,6 +597,13 @@ t bind-mount-flag "from the mac" $D run --rm --mount "type=bind,source=$BIND,tar
 code bind-mount-missing 125 $D run --rm --mount type=bind,source=/asagiri/does/not/exist,target=/m alpine true
 t bind-v-creates "made" bash -c "$D run --rm -v $BIND/new/dir:/n alpine true && [ -d $BIND/new/dir ] && echo made"
 t bind-file "from the mac" $D run --rm -v "$BIND/hello.txt:/etc/greeting" alpine cat /etc/greeting
+if [ "$(uname -s)" = Darwin ]; then
+  if $D pull alpine:3.21 >/dev/null 2>&1; then
+    code bind-recreate 0 bash "$(dirname "$0")/bind-recreate.sh"
+  else
+    skip bind-recreate "alpine:3.21 unavailable"
+  fi
+fi
 # A file made, changed and deleted on the Mac raises inotify events in the
 # container, as one made there does: file watchers (Vite, webpack, nodemon)
 # pick up saves made in an editor on the Mac. inotifyd prints n (created),
