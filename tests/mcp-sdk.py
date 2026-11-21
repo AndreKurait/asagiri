@@ -36,7 +36,8 @@ async def check(sock, image):
         return json.loads(command([binary, "mcp", *args]))
 
     def docker(*args):
-        return command(["docker", "--host", "unix://" + sock, *args])
+        endpoint = sock if sock.startswith("npipe://") else "unix://" + sock
+        return command(["docker", "--host", endpoint, *args])
 
     try:
         assert cli("status") == {"enabled": False, "allowContainerChanges": False}

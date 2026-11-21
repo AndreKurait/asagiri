@@ -2,7 +2,7 @@ name: Published Windows MCP SDK named-pipe qualification
 on:
   push:
     branches: [qualification/windows-mcp-107]
-    paths: [.github/workflows/windows-mcp.yml]
+    paths: [.github/workflows/windows-mcp.yml, tests/mcp-sdk.py]
 permissions:
   contents: read
 jobs:
