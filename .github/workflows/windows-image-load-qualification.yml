@@ -1,7 +1,7 @@
-name: Published Windows WSL bridge egress
+name: Published Windows WSL host overrides
 on:
   push:
-    branches: [qualification/windows-bridge-97]
+    branches: [qualification/windows-host-override-207]
     paths: [.github/workflows/windows-image-load-qualification.yml]
 permissions:
   contents: read
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - name: Exercise outbound traffic from host, default and Compose networks
+      - name: Verify explicit host aliases through the Windows named pipe
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -41,26 +41,19 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            $compose = Join-Path $bundle 'bin/cli-plugins/docker-compose.exe'
-            @'
-          services:
-            probe:
-              image: alpine:3.21
-              command: ["sleep", "300"]
-          '@ | Set-Content -Encoding utf8 'compose.yaml'
-            & $compose --project-name egress97 up -d --pull never
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            $probe = 'set -eu; ip route; nslookup example.com; wget -T 12 -qO /dev/null https://example.com; echo HTTPS_OK'
-            foreach ($network in 'host','bridge','egress97_default') {
-              $result = Invoke-Docker @('run','--rm','--network',$network,'alpine:3.21','sh','-ec',$probe)
-              Write-Host ($result -join "`n")
-              if ($result -notcontains 'HTTPS_OK') { throw "DNS/HTTPS egress failed on $network" }
-              Write-Host "PASS DNS and HTTPS on $network"
-              $ping = & $docker run --rm --network $network alpine:3.21 ping -c 2 -W 3 1.1.1.1
-              Write-Host "ICMP on $network exit=$LASTEXITCODE $ping"
+            foreach ($name in 'host.docker.internal','HOST.DOCKER.INTERNAL','gateway.docker.internal','host.asagiri.internal','winhost') {
+              $base = @('run','--rm','--add-host',"${name}:10.9.8.7",'alpine:3.21')
+              $hosts = Invoke-Docker ($base + @('cat','/etc/hosts'))
+              Write-Host ($hosts -join "`n")
+              $matching = @($hosts | Where-Object { (($_ -split '#')[0] -split '\s+' | Select-Object -Skip 1) -contains $name })
+              if ($matching.Count -ne 1 -or $matching[0] -notmatch '^10\.9\.8\.7\s') { throw "Unexpected entries for $name" }
+              $resolved = Invoke-Docker ($base + @('getent','hosts',$name))
+              Write-Host $resolved
+              if ($resolved -notmatch '^10\.9\.8\.7\s') { throw "Resolution mismatch for $name" }
             }
-            & $compose --project-name egress97 down
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $default = Invoke-Docker @('run','--rm','alpine:3.21','getent','hosts','host.docker.internal')
+            Write-Host "Default host entry: $default"
+            if ($default -notmatch '^\d+\.\d+\.\d+\.\d+\s' -or $default -match '^10\.9\.8\.7\s') { throw 'Default host alias missing or leaked an override' }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-load-test
