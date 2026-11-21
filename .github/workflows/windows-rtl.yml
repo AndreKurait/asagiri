@@ -1,0 +1,45 @@
+name: Published Windows RTL quit and relaunch
+on:
+  push:
+    branches: [qualification/windows-rtl-140]
+    paths: [.github/workflows/windows-rtl.yml, tests/windows-rtl-restart.py]
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Select Arabic and Persian and relaunch the published desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          Set-Location $env:RUNNER_TEMP
+          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath load-test
+          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $bundle = Split-Path $app
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --version
+          wsl.exe --import Asagiri-rtl-140 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip install playwright pywin32
+          if ($LASTEXITCODE) { throw 'UI driver installation failed' }
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=19227 --remote-debugging-address=127.0.0.1'
+          $env:ASAGIRI_TEST_CLI = Join-Path $bundle 'bin/asagiri.exe'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'asagiri-settings-profile'
+          New-Item -ItemType Directory -Path $env:LOCALAPPDATA | Out-Null
+          $env:RTL_APP = $app
+          $env:RTL_DOCKER = $docker
+          try {
+            python "$env:GITHUB_WORKSPACE/tests/windows-rtl-restart.py"
+            if ($LASTEXITCODE) { throw 'RTL restart qualification failed' }
+          } finally {
+            wsl.exe --terminate Asagiri-rtl-140
+          }
