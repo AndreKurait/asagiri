@@ -1020,6 +1020,30 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "opens WebView2 on Windows"]
+    fn setup_displays_localized_registry_mirror_recovery() {
+        let (wv, ctl) = webview();
+        let hint = "If Docker Hub is blocked here, add a mirror in Settings → Registry mirrors, then run this in a new terminal:";
+        for tag in std::iter::once("en").chain(crate::lang::FILES.iter().map(|(tag, _)| *tag)) {
+            let page = crate::assemble::words(SETUP_PAGE, Some(tag));
+            assert_eq!(completed(&wv, 15, || load(&wv, page)), Some(true), "{tag}");
+            eval(&wv, "window.asagiri.on({type:'setup',step:'ready',linux:'asagiri',testError:'registry offline'})");
+            let expected = serde_json::to_string(&crate::lang::tr(tag, hint)).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            loop {
+                let actual = eval(&wv, "Array.from(document.querySelectorAll('#main p')).find(p => p.getBoundingClientRect().width > 0 && p.nextElementSibling?.classList.contains('cmd'))?.innerText");
+                if actual == expected { break; }
+                assert!(std::time::Instant::now() < deadline, "{tag}: expected {expected}, observed {actual}");
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            assert_eq!(eval(&wv, "document.querySelector('#main code').innerText"), r#""docker run --rm alpine echo hello""#);
+            println!("PASS {tag} blocked-Hub setup guidance and retry command");
+        }
+        // SAFETY: the test owns this controller on the current thread.
+        unsafe { ctl.Close().unwrap() };
+    }
+
+    #[test]
     #[ignore = "opens WebView2: run on Windows with --ignored"]
     fn webview2_shows_the_page_at_its_largest_and_only_it() {
         let mut page = crate::lang::FILES.iter().map(|(tag, _)| crate::assemble::page(PAGE, Some(tag))).max_by_key(String::len).unwrap();

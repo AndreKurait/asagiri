@@ -1,0 +1,15 @@
+name: Windows registry mirror setup guidance
+on:
+  push:
+    branches: [qualification/windows-mirror-261]
+permissions:
+  contents: read
+jobs:
+  setup:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo test --locked -p asagiri-win setup_displays_localized_registry_mirror_recovery -- --ignored --nocapture
