@@ -34,7 +34,7 @@ jobs:
           sudo chown "$(id -u):$(id -g)" "$sock"
           cd "$work"
           docker run -d --name probe nginx:alpine
-          image=ghcr.io/getarcaneapp/arcane:3.0.0
+          image=ghcr.io/getarcaneapp/arcane:v3.0.0
           key="arc_$(openssl rand -hex 32)"
           echo "::add-mask::$key"
           # Run the UI on the runner's Docker daemon with only Asagiri as its target engine.
