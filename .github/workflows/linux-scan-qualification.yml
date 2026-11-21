@@ -1,0 +1,29 @@
+name: Local scan CLI on Linux
+on:
+  push:
+    branches: [qualification/linux-scan-248]
+    paths: [.github/workflows/linux-scan-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Scan an OCI image and verify cached history
+        run: |
+          set -euo pipefail
+          export ASAGIRI_DATA_DIR="$RUNNER_TEMP/scan-store"
+          cargo build --locked -p asagiri
+          cli=target/debug/asagiri
+          "$cli" raw pull alpine:3.22
+          "$cli" scan --history --json alpine:3.22 | jq -e '.scans == []'
+          "$cli" scan --json alpine:3.22 > report.json
+          jq -e '.packages > 0 and (.vulns | type == "array") and (.db | length > 0)' report.json
+          export GRYPE_DB_UPDATE_URL=http://127.0.0.1:1/listing.json
+          "$cli" scan --json alpine:3.22 > cached.json
+          jq -e --slurp '.[0].db == .[1].db and .[0].packages == .[1].packages' report.json cached.json
+          "$cli" scan --history --json alpine:3.22 | jq -e '(.scans | length) == 2'
