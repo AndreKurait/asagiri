@@ -1051,6 +1051,14 @@ mod tests {
         let source = pump(&rx, 10).expect("no message from the page");
         assert!(crate::page::from_page(&source), "a message from {source}");
         assert_eq!(eval(&wv, "isSecureContext"), "true");
+        assert_eq!(eval(&wv, "(() => {
+            const base = document.createElement('base');
+            base.href = new URL('/csp-test/', location.href);
+            document.head.prepend(base);
+            const blocked = document.baseURI === location.href;
+            base.remove();
+            return blocked;
+        })()"), "true", "WebView2 accepted a base URL forbidden by the response CSP");
         // Nothing else on the host.
         let status = |path: &str| eval(&wv, &format!("(() => {{ const x = new XMLHttpRequest(); x.open('GET', '{path}', false); x.send(); return x.status; }})()"));
         assert_eq!(status("/favicon.ico"), "404");
