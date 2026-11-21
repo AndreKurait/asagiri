@@ -34,14 +34,15 @@ jobs:
           sudo chown "$(id -u):$(id -g)" "$sock"
           cd "$work"
           docker run -d --name probe nginx:alpine
-          image=ghcr.io/getarcaneapp/arcane:v3.0.0
+          mkdir arcane-work && cd arcane-work
+          gh release download v3.0.0 -R getarcaneapp/arcane --pattern arcane_linux_amd64
+          echo '8f86f47165c9807b79fd0e2ad1bb38d15a089cadfe0de4f2bb3142b73be4f832  arcane_linux_amd64' | sha256sum -c -
+          chmod +x arcane_linux_amd64
+          mkdir data
           key="arc_$(openssl rand -hex 32)"
           echo "::add-mask::$key"
-          # Run the UI on the runner's Docker daemon with only Asagiri as its target engine.
-          sudo systemctl start docker
-          reference=(sudo docker -H unix:///var/run/docker.sock)
-          "${reference[@]}" run -d --name arcane -p 127.0.0.1:3552:3552 -e PUID=0 -e PGID=0 -e ARCANE_ADMIN_STATIC_API_KEY="$key" -v "$sock:/var/run/docker.sock" "$image"
-          trap '"${reference[@]}" logs --tail 80 arcane; tail -30 "$work/engine.log"' EXIT
-          for i in {1..90}; do if curl -fsS http://127.0.0.1:3552/health >/dev/null; then break; fi; sleep 1; done
+          ARCANE_LISTEN=127.0.0.1 ARCANE_ADMIN_STATIC_API_KEY="$key" ARCANE_ENCRYPTION_KEY="$(openssl rand -hex 16)" ./arcane_linux_amd64 >arcane.log 2>&1 & pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; grep -Ei "error|failed" arcane.log | tail -30 || true' EXIT
+          for i in {1..90}; do if curl -fsS http://127.0.0.1:3552/health >/dev/null; then break; fi; kill -0 "$pid"; sleep 1; done
           curl --fail-with-body -sS -H "X-Api-Key: $key" 'http://127.0.0.1:3552/api/agents/0/images/updates/check?imageRef=nginx%3Aalpine' | tee result.json
           jq -e '.success and ([.data | .. | objects | select(.latestDigest? | type == "string") | select(.latestDigest == .currentDigest and (.error // "") == "")] | length > 0)' result.json
