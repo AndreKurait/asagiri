@@ -25,10 +25,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          asset=Asagiri-0.1.14-dev.158-x86_64.tar.gz
-          gh release download v0.1.14-dev.158 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
+          asset=Asagiri-0.1.14-dev.159-x86_64.tar.gz
+          gh release download v0.1.14-dev.159 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
           cd "$RUNNER_TEMP"
-          echo "120bf91342eee2dc611efa3eeebb6a8512c2b58f33046f0dec8a1007d456a7cb  $asset" | shasum -a 256 -c -
+          echo "2c82306a3391f23304b5905afc19d70015f3afbdd416c9c839818f72ab2345a3  $asset" | shasum -a 256 -c -
           tar xzf "$asset"
           codesign --verify --deep --strict Asagiri.app
           export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
@@ -63,6 +63,19 @@ jobs:
           mkdir "$scratch/project" && cd "$scratch/project"
           printf 'ARG BASE\nFROM ${BASE}\nARG EXPECTED\nRUN uname -m && test "$(uname -m)" = "$EXPECTED"\n' > Dockerfile
           docker buildx create --name asagiri-build --driver docker-container --use
+          # Query the actual registry index independently of the local image store.
+          # This separates unavailable upstream manifests from builder selection.
+          for ref in alpine:3.19 alpine:3.20 alpine:3.21; do
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect --raw "$ref" > index.json &&
+                jq -e '([.manifests[].platform | select(.os == "linux") | .architecture] | contains(["amd64", "arm64"]))' index.json; then
+                echo "Registry advertises both architectures for $ref"
+                break
+              fi
+              if [ "$attempt" = 3 ]; then echo "Registry index unavailable for $ref"; fi
+              sleep 2
+            done
+          done
           failed=0
           for scenario in cached forced uncached reverse; do
             platform=arm64
