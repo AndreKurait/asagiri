@@ -120,7 +120,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #250: macOS: launching Kiri from Finder/Dock exits silently (open returns 0), and the log records command="" instead of what failed [#131](https://github.com/AndreKurait/asagiri/issues/131)
 - [ ] Verify Kiri #251: AppImage or Flatpak Version [#132](https://github.com/AndreKurait/asagiri/issues/132)
 - [ ] Verify Kiri #252: Linux: 0.2.0 .deb fails to install on Ubuntu 22.04 (requires libc6 >= 2.39) [#133](https://github.com/AndreKurait/asagiri/issues/133)
-- [ ] Verify Kiri #257: GET /distribution/{name}/json is missing, so image-update checks in Docker tools fail [#134](https://github.com/AndreKurait/asagiri/issues/134)
+- [x] Verify Kiri #257: GET /distribution/{name}/json is missing, so image-update checks in Docker tools fail [#134](https://github.com/AndreKurait/asagiri/issues/134)
 - [ ] Verify Kiri #261: Linux: bridge containers can't reach Tailscale/VPN networks (NAT only on default-route NIC, bridges in no firewalld zone) [#135](https://github.com/AndreKurait/asagiri/issues/135)
 - [x] Verify Kiri #266: `asagiri import --list` reports unavailable sources on a fresh Mac. The published `v0.1.14-dev.152` build at `6857850b` gave plain missing-source diagnostics with an empty home and Docker config for automatic selection, explicit OrbStack, and explicit Docker Desktop. Windows data migration is tracked in #137. [Verification report](verification/import-missing-source-macos-6857850b.json) [#136](https://github.com/AndreKurait/asagiri/issues/136)
 - [ ] Verify Kiri #268: [Bug] Docker image/container import fails on Windows [#137](https://github.com/AndreKurait/asagiri/issues/137)
