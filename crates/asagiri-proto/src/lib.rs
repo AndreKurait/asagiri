@@ -53,8 +53,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 11 reports the file working set and refaults for pressure-aware ballooning.
 /// 12 adds the private, framed BuildKit Unix-socket relay.
 /// 13 updates embedded DNS when a container is renamed.
+/// 14 carries attached networks in Run so the guest configures them before exec.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 13;
+pub const PROTOCOL: u16 = 14;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -535,6 +536,25 @@ pub struct RunSpec<'a> {
     /// container perms`, `devrule type major minor perms`, `group name`.
     /// Empty from an older daemon.
     pub opts: StrList<'a>,
+    pub extra_networks: RunNetworks<'a>,
+}
+
+/// Additional network interfaces, borrowing their wire representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RunNetworks<'a> {
+    count: u32,
+    raw: &'a [u8],
+}
+
+impl<'a> RunNetworks<'a> {
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (u32, NetSpec<'a>)> + 'a {
+        let mut r = Reader { buf: self.raw, pos: 0 };
+        (0..self.count).map_while(move |_| r.run_network().ok())
+    }
 }
 
 /// cgroup limits (`--memory`, `--cpus`, `--cpu-shares`, `--pids-limit`).
@@ -893,6 +913,13 @@ fn put_net_tail(out: &mut Vec<u8>, ip: [u8; 4], prefix: u8, gateway: [u8; 4]) {
     out.extend_from_slice(&gateway);
 }
 
+/// An extra interface to install as part of Run.
+#[derive(Debug, Clone, Copy)]
+pub struct RunNetwork<'a, S> {
+    pub number: u32,
+    pub net: Net<'a, S>,
+}
+
 /// Encodes a `Run` frame straight from the sender's slices, without first
 /// building a `RunSpec` (whose lists borrow from an encoded frame).
 #[allow(clippy::too_many_arguments)]
@@ -911,6 +938,7 @@ pub fn encode_run<S: AsRef<str>>(
     limits: &Limits,
     caps: u64,
     opts: &[S],
+    extra_networks: &[RunNetwork<'_, S>],
 ) {
     frame(out, kind::RUN, |out| {
         put_str(out, id);
@@ -930,6 +958,14 @@ pub fn encode_run<S: AsRef<str>>(
         put_u64(out, caps);
         StrList::put(out, net.opts);
         StrList::put(out, opts);
+        put_u32(out, extra_networks.len() as u32);
+        for network in extra_networks {
+            put_u32(out, network.number);
+            put_str(out, network.net.bridge);
+            put_net_tail(out, network.net.ip, network.net.prefix, network.net.gateway);
+            StrList::put(out, network.net.dns_names);
+            StrList::put(out, network.net.opts);
+        }
     });
 }
 
@@ -997,6 +1033,8 @@ impl Msg<'_> {
                 o.extend_from_slice(r.net.opts.raw);
                 put_u32(o, r.opts.count);
                 o.extend_from_slice(r.opts.raw);
+                put_u32(o, r.extra_networks.count);
+                o.extend_from_slice(r.extra_networks.raw);
             }),
             Msg::Started { id, pid } => frame(out, kind::STARTED, |o| {
                 put_str(o, id);
@@ -1227,6 +1265,29 @@ impl<'a> Reader<'a> {
         Ok(StrList { count, raw: &self.buf[start..self.pos] })
     }
 
+    fn run_network(&mut self) -> Result<(u32, NetSpec<'a>), DecodeError> {
+        let number = self.u32()?;
+        let net = NetSpec {
+            bridge: self.str()?,
+            ip: self.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+            prefix: self.u8()?,
+            gateway: self.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+            extra_hosts: StrList::default(),
+            dns_names: self.list()?,
+            opts: self.list()?,
+        };
+        Ok((number, net))
+    }
+
+    fn run_networks(&mut self) -> Result<RunNetworks<'a>, DecodeError> {
+        let count = self.u32()?;
+        let start = self.pos;
+        for _ in 0..count {
+            self.run_network()?;
+        }
+        Ok(RunNetworks { count, raw: &self.buf[start..self.pos] })
+    }
+
     fn rest(&mut self) -> &'a [u8] {
         let s = &self.buf[self.pos..];
         self.pos = self.buf.len();
@@ -1308,13 +1369,17 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
                 limits: read_limits(&mut r)?,
                 caps: r.u64()?,
                 opts: StrList::default(),
+                extra_networks: RunNetworks::default(),
             };
-            // Last, and absent from an older daemon.
+            // These trailing lists were added in successive protocol versions.
             if r.remaining() >= 4 {
                 run.net.opts = r.list()?;
             }
             if r.remaining() >= 4 {
                 run.opts = r.list()?;
+            }
+            if r.remaining() != 0 {
+                run.extra_networks = r.run_networks()?;
             }
             run
         }),
@@ -1491,7 +1556,11 @@ mod tests {
         let mut buf = Vec::new();
         let net = Net { bridge: "asagiri0", ip: [172, 17, 0, 2], prefix: 16, gateway: [172, 17, 0, 1], extra_hosts: &["1.2.3.4 x"], dns_names: &["web"], opts: &["netns=c0", "nameserver=8.8.8.8"] };
         let limits = Limits { memory_max: 256 << 20, cpu_quota: 150_000, cpu_period: 100_000, cpu_weight: 100, pids_max: 64, shm_size: 1 << 20, ..Limits::default() };
-        encode_run(&mut buf, "c1", &["sha256:top", "sha256:base"], &["echo", "hi"], &["A=1"], "/", "", "c1", 3, net, &["/a\t/b\tro"], &limits, 0b101, &["rlimit\t7\t1024\t2048"]);
+        let extra = RunNetwork { number: 1, net: Net {
+            bridge: "ag-test", ip: [172, 18, 0, 2], prefix: 16, gateway: [172, 18, 0, 1],
+            extra_hosts: &[], dns_names: &["alias"], opts: &["network=test", "internal=1"],
+        }};
+        encode_run(&mut buf, "c1", &["sha256:top", "sha256:base"], &["echo", "hi"], &["A=1"], "/", "", "c1", 3, net, &["/a\t/b\tro"], &limits, 0b101, &["rlimit\t7\t1024\t2048"], &[extra]);
         let Msg::Run(r) = decode(&buf).unwrap() else { panic!() };
         assert_eq!(r.id, "c1");
         assert_eq!(r.layers.iter().collect::<Vec<_>>(), ["sha256:top", "sha256:base"]);
@@ -1500,10 +1569,23 @@ mod tests {
         assert_eq!((r.cwd, r.user, r.hostname, r.flags), ("/", "", "c1", 3));
         assert_eq!((r.net.bridge, r.net.ip, r.net.prefix, r.net.gateway), ("asagiri0", [172, 17, 0, 2], 16, [172, 17, 0, 1]));
         assert_eq!(r.net.extra_hosts.iter().collect::<Vec<_>>(), ["1.2.3.4 x"]);
+        let mut endpoints = r.extra_networks.iter();
+        let (number, endpoint) = endpoints.next().unwrap();
+        assert_eq!((number, endpoint.bridge, endpoint.ip, endpoint.prefix, endpoint.gateway),
+            (1, extra.net.bridge, extra.net.ip, extra.net.prefix, extra.net.gateway));
+        assert_eq!(endpoint.dns_names.iter().collect::<Vec<_>>(), extra.net.dns_names);
+        assert_eq!(endpoint.opts.iter().collect::<Vec<_>>(), extra.net.opts);
+        assert_eq!(endpoints.next(), None);
         assert_eq!(r.mounts.iter().collect::<Vec<_>>(), ["/a\t/b\tro"]);
         assert_eq!(r.net.opts.iter().collect::<Vec<_>>(), ["netns=c0", "nameserver=8.8.8.8"]);
         assert_eq!(net_opts::values(r.net.opts, net_opts::NAMESERVER).collect::<Vec<_>>(), ["8.8.8.8"]);
         assert_eq!(r.opts.iter().collect::<Vec<_>>(), ["rlimit\t7\t1024\t2048"]);
+        let old_end = buf.len() - r.extra_networks.raw.len() - 4;
+        let Msg::Run(old) = decode(&buf[..old_end]).unwrap() else { panic!() };
+        assert!(old.extra_networks.is_empty());
+        for end in [old_end + 1, buf.len() - 1] {
+            assert!(matches!(decode(&buf[..end]), Err(DecodeError::Truncated)));
+        }
         // Re-encoding the borrowed view gives identical bytes.
         let mut again = Vec::new();
         Msg::Run(r).encode(&mut again);

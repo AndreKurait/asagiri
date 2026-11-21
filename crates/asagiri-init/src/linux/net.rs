@@ -935,6 +935,10 @@ pub fn detach(host_ifname: &str) -> io::Result<()> {
     netlink::delete_link(&mut host, host_ifname)
 }
 
+pub fn extra_veth(id: &str, n: u32) -> String {
+    format!("kx{}{n}", &id[..id.len().min(9)])
+}
+
 /// An extra network of a container that has a way out: its interface in
 /// the container and its gateways.
 #[derive(Debug, Clone, PartialEq)]
