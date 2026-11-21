@@ -263,6 +263,10 @@ pub(super) fn set_appearance(theme: &str) {
         };
         let _: () = msg_send![&*app, setAppearance: appearance.as_deref()];
     }
+    layout_window_buttons();
+}
+
+pub(super) fn layout_window_buttons() {
     // AppKit restores its title-bar layout when the appearance changes.
     // Apply our placement after that layout, not only after a resize.
     DispatchQueue::main().exec_async(|| {
