@@ -1,7 +1,7 @@
-name: Published Windows compressed image load
+name: Published Windows WSL bridge egress
 on:
   push:
-    branches: [qualification/windows-image-load-266]
+    branches: [qualification/windows-bridge-97]
     paths: [.github/workflows/windows-image-load-qualification.yml]
 permissions:
   contents: read
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - name: Exercise gzip through the published Windows CLI and WSL engine
+      - name: Exercise outbound traffic from host, default and Compose networks
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -41,17 +41,26 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            Invoke-Docker @('tag','alpine:3.21','local/gzip-proof:loaded')
-            Invoke-Docker @('save','-o','image.tar','local/gzip-proof:loaded')
-            python -c "import gzip,shutil; f=open('image.tar','rb'); z=gzip.open('archive.payload','wb'); shutil.copyfileobj(f,z); z.close(); f.close()"
+            $compose = Join-Path $bundle 'bin/cli-plugins/docker-compose.exe'
+            @'
+          services:
+            probe:
+              image: alpine:3.21
+              command: ["sleep", "300"]
+          '@ | Set-Content -Encoding utf8 'compose.yaml'
+            & $compose --project-name egress97 up -d --pull never
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            Invoke-Docker @('rmi','local/gzip-proof:loaded','alpine:3.21')
-            & $docker image inspect local/gzip-proof:loaded 2>$null
-            if ($LASTEXITCODE -eq 0) { throw 'Proof image still present before load' }
-            Invoke-Docker @('image','load','--input','archive.payload')
-            $output = Invoke-Docker @('run','--rm','--pull','never','--network','none','local/gzip-proof:loaded','echo','windows-gzip-load-ok')
-            if ($output -notcontains 'windows-gzip-load-ok') { throw 'Loaded image did not execute the expected command' }
-            Write-Host 'PASS native Windows docker.exe loaded gzip by content and executed the restored image without pulling'
+            $probe = 'set -eu; ip route; nslookup example.com; wget -T 12 -qO /dev/null https://example.com; echo HTTPS_OK'
+            foreach ($network in 'host','bridge','egress97_default') {
+              $result = Invoke-Docker @('run','--rm','--network',$network,'alpine:3.21','sh','-ec',$probe)
+              Write-Host ($result -join "`n")
+              if ($result -notcontains 'HTTPS_OK') { throw "DNS/HTTPS egress failed on $network" }
+              Write-Host "PASS DNS and HTTPS on $network"
+              $ping = & $docker run --rm --network $network alpine:3.21 ping -c 2 -W 3 1.1.1.1
+              Write-Host "ICMP on $network exit=$LASTEXITCODE $ping"
+            }
+            & $compose --project-name egress97 down
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-load-test
