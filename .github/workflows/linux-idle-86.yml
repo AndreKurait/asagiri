@@ -1,0 +1,54 @@
+name: Linux direct published-port idle qualification
+on:
+  push:
+    branches: [qualification/linux-idle-86]
+    paths: [.github/workflows/linux-idle-86.yml]
+permissions:
+  contents: read
+jobs:
+  idle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [c2c92f0ba607358cd467bd7f66ed2b89cbbd6dfa, cc0f8fafe0fbfb7912d183b2a79639b8348a8b5f]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.revision }}
+          persist-credentials: false
+      - name: Build the engine and guest init
+        run: sh scripts/ci/build-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/target" "$RUNNER_TEMP/registry" build
+      - name: Publish loopback through the native Linux engine
+        env:
+          REVISION: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          docker pull alpine:3.21
+          docker save -o "$RUNNER_TEMP/alpine.tar" alpine:3.21
+          docker run -d --privileged --name idle86 -e ASAGIRI_SOCKET=/run/asagiri/docker.sock -e DOCKER_HOST=unix:///run/asagiri/docker.sock -e ASAGIRI_DATA_DIR=/test-store -v "$RUNNER_TEMP/bin:/opt/asagiri:ro" -v "$RUNNER_TEMP/alpine.tar:/alpine.tar:ro" docker:28.0.4-cli sh -ec 'apk add -q --no-cache python3 && exec /opt/asagiri/asagiri daemon'
+          trap 'docker logs idle86; docker rm -fv idle86' EXIT
+          for attempt in {1..120}; do docker exec idle86 docker version >/dev/null 2>&1 && break; sleep 1; done
+          docker exec idle86 docker load -i /alpine.tar
+          docker exec idle86 docker run -d --name echo -p 127.0.0.1:18086:8086 alpine:3.21 nc -lk -p 8086 -e /bin/cat
+          docker exec -i -e REVISION idle86 python3 -u - <<'PY'
+          import os, select, socket, time
+          with socket.create_connection(('127.0.0.1', 18086), 10) as client:
+              stream = client.makefile('rb')
+              client.sendall(b'initial\n')
+              assert stream.readline() == b'initial\n'
+              started = time.monotonic()
+              ready = select.select([client], [], [], 425)[0]
+              elapsed = time.monotonic() - started
+              if ready:
+                  received = client.recv(1)
+                  print('Observed early readability', elapsed, received)
+                  assert os.environ['REVISION'].startswith('c2c92f0') and received == b'' and 285 <= elapsed < 350
+              else:
+                  client.sendall(b'after idle\n')
+                  assert stream.readline() == b'after idle\n'
+                  print('Echo after idle seconds', elapsed)
+          PY
+          docker exec idle86 docker rm -f echo
+          docker exec idle86 python3 -c 'import socket; s=socket.socket(); s.settimeout(5); import errno; assert s.connect_ex(("127.0.0.1",18086)) == errno.ECONNREFUSED'
