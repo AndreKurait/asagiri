@@ -1020,6 +1020,62 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "opens the native desktop Settings window"]
+    fn native_settings_updates_persisted_mcp_permissions() {
+        let (tx, rx) = mpsc::channel();
+        let actions = r#"(async () => {
+          const wait = async (selector) => {
+            for (let i = 0; i < 200; i++) {
+              const el = document.querySelector(selector);
+              if (el && el.getBoundingClientRect().width > 0) return el;
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            throw new Error(selector);
+          };
+          const report = name => window.webkit.messageHandlers.asagiri.postMessage(JSON.stringify({cmd:'qualification',name}));
+          try {
+            (await wait('[data-view="settings"]')).click();
+            (await wait('[data-stab="integrations"]')).click();
+            const control = (name, value) => `[data-mcp="${name}"][data-value="${value}"]`;
+            const checked = async (name,value) => wait(control(name,value) + '[aria-pressed="true"]');
+            await checked('enabled',0);
+            if (!(await wait(control('allowContainerChanges',1))).disabled) throw new Error('changes available before enabling');
+            report('disabled');
+            (await wait(control('enabled',1))).click();
+            await checked('enabled',1); report('reads');
+            (await wait(control('allowContainerChanges',1))).click();
+            await checked('allowContainerChanges',1); report('changes');
+            (await wait(control('enabled',0))).click();
+            await checked('enabled',0); report('revoked');
+          } catch(e) { report('failure: ' + e.message); }
+        })()"#;
+        run(true, false, move |message| {
+            let event: serde_json::Value = serde_json::from_str(&message).unwrap();
+            match event["cmd"].as_str() {
+                Some("ready") => Handle.eval(actions.to_owned()),
+                Some("integrations" | "setintegrations") => crate::engine::on_message(&message),
+                Some("qualification") => {
+                    let phase = event["name"].as_str().unwrap().to_owned();
+                    let policy = crate::integrations::report(None)["permissions"].clone();
+                    tx.send((phase.clone(), policy)).unwrap();
+                    if phase == "revoked" || phase.starts_with("failure") {
+                        unsafe { PostQuitMessage(0) };
+                    }
+                }
+                _ => {}
+            }
+        }, |_| {}).unwrap();
+        let observations: Vec<_> = rx.try_iter().collect();
+        println!("Native permission observations: {observations:?}");
+        let expected = [("disabled",false,false),("reads",true,false),("changes",true,true),("revoked",false,false)];
+        assert_eq!(observations.len(), expected.len());
+        for ((phase, policy), (name, enabled, changes)) in observations.into_iter().zip(expected) {
+            assert_eq!(phase, name);
+            assert_eq!(policy, serde_json::json!({"enabled":enabled,"allowContainerChanges":changes}));
+        }
+    }
+
+    #[test]
     #[ignore = "opens WebView2: run on Windows with --ignored"]
     fn webview2_shows_the_page_at_its_largest_and_only_it() {
         let mut page = crate::lang::FILES.iter().map(|(tag, _)| crate::assemble::page(PAGE, Some(tag))).max_by_key(String::len).unwrap();

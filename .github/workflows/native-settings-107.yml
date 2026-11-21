@@ -1,0 +1,15 @@
+name: Native Windows Settings permission round trip
+on:
+  push:
+    branches: [qualification/native-settings-107]
+permissions:
+  contents: read
+jobs:
+  settings:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo test --locked -p asagiri-win native_settings_updates_persisted_mcp_permissions -- --ignored --nocapture
