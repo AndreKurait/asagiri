@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -75,8 +76,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bin", type=Path)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--user-network", action="store_true",
-                        help="Use a custom bridge after reserving another network's subnet")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--user-network", action="store_true",
+                      help="Use a custom bridge after reserving another network's subnet")
+    mode.add_argument("--docker-first", action="store_true",
+                      help="Check bridge selection, reachability and restart beside an existing Docker bridge")
     args = parser.parse_args()
     binary_dir, output = args.bin.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -109,7 +113,7 @@ def main():
         "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "binaries": binaries, "host_image": host_image, "image": IMAGE,
         "architecture": architecture,
-        "network_mode": "custom" if args.user_network else "default",
+        "network_mode": "docker-first" if args.docker_first else "custom" if args.user_network else "default",
         "outer_ports_published": False, "user_docker_socket_mounted": False,
         "hosts": [host, peer], "network": network, "checks": [],
     }
@@ -192,31 +196,110 @@ def main():
                 assert tested.returncode == 7 and not tested.stdout, (name, protocol, tested)
             result(name + " " + protocol, allowed=allowed, exit=tested.returncode, reply=tested.stdout)
 
+    def await_api(cli):
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            if cli("version", check=False, timeout=10).returncode == 0:
+                return
+            time.sleep(0.5)
+        raise TimeoutError("The private engine did not start")
+
+    def check_docker_first():
+        # The fixture entered the dind image through a shell, so its normal
+        # cgroup setup did not run. Initialize the private hierarchy before
+        # either daemon creates nested cgroups. Both still share the network.
+        engine("sh", "-ec",
+               "/usr/local/bin/dind dockerd --host=unix:///run/firewall-reference.sock "
+               "--data-root=/test-docker --exec-root=/run/firewall-reference "
+               "--pidfile=/run/firewall-reference.pid --bip=172.17.0.1/16 "
+               "> /tmp/firewall-docker.log 2>&1 &")
+        await_api(reference)
+        delegation = engine("cat", "/sys/fs/cgroup/cgroup.subtree_control").stdout.split()
+        assert {"cpu", "memory", "pids"} <= set(delegation), delegation
+        record["delegated_controllers"] = delegation
+        record["reference_docker"] = json.loads(reference("version", "--format", "{{json .Server}}").stdout)
+        docker_subnet = ipaddress.ip_network("172.17.0.0/16")
+
+        def docker_bridge():
+            return {
+                "routes": json.loads(engine("ip", "-j", "-4", "route", "show", "dev", "docker0").stdout),
+                "addresses": json.loads(engine("ip", "-j", "-4", "address", "show", "dev", "docker0").stdout)[0]["addr_info"],
+            }
+
+        engine("sh", "-ec",
+               "mkdir -p /tmp/gateway; printf 'asagiri-gateway' > /tmp/gateway/index.html; "
+               "python3 -m http.server 18473 --bind 0.0.0.0 --directory /tmp/gateway > /tmp/gateway.log 2>&1 &")
+
+        def gateway_request(cli, container, gateway):
+            reply = cli("exec", container, "wget", "-qO-", "-T", "5", f"http://{gateway}:18473/")
+            assert reply.stdout == "asagiri-gateway", reply.stdout
+
+        reference("pull", IMAGE)
+        reference("run", "-d", "--name", "firewall-reference", IMAGE, "sleep", "3600")
+        gateway_request(reference, "firewall-reference", "172.17.0.1")
+        # With no containers attached, Docker's route still has linkdown.
+        # Compare against the same running reference container after shutdown.
+        before = docker_bridge()
+        assert any(route.get("dst") == str(docker_subnet) for route in before["routes"]), before
+        record["docker_bridge_before"] = before
+        result("Docker can reach its gateway before Asagiri starts")
+        for attempt in range(1, 3):
+            engine("sh", "-ec",
+                   "rm -f /tmp/asagiri.pid /tmp/asagiri.status; "
+                   "( /opt/asagiri/asagiri daemon & pid=$!; echo \"$pid\" >/tmp/asagiri.pid; "
+                   "wait \"$pid\"; echo \"$?\" >/tmp/asagiri.status ) >>/tmp/asagiri.log 2>&1 &")
+            await_api(dock)
+            if attempt == 1:
+                dock("pull", IMAGE)
+            bridge = json.loads(dock("network", "inspect", "bridge").stdout)[0]["IPAM"]["Config"][0]
+            subnet = ipaddress.ip_network(bridge["Subnet"])
+            assert not subnet.overlaps(docker_subnet), bridge
+            dock("run", "-d", "--name", "firewall-client", "--pull=never", IMAGE, "sleep", "3600")
+            gateway_request(dock, "firewall-client", bridge["Gateway"])
+            gateway_request(reference, "firewall-reference", "172.17.0.1")
+            result("Both containers can reach their own gateway", start=attempt, asagiri_bridge=bridge)
+            dock("rm", "-f", "firewall-client")
+            engine("sh", "-ec",
+                   "kill -TERM \"$(cat /tmp/asagiri.pid)\"; "
+                   "for i in $(seq 60); do if test -s /tmp/asagiri.status; then "
+                   "test \"$(cat /tmp/asagiri.status)\" = 0; exit; fi; sleep 0.5; done; exit 1")
+            after = docker_bridge()
+            assert after == before, (before, after)
+            gateway_request(reference, "firewall-reference", "172.17.0.1")
+            result("Docker retains its bridge and gateway after Asagiri shuts down", start=attempt, docker_bridge=after)
+        reference("rm", "-f", "firewall-reference")
+
     try:
         network_created = True
         # Docker selects an unused subnet. These two hosts alone join this
         # task-owned bridge; no user socket or published port is involved.
         run("docker", "network", "create", "--label", "asagiri.test=" + token, network)
-        for name, options, command in (
+        host_command = "apk add -q --no-cache python3 iproute2 nftables iptables && "
+        host_command += "exec sleep infinity" if args.docker_first else "exec /opt/asagiri/asagiri daemon"
+        fixtures = (
             (host, ["--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/tmp",
                     "-e", "ASAGIRI_SOCKET=/run/asagiri/docker.sock", "-e", "ASAGIRI_DATA_DIR=/test-store",
                     "-e", "ASAGIRI_TEST_ENGINE=1", "-v", str(binary_dir) + ":/opt/asagiri:ro",
                     "-v", "/var/lib/asagiri", "-v", "/test-store", "-v", "/test-docker"],
-             ["sh", "-ec", "apk add -q --no-cache python3 iproute2 nftables iptables && exec /opt/asagiri/asagiri daemon"]),
+             ["sh", "-ec", host_command]),
             (peer, ["--cap-add", "NET_ADMIN"],
              ["sh", "-ec", "apk add -q --no-cache python3 iproute2 && exec python3 -u -c " + "'" + SERVER.replace("'", "'\"'\"'") + "'"]),
-        ):
+        )
+        for name, options, command in fixtures[:1] if args.docker_first else fixtures:
             hosts.append(name)
             run("docker", "run", "-d", "--name", name, "--network", network,
                 "--label", "asagiri.test=" + token, *options, host_image, *command)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            if dock("version", check=False, timeout=10).returncode == 0 and "ready" in run("docker", "logs", peer).stdout:
+            if args.docker_first:
+                if engine("python3", "--version", check=False, timeout=10).returncode == 0:
+                    break
+            elif dock("version", check=False, timeout=10).returncode == 0 and "ready" in run("docker", "logs", peer).stdout:
                 break
             time.sleep(0.5)
         else:
             raise TimeoutError("Private firewall fixtures did not start")
-        info = json.loads(run("docker", "inspect", host, peer).stdout)
+        info = json.loads(run("docker", "inspect", *hosts).stdout)
         for item in info:
             assert not item["HostConfig"]["PortBindings"]
             assert set(item["NetworkSettings"]["Networks"]) == {network}
@@ -224,9 +307,14 @@ def main():
                        for mount in item["Mounts"] if mount["Type"] == "bind")
         assert info[0]["HostConfig"]["CgroupnsMode"] == "private"
         (output / "hosts.json").write_text(json.dumps(info, indent=2) + "\n")
+        record["kernel"] = engine("uname", "-sr").stdout.strip()
+        if args.docker_first:
+            check_docker_first()
+            record["status"] = "passed"
+            print("Docker-first default bridge checks passed", flush=True)
+            return
         host_ip, peer_ip = (item["NetworkSettings"]["Networks"][network]["IPAddress"] for item in info)
         record["peer_ip"], record["engine_ip"] = peer_ip, host_ip
-        record["kernel"] = engine("uname", "-sr").stdout.strip()
         dock("pull", IMAGE)
         tested_network = "bridge"
         if args.user_network:
@@ -358,6 +446,12 @@ def main():
         if host in hosts:
             diagnostic = engine("cat", "/tmp/firewall-docker.log", check=False, timeout=10)
             (output / "reference-docker.log").write_text(diagnostic.stdout + diagnostic.stderr)
+            if args.docker_first:
+                diagnostic = engine(
+                    "cat", "/tmp/asagiri.log", "/tmp/gateway.log",
+                    "/root/.asagiri/logs/guest-console.log", check=False, timeout=10,
+                )
+                (output / "docker-first-runtime.log").write_text(diagnostic.stdout + diagnostic.stderr)
         for name in reversed(hosts):
             logs = run("docker", "logs", name, check=False, timeout=20)
             (output / (("engine" if name == host else "peer") + ".log")).write_text(logs.stdout + logs.stderr)

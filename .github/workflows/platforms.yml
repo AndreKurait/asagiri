@@ -251,6 +251,15 @@ jobs:
           path: ${{ runner.temp }}/linux-firewall-custom/
           if-no-files-found: error
           retention-days: 90
+      - name: Verify the default bridge when Docker starts first
+        run: python3 tests/linux-firewall.py "$RUNNER_TEMP/bin" --docker-first --output "$RUNNER_TEMP/linux-firewall-docker-first"
+      - name: Preserve Docker-first bridge evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-firewall-docker-first-${{ runner.arch }}
+          path: ${{ runner.temp }}/linux-firewall-docker-first/
+          retention-days: 90
       - name: Test a real DDEV PHP, MariaDB and HTTPS project
         run: python3 scripts/ci/ddev.py "$RUNNER_TEMP/bin" --output "$RUNNER_TEMP/ddev"
       - name: Preserve DDEV runtime diagnostics
