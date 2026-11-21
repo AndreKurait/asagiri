@@ -150,6 +150,9 @@ pub struct Spec {
     pub user: String,
     pub auto_remove: bool,
     pub network_mode: String,
+    /// The last endpoint was disconnected before start. Use loopback until another is attached.
+    #[serde(default)]
+    pub network_detached: bool,
     pub labels: serde_json::Value,
     #[serde(default)]
     pub tty: bool,
@@ -336,6 +339,14 @@ fn enabled() -> bool {
 }
 
 impl Spec {
+    fn set_primary_endpoint(&mut self, endpoint: ExtraNetwork) {
+        self.network_mode = endpoint.name;
+        self.aliases = endpoint.aliases;
+        self.ipv4_address = endpoint.ipv4_address;
+        self.ipv6_address = endpoint.ipv6_address;
+        self.mac_address = endpoint.mac_address;
+    }
+
     /// The guest's `opts` lines for a start or an exec. `net_host`: it runs
     /// in the VM's (or host's) network namespace.
     pub fn guest_opts(&self, net_host: bool) -> Result<Vec<String>, Error> {
@@ -2837,7 +2848,7 @@ impl Engine {
         let canonical = self.lock_networks().find(network).map(|n| n.name.clone()).unwrap_or_default();
         self.each(|c| {
             let theirs = self.lock_networks().find(&c.spec.network_mode).map(|n| n.name.clone()).unwrap_or_default();
-            if theirs == canonical {
+            if !c.spec.network_detached && theirs == canonical {
                 return Some((c.id.clone(), c.name.clone(), c.ip, c.ip6, c.spec.mac_address.clone(), c.status == Status::Running));
             }
             c.spec.extra_networks.iter().find(|x| x.name == canonical).map(|x| {
@@ -3106,6 +3117,14 @@ impl Engine {
         let running = {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
+            if c.spec.network_detached && c.status != Status::Running {
+                c.spec.set_primary_endpoint(extra);
+                c.spec.network_detached = false;
+                drop(st);
+                self.save();
+                self.emit_network("connect", &net, &id);
+                return Ok(());
+            }
             if c.spec.network_mode == net.name || c.spec.extra_networks.iter().any(|x| x.name == net.name) {
                 return Err(Error::Conflict(format!("endpoint with name {} already exists in network {}", c.name, net.name)));
             }
@@ -3142,6 +3161,21 @@ impl Engine {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             if c.spec.network_mode == net.name {
+                // A created container has no live interfaces or leased addresses.
+                // Its next endpoint supplies the primary interface at first start.
+                if c.status == Status::Created && net.driver == "bridge" {
+                    let next = if c.spec.extra_networks.is_empty() {
+                        c.spec.network_detached = true;
+                        ExtraNetwork { name: "none".into(), ..Default::default() }
+                    } else {
+                        c.spec.extra_networks.remove(0)
+                    };
+                    c.spec.set_primary_endpoint(next);
+                    drop(st);
+                    self.save();
+                    self.emit_network("disconnect", &net, &id);
+                    return Ok(());
+                }
                 return Err(Error::BadRequest(format!("Asagiri cannot disconnect a container from its first network ({})", net.name)));
             }
             let Some(pos) = c.spec.extra_networks.iter().position(|x| x.name == net.name) else {
