@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           docker pull alpine:3.21
           docker save -o "$RUNNER_TEMP/alpine.tar" alpine:3.21
-          docker run -d --privileged --name idle86 -e ASAGIRI_SOCKET=/run/asagiri/docker.sock -e DOCKER_HOST=unix:///run/asagiri/docker.sock -e ASAGIRI_DATA_DIR=/test-store -v "$RUNNER_TEMP/bin:/opt/asagiri:ro" -v "$RUNNER_TEMP/alpine.tar:/alpine.tar:ro" docker:28.0.4-cli sh -ec 'apk add -q --no-cache python3 && exec /opt/asagiri/asagiri daemon'
+          docker run -d --privileged --name idle86 -v /var/lib/asagiri -v /test-store -e ASAGIRI_SOCKET=/run/asagiri/docker.sock -e DOCKER_HOST=unix:///run/asagiri/docker.sock -e ASAGIRI_DATA_DIR=/test-store -v "$RUNNER_TEMP/bin:/opt/asagiri:ro" -v "$RUNNER_TEMP/alpine.tar:/alpine.tar:ro" docker:28.0.4-cli sh -ec 'apk add -q --no-cache python3 && exec /opt/asagiri/asagiri daemon'
           trap 'docker logs idle86; docker rm -fv idle86' EXIT
           for attempt in {1..120}; do docker exec idle86 docker version >/dev/null 2>&1 && break; sleep 1; done
           docker exec idle86 docker load -i /alpine.tar
