@@ -41,13 +41,13 @@ t("the setup window asks with a search field, focused, and one list, not tiles",
   if (main().querySelector(".lhello").textContent !== "Hello!") throw new Error("hello: " + main().querySelector(".lhello").textContent);
   if (!(box(q()).bottom <= box(list()).top && box(list()).bottom <= box(document.getElementById("lang-go")).top)) throw new Error("not search, list, Continue");
 });
-t("Suggested, then All languages · 40 by English name, as in the main window", () => {
+t("Suggested, then All languages · 41 by English name, as in the main window", () => {
   const [sug, all] = groups();
   if (sug?.querySelector(".lsect").textContent !== "Suggested") throw new Error(sug?.textContent.slice(0, 40));
   if (ids(`#${sug.id}`).join(" ") !== "en de pt-BR es fr") throw new Error("suggested: " + ids(`#${sug.id}`).join(" "));
-  if (all?.querySelector(".lsect").textContent !== "All languages · 40") throw new Error(all?.querySelector(".lsect").textContent);
+  if (all?.querySelector(".lsect").textContent !== "All languages · 41") throw new Error(all?.querySelector(".lsect").textContent);
   const got = rows(`#${all.id}`), names = got.map((r) => (r.querySelector(".le") || r.querySelector(".ln")).textContent);
-  if (got.length !== 40 || names.join() !== [...names].sort((a, b) => a.localeCompare(b, "en")).join()) throw new Error(names.join(", "));
+  if (got.length !== 41 || names.join() !== [...names].sort((a, b) => a.localeCompare(b, "en")).join()) throw new Error(names.join(", "));
   const de = list().querySelector('[data-lang="de"]');
   if (de.querySelector(".ln").textContent !== "Deutsch" || de.querySelector(".le").textContent !== "German" || de.querySelector(".lh").textContent !== "Hallo") throw new Error(de.textContent);
   if (picked().join() !== "en") throw new Error("picked " + picked());
@@ -55,7 +55,7 @@ t("Suggested, then All languages · 40 by English name, as in the main window", 
   if (marks.join() !== "en" || list().querySelector('[data-lang="en"] .sys').textContent !== "Same as Windows") throw new Error("marked " + marks);
 });
 t("a search finds by own name, English name, code and other names, whatever the accents", () => {
-  for (const [s, want] of [["german", "de"], ["deu", "de"], ["portugues", "pt-BR"], ["русский", "ru"], ["farsi", "fa"], ["castellano", "es"], ["हिंदी", "hi"], ["mandarin", "zh-Hans zh-Hant"]]) {
+  for (const [s, want] of [["german", "de"], ["deu", "de"], ["Azərbaycan", "az"], ["Azerbaijani", "az"], ["portugues", "pt-BR"], ["русский", "ru"], ["farsi", "fa"], ["castellano", "es"], ["हिंदी", "hi"], ["mandarin", "zh-Hans zh-Hant"]]) {
     type(s);
     if (ids().slice(0, want.split(" ").length).join(" ") !== want) throw new Error(`"${s}" found ${ids().join(" ")}`);
   }
@@ -118,6 +118,11 @@ t("Escape clears the search first", () => {
   if (!q() || q().value !== "" || groups().length !== 2) throw new Error("the search wasn't cleared, or the step closed");
   if (active() !== "de") throw new Error("highlight on " + active());
   if (saved("langAsked") !== undefined) throw new Error("langAsked saved");
+});
+t("selecting Azerbaijani translates Windows setup", () => {
+  type("Azərbaycan"); key("Enter");
+  if (saved("lang") !== "az" || document.documentElement.lang !== "az") throw new Error("Azerbaijani selection was not applied");
+  if (document.getElementById("lang-go").textContent !== "Davam et") throw new Error("Continue stayed untranslated");
 });
 t("Arabic reads from the right", () => {
   type("arabic"); key("Enter");
