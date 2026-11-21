@@ -73,7 +73,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Review and verify Kiri PR #401: UI:Add Azerbaijani language support [#253](https://github.com/AndreKurait/asagiri/issues/253)
 - [ ] Review and verify Kiri PR #397: Fix macOS search field keyboard shortcuts [#255](https://github.com/AndreKurait/asagiri/issues/255)
 - [x] Review and verify Kiri PR #314: xtask windows-dev: pick a real WSL distro on Windows. Native Windows `cargo xtask windows-dev` built from source in Ubuntu 24.04 with a runtime-only WSL2 distro selected as default and no overrides. The bundled CLI and engine ran in [job 136947758999](https://github.com/AndreKurait/asagiri/actions/runs/44937668554/job/136947758999). [#260](https://github.com/AndreKurait/asagiri/issues/260)
-- [ ] Review and verify Kiri PR #119: Images: registry mirrors for Docker Hub, in Settings and the CLI [#261](https://github.com/AndreKurait/asagiri/issues/261)
+- [x] Review and verify Kiri PR #119: Images: registry mirrors for Docker Hub, in Settings and the CLI [#261](https://github.com/AndreKurait/asagiri/issues/261)
 
 ### Upstream issue qualification (150)
 
