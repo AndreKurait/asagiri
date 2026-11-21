@@ -66,7 +66,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Review and verify Kiri PR #506: Security: import runs only an official image as its volume helper [#244](https://github.com/AndreKurait/asagiri/issues/244)
 - [x] Verify Kiri PR #502: retain the error when a rejected image load still has bytes in flight. On macOS ARM64, the baseline returned broken pipes for both body formats. PR #317 passed 32 HTTP unit tests and 11 live scenarios, including the late malformed uploads and unchanged publication rules. [Verification evidence](verification/image-load-late-refusal-macos-7468728f.json). Hosted Linux and the published app passed the late-upload and image publication checks. [Release evidence](verification/roadmap-release-dev157-macos-arm64.json). [#245](https://github.com/AndreKurait/asagiri/issues/245)
 - [ ] Review and verify Kiri PR #501: Compose gets its own section [#246](https://github.com/AndreKurait/asagiri/issues/246)
-- [ ] Review and verify Kiri PR #493: image: fix jsonfile::sync PermissionDenied (os error 5) on Windows [#247](https://github.com/AndreKurait/asagiri/issues/247)
+- [x] Review and verify Kiri PR #493: image: fix jsonfile::sync PermissionDenied (os error 5) on Windows [#247](https://github.com/AndreKurait/asagiri/issues/247)
 - [ ] Review and verify Kiri PR #472: scan: kiri scan <image>, the scanner the window's tab uses [#248](https://github.com/AndreKurait/asagiri/issues/248)
 - [ ] Review and verify Kiri PR #421: Fix stalled image pull cancellation [#251](https://github.com/AndreKurait/asagiri/issues/251)
 - [ ] Review and verify Kiri PR #419: update: check the tarball's member names before unpacking [#252](https://github.com/AndreKurait/asagiri/issues/252)
