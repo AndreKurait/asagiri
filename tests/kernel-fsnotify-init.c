@@ -12,6 +12,7 @@
 #include <sys/inotify.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
@@ -24,6 +25,9 @@
  * serves the same bytes: injecting notifications must never change them.
  * No host filesystem or device is supplied to the VM. */
 static const char contents[] = "unchanged guest fixture\n";
+/* The fixture changes the server's pathname without sending a FUSE
+ * invalidation, like a rename or deletion on a virtiofs host. */
+static uint32_t *file_node;
 
 static _Noreturn void poweroff(void)
 {
@@ -66,7 +70,7 @@ static struct fuse_attr attributes(uint64_t node)
     if (node == FUSE_ROOT_ID || node == 4) {
         attr.mode = S_IFDIR | 0755;
         attr.nlink = 2;
-    } else if (node == 2) {
+    } else if (node == 2 || node == 5) {
         attr.mode = S_IFREG | 0644;
         attr.size = sizeof(contents) - 1;
         attr.blocks = 1;
@@ -111,7 +115,8 @@ static _Noreturn void serve_fuse(int fd)
         case FUSE_LOOKUP: {
             const char *name = data;
             require(memchr(name, '\0', (size_t)length - sizeof(*in)) != NULL, "terminated FUSE name");
-            uint64_t node = !strcmp(name, "file") ? 2 : !strcmp(name, "link") ? 3 : !strcmp(name, "nested") ? 4 : 0;
+            uint64_t node = !strcmp(name, "file") ? __atomic_load_n(file_node, __ATOMIC_RELAXED) :
+                            !strcmp(name, "link") ? 3 : !strcmp(name, "nested") ? 4 : 0;
             if (!node) {
                 reply(fd, in->unique, ENOENT, NULL, 0);
                 break;
@@ -185,6 +190,24 @@ static void unchanged(int file)
     require(lseek(file, 0, SEEK_SET) == 0, "rewind fixture");
     require(read(file, bytes, sizeof(bytes)) == (ssize_t)sizeof(contents) - 1, "read fixture");
     require(!memcmp(bytes, contents, sizeof(contents) - 1), "notifications preserved file contents");
+}
+
+static void change_cached_name(int control, char operation, uint32_t node)
+{
+    char line[] = "M\t/mnt/mac/file\n";
+    line[0] = operation;
+    __atomic_store_n(file_node, node, __ATOMIC_RELAXED);
+    if (write(control, line, sizeof(line) - 1) != sizeof(line) - 1)
+        fail("refresh cached filename");
+    struct stat info;
+    if (node) {
+        require(stat("/mnt/mac/file", &info) == 0 && info.st_ino == node,
+                "lookup sees replacement inode without waiting for cache timeout");
+    } else {
+        errno = 0;
+        require(stat("/mnt/mac/file", &info) == -1 && errno == ENOENT,
+                "lookup no longer sees deleted file");
+    }
 }
 
 static void drain(int fd)
@@ -311,6 +334,11 @@ int main(void)
     snprintf(options, sizeof(options), "fd=%d,rootmode=40000,user_id=0,group_id=0,max_read=4096", fuse);
     if (mount("guest-fixture", "/mnt/mac", "fuse", MS_NOSUID | MS_NODEV | MS_NOATIME, options) < 0)
         fail("mount synthetic share");
+    file_node = mmap(NULL, sizeof(*file_node), PROT_READ | PROT_WRITE,
+                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (file_node == MAP_FAILED)
+        fail("share synthetic filename state");
+    *file_node = 2;
     pid_t server = fork();
     if (server < 0)
         fail("fork synthetic FUSE server");
@@ -351,6 +379,17 @@ int main(void)
     rejected(control, events, "M\t/mnt/mac/nested/guard\n", "nested mount", EXDEV);
     notify(control, events, directory, file_watch, 'D', IN_DELETE, IN_DELETE_SELF);
     unchanged(file);
+    struct stat cached;
+    require(stat("/mnt/mac/file", &cached) == 0 && cached.st_ino == 2,
+            "cache the original pathname before replacement");
+    change_cached_name(control, 'M', 5);
+    unchanged(file);
+    dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_CONTROL_PASS: replacement looks up new inode and preserves open file\n");
+    close(events);
+    change_cached_name(control, 'M', 2);
+    dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_CONTROL_PASS: replacement expires cache without watchers\n");
+    change_cached_name(control, 'D', 0);
+    dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_CONTROL_PASS: deletion expires cache without watchers\n");
     dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_TEST_PASS: events scopes namespace contents\n");
     poweroff();
 }
