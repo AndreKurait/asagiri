@@ -1,0 +1,49 @@
+name: Published Windows WSL setup helper and distro import
+on:
+  push:
+    branches: [qualification/wsl-prerequisites-143]
+permissions:
+  contents: read
+jobs:
+  setup:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Check native feature state and run published setup helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $names = @('VirtualMachinePlatform', 'Microsoft-Windows-Subsystem-Linux')
+          foreach ($name in $names) {
+            $before = Get-WindowsOptionalFeature -Online -FeatureName $name
+            Write-Host "Before helper: $name = $($before.State)"
+          }
+          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          gh release download v0.1.14-dev.158 -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE -or (Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'App download or digest failed' }
+          Expand-Archive $asset -DestinationPath bundle
+          $helper = (Get-ChildItem bundle -Recurse -Filter asagiri-admin.ps1 -File -ErrorAction Stop).FullName
+          $installer = 'wsl.3.0.3.0.x64.msi'
+          $expected = 'ae977286974255bd26bf925f00f40f5692c6b2084155cbc0563c09aea091f211'
+          gh release download 3.0.3 -R microsoft/WSL -p $installer
+          if ($LASTEXITCODE -or (Get-FileHash $installer).Hash.ToLower() -ne $expected) { throw 'WSL download or digest failed' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Wsl -Msi (Resolve-Path $installer).Path -Sha256 $expected
+          $helperResult = $LASTEXITCODE
+          Write-Host "Published helper exit: $helperResult"
+          foreach ($name in $names) {
+            $after = Get-WindowsOptionalFeature -Online -FeatureName $name
+            Write-Host "After helper: $name = $($after.State)"
+            if ($after.State -notin @('Enabled','EnablePending')) { throw "$name was not enabled" }
+          }
+          if ($helperResult -eq 3010) { throw 'Host requires restart; subsequent import unverified' }
+          if ($helperResult -ne 0) { throw "Native helper failed with $helperResult" }
+          $rootfs = (Get-ChildItem bundle -Recurse -Filter asagiri-linux.tar.gz -File).FullName
+          $distro = 'Asagiri-prerequisites-143'
+          wsl.exe --import $distro "$env:RUNNER_TEMP/test-distro" $rootfs --version 2
+          if ($LASTEXITCODE) { throw 'WSL import failed' }
+          try {
+            wsl.exe -d $distro -u root --exec /usr/local/bin/asagiri --version
+            if ($LASTEXITCODE) { throw 'First guest CLI launch failed' }
+          } finally { wsl.exe --unregister $distro }
