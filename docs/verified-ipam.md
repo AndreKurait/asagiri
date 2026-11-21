@@ -37,9 +37,12 @@ and the solver remain trusted components.
 The proof covers the gap-search function and its iterator contract.
 Network parsing, the merge adapter, reservation collection, kernel networking,
 concurrent API requests and Docker's behavior are outside that proof. Rust
-regressions compare the actual adapter with an exhaustive set-membership
-oracle and exercise both real allocation methods, including dense networks
-whose IPv6 subnet ends at `u128::MAX`. Live Docker API tests cover network
+regressions check that the production merge adapter produces a sorted stream
+with both inputs preserved, and that the search stops reading at the first gap.
+The Verus contract replaces 262,144 sampled range queries and three direct
+maximum-address assertions. Both real allocation methods still have independent
+checks against membership search, including dense IPv6 networks whose subnet
+ends at `u128::MAX`. Live Docker API tests cover network
 integration, including Docker's HTTP 500 response for exhausted automatic
 pools and a successful start/connect retry after an address is released.
 This is a specific correctness proof, not a blanket Docker
