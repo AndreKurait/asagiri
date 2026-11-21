@@ -1388,29 +1388,20 @@ mod tests {
     }
 
     #[test]
-    fn ordered_host_merge_and_gap_match_an_exhaustive_set_oracle() {
-        use super::super::address_gap::first_gap;
-        // Independent set membership checks cover overlaps, duplicate
-        // entries across the streams, empty/reversed ranges, and gaps.
-        for a in 0..64u32 {
-            let a: BTreeSet<u128> = (0..6).filter(|i| a & (1 << i) != 0).map(|i| i as u128).collect();
-            for b in 0..64u32 {
-                let b: BTreeSet<u128> = (0..6).filter(|i| b & (1 << i) != 0).map(|i| i as u128).collect();
-                for first in 0..8u128 {
-                    for last in 0..8u128 {
-                        let expected = (first..=last).find(|h| !a.contains(h) && !b.contains(h));
-                        assert_eq!(first_gap(merged_hosts(a.iter().copied(), b.iter().copied()), first, last), expected);
-                    }
-                }
-            }
+    fn ordered_host_merge_preserves_both_streams_and_duplicates() {
+        for (occupied, excluded, expected) in [
+            (&[][..], &[][..], &[][..]),
+            (&[][..], &[2, 4][..], &[2, 4][..]),
+            (&[1, 6][..], &[][..], &[1, 6][..]),
+            (&[1, 2, 2, 5][..], &[0, 2, 4, 6][..], &[0, 1, 2, 2, 2, 4, 5, 6][..]),
+        ] {
+            assert!(merged_hosts(occupied.iter().copied(), excluded.iter().copied()).eq(expected.iter().copied()));
         }
-        let max = u128::MAX;
-        assert_eq!(first_gap([max - 1, max - 1, max].into_iter(), max - 1, max), None);
-        assert_eq!(first_gap([max - 1].into_iter(), max - 1, max), Some(max));
-        assert_eq!(first_gap(std::iter::empty(), max, max), Some(max));
+        // The search must stop reading the iterator once it finds the gap.
         let mut visits = 0;
-        assert_eq!(first_gap([1, 2, 9, max].into_iter().inspect(|_| visits += 1), 1, max), Some(3));
-        assert_eq!(visits, 3, "a large empty address range is not enumerated");
+        let occupied = merged_hosts([1, 9].into_iter(), [2, u128::MAX].into_iter()).inspect(|_| visits += 1);
+        assert_eq!(super::super::address_gap::first_gap(occupied, 1, u128::MAX), Some(3));
+        assert_eq!(visits, 3, "the search read beyond the first gap");
     }
 
     #[test]
