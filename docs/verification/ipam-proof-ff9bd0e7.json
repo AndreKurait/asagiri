@@ -1,0 +1,102 @@
+{
+  "schema": "asagiri.ipam-proof.v1",
+  "started_at": "2026-11-20T10:13:53.573065+00:00",
+  "source_commit": "ff9bd0e784ed2ad8d035e4415f73ec5077115b54",
+  "worktree_clean": true,
+  "source": "crates/asagiri/src/daemon/address_gap.rs",
+  "source_sha256": "82435735f17e094d20bc8006a8d45efc004eb6262b3a470ffb39ae9a8856acf4",
+  "executable_body_sha256": "538a6922319d4917634d2e9a2db65dabe1b5f6087eac5e2a514653f0ef9b4282",
+  "generated_sha256": "5c58ab7d0478afd89b41a0ee69efe38cde0352144239e9b2edae9b79b8a40eb0",
+  "template_sha256": "27ac5aed5e1f4d882990040ff5e61e943d4fa1ed3fff398e17ebb7332801b38e",
+  "invariant_sha256": "4a7bbc09bb01c0b5eb6e7e27db2c75bb0f9562100c6172447f3d07356a51c445",
+  "verus": "0.2026.11.02.8bf68ee",
+  "verus_commit": "8bf68ee741df833ea5d0fe6a2255126fdea87e47",
+  "no_cheating": true,
+  "negative_controls": {
+    "skip-free-address": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "invariant not satisfied at end of loop body",
+        "possible arithmetic underflow/overflow"
+      ]
+    },
+    "return-occupied-address": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "postcondition not satisfied"
+      ]
+    },
+    "ignore-upper-bound": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "invariant not satisfied at end of loop body"
+      ]
+    },
+    "ignore-lower-bound": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "invariant not satisfied before loop"
+      ]
+    },
+    "reject-single-address-range": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "postcondition not satisfied"
+      ]
+    },
+    "return-used-address": {
+      "encountered-error": true,
+      "encountered-vir-error": false,
+      "success": false,
+      "verified": 2,
+      "errors": 1,
+      "is-verifying-entire-crate": true,
+      "error_diagnostics": [
+        "postcondition not satisfied",
+        "invariant not satisfied at end of loop body",
+        "invariant not satisfied at end of loop body"
+      ]
+    }
+  },
+  "status": "passed",
+  "verus_archive": {
+    "platform": "x86-linux",
+    "sha256": "f3a0119292df8855e4435da8130bee1873b0e6a60c306accf81a08ea687bba3c",
+    "bytes": 36022359
+  },
+  "production": {
+    "encountered-error": false,
+    "encountered-vir-error": false,
+    "success": true,
+    "verified": 3,
+    "errors": 0,
+    "is-verifying-entire-crate": true,
+    "error_diagnostics": []
+  },
+  "completed_at": "2026-11-20T10:14:00.084064+00:00"
+}

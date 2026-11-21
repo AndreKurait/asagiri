@@ -198,7 +198,7 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#285](https://github.com/AndreKurait/asagiri/issues/285) Verify Kiri #587: Kiri doesn't render UI
 - [#286](https://github.com/AndreKurait/asagiri/issues/286) Verify Kiri #586: Windows terminal loses input focus during refresh
 
-## Merged pull requests from the roadmap queue (8)
+## Merged pull requests from the roadmap queue (10)
 
 - [#281](https://github.com/AndreKurait/asagiri/pull/281) Support Docker top process formats and memory columns
 - [#282](https://github.com/AndreKurait/asagiri/pull/282) Include unpublished exposed ports in running endpoint inspection
@@ -208,6 +208,8 @@ GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation
 - [#296](https://github.com/AndreKurait/asagiri/pull/296) Verify Docker exec inspection after VM loss
 - [#297](https://github.com/AndreKurait/asagiri/pull/297) Track the Asagiri implementation roadmap
 - [#304](https://github.com/AndreKurait/asagiri/pull/304) Record roadmap verification follow-up (`c9179f64`)
+- [#291](https://github.com/AndreKurait/asagiri/pull/291) Verify health probe exit codes and the startup grace boundary
+- [#301](https://github.com/AndreKurait/asagiri/pull/301) Serve Windows setup and desktop documents from memory
 
 ## Remaining roadmap work
 
