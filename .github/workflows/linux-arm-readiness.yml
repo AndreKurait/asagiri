@@ -57,6 +57,8 @@ jobs:
               build:
                 context: .
                 network: host
+                entitlements:
+                  - network.host
           COMPOSE
           if timeout 300 docker compose up --build --exit-code-from app; then
             echo 'PASS digest-pinned Compose build and Bun dependency load'
