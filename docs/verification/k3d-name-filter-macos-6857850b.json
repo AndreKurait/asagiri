@@ -1,0 +1,40 @@
+{
+  "^/probe-tools$": "probe-tools",
+  "probe-tools$": "probe-tools",
+  "^/?probe-tools$": "probe-tools",
+  "^[/]?probe-tools$": "probe-tools",
+  "^[/]?no-match$": "",
+  "API names": [
+    "/probe-tools"
+  ],
+  "cluster": {
+    "args": [
+      "cluster",
+      "create",
+      "asagiri-roadmap-186",
+      "--api-port",
+      "127.0.0.1:54497",
+      "--timeout",
+      "100s",
+      "--kubeconfig-update-default=false",
+      "--kubeconfig-switch-context=false"
+    ],
+    "exit": 0,
+    "output": "INFO[0000] Prep: Network                                \nINFO[0000] Created network 'k3d-asagiri-roadmap-186'    \nINFO[0000] Created image volume k3d-asagiri-roadmap-186-images \nINFO[0000] Starting new tools node...                   \nINFO[0000] Starting node 'k3d-asagiri-roadmap-186-tools' \nINFO[0001] Creating node 'k3d-asagiri-roadmap-186-server-0' \nINFO[0001] Creating LoadBalancer 'k3d-asagiri-roadmap-186-serverlb' \nINFO[0001] Using the k3d-tools node to gather environment information \nINFO[0001] HostIP: using network gateway 172.18.0.1 address \nINFO[0001] Starting cluster 'asagiri-roadmap-186'       \nINFO[0001] Starting servers...                          \nINFO[0001] Starting node 'k3d-asagiri-roadmap-186-server-0' \nINFO[0005] All agents already running.                  \nINFO[0005] Starting helpers...                          \nINFO[0005] Starting node 'k3d-asagiri-roadmap-186-serverlb' \nINFO[0012] Injecting records for hostAliases (incl. host.k3d.internal) and for 2 network members into CoreDNS configmap... \nINFO[0014] Cluster 'asagiri-roadmap-186' created successfully! \nINFO[0014] You can now use it like this:                \nexport KUBECONFIG=$(${FIXTURE_DIR}/k3d-release/k3d-darwin-arm64 kubeconfig write asagiri-roadmap-186)\nkubectl cluster-info\n"
+  },
+  "owned_containers_removed": true,
+  "release": "v0.1.14-dev.152",
+  "commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "macos": "26.7.3",
+  "k3d_version": "k3d version v5.9.0\nk3s version v1.35.5-k3s1 (default)",
+  "k3d_sha256": "fe106541d5d0a3f18debcd4d432a16f8c0ce3e6ddc06f8fbb6f696a122313e00",
+  "readyz": "ok",
+  "nodes": [
+    {
+      "name": "k3d-asagiri-roadmap-186-server-0",
+      "ready": "True"
+    }
+  ],
+  "status": "passed",
+  "owned_network_removed": true
+}

@@ -1,0 +1,452 @@
+{
+  "schema": "asagiri.runtime-proof.v1",
+  "started_at": "2026-11-20T09:23:53.522119+00:00",
+  "source_commit": "4a89c2fa5deb4c4b758eac04b35e37edd971c9c0",
+  "worktree_clean": true,
+  "worktree_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "proof_input_sha256": {
+    "crates/asagiri/src/daemon/health_transition.rs": "d4eab713fb43c41a17f9577b4adc030c202184fe69e663ada5c4d01e330025bb",
+    "crates/asagiri/src/daemon/http_number.rs": "8c49c493d1dc7e1f54e8c31c9aea0376538fb4509e33118a779223d797e7d5a0",
+    "crates/asagiri/src/daemon/layer_admission.rs": "485280bd3722964de017853e900a86dddd994b564650f92880b10d1812433f59",
+    "crates/asagiri/src/daemon/lifecycle_advance.rs": "9dd1d334ed1e9056cd70c01c2a75f41b2f73e81318064d3fd95455a856996828",
+    "crates/asagiri/src/daemon/lifecycle_generation.rs": "72e93216976e1525714b1678ff0dd571dec4082a44646ca004c3967aee701464",
+    "proofs/health-transition.rs": "bd5056c628d5f781ad1e2458540b7965052c8c884d7213b44a27b2db1e9497f9",
+    "proofs/http-number-invalid.txt": "944d7fae23ef6a9898e292f499745cee6efbeb139c50a91c09db302bfc272631",
+    "proofs/http-number-loop.txt": "30872624570cb4ffad11f0dbc26b42a23778177efb07556b6da6ff1b2b0795c6",
+    "proofs/http-number-overflow.txt": "9320c4e084b402e462cc98258b29976ce0311bfc84965d128d74c59cc4565a63",
+    "proofs/http-number.rs": "14b008883ac392e6cc62cb59ba450c2869a01078a3f6ca43261955578b3c4f00",
+    "proofs/layer-admission.rs": "bad7b48703cec9478634d460d547097357fee48ffa23f0b25b4b2724abb0041f",
+    "proofs/lifecycle-advance.rs": "33e942a20596375ebbc2f5d86168619491a6a1e73842008b345b7861361c7a86",
+    "proofs/lifecycle-generation.rs": "7198398a3ead62e850a5a94058b71325fd4a867cfbf10b706a1136b557962505",
+    "scripts/ci/verify-ipam.py": "ec78e32b77ca91e447d64e035bab8be0c22b36fa04877c4932e3fc25991b5297",
+    "scripts/ci/verify-runtime.py": "517e849b33e0ce0b745b4d3c18ebdbbe3ab07fe5eb0173d36187b67a8ca28154",
+    "scripts/ci/verus.json": "c193a31706e0f18d8713a37583cb73f5c5d0cb498dd3c88fd1778605048a2cd8"
+  },
+  "verus": "0.2026.11.02.8bf68ee",
+  "verus_commit": "8bf68ee741df833ea5d0fe6a2255126fdea87e47",
+  "no_cheating": true,
+  "contracts": {
+    "lifecycle-advance": {
+      "source": "crates/asagiri/src/daemon/lifecycle_advance.rs",
+      "source_sha256": "9dd1d334ed1e9056cd70c01c2a75f41b2f73e81318064d3fd95455a856996828",
+      "executable_body_sha256": "806926f69cc3239c80294c15510b360119d2c2e13c235bdcc586773540cd93d1",
+      "template_sha256": "33e942a20596375ebbc2f5d86168619491a6a1e73842008b345b7861361c7a86",
+      "annotation_sha256": {},
+      "generated_sha256": "b84da6dfcee8ced5e7a85f364460c15a7ee01d0dd5f7069923009fcc1528fe63",
+      "negative_controls": {
+        "retain-token": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied",
+            "postcondition not satisfied"
+          ]
+        },
+        "skip-wrap": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "possible arithmetic underflow/overflow"
+          ]
+        }
+      },
+      "production": {
+        "encountered-error": false,
+        "encountered-vir-error": false,
+        "success": true,
+        "verified": 2,
+        "errors": 0,
+        "is-verifying-entire-crate": true,
+        "error_diagnostics": []
+      }
+    },
+    "lifecycle-generation": {
+      "source": "crates/asagiri/src/daemon/lifecycle_generation.rs",
+      "source_sha256": "72e93216976e1525714b1678ff0dd571dec4082a44646ca004c3967aee701464",
+      "executable_body_sha256": "f0a5af07f2a574b5a464ebefb4073f73c1cd5cb22913551139126d139709ca64",
+      "template_sha256": "7198398a3ead62e850a5a94058b71325fd4a867cfbf10b706a1136b557962505",
+      "annotation_sha256": {},
+      "generated_sha256": "dcc8cb644820327b3d53ef9b38b4ba2258aa2a373a2f2a607d576347f15683c5",
+      "negative_controls": {
+        "accept-stale": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "reject-current": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        }
+      },
+      "production": {
+        "encountered-error": false,
+        "encountered-vir-error": false,
+        "success": true,
+        "verified": 2,
+        "errors": 0,
+        "is-verifying-entire-crate": true,
+        "error_diagnostics": []
+      }
+    },
+    "layer-admission": {
+      "source": "crates/asagiri/src/daemon/layer_admission.rs",
+      "source_sha256": "485280bd3722964de017853e900a86dddd994b564650f92880b10d1812433f59",
+      "executable_body_sha256": "c4c65a13f3f2eaee2dfc25c12cfcec3782b7ebf80cefde2a616b3250ce4893bf",
+      "template_sha256": "bad7b48703cec9478634d460d547097357fee48ffa23f0b25b4b2724abb0041f",
+      "annotation_sha256": {},
+      "generated_sha256": "0a89b48b93c9ae56d9a61320e234863a2b170a72a0e0f009e2808040e5268f53",
+      "negative_controls": {
+        "ignore-cancellation": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "ignore-digest-owner": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "exceed-capacity": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied",
+            "possible arithmetic underflow/overflow"
+          ]
+        },
+        "uncounted-permit": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "release-empty": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "possible arithmetic underflow/overflow"
+          ]
+        },
+        "accept-invalid-count": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied",
+            "postcondition not satisfied",
+            "possible arithmetic underflow/overflow"
+          ]
+        }
+      },
+      "production": {
+        "encountered-error": false,
+        "encountered-vir-error": false,
+        "success": true,
+        "verified": 2,
+        "errors": 0,
+        "is-verifying-entire-crate": true,
+        "error_diagnostics": []
+      }
+    },
+    "health-transition": {
+      "source": "crates/asagiri/src/daemon/health_transition.rs",
+      "source_sha256": "d4eab713fb43c41a17f9577b4adc030c202184fe69e663ada5c4d01e330025bb",
+      "executable_body_sha256": "1f79254ad6b119a8217e91a2225a0b9b8d53c780069eda02ba14315165f81180",
+      "template_sha256": "bd5056c628d5f781ad1e2458540b7965052c8c884d7213b44a27b2db1e9497f9",
+      "annotation_sha256": {},
+      "generated_sha256": "d14a88f64d81e8d721d15838ea8c0a2eba700d1b0183fa4d57a811b7a5fa25f3",
+      "negative_controls": {
+        "overflow-streak": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "possible arithmetic underflow/overflow"
+          ]
+        },
+        "skip-failure": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "delay-unhealthy": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "success-keeps-streak": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "extend-grace": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "include-grace-end": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "negative-exit-is-success": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied",
+            "postcondition not satisfied"
+          ]
+        },
+        "failure-reports-healthy": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 1,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        }
+      },
+      "production": {
+        "encountered-error": false,
+        "encountered-vir-error": false,
+        "success": true,
+        "verified": 2,
+        "errors": 0,
+        "is-verifying-entire-crate": true,
+        "error_diagnostics": []
+      }
+    },
+    "http-number": {
+      "source": "crates/asagiri/src/daemon/http_number.rs",
+      "source_sha256": "8c49c493d1dc7e1f54e8c31c9aea0376538fb4509e33118a779223d797e7d5a0",
+      "executable_body_sha256": "665caf2f9a2b9db841a54e96d38383c82009ec2c8b49b719065715b1c1fecbc9",
+      "template_sha256": "14b008883ac392e6cc62cb59ba450c2869a01078a3f6ca43261955578b3c4f00",
+      "annotation_sha256": {
+        "proofs/http-number-loop.txt": "30872624570cb4ffad11f0dbc26b42a23778177efb07556b6da6ff1b2b0795c6",
+        "proofs/http-number-invalid.txt": "944d7fae23ef6a9898e292f499745cee6efbeb139c50a91c09db302bfc272631",
+        "proofs/http-number-overflow.txt": "9320c4e084b402e462cc98258b29976ce0311bfc84965d128d74c59cc4565a63"
+      },
+      "generated_sha256": "91f1656029495ad2f9e14461f0c93bc45ca202ad3d63a5455ed4f1cfdadaa044",
+      "negative_controls": {
+        "accept-empty": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "postcondition not satisfied"
+          ]
+        },
+        "accept-invalid-digit": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "invariant not satisfied at end of loop body"
+          ]
+        },
+        "ignore-overflow": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "invariant not satisfied at end of loop body"
+          ]
+        },
+        "hexadecimal-base-ten": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "invariant not satisfied before loop"
+          ]
+        },
+        "uppercase-off-by-one": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "invariant not satisfied at end of loop body",
+            "assertion failed"
+          ]
+        },
+        "skip-digit": {
+          "encountered-error": true,
+          "encountered-vir-error": false,
+          "success": false,
+          "verified": 6,
+          "errors": 1,
+          "is-verifying-entire-crate": true,
+          "error_diagnostics": [
+            "invariant not satisfied at end of loop body"
+          ]
+        }
+      },
+      "production": {
+        "encountered-error": false,
+        "encountered-vir-error": false,
+        "success": true,
+        "verified": 7,
+        "errors": 0,
+        "is-verifying-entire-crate": true,
+        "error_diagnostics": []
+      }
+    }
+  },
+  "status": "passed",
+  "source_state_after_read": {
+    "source_commit": "4a89c2fa5deb4c4b758eac04b35e37edd971c9c0",
+    "worktree_clean": true,
+    "worktree_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "proof_input_sha256": {
+      "crates/asagiri/src/daemon/health_transition.rs": "d4eab713fb43c41a17f9577b4adc030c202184fe69e663ada5c4d01e330025bb",
+      "crates/asagiri/src/daemon/http_number.rs": "8c49c493d1dc7e1f54e8c31c9aea0376538fb4509e33118a779223d797e7d5a0",
+      "crates/asagiri/src/daemon/layer_admission.rs": "485280bd3722964de017853e900a86dddd994b564650f92880b10d1812433f59",
+      "crates/asagiri/src/daemon/lifecycle_advance.rs": "9dd1d334ed1e9056cd70c01c2a75f41b2f73e81318064d3fd95455a856996828",
+      "crates/asagiri/src/daemon/lifecycle_generation.rs": "72e93216976e1525714b1678ff0dd571dec4082a44646ca004c3967aee701464",
+      "proofs/health-transition.rs": "bd5056c628d5f781ad1e2458540b7965052c8c884d7213b44a27b2db1e9497f9",
+      "proofs/http-number-invalid.txt": "944d7fae23ef6a9898e292f499745cee6efbeb139c50a91c09db302bfc272631",
+      "proofs/http-number-loop.txt": "30872624570cb4ffad11f0dbc26b42a23778177efb07556b6da6ff1b2b0795c6",
+      "proofs/http-number-overflow.txt": "9320c4e084b402e462cc98258b29976ce0311bfc84965d128d74c59cc4565a63",
+      "proofs/http-number.rs": "14b008883ac392e6cc62cb59ba450c2869a01078a3f6ca43261955578b3c4f00",
+      "proofs/layer-admission.rs": "bad7b48703cec9478634d460d547097357fee48ffa23f0b25b4b2724abb0041f",
+      "proofs/lifecycle-advance.rs": "33e942a20596375ebbc2f5d86168619491a6a1e73842008b345b7861361c7a86",
+      "proofs/lifecycle-generation.rs": "7198398a3ead62e850a5a94058b71325fd4a867cfbf10b706a1136b557962505",
+      "scripts/ci/verify-ipam.py": "ec78e32b77ca91e447d64e035bab8be0c22b36fa04877c4932e3fc25991b5297",
+      "scripts/ci/verify-runtime.py": "517e849b33e0ce0b745b4d3c18ebdbbe3ab07fe5eb0173d36187b67a8ca28154",
+      "scripts/ci/verus.json": "c193a31706e0f18d8713a37583cb73f5c5d0cb498dd3c88fd1778605048a2cd8"
+    }
+  },
+  "verus_archive": {
+    "platform": "x86-linux",
+    "sha256": "f3a0119292df8855e4435da8130bee1873b0e6a60c306accf81a08ea687bba3c",
+    "bytes": 36022359
+  },
+  "source_state_after_proof": {
+    "source_commit": "4a89c2fa5deb4c4b758eac04b35e37edd971c9c0",
+    "worktree_clean": true,
+    "worktree_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "proof_input_sha256": {
+      "crates/asagiri/src/daemon/health_transition.rs": "d4eab713fb43c41a17f9577b4adc030c202184fe69e663ada5c4d01e330025bb",
+      "crates/asagiri/src/daemon/http_number.rs": "8c49c493d1dc7e1f54e8c31c9aea0376538fb4509e33118a779223d797e7d5a0",
+      "crates/asagiri/src/daemon/layer_admission.rs": "485280bd3722964de017853e900a86dddd994b564650f92880b10d1812433f59",
+      "crates/asagiri/src/daemon/lifecycle_advance.rs": "9dd1d334ed1e9056cd70c01c2a75f41b2f73e81318064d3fd95455a856996828",
+      "crates/asagiri/src/daemon/lifecycle_generation.rs": "72e93216976e1525714b1678ff0dd571dec4082a44646ca004c3967aee701464",
+      "proofs/health-transition.rs": "bd5056c628d5f781ad1e2458540b7965052c8c884d7213b44a27b2db1e9497f9",
+      "proofs/http-number-invalid.txt": "944d7fae23ef6a9898e292f499745cee6efbeb139c50a91c09db302bfc272631",
+      "proofs/http-number-loop.txt": "30872624570cb4ffad11f0dbc26b42a23778177efb07556b6da6ff1b2b0795c6",
+      "proofs/http-number-overflow.txt": "9320c4e084b402e462cc98258b29976ce0311bfc84965d128d74c59cc4565a63",
+      "proofs/http-number.rs": "14b008883ac392e6cc62cb59ba450c2869a01078a3f6ca43261955578b3c4f00",
+      "proofs/layer-admission.rs": "bad7b48703cec9478634d460d547097357fee48ffa23f0b25b4b2724abb0041f",
+      "proofs/lifecycle-advance.rs": "33e942a20596375ebbc2f5d86168619491a6a1e73842008b345b7861361c7a86",
+      "proofs/lifecycle-generation.rs": "7198398a3ead62e850a5a94058b71325fd4a867cfbf10b706a1136b557962505",
+      "scripts/ci/verify-ipam.py": "ec78e32b77ca91e447d64e035bab8be0c22b36fa04877c4932e3fc25991b5297",
+      "scripts/ci/verify-runtime.py": "517e849b33e0ce0b745b4d3c18ebdbbe3ab07fe5eb0173d36187b67a8ca28154",
+      "scripts/ci/verus.json": "c193a31706e0f18d8713a37583cb73f5c5d0cb498dd3c88fd1778605048a2cd8"
+    }
+  },
+  "completed_at": "2026-11-20T09:24:11.512666+00:00"
+}

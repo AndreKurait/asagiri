@@ -2,27 +2,24 @@
 
 GitHub snapshot for `AndreKurait/asagiri` on 2026-11-20. See the [implementation roadmap](implementation-roadmap.md) for sequencing and qualification evidence.
 
-## Open pull requests (15)
+## Open pull requests (14)
 
-GitHub reported `BLOCKED` for all 15 PRs when checked on November 20.
+- [#307](https://github.com/AndreKurait/asagiri/pull/307) Exercise WebView2 cleanup on native Windows (BLOCKED, auto-merge enabled)
+- [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal (BLOCKED, auto-merge enabled)
+- [#288](https://github.com/AndreKurait/asagiri/pull/288) Flag unusually long short translations in changed locales (BLOCKED, auto-merge enabled)
+- [#289](https://github.com/AndreKurait/asagiri/pull/289) Add Serbian Latin to the desktop and installer (BLOCKED, auto-merge enabled)
+- [#292](https://github.com/AndreKurait/asagiri/pull/292) Prove arbitrary HTTP number padding and retire sampled value tests (BLOCKED, auto-merge enabled)
+- [#294](https://github.com/AndreKurait/asagiri/pull/294) Support OCI image layout archives in docker load (BLOCKED, auto-merge enabled)
+- [#295](https://github.com/AndreKurait/asagiri/pull/295) Verify the identity of each Pages publication (BLOCKED, auto-merge enabled)
+- [#298](https://github.com/AndreKurait/asagiri/pull/298) Expand Docker reference coverage for mixed none networks (BLOCKED, auto-merge enabled)
+- [#299](https://github.com/AndreKurait/asagiri/pull/299) Verify container lifecycle generation checks (BLOCKED, auto-merge enabled)
+- [#300](https://github.com/AndreKurait/asagiri/pull/300) Refresh embedded DNS after container rename (BLOCKED, auto-merge enabled)
+- [#302](https://github.com/AndreKurait/asagiri/pull/302) Retire sampled address-gap checks covered by Verus (BLOCKED, auto-merge enabled)
+- [#303](https://github.com/AndreKurait/asagiri/pull/303) Verify default bridge reachability when Docker starts first (BLOCKED, auto-merge enabled)
+- [#305](https://github.com/AndreKurait/asagiri/pull/305) Record roadmap queue and merged-main proof evidence (BLOCKED, auto-merge enabled)
+- [#306](https://github.com/AndreKurait/asagiri/pull/306) Add an Arch desktop package recipe (draft, BEHIND)
 
-- [#284](https://github.com/AndreKurait/asagiri/pull/284) Support volumes-from and preserve shared anonymous volumes
-- [#287](https://github.com/AndreKurait/asagiri/pull/287) Handle repeated container actions and build history removal
-- [#288](https://github.com/AndreKurait/asagiri/pull/288) Flag unusually long short translations in changed locales
-- [#289](https://github.com/AndreKurait/asagiri/pull/289) Add Serbian Latin to the desktop and installer
-- [#291](https://github.com/AndreKurait/asagiri/pull/291) Verify health probe exit codes and the startup grace boundary
-- [#292](https://github.com/AndreKurait/asagiri/pull/292) Prove arbitrary HTTP number padding and retire sampled value tests
-- [#294](https://github.com/AndreKurait/asagiri/pull/294) Support OCI image layout archives in docker load
-- [#295](https://github.com/AndreKurait/asagiri/pull/295) Verify the identity of each Pages publication
-- [#297](https://github.com/AndreKurait/asagiri/pull/297) Track the Asagiri implementation roadmap
-- [#298](https://github.com/AndreKurait/asagiri/pull/298) Expand Docker reference coverage for mixed none networks
-- [#299](https://github.com/AndreKurait/asagiri/pull/299) Verify container lifecycle generation checks
-- [#300](https://github.com/AndreKurait/asagiri/pull/300) Refresh embedded DNS after container rename
-- [#301](https://github.com/AndreKurait/asagiri/pull/301) Serve Windows desktop documents from memory
-- [#302](https://github.com/AndreKurait/asagiri/pull/302) Retire sampled address-gap checks covered by Verus
-- [#303](https://github.com/AndreKurait/asagiri/pull/303) Verify default bridge reachability when Docker starts first
-
-## Open issues (177)
+## Open issues (176)
 
 - [#78](https://github.com/AndreKurait/asagiri/issues/78) Track Kiri compatibility and expanded Verus verification
 - [#80](https://github.com/AndreKurait/asagiri/issues/80) Verify HTTP framing, connection closure, and numeric parsing with Verus
@@ -195,14 +192,13 @@ GitHub reported `BLOCKED` for all 15 PRs when checked on November 20.
 - [#266](https://github.com/AndreKurait/asagiri/issues/266) Verify and fix gzip-compressed docker load (Kiri #528)
 - [#267](https://github.com/AndreKurait/asagiri/issues/267) Define supported behavior when the host blocks clone3 (Kiri #529)
 - [#268](https://github.com/AndreKurait/asagiri/issues/268) Review and qualify an Arch desktop package (Kiri PR #526)
-- [#269](https://github.com/AndreKurait/asagiri/issues/269) Define a self-contained headless Linux package (Kiri #532)
 - [#274](https://github.com/AndreKurait/asagiri/issues/274) Verify download consistency during same-source Pages refreshes
 - [#275](https://github.com/AndreKurait/asagiri/issues/275) Measure native Mac networking and file sharing before kernel-bypass work
 - [#280](https://github.com/AndreKurait/asagiri/issues/280) Verify and port the nine reports covered by Kiri Docker compatibility PR 588
 - [#285](https://github.com/AndreKurait/asagiri/issues/285) Verify Kiri #587: Kiri doesn't render UI
 - [#286](https://github.com/AndreKurait/asagiri/issues/286) Verify Kiri #586: Windows terminal loses input focus during refresh
 
-## Merged pull requests from the roadmap queue (6)
+## Merged pull requests from the roadmap queue (10)
 
 - [#281](https://github.com/AndreKurait/asagiri/pull/281) Support Docker top process formats and memory columns
 - [#282](https://github.com/AndreKurait/asagiri/pull/282) Include unpublished exposed ports in running endpoint inspection
@@ -210,10 +206,14 @@ GitHub reported `BLOCKED` for all 15 PRs when checked on November 20.
 - [#290](https://github.com/AndreKurait/asagiri/pull/290) Remove the per-person pull request limit
 - [#293](https://github.com/AndreKurait/asagiri/pull/293) Accept streamed gzip archives on image load
 - [#296](https://github.com/AndreKurait/asagiri/pull/296) Verify Docker exec inspection after VM loss
+- [#297](https://github.com/AndreKurait/asagiri/pull/297) Track the Asagiri implementation roadmap
+- [#304](https://github.com/AndreKurait/asagiri/pull/304) Record roadmap verification follow-up (`c9179f64`)
+- [#291](https://github.com/AndreKurait/asagiri/pull/291) Verify health probe exit codes and the startup grace boundary
+- [#301](https://github.com/AndreKurait/asagiri/pull/301) Serve Windows setup and desktop documents from memory
 
 ## Remaining roadmap work
 
-- Restore PRs closed solely by the quota bot where their changes still need review. Track restored or superseded PRs in the implementation roadmap.
+- Restored PR #284 merged as `66e7523`. Merged-main platform run `44691804940` is queued. Follow #287 and #289 through merge. The quota audit is recorded in the implementation roadmap.
 - Resolve CI failures and merge the remaining review queue.
 - Qualify and resolve open issues, keeping active roadmap items open.
 - Finish HTTP framing and lifecycle ownership proofs tracked in #80 and #81. Continue through the production paths listed in the implementation roadmap.
@@ -221,7 +221,14 @@ GitHub reported `BLOCKED` for all 15 PRs when checked on November 20.
 
 ## Immediate follow-ups
 
-- Retry the macOS job for PR #300 after platform run `44665123025` reaches a terminal state. Both registry mirror failures from hosted job `136052427279` passed locally on exact PR head `f6a7db3d` as part of the locked image crate suite (88 unit and six integration tests passed). Investigate runner-specific conditions if the failures recur.
-- Record the mixed-network compatibility decision in #265 using the 11 live cases from PR #298.
-- Collect PR #303’s hosted Docker-first bridge evidence. Staging signed Alpine packages let the local fixture pass package installation. It then stopped during host inspection because the local Asagiri daemon omitted `CgroupnsMode`. Gateway reachability still needs a run on a Docker host.
-- After merging the proof PRs, verify their obligations on `main` and recount unit tests by crate.
+- PR #291 verified two health-transition obligations and rejected eight negative controls in run `44680092183`. PR #299 verified four lifecycle obligations and rejected four negative controls in run `44679790364`. Hosted run `44686573236` also verified all four obligations on test merge `df31fcbe`. PR #291 merged as `04dfe1a`. It removed two unit tests. The source count of `#[test]` and `#[tokio::test]` declarations in `crates/asagiri` fell from 666 to 664 across the merge. The normal runtime verifier passed locally on clean merged commit `04dfe1a`, verifying two health-transition obligations and rejecting all eight negative controls. The `runtime-proof-X64` artifact from hosted Linux run `44686355712` confirms the same result on `04dfe1a`. Merged-main verification of #299 remains pending.
+
+- PR #292’s hosted test merge `44c31f1e` verified seven HTTP number parsing obligations and rejected six negative controls in run `44686466168`. The PR removes one Rust test declaration. Finish required checks and verify on merged `main`.
+
+- Finish the platform checks and merge the ready PRs in the queue above. Check #287 speed run `44679797226` and #288 Docker reference run `44679901363` before retrying either.
+- Finish issue #236 qualification after #307 merges. Native Windows job `136122423289` passed the WebView2 regression, including the assertion that replacing the document releases the previous page. Confirm the cleanup regression on merged `main`.
+- Finish hosted CI for #302. Local Verus on clean head `b924676b` verified three IPAM obligations and rejected six negative controls. Hosted run `44686586855` also verified all three obligations on test merge `668e997d`. The PR replaces 262,144 sampled address-gap cases and three boundary examples. The test declaration count stays unchanged because the rewritten test still checks iterator merging, duplicate preservation, and early termination. Recheck on merged `main`.
+- Resolve #303’s guest startup failure before collecting Docker-first gateway reachability evidence. The ARM64 guest reported `ENOTSUP` during cgroup migration. The hosted x64 guest also failed to start.
+- Finish Arch packaging for #268 in draft #306. Hosted run `44682701256` failed to link `ring`. Run `44684998339` passed the hosted package smoke job with the makepkg LTO fix. Hosted run `44686520887` confirmed that a test file in the user data directory survived upgrade and removal. Preservation of real container data and Wayland launch still need qualification. The source integrity check accepted the original archive and rejected the modified one.
+- Qualify mixed-network behavior on merged source for #265, including explicit rejection when the engine cannot preserve the requested attachments.
+- Finish native Windows CLI and bridge qualification for #266 using merged PR #293. The fixed ARM64 engine passed ten live image-load cases, including tag preservation after corrupt input.

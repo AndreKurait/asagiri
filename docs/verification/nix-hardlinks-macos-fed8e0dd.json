@@ -1,0 +1,113 @@
+{
+  "schema": "asagiri.nix-hardlinks.v2",
+  "status": "passed with patched guest",
+  "case": 195,
+  "upstream_issue": "libracoder/kiri#409",
+  "related_upstream": [
+    "libracoder/kiri#398",
+    "libracoder/kiri#322"
+  ],
+  "host": "26.7.3 ARM64",
+  "host_release": "v0.1.14-dev.152",
+  "original_source": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "baseline": {
+    "command": "docker load -i <reported archive>",
+    "exit": 1,
+    "failure": "layer upload failed to unpack bin/hl",
+    "layer_digest": "23940b6fdae3e4747ca0fc1a03a1dd6b0a4bc8209a1c0cae9229ecf10b5cce8a",
+    "supabase_image": {
+      "image": "supabase/postgres:15.8.1.085",
+      "platform": "linux/arm64",
+      "host_release": "v0.1.14-dev.152",
+      "baseline_error": "layer upload: failed to unpack `/var/lib/asagiri/layers/.tmp-9924014064b069be4612c4ccd625a2df71b5626a5fabd7ac9c053edfd45bb81f/nix/store/275h385vig1sqzaf3a098ywm5vdbnvqv-user-environment/manifest.nix`",
+      "outcome": "reproduced"
+    }
+  },
+  "patched_guest": {
+    "source_base": "43af0e694b0a5b4f2b47501c66c0ed874f8682b4",
+    "published_pr": 313,
+    "published_pr_head": "fed8e0ddd21a737cd16a0312c451bb26d497ef56",
+    "matching_runtime_change": "PR base refresh changed the separate virtiofs kernel patch and its tests. The runtime layer extractor is identical to the one built for this check.",
+    "build": "cargo xtask guest --arch arm64",
+    "initramfs_sha256": "76fb25f8c88920cf756833fa6b5708b8ad37701168a6c66a18e946108bee54e1",
+    "exact_pr_build": "Rebuilding the published PR head produced a byte-for-byte identical initramfs."
+  },
+  "archive": {
+    "commands": [
+      "docker load -i <reported archive>",
+      "docker create --network none <fixture image>",
+      "docker export <fixture container>"
+    ],
+    "outcome": "passed",
+    "export_symlinks": {
+      "bin/sym": "/bin/real",
+      "bin/hl": "/bin/real"
+    }
+  },
+  "images": [
+    {
+      "image": "supabase/postgres:15.8.1.085",
+      "platform": "linux/arm64",
+      "image_id_prefix": "a5a0c2b809d5",
+      "stat_and_version": "symbolic link 2\npostgres (PostgreSQL) 15.8",
+      "outcome": "passed"
+    },
+    {
+      "image": "supabase/postgres:15.8.1.060",
+      "platform": "linux/arm64",
+      "host_release": "v0.1.14-dev.152",
+      "image_id": "sha256:7e1559c037c21858d742e67feff91546df91ecf57a15ca59d4349867d138fd48",
+      "registry_digests": [
+        "supabase/postgres@sha256:0e2279598bc0224fb5960c3a61eb23270cd60119427f3a7bdec86ba282600dcc"
+      ],
+      "stat_and_version": "symbolic link 2 3156760\npostgres (PostgreSQL) 15.8",
+      "outcome": "passed"
+    },
+    {
+      "image": "public.ecr.aws/supabase/postgres:17.4.1.074",
+      "platform": "linux/arm64",
+      "host_release": "v0.1.14-dev.152",
+      "image_id": "sha256:7c642451c7f362982d352cc08496861bb38c6c45f6490085cfc1905fdb951704",
+      "registry_digests": [
+        "public.ecr.aws/supabase/postgres@sha256:dc436b5b4ebeb0f3bdf6d8dda2b390cc094e14d24cd434d5fe02840459e67670"
+      ],
+      "stat_and_version": "symbolic link 2 3156452\npostgres (PostgreSQL) 17.4",
+      "outcome": "passed"
+    }
+  ],
+  "image_commands": [
+    "docker pull --platform linux/arm64 <image>",
+    "docker create --network none --entrypoint sh <image> -ec <manifest stat and postgres --version>",
+    "docker start -a <container>"
+  ],
+  "extractor_tests": {
+    "command": "cargo test --locked -p asagiri-init --bin asagiri-init layer_tar::tests",
+    "passed": 8
+  },
+  "retry": "The first sequential attempt encountered EIO for 15.8.1.060 and ENOSPC for 17.4.1.074. Both passed when each run used a separate disposable VM and cache.",
+  "limits": "Merge and verification on a published release are pending. The complete Supabase stack was outside the image extraction and PostgreSQL checks.",
+  "postgres_service": {
+    "image": "public.ecr.aws/supabase/postgres:17.4.1.074",
+    "platform": "linux/arm64",
+    "host_release": "v0.1.14-dev.152",
+    "image_id": "sha256:7c642451c7f362982d352cc08496861bb38c6c45f6490085cfc1905fdb951704",
+    "registry_digests": [
+      "public.ecr.aws/supabase/postgres@sha256:dc436b5b4ebeb0f3bdf6d8dda2b390cc094e14d24cd434d5fe02840459e67670"
+    ],
+    "stat_and_version": "symbolic link 2 3156452\npostgres (PostgreSQL) 17.4",
+    "image_entrypoint": [
+      "docker-entrypoint.sh"
+    ],
+    "image_command": [
+      "postgres",
+      "-D",
+      "/etc/postgresql"
+    ],
+    "postgres_ready": "/run/postgresql:5432 - accepting connections",
+    "sql_answer": "195",
+    "outcome": "passed",
+    "network": "none",
+    "data": "disposable tmpfs",
+    "sql": "CREATE TEMP TABLE roadmap_check (n int); INSERT INTO roadmap_check VALUES (195); SELECT n FROM roadmap_check;"
+  }
+}

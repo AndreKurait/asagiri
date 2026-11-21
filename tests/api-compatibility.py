@@ -183,12 +183,21 @@ def check(args):
                 start(cid)
                 assert call("POST", "/containers/" + cid + "/wait")["StatusCode"] == 0
                 assert set(inspect(cid)["NetworkSettings"]["Networks"]) == {special}
-            for index, (mode, endpoints) in enumerate((
+            mixed_cases = (
                 (None, {special: {}, net: {}}),
                 ("default", {special_id: {}, net_id: {}}),
                 (special, {net: {}}),
                 (net_id, {special_id: {}}),
-            )):
+            )
+            if special == "none":
+                mixed_cases = tuple(
+                    (mode, {special_key: {}, custom_key: {}})
+                    for mode in (None, "default", special, special_id, net, net_id)
+                    for special_key in (special, special_id)
+                    for custom_key in (net, net_id)
+                ) + mixed_cases[2:]
+                mixed_cases *= 2
+            for index, (mode, endpoints) in enumerate(mixed_cases):
                 name = special + "-mixed-" + str(index)
                 volume = prefix + "-" + name + "-volume"
                 call("GET", "/volumes/" + volume, statuses=(404,))

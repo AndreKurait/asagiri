@@ -971,8 +971,8 @@ mod tests {
         }
     }
 
-    /// The next navigation's end: whether it succeeded, or None if none ended.
-    fn completed(wv: &ICoreWebView2, secs: u64, start: impl FnOnce()) -> Option<bool> {
+    /// The next navigation's ID and result, or None if none ended.
+    fn completion(wv: &ICoreWebView2, secs: u64, start: impl FnOnce()) -> Option<(u64, bool)> {
         let (tx, rx) = mpsc::channel();
         let mut token = 0;
         // SAFETY: a live webview, on this thread.
@@ -981,9 +981,11 @@ mod tests {
                 &NavigationCompletedEventHandler::create(Box::new(move |_, args: Option<ICoreWebView2NavigationCompletedEventArgs>| {
                     let mut ok = windows::core::BOOL::default();
                     if let Some(a) = args {
+                        let mut id = 0;
+                        a.NavigationId(&mut id)?;
                         a.IsSuccess(&mut ok)?;
+                        let _ = tx.send((id, ok.as_bool()));
                     }
-                    let _ = tx.send(ok.as_bool());
                     Ok(())
                 })),
                 &mut token,
@@ -994,6 +996,10 @@ mod tests {
             wv.remove_NavigationCompleted(token).unwrap();
             r
         }
+    }
+
+    fn completed(wv: &ICoreWebView2, secs: u64, start: impl FnOnce()) -> Option<bool> {
+        completion(wv, secs, start).map(|(_, success)| success)
     }
 
     fn eval(wv: &ICoreWebView2, js: &str) -> String {
@@ -1051,13 +1057,26 @@ mod tests {
         let source = pump(&rx, 10).expect("no message from the page");
         assert!(crate::page::from_page(&source), "a message from {source}");
         assert_eq!(eval(&wv, "isSecureContext"), "true");
+        assert_eq!(eval(&wv, "(() => {
+            const base = document.createElement('base');
+            base.href = new URL('/csp-test/', location.href);
+            document.head.prepend(base);
+            const blocked = document.baseURI === location.href;
+            base.remove();
+            return blocked;
+        })()"), "true", "WebView2 accepted a base URL forbidden by the response CSP");
         // Nothing else on the host.
         let status = |path: &str| eval(&wv, &format!("(() => {{ const x = new XMLHttpRequest(); x.open('GET', '{path}', false); x.send(); return x.status; }})()"));
         assert_eq!(status("/favicon.ico"), "404");
         assert_eq!(status("/?again"), "404");
         // Navigating away is refused, and the page stays.
         let external = || { eval(&wv, "location.href = 'https://example.com/'"); };
-        assert_ne!(completed(&wv, 10, external), Some(true), "the window left the page");
+        let latest = LATEST.get();
+        let (cancelled, success) = completion(&wv, 10, external).expect("no completion for cancelled navigation");
+        assert_ne!(cancelled, latest);
+        assert!(!success, "the window left the page");
+        assert_eq!(LATEST.get(), latest);
+        assert!(!SHOWING_ERROR.get(), "a stale completion replaced the current document");
         assert_eq!(eval(&wv, "location.href"), format!("\"{}\"", crate::page::PAGE_URL));
         // A failure shows its reason, not a blank window.
         unsafe { wv.remove_WebMessageReceived(token).unwrap(); }
@@ -1070,6 +1089,17 @@ mod tests {
                 assert_eq!(eval(&wv, &format!("document.querySelector('{selector}').getBoundingClientRect().width > 0")), "true", "{tag} {selector}");
             }
         }
+        let setup = crate::assemble::words(SETUP_PAGE, Some("en"));
+        assert_eq!(completed(&wv, 15, || load(&wv, setup)), Some(true));
+        assert_eq!(eval(&wv, "!!document.querySelector('#steps')"), "true");
+        assert_eq!(eval(&wv, "window.asagiriReloadProbe = true"), "true");
+        // SAFETY: reload the setup document on its WebView2 thread.
+        assert_eq!(completed(&wv, 15, || unsafe { wv.Reload().unwrap() }), Some(true));
+        assert_eq!(eval(&wv, "!!document.querySelector('#steps') && !window.asagiriReloadProbe"), "true");
+        let desktop = crate::assemble::page(PAGE, Some("en"));
+        assert_eq!(completed(&wv, 15, || load(&wv, desktop)), Some(true));
+        assert_eq!(eval(&wv, "!!document.querySelector('#strip') && !document.querySelector('#steps')"), "true");
+        println!("Reloaded setup and opened desktop; ignored cancelled navigation {cancelled}");
         let previous = SERVED.with(|page| Rc::downgrade(&page.borrow()));
         assert_eq!(completed(&wv, 15, || load(&wv, "<html>Replacement</html>".into())), Some(true));
         assert!(eval(&wv, "document.body.innerText").contains("Replacement"));

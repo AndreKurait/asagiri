@@ -737,15 +737,48 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
     Ok(Next::Close)
 }
 
+fn parse_load_platform(value: &str) -> Option<Platform> {
+    if !value.trim_start().starts_with('{') {
+        return Platform::parse(value);
+    }
+    #[derive(serde::Deserialize)]
+    struct LoadPlatform {
+        os: String,
+        architecture: String,
+        variant: Option<String>,
+    }
+    let platform: LoadPlatform = serde_json::from_str(value).ok()?;
+    if platform.os.contains('/') || platform.architecture.contains('/') {
+        return None;
+    }
+    let mut parsed = Platform::parse(&format!("{}/{}", platform.os, platform.architecture))?;
+    parsed.variant = match platform.variant.as_deref() {
+        Some(variant) if variant.contains('/') => return None,
+        Some("") | None => None,
+        Some(variant) => Some(variant.to_owned()),
+    };
+    Some(parsed)
+}
+
 /// `docker load`: store the archive and prepare its layers before reporting success.
 fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    let platform = match req.query("platform").filter(|value| !value.is_empty()) {
+        Some(value) => match parse_load_platform(value) {
+            Some(platform) => Some(platform),
+            None => {
+                error_with(w, Error::BadRequest(format!("invalid platform: {value}")), "Connection: close\r\n")?;
+                return Ok(Next::Close);
+            }
+        },
+        None => None,
+    };
     use std::io::Read;
     let mut body = http::Body::new(req, r);
     let mut head = Vec::with_capacity(6);
     let loaded = (&mut body).take(6).read_to_end(&mut head)
         .map_err(|e| Error::BadRequest(e.to_string()))
         .and_then(|_| upload_reader(head, body))
-        .and_then(|archive| asagiri_image::archive::load(&engine.store, archive)
+        .and_then(|archive| asagiri_image::archive::load_with_platform(&engine.store, archive, platform.as_ref())
             .map_err(|e| Error::BadRequest(e.to_string())));
     match loaded {
         Ok(images) => {
@@ -1121,7 +1154,7 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     let mut result = client.fetch_with(&engine.store, reference, &wanted, &on_progress, &job.cancel);
     // An image built only for amd64 runs through Rosetta, as on Docker Desktop.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
-        let amd64 = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let amd64 = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         if req.query("platform").is_none_or(str::is_empty) && wanted != amd64 && available.iter().any(|a| a == "linux/amd64") && asagiri_vmm::rosetta_installed() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/amd64 through Rosetta", reference.short())}));
             result = client.fetch_with(&engine.store, reference, &amd64, &on_progress, &job.cancel);
@@ -1129,7 +1162,7 @@ fn run_pull(req: &Request, engine: &Engine, reference: &Reference, job: &super::
     }
     // On an Intel Mac an arm64-only image runs through qemu, when shared in.
     if let Err(asagiri_image::registry::Error::NoPlatform { available, .. }) = &result {
-        let arm64 = Platform { os: "linux".into(), architecture: "arm64".into() };
+        let arm64 = Platform { os: "linux".into(), architecture: "arm64".into(), variant: None };
         if req.query("platform").is_none_or(str::is_empty) && wanted != arm64 && available.iter().any(|a| a == "linux/arm64") && crate::guest::emulator_dir().is_some() {
             line(json!({"status": format!("{} has no {wanted} image; using linux/arm64 through qemu", reference.short())}));
             result = client.fetch_with(&engine.store, reference, &arm64, &on_progress, &job.cancel);

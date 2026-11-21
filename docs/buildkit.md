@@ -57,10 +57,16 @@ docker --context asagiri buildx build --builder asagiri-build \
   --output type=oci,dest=image.tar .
 ```
 
-This writes an OCI archive. Asagiri's `docker load` currently requires a
-Docker image archive containing `manifest.json`; an OCI-only `index.json`
-archive is not accepted. A Docker exporter or `--load` cannot load a
-multi-platform manifest list into Asagiri.
+Load one platform from the OCI archive with a Docker CLI that supports
+`docker image load --platform` (API 1.48 or newer).
+
+```sh
+docker --context asagiri image load --platform linux/arm64 -i image.tar
+```
+
+Loading without `--platform` prefers the engine's architecture when multiple
+variants share the same tag. The tag identifies the selected image. Buildx
+`--load` still uses the builder's Docker exporter.
 
 The local mirror serves locally created names. For a tag pulled from a
 registry, BuildKit resolves that registry's current platform information;

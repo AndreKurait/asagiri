@@ -739,6 +739,12 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(()) => Msg::Ack.encode(&mut out),
                     Err(e) => Msg::Error(&format!("route: {e}")).encode(&mut out),
                 },
+                Ok(Msg::DnsRename { id, bridge, ip, names }) => {
+                    if procs.get(id).is_some_and(|p| p.run.dns_entries.iter().any(|(b, a)| b == bridge && *a == ip)) {
+                        dns.rename(bridge, ip, names);
+                    }
+                    Msg::Ack.encode(&mut out);
+                }
                 Ok(Msg::NetDetach { id, ifname, bridge, ip }) => match running_pid(&procs, id) {
                     Some(pid) => {
                         let num: u32 = ifname.strip_prefix("eth").and_then(|v| v.parse().ok()).unwrap_or(1);

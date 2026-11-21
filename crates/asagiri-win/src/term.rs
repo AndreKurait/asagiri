@@ -523,8 +523,7 @@ mod tests {
         // cmd prints its prompt once it's ready for input.
         output_until(&rx, "w1", ">");
         typed("set /a 40+2 & echo. & echo DONE\r");
-        let (out, _) = output_until(&rx, "w1", "DONE");
-        assert!(out.contains("42"), "{out}");
+        output_until(&rx, "w1", "42");
         typed("exit 7\r");
         let (_, exit) = output_until(&rx, "w1", "\u{0}never");
         assert_eq!(exit.unwrap()["code"], 7);

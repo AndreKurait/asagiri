@@ -93,7 +93,10 @@ def verify_downloads(base):
             text = fetch(urljoin(base, f"downloads/{channel}/macos-{arch}.txt")).decode()
             expected = f"version {version}\nurl {item['archive_url']}\nsha256 {item['archive_sha256']}\n"
             if text != expected:
-                raise SystemExit("The command installer and download page select different Mac builds")
+                raise SystemExit(
+                    f"Mac download mismatch for {channel}/{arch}. "
+                    f"Expected {expected!r}, observed {text[:1024]!r}"
+                )
             for url in (item["url"], item["archive_url"]):
                 if url not in checked:
                     available(url)
@@ -140,6 +143,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base_url")
     parser.add_argument("commit")
+    parser.add_argument("--publication")
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
     base = args.base_url.rstrip("/") + "/"
@@ -148,13 +152,15 @@ def main():
     deadline = time.monotonic() + args.timeout
     while True:
         try:
-            info = json.loads(fetch(urljoin(base, f"deployment.json?commit={args.commit}")))
-            if info.get("commit") == args.commit:
+            info = json.loads(fetch(urljoin(base, f"deployment.json?commit={args.commit}&publication={args.publication or ''}")))
+            if info.get("commit") == args.commit and (
+                args.publication is None or info.get("publication") == args.publication
+            ):
                 break
         except (HTTPError, URLError, TimeoutError, ValueError):
             pass
         if time.monotonic() >= deadline:
-            raise SystemExit(f"Pages did not serve commit {args.commit} within {args.timeout}s")
+            raise SystemExit(f"Pages did not serve commit {args.commit} with publication {args.publication!r} within {args.timeout}s")
         time.sleep(5)
     urls = set()
     pages = ("", "install/", "demo/", "demo/window.html", "performance/")

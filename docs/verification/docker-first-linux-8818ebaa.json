@@ -1,0 +1,100 @@
+{
+  "schema": "asagiri.linux-firewall.v1",
+  "status": "passed",
+  "source_commit": "777ad8c9bcf73224360e6b09d4d1ba148379c6b4",
+  "probe_sha256": "788c00f0a06c8b0401986a988ea5d3e9d56a9ab599cde2ff1726b8f0b8c6d8d6",
+  "network_mode": "docker-first",
+  "kernel": "Linux 7.0.0-1017-azure",
+  "binaries": {
+    "asagiri": "9f0e1386588c181bb982c5c0c84f12d7761fb60facc31bc2ff9405f6afbd022f",
+    "asagiri-init": "481c5a7869bc60f8bfa0b8d415b0e01ea47b7f5b44a9487af61f46837d0321dc"
+  },
+  "checks": [
+    {
+      "name": "Docker can reach its gateway before Asagiri starts",
+      "status": "passed"
+    },
+    {
+      "name": "Both containers can reach their own gateway",
+      "status": "passed",
+      "start": 1,
+      "asagiri_bridge": {
+        "Gateway": "172.19.0.1",
+        "Subnet": "172.19.0.0/16"
+      }
+    },
+    {
+      "name": "Docker retains its bridge and gateway after Asagiri shuts down",
+      "status": "passed",
+      "start": 1,
+      "docker_bridge": {
+        "routes": [
+          {
+            "dst": "172.17.0.0/16",
+            "protocol": "kernel",
+            "scope": "link",
+            "prefsrc": "172.17.0.1",
+            "flags": []
+          }
+        ],
+        "addresses": [
+          {
+            "family": "inet",
+            "local": "172.17.0.1",
+            "prefixlen": 16,
+            "broadcast": "172.17.255.255",
+            "scope": "global",
+            "label": "docker0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      }
+    },
+    {
+      "name": "Both containers can reach their own gateway",
+      "status": "passed",
+      "start": 2,
+      "asagiri_bridge": {
+        "Gateway": "172.19.0.1",
+        "Subnet": "172.19.0.0/16"
+      }
+    },
+    {
+      "name": "Docker retains its bridge and gateway after Asagiri shuts down",
+      "status": "passed",
+      "start": 2,
+      "docker_bridge": {
+        "routes": [
+          {
+            "dst": "172.17.0.0/16",
+            "protocol": "kernel",
+            "scope": "link",
+            "prefsrc": "172.17.0.1",
+            "flags": []
+          }
+        ],
+        "addresses": [
+          {
+            "family": "inet",
+            "local": "172.17.0.1",
+            "prefixlen": 16,
+            "broadcast": "172.17.255.255",
+            "scope": "global",
+            "label": "docker0",
+            "valid_life_time": 4294967295,
+            "preferred_life_time": 4294967295
+          }
+        ]
+      }
+    }
+  ],
+  "private_hosts_removed": true,
+  "private_network_removed": true,
+  "log_sha256": "10d3454be646a2e8bcf902814cc6c32918d896123ee55e711508f81b908596f3",
+  "workflow_run": 44913205714,
+  "job": 136873196108,
+  "pr_head": "e87d07ddc6f9e0ce7e2f99d78e51e9e878ce9c5a",
+  "merged_commit": "8818ebaacacbf36372f854276c166c1cf5a24ec0",
+  "identical_tree": "be5399b488f027c9e9b0958c4e2521967677ac8a"
+}

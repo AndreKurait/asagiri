@@ -1,0 +1,151 @@
+{
+  "schema": "asagiri.native-mac-bind-reload.v1",
+  "status": "partial",
+  "recorded_at": "2026-11-21T05:53:25.469352+00:00",
+  "release": "v0.1.14-dev.152",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "macos": "26.7.3",
+  "host_arch": "arm64",
+  "fixture": {
+    "compose_client": "v5.7.1",
+    "node_image": "node:24-alpine",
+    "node_image_identity": "sha256:9ca3f7b76099c042f1e655ca8936e0a1ccda68b3c74a8a36375428ef76476d4e [\"node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5\"]",
+    "vite": "7.2.2",
+    "vite_lockfile_sha256": "23bffb1ff5a9d81dd77decdd755c8bb284368239d4f03ce21a59cb40c3739394",
+    "compose_yaml": "services:\n  web:\n    image: node:24-alpine\n    network_mode: none\n    working_dir: /app\n    volumes:\n      - .:/app\n    command: [\"node\", \"node_modules/vite/bin/vite.js\", \"--host\", \"127.0.0.1\", \"--clearScreen\", \"false\"]\n",
+    "polling_configured": false,
+    "readiness": "Connected to Vite HMR websocket and verified the initial module over HTTP before changing the host file.",
+    "standalone_watch": "Alpine 3.21 inotifyd - /watched:cwdn with a native Mac folder mounted on /watched."
+  },
+  "watch_events": [
+    "watch-ready",
+    "n\t/watched\tfrom-mac",
+    "c\t/watched\tfrom-mac",
+    "w\t/watched\tfrom-mac",
+    "d\t/watched\tfrom-mac"
+  ],
+  "direct_mac_write": {
+    "exit": 0,
+    "transcript": [
+      "hmr-connected",
+      "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795240366993,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+      "hmr served new source"
+    ],
+    "vite_logs": [
+      "web-1  | ",
+      "web-1  |   VITE v7.2.2  ready in 129 ms",
+      "web-1  | ",
+      "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+      "web-1  | 5:52:47 AM [vite] (client) hmr update /main.js"
+    ],
+    "file_seen_in_container": true
+  },
+  "atomic_mac_replacement": {
+    "exit": 1,
+    "transcript": [
+      "hmr-connected"
+    ],
+    "vite_logs": [
+      "web-1  | ",
+      "web-1  |   VITE v7.2.2  ready in 114 ms",
+      "web-1  | ",
+      "web-1  |   \u279c  Local:   http://127.0.0.1:5173/"
+    ],
+    "file_seen_in_container": true
+  },
+  "first_atomic_replacement_transcript": [
+    "hmr-connected"
+  ],
+  "compose_containers_removed": true,
+  "atomic_mac_replacement_with_fs_watch": {
+    "exit": 1,
+    "transcript": [
+      "hmr-connected"
+    ],
+    "watch_events": [
+      "watch-ready",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app\",\"event\":\"change\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"change\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"rename\",\"name\":\"main.js\"}"
+    ],
+    "vite_logs": [
+      "web-1  | ",
+      "web-1  |   VITE v7.2.2  ready in 142 ms",
+      "web-1  | ",
+      "web-1  |   \u279c  Local:   http://127.0.0.1:5173/"
+    ],
+    "file_seen_in_container": true
+  },
+  "atomic_guest_replacement_control": {
+    "exit": 0,
+    "transcript": [
+      "hmr-connected",
+      "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795240453963,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+      "hmr served new source"
+    ],
+    "watch_events": [
+      "watch-ready",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"change\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"change\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"change\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app/main.js\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js.new\"}",
+      "{\"target\":\"/app\",\"event\":\"rename\",\"name\":\"main.js\"}",
+      "{\"target\":\"/app\",\"event\":\"change\",\"name\":\"main.js\"}"
+    ],
+    "vite_logs": [
+      "web-1  | ",
+      "web-1  |   VITE v7.2.2  ready in 110 ms",
+      "web-1  | ",
+      "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+      "web-1  | 5:54:13 AM [vite] (client) hmr update /main.js"
+    ],
+    "file_seen_in_container": true
+  },
+  "instrumented_atomic_replacement": {
+    "rename": {
+      "exit": 1,
+      "watch_and_stat_log": [
+        "web-1  | watch-stat initial { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-stat initial { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-stat initial { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-raw rename main.js.new /app { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-raw rename main.js /app { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-raw change main.js /app { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-raw change main.js /app/main.js { ino: 67, at: 1795240482266.348, mt: 1795240481984.4714, size: 89 }",
+        "web-1  | watch-raw rename main.js /app/main.js { ino: 84, at: 1795240484810.7678, mt: 1795240484810.948, size: 94 }",
+        "web-1  | watch-raw rename main.js /app/main.js { ino: 84, at: 1795240484810.7678, mt: 1795240484810.948, size: 94 }"
+      ]
+    },
+    "guest-rename": {
+      "exit": 0,
+      "watch_and_stat_log": [
+        "web-1  | watch-stat initial { ino: 84, at: 1795240500869.565, mt: 1795240500865.0132, size: 89 }",
+        "web-1  | watch-stat initial { ino: 84, at: 1795240500869.565, mt: 1795240500865.0132, size: 89 }",
+        "web-1  | watch-stat initial { ino: 84, at: 1795240500869.565, mt: 1795240500865.0132, size: 89 }",
+        "web-1  | watch-raw rename main.js.new /app { ino: 84, at: 1795240500869.565, mt: 1795240500865.0132, size: 89 }",
+        "web-1  | watch-raw change main.js.new /app { ino: 84, at: 1795240500869.565, mt: 1795240500865.0132, size: 89 }",
+        "web-1  | watch-chokidar add /app/main.js.new { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js.new /app { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js /app { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw change main.js /app/main.js { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js.new /app/main.js.new { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js /app/main.js { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js /app/main.js { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-chokidar change /app/main.js { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js.new /app { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw rename main.js /app { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw change main.js /app { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }",
+        "web-1  | watch-raw change main.js /app/main.js { ino: 86, at: 1795240503557.5513, mt: 1795240503554.758, size: 94 }"
+      ]
+    }
+  },
+  "next_check": "Check whether a directory notification after guest metadata revalidation lets watchers recover when the pathname changes inode."
+}
