@@ -1,0 +1,72 @@
+{
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "at": "2026-11-21T06:11:47.918951+00:00",
+  "schema": "asagiri.native-network-connect-dns.v1",
+  "status": "partial",
+  "checks": [
+    {
+      "when": "running",
+      "repeat": 1,
+      "nameserver": "127.0.0.11",
+      "answer": "172.18.0.2"
+    }
+  ],
+  "image": [
+    "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
+  ],
+  "api_fixture": {
+    "status": 0,
+    "stdout": "PASS a container on the default bridge resolves the network it joins\nPASS the names go with the network\nPASS after a restart with both networks\nPASS a container with its own DNS servers\nPASS a changed resolv.conf is left alone\nPASS a container on a user network joins a second one\n6 network connect DNS scenarios passed\n",
+    "stderr": ""
+  },
+  "error": "CalledProcessError(1, ['docker', '--host', 'unix://${FIXTURE_DIR}/engine.sock', 'start', '-a', 'asagiri-dns219-226add22-before-start-0'])",
+  "cleanup": true,
+  "followup": {
+    "cases": [
+      {
+        "iteration": 1,
+        "first_exit": 0,
+        "second_exit": 0,
+        "expected_peer_address": "172.18.0.2",
+        "stdout": "nameserver 172.17.0.1\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\nfirst_status=0\nnameserver 127.0.0.11\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\n",
+        "stderr": ""
+      },
+      {
+        "iteration": 2,
+        "first_exit": 0,
+        "second_exit": 0,
+        "expected_peer_address": "172.18.0.2",
+        "stdout": "nameserver 172.17.0.1\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\nfirst_status=0\nnameserver 127.0.0.11\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\n",
+        "stderr": ""
+      },
+      {
+        "iteration": 3,
+        "first_exit": 0,
+        "second_exit": 0,
+        "expected_peer_address": "172.18.0.2",
+        "stdout": "nameserver 172.17.0.1\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\nfirst_status=0\nnameserver 127.0.0.11\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\n",
+        "stderr": ""
+      },
+      {
+        "iteration": 4,
+        "first_exit": 0,
+        "second_exit": 0,
+        "expected_peer_address": "172.18.0.2",
+        "stdout": "nameserver 172.17.0.1\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\nfirst_status=0\nnameserver 127.0.0.11\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\n",
+        "stderr": ""
+      },
+      {
+        "iteration": 5,
+        "first_exit": 0,
+        "second_exit": 0,
+        "expected_peer_address": "172.18.0.2",
+        "stdout": "nameserver 172.17.0.1\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\nfirst_status=0\nnameserver 127.0.0.11\nServer:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tasagiri-dns-first-c80eb5df-peer\nAddress: 172.18.0.2\n\n",
+        "stderr": ""
+      }
+    ],
+    "status": "passed",
+    "cleanup": true
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "schema": "asagiri.testcontainers-endpoint-network.v1",
+  "status": "passed",
+  "verified_at": "2026-11-21T06:33:54.529706+00:00",
+  "release": "v0.1.14-dev.152",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "host": "macOS 26.7.3 ARM64",
+  "dotnet_sdk": "10.0.404",
+  "testcontainers": "4.16.0",
+  "docker_client": "Docker.DotNet.Enhanced 4.3.3 on the native Unix socket",
+  "fixture_source": "using DotNet.Testcontainers.Builders;\nusing System.Text.Json;\n\nawait using var network = new NetworkBuilder().WithName(\"asagiri-dotnet-193-\" + Guid.NewGuid().ToString(\"N\")[..8]).Build();\nawait network.CreateAsync();\nawait using var web = new ContainerBuilder(\"nginx:alpine\")\n  .WithImagePullPolicy(_ => false)\n  .WithNetwork(network).WithNetworkAliases(\"web\")\n  .WithCreateParameterModifier(p => Console.WriteLine(\"WEB_CREATE \" + JsonSerializer.Serialize(new { p.HostConfig.NetworkMode, p.NetworkingConfig.EndpointsConfig })))\n  .Build();\nawait using var client = new ContainerBuilder(\"alpine:3.22\")\n  .WithImagePullPolicy(_ => false)\n  .WithNetwork(network)\n  .WithCreateParameterModifier(p => Console.WriteLine(\"CLIENT_CREATE \" + JsonSerializer.Serialize(new { p.HostConfig.NetworkMode, p.NetworkingConfig.EndpointsConfig })))\n  .WithCommand(\"sleep\", \"100\")\n  .Build();\nawait web.StartAsync();\nawait client.StartAsync();\nforeach (var container in new[] { web, client })\n{\n  var argsForInspect = new System.Diagnostics.ProcessStartInfo(\"docker\") { RedirectStandardOutput = true };\n  foreach (var arg in new[] { \"inspect\", \"--format\", \"{{json .NetworkSettings.Networks}}\", container.Id }) argsForInspect.ArgumentList.Add(arg);\n  using var command = System.Diagnostics.Process.Start(argsForInspect);\n  Console.WriteLine(command!.StandardOutput.ReadToEnd());\n  await command.WaitForExitAsync();\n}\nvar lookup = await client.ExecAsync(new[] { \"sh\", \"-ec\", \"cat /etc/resolv.conf; nslookup -type=a web; wget -qO- -T 5 http://web/\" });\nConsole.Write(lookup.Stdout);\nif (lookup.ExitCode != 0 || !lookup.Stdout.Contains(\"nameserver 127.0.0.11\") || !lookup.Stdout.Contains(\"Welcome to nginx\"))\n  throw new Exception($\"DNS or HTTP failed: {lookup.ExitCode} {lookup.Stderr}\");\nConsole.WriteLine($\"NETWORK {network.Name} WEB {web.Id} CLIENT {client.Id}\");\n",
+  "created_endpoints": [
+    {
+      "NetworkMode": "",
+      "EndpointsConfig": {
+        "asagiri-dotnet-193-411261c8": {
+          "IPAMConfig": null,
+          "Links": null,
+          "Aliases": [
+            "web"
+          ],
+          "DriverOpts": null,
+          "GwPriority": 0,
+          "NetworkID": "",
+          "EndpointID": "",
+          "Gateway": "",
+          "IPAddress": "",
+          "MacAddress": null,
+          "IPPrefixLen": 0,
+          "IPv6Gateway": "",
+          "GlobalIPv6Address": "",
+          "GlobalIPv6PrefixLen": 0,
+          "DNSNames": null
+        }
+      }
+    },
+    {
+      "NetworkMode": "",
+      "EndpointsConfig": {
+        "asagiri-dotnet-193-411261c8": {
+          "IPAMConfig": null,
+          "Links": null,
+          "Aliases": [],
+          "DriverOpts": null,
+          "GwPriority": 0,
+          "NetworkID": "",
+          "EndpointID": "",
+          "Gateway": "",
+          "IPAddress": "",
+          "MacAddress": null,
+          "IPPrefixLen": 0,
+          "IPv6Gateway": "",
+          "GlobalIPv6Address": "",
+          "GlobalIPv6PrefixLen": 0,
+          "DNSNames": null
+        }
+      }
+    }
+  ],
+  "inspected_networks": [
+    {
+      "asagiri-dotnet-193-411261c8": {
+        "IPAMConfig": null,
+        "Links": null,
+        "Aliases": [
+          "web"
+        ],
+        "DriverOpts": null,
+        "GwPriority": 0,
+        "NetworkID": "9091cf20a1f3802ae19d7b9024f5ccbae80037bde0c8f3c08f98bd548d2a1de8",
+        "EndpointID": "fa422d4dcfee92781b394250afc9105be91f94267aa9ba0f7df7ace76a70fb1b",
+        "Gateway": "172.18.0.1",
+        "IPAddress": "172.18.0.2",
+        "MacAddress": "02:42:ac:12:00:02",
+        "IPPrefixLen": 16,
+        "IPv6Gateway": "",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "DNSNames": [
+          "zesty_soyinka",
+          "web",
+          "9fc00c703da7"
+        ]
+      }
+    },
+    {
+      "asagiri-dotnet-193-411261c8": {
+        "IPAMConfig": null,
+        "Links": null,
+        "Aliases": null,
+        "DriverOpts": null,
+        "GwPriority": 0,
+        "NetworkID": "9091cf20a1f3802ae19d7b9024f5ccbae80037bde0c8f3c08f98bd548d2a1de8",
+        "EndpointID": "bd4036417d8fadc431d18191cdbf792f4bb9ceba3e01076f0b4f2b7d0ebf4767",
+        "Gateway": "172.18.0.1",
+        "IPAddress": "172.18.0.3",
+        "MacAddress": "02:42:ac:12:00:03",
+        "IPPrefixLen": 16,
+        "IPv6Gateway": "",
+        "GlobalIPv6Address": "",
+        "GlobalIPv6PrefixLen": 0,
+        "DNSNames": [
+          "wise_feynman",
+          "7199485ad16a"
+        ]
+      }
+    }
+  ],
+  "nameserver": "127.0.0.11",
+  "alias": "web",
+  "resolved_ipv4": "172.18.0.2",
+  "http_response_marker": "Welcome to nginx!",
+  "cleanup": {
+    "containers_deleted": 2,
+    "networks_deleted": 1
+  },
+  "scope": "Used the reported nginx service and Alpine client. Ryuk was disabled and the fixture disposed its two containers and network directly."
+}

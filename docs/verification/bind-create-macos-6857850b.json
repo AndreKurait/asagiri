@@ -1,0 +1,49 @@
+{
+  "schema": "asagiri.macos-bind-create.v1",
+  "at": "2026-11-21T06:02:16.362752+00:00",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "fixture": "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst crypto = require('node:crypto');\nconst out = '/t/out-' + process.versions.node.split('.')[0];\nconst mode = path => fs.statSync(path).mode & 0o777;\nconst hash = path => crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');\nfs.mkdirSync(out);\nconst checks = [];\nfunction check(name, fn) { fn(); checks.push(name); }\nfor (const [name, mask] of [['write-only-create', 0o200], ['read-write-create', 0o600]]) {\n  check(name, () => {\n    const dest = `${out}/${name}`;\n    const file = fs.openSync(dest, 'wx', mask);\n    fs.writeSync(file, 'created through open fd\\n');\n    fs.closeSync(file);\n    if (mask & 0o400) assert.equal(mode(dest), mask);\n  });\n}\ncheck('copyFileSync', () => {\n  fs.copyFileSync('/t/src/a.txt', `${out}/copy.txt`);\n  assert.equal(fs.readFileSync(`${out}/copy.txt`, 'utf8'), 'alpha\\n');\n});\ncheck('native cpSync recursive', () => {\n  fs.cpSync('/t/src', `${out}/native`, { recursive: true });\n  assert.equal(fs.readFileSync(`${out}/native/a.txt`, 'utf8'), 'alpha\\n');\n  assert.equal(fs.readFileSync(`${out}/native/sub/b.txt`, 'utf8'), 'beta\\n');\n  assert.equal(mode(`${out}/native/a.txt`), 0o644);\n  assert.equal(mode(`${out}/native/sub/b.txt`), 0o640);\n});\ncheck('filtered cpSync', () => {\n  fs.cpSync('/t/src', `${out}/filtered`, { recursive: true, filter: () => true });\n  assert.equal(hash(`${out}/filtered/sub/b.txt`), hash('/t/src/sub/b.txt'));\n});\ncheck('20 MiB native copy', () => {\n  fs.writeFileSync(`${out}/large.bin`, Buffer.alloc(20 * 1024 * 1024, 0x71));\n  fs.cpSync(`${out}/large.bin`, `${out}/large-copy.bin`);\n  assert.equal(hash(`${out}/large-copy.bin`), hash(`${out}/large.bin`));\n});\nconsole.log(JSON.stringify({version: process.version, checks}));\n",
+  "command": "docker run --rm --pull=never --network=none -v \"${FIXTURE_DIR}:/t\" IMAGE node /t/probe.cjs",
+  "runs": [
+    {
+      "version": "v24.22.3",
+      "checks": [
+        "write-only-create",
+        "read-write-create",
+        "copyFileSync",
+        "native cpSync recursive",
+        "filtered cpSync",
+        "20 MiB native copy"
+      ],
+      "image": "node:24-alpine",
+      "image_id": "sha256:9ca3f7b76099c042f1e655ca8936e0a1ccda68b3c74a8a36375428ef76476d4e",
+      "repo_digests": [
+        "node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5"
+      ],
+      "host_observed_mode": "0o200"
+    },
+    {
+      "version": "v22.23.5",
+      "checks": [
+        "write-only-create",
+        "read-write-create",
+        "copyFileSync",
+        "native cpSync recursive",
+        "filtered cpSync",
+        "20 MiB native copy"
+      ],
+      "image": "node:22-alpine",
+      "image_id": "sha256:fd6e7c5e242aaf648004a761573a2b930792eb46b1be852862b595dfdaa11b36",
+      "repo_digests": [
+        "node@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a"
+      ],
+      "host_observed_mode": "0o200"
+    }
+  ],
+  "status": "passed",
+  "release_limits": [
+    "Host read permissions of pre-existing write-only files and mkdir modes without owner read are separate from this create-and-open regression."
+  ]
+}
