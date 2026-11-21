@@ -1,0 +1,35 @@
+name: Native macOS edit shortcuts
+on:
+  push:
+    branches: [qualification/mac-history-language]
+    paths: [.github/workflows/mac-edit-qualification.yml, tests/mac-native-edit.swift]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-edit:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise AppKit and WebKit keyboard routing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cargo build --locked -p asagiri
+          cd target/debug
+          export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
+          scratch=$(mktemp -d /tmp/edit255.XXXXXX)
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
+          echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          ./asagiri ui >"$scratch/ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
+          swift "$GITHUB_WORKSPACE/tests/mac-native-edit.swift" "$ui_pid"
