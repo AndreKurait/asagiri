@@ -42,7 +42,7 @@ jobs:
           server=$!
           trap 'kill "$server" || true' EXIT
           registry=127.0.0.1:15481
-          security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" registry.pem
+          sudo -n security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain registry.pem
           curl --cacert registry.pem --retry 10 --retry-connrefused --noproxy '*' -fsS "https://$registry/v2/"
           if printf 'fixture-only\n' | PATH="$bin:/usr/bin:/bin" docker login "$registry" -u asagiri-fixture --password-stdin >baseline.log 2>&1; then cat baseline.log; exit 1; fi
           cat baseline.log
