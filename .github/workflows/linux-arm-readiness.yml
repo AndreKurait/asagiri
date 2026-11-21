@@ -1,14 +1,14 @@
 name: Published Ubuntu x86 Compose Bun build
 on:
   push:
-    branches: [qualification/linux-compose-firewall-154]
+    branches: [qualification/flisk-shop-154]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
 jobs:
   immediate-exec:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -62,26 +62,17 @@ jobs:
           trap 'sudo iptables -w -D DOCKER-USER "${outbound[@]}"' EXIT
           sudo iptables -w -I DOCKER-USER 1 "${inbound[@]}"
           trap 'sudo iptables -w -D DOCKER-USER "${inbound[@]}"; sudo iptables -w -D DOCKER-USER "${outbound[@]}"; tail -40 "$work/engine.log"' EXIT
-          for network in bridge host; do
-            probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
-            probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
+          git init -q shop-source
+          git -C shop-source fetch -q --depth 1 https://github.com/flisk-sh/flisk.git 2e265d59de82828043365699ca78f29f7b83af36
+          git -C shop-source checkout -q FETCH_HEAD
+          export BENCH_SHOP="$PWD/shop-source/bench/shop" BENCH_PORT=18700 BENCH_PROJECT=asagiri-shop-test
+          cd shop-source/bench/competitors/compose-kiri-plain
+          export COMPOSE_BAKE=false COMPOSE_PARALLEL_LIMIT=1 BUILDX_NO_DEFAULT_ATTESTATIONS=1
+          docker buildx create --name shop-host --driver docker-container --driver-opt network=host
+          export BUILDX_BUILDER=shop-host
+          docker compose up -d --build
+          for endpoint in /health /health/storefront /health/admin /api/products/health /api/orders/health /api/payments/health /api/notifications/health; do
+            curl --fail --retry 15 --retry-all-errors --retry-delay 2 --max-time 5 "http://localhost:$BENCH_PORT$endpoint"
+            echo "PASS $endpoint"
           done
-          network_snapshot
-          mkdir project && cd project
-          echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
-          printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
-          cat > compose.yaml <<'COMPOSE'
-          services:
-            app:
-              build:
-                context: .
-          COMPOSE
-          if timeout 300 docker compose up --build --exit-code-from app; then
-            echo 'PASS digest-pinned Compose build and Bun dependency load'
-          else
-            echo "FAIL Compose build or startup exit=$?"; failed=1
-          fi
-          probe 'classic host-network Bun build' env DOCKER_BUILDKIT=0 docker build --no-cache --network host -t bun-host-check .
-          probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
-          docker logs --tail 80 buildx_buildkit_asagiri-build0 2>&1 | sed -E 's@/v2/[^/ ]+/[/a-zA-Z0-9.-]+/@/v2/[redacted]/registry/@g' || true
-          exit "$failed"
+          docker compose down -v --remove-orphans
