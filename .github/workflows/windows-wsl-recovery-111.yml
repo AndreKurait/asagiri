@@ -1,0 +1,68 @@
+name: Candidate Windows host with published WSL guest after distro termination
+on:
+  push:
+    branches: [qualification/windows-wsl-recovery-111]
+    paths: [.github/workflows/windows-wsl-recovery-111.yml]
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build candidate Windows host
+        run: cargo build --locked -p asagiri-win
+      - name: Exercise old guest interoperability and live recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          Set-Location $env:RUNNER_TEMP
+          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath load-test
+          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $bundle = Split-Path $app
+          Copy-Item "$env:GITHUB_WORKSPACE/target/debug/asagiri-win.exe" $app -Force
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --version
+          wsl.exe --import Asagiri-recover-111 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-recover-111','--pipe','\\.\pipe\asagiri-recover-111' -PassThru
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-recover-111'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              & $docker version --format '{{.Server.Version}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+            Invoke-Docker @('pull','alpine:3.21')
+            Invoke-Docker @('run','-d','--restart','always','--name','recover111','alpine:3.21','sleep','600')
+            $before = & $docker inspect -f '{{.Id}} {{.State.Status}}' recover111
+            if ($LASTEXITCODE -or $before -notmatch '^[0-9a-f]{64} running$') { throw "Before interruption: $before" }
+            wsl.exe --terminate Asagiri-recover-111
+            if ($LASTEXITCODE) { throw 'Failed to terminate test distro' }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            do {
+              if ($bridge.HasExited) { throw 'Windows host exited during recovery' }
+              $after = & $docker inspect -f '{{.Id}} {{.State.Status}}' recover111 2>$null
+              if ($LASTEXITCODE -eq 0 -and $before -eq $after) { break }
+              Start-Sleep -Seconds 2
+            } while ($watch.Elapsed.TotalSeconds -lt 120)
+            if ($after -ne $before) { throw "Container did not resume: $after" }
+            Invoke-Docker @('exec','recover111','echo','recovered')
+            Write-Host "PASS the original Windows host served the same running container after distro termination in $($watch.Elapsed.TotalSeconds) seconds"
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate Asagiri-recover-111
+          }
