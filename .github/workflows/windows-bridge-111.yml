@@ -1,0 +1,16 @@
+name: Native Windows named pipe bridge recovery
+on:
+  push:
+    branches: [qualification/windows-bridge-111]
+permissions:
+  contents: read
+jobs:
+  bridge:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Run silent bridge recovery and byte-mode EOF tests
+        run: cargo test --locked -p asagiri-win serve::tests:: -- --nocapture
