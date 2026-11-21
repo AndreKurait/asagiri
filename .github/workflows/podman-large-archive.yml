@@ -1,0 +1,37 @@
+name: Podman ARM64 archive producer
+on:
+  push:
+    branches: [qualification/podman-archive-108]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Build 16 ARM64 layers and save the docker archive on x86
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          uname -m
+          podman --version
+          mkdir image && cd image
+          echo 'FROM scratch' > Containerfile
+          for i in $(seq 1 16); do
+            truncate -s 95000000 "block-$i"
+            printf 'asagiri-108-layer-%s\n' "$i" | dd of="block-$i" conv=notrunc status=none
+            echo "COPY block-$i /block-$i" >> Containerfile
+          done
+          podman build --arch arm64 --layers -t localhost/asagiri-108:podman .
+          podman save --format docker-archive -o "$RUNNER_TEMP/large.tar" localhost/asagiri-108:podman
+          tar -xOf "$RUNNER_TEMP/large.tar" manifest.json | jq -e 'length == 1 and (.[0].Layers | length == 16)'
+          cd "$RUNNER_TEMP"
+          test "$(stat -c %s large.tar)" -ge 1520000000
+          sha256sum large.tar > archive.sha256
+          gzip -1 large.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: podman-docker-archive-108
+          path: |
+            ${{ runner.temp }}/large.tar.gz
+            ${{ runner.temp }}/archive.sha256
+          retention-days: 2
