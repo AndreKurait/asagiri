@@ -49,6 +49,8 @@ concurrency:
 
 jobs:
   site:
+    outputs:
+      publication: ${{ steps.publication.outputs.id }}
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -92,6 +94,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ASAGIRI_RPM_SIGNING_KEY: ${{ secrets.ASAGIRI_RPM_SIGNING_KEY }}
         run: python3 scripts/ci/distribution.py target/site
+      - name: Identify the generated publication
+        if: github.event_name != 'pull_request'
+        id: publication
+        run: |
+          publication="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          printf '{"commit":"%s","publication":"%s"}\n' "$GITHUB_SHA" "$publication" > target/site/deployment.json
+          printf 'id=%s\n' "$publication" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request'
         with:
@@ -120,7 +129,10 @@ jobs:
       - name: Verify the published commit, pages, and assets
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-        run: python3 scripts/ci/verify-pages.py "$PAGE_URL" "$GITHUB_SHA"
+          PUBLICATION: ${{ needs.site.outputs.publication }}
+        run: |
+          test -n "$PUBLICATION"
+          python3 scripts/ci/verify-pages.py "$PAGE_URL" "$GITHUB_SHA" --publication "$PUBLICATION"
       - name: Prepare the live browser checks
         uses: ./.github/actions/browser # zizmor: ignore[self-repository] use the trusted exact-SHA checkout, consistent with the other local actions and our actionlint
         id: browser
