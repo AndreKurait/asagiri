@@ -1217,6 +1217,7 @@
   "USB passthrough is in beta.": "USB パススルーはベータ版です。",
   "USB passthrough is new: tell us how it works with your devices": "USB パススルーは新機能です。お使いのデバイスでの動作を教えてください",
   "Ubuntu is already on this PC, so choosing it downloads nothing.": "この PC にはすでに Ubuntu があるため、選択しても何もダウンロードされません。",
+  "Redo": "やり直す",
   "Undo": "取り消す",
   "Undo brings it back": "取り消すと元に戻ります",
   "Undo brings them back": "取り消すと元に戻ります",
