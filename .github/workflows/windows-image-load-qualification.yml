@@ -23,6 +23,11 @@ jobs:
           $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
           $bundle = Split-Path $app
           $docker = Join-Path $bundle 'bin/docker.exe'
+          # The hosted image runs IIS on the same port as the original fixture.
+          $iis = Get-Service W3SVC -ErrorAction SilentlyContinue
+          if ($iis -and $iis.Status -eq 'Running') { Stop-Service W3SVC -ErrorAction Stop }
+          $owners = @(Get-NetTCPConnection -State Listen -LocalPort 80 -ErrorAction SilentlyContinue)
+          if ($owners.Count) { throw "Windows port 80 already has listeners: $($owners.OwningProcess)" }
           wsl.exe --version
           wsl.exe --import Asagiri-load-test "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
