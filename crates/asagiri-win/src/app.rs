@@ -945,6 +945,7 @@ mod tests {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let hwnd = CreateWindowExW(WINDOW_EX_STYLE::default(), w!("STATIC"), w!("asagiri-win test"), WS_OVERLAPPEDWINDOW, 0, 0, 900, 700, None, None, None, None).unwrap();
+            let _ = ShowWindow(hwnd, SW_SHOW);
             let data = HSTRING::from(local().join("WebView2").as_os_str());
             let (tx, rx) = mpsc::channel();
             let done = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |r, env: Option<ICoreWebView2Environment>| {
@@ -963,6 +964,10 @@ mod tests {
             }));
             env.CreateCoreWebView2Controller(hwnd, &done).unwrap();
             let ctl = pump(&rx, 60).expect("no WebView2 controller").unwrap().unwrap();
+            let mut bounds = RECT::default();
+            GetClientRect(hwnd, &mut bounds).unwrap();
+            ctl.SetBounds(bounds).unwrap();
+            ctl.SetIsVisible(true).unwrap();
             let wv = ctl.CoreWebView2().unwrap();
             let shim = CoTaskMemPWSTR::from(SHIM);
             wv.AddScriptToExecuteOnDocumentCreated(*shim.as_ref().as_pcwstr(), &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(())))).unwrap();
@@ -1033,7 +1038,7 @@ mod tests {
             loop {
                 let actual = eval(&wv, "Array.from(document.querySelectorAll('#main p')).find(p => p.getBoundingClientRect().width > 0 && p.nextElementSibling?.classList.contains('cmd'))?.innerText");
                 if actual == expected { break; }
-                assert!(std::time::Instant::now() < deadline, "{tag}: expected {expected}, observed {actual}");
+                assert!(std::time::Instant::now() < deadline, "{tag}: expected {expected}, observed {actual}, document {}", eval(&wv, "document.body.innerText"));
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             assert_eq!(eval(&wv, "document.querySelector('#main code').innerText"), r#""docker run --rm alpine echo hello""#);
