@@ -1,0 +1,36 @@
+{
+  "schema": "asagiri.import-missing-source.v1",
+  "release": "v0.1.14-dev.152",
+  "commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "host": "macOS 26.7.3 ARM64",
+  "at": "2026-11-21T05:49:34.645680+00:00",
+  "checks": [
+    {
+      "args": [
+        "import",
+        "--list"
+      ],
+      "exit": 1,
+      "stderr": "asagiri: nothing to import from: OrbStack or Docker Desktop isn't installed or running here"
+    },
+    {
+      "args": [
+        "import",
+        "orbstack",
+        "--list"
+      ],
+      "exit": 1,
+      "stderr": "asagiri: OrbStack isn't installed or running here (no docker context \"orbstack\" answering)"
+    },
+    {
+      "args": [
+        "import",
+        "desktop-linux",
+        "--list"
+      ],
+      "exit": 1,
+      "stderr": "asagiri: Docker Desktop isn't installed or running here (no docker context \"desktop-linux\" answering)"
+    }
+  ],
+  "status": "passed"
+}
