@@ -97,7 +97,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #92: `setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts [#110](https://github.com/AndreKurait/asagiri/issues/110)
 - [ ] Verify Kiri #93: After long idle / Windows sleep, `docker` fails with "Kiri is stopped: press Start" and the bridge is not rebuilt [#111](https://github.com/AndreKurait/asagiri/issues/111)
 - [ ] Verify Kiri #99: Getting issue with DDEV [#112](https://github.com/AndreKurait/asagiri/issues/112)
-- [ ] Verify Kiri #123: macOS: VM data.img retains host disk allocation after guest files are deleted [#113](https://github.com/AndreKurait/asagiri/issues/113)
+- [x] Verify Kiri #123: the macOS guest automatically returns freed disk blocks to the host. The published Apple Silicon release reclaimed 514 MiB about 15 seconds after deleting a 512 MiB test file. The sparse image stayed at 64 GiB logical capacity, and a retained volume file was readable after VM restart. [Verification report](verification/guest-trim-macos-6857850b.json) [#113](https://github.com/AndreKurait/asagiri/issues/113)
 - [ ] Verify Kiri #125: Docker network compatibility: bridge options and IPv4/IPv6 drivers [#114](https://github.com/AndreKurait/asagiri/issues/114)
 - [ ] Verify Kiri #130: Container security: custom seccomp profiles without weakening Kiri host isolation [#115](https://github.com/AndreKurait/asagiri/issues/115)
 - [ ] Verify Kiri #168: Release or suspend WebView2 memory when window is closed to tray (Lightweight background mode) [#116](https://github.com/AndreKurait/asagiri/issues/116)

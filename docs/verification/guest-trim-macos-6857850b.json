@@ -1,0 +1,141 @@
+{
+  "schema": "asagiri.native-guest-trim.v1",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "payload_bytes": 536870912,
+  "polls": [
+    {
+      "seconds_after_delete": 0.0,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 0.51,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 1.01,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 1.51,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 2.02,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 2.52,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 3.02,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 3.53,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 4.03,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 4.54,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 5.05,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 5.55,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 6.06,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 6.56,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 7.07,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 7.57,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 8.08,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 8.58,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 9.08,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 9.59,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 10.1,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 10.6,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 11.1,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 11.6,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 12.11,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 12.61,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 13.11,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 13.62,
+      "allocated_bytes": 2647687168
+    },
+    {
+      "seconds_after_delete": 14.12,
+      "allocated_bytes": 2647670784
+    },
+    {
+      "seconds_after_delete": 14.62,
+      "allocated_bytes": 2108571648
+    }
+  ],
+  "kernel": "Linux 6.18.58",
+  "logical_size_before": 68719476736,
+  "before": 2110775296,
+  "written": 2647597056,
+  "immediately_after_delete": 2647687168,
+  "after_automatic_trim": 2108571648,
+  "reclaimed_bytes": 539115520,
+  "logical_size_after": 68719476736,
+  "after_vm_restart": "retained",
+  "status": "passed",
+  "cleanup": true,
+  "measurement": "macOS stat blocks times 512, measured on the isolated VM\u2019s sparse image. The daemon was restarted through its normal entry point before checking the marker."
+}
