@@ -3142,6 +3142,20 @@ impl Engine {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
             if c.spec.network_mode == net.name {
+                // A created container has no live interfaces or leased addresses.
+                // Its next endpoint supplies the primary interface at first start.
+                if c.status == Status::Created && !c.spec.extra_networks.is_empty() {
+                    let next = c.spec.extra_networks.remove(0);
+                    c.spec.network_mode = next.name;
+                    c.spec.aliases = next.aliases;
+                    c.spec.ipv4_address = next.ipv4_address;
+                    c.spec.ipv6_address = next.ipv6_address;
+                    c.spec.mac_address = next.mac_address;
+                    drop(st);
+                    self.save();
+                    self.emit_network("disconnect", &net, &id);
+                    return Ok(());
+                }
                 return Err(Error::BadRequest(format!("Asagiri cannot disconnect a container from its first network ({})", net.name)));
             }
             let Some(pos) = c.spec.extra_networks.iter().position(|x| x.name == net.name) else {
