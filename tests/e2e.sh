@@ -787,7 +787,9 @@ t build-resolvconf "nameserver 172.17.0.1" bash -c "cd $BD && printf 'FROM alpin
 code build-no-public-resolver 1 bash -c "cd $BD && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.dns . 2>&1 | grep -q 'nameserver 8.8.8.8'"
 t build-dns "Address" bash -c "cd $BD && printf 'FROM alpine\nRUN nslookup example.com\n' > Dockerfile.lookup && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.lookup . 2>&1"
 t build-fails "exit code: 3" bash -c "cd $BD && printf 'FROM alpine\nRUN exit 3\n' > Dockerfile.bad && BUILDX_BUILDER=$BX $D build -f Dockerfile.bad . 2>&1"
-$D rmi asagiri-test/built asagiri-test/net >/dev/null 2>&1; rm -rf "$BD"
+printf 'FROM scratch\nLABEL empty=1\nCMD ["/nothing"]\n' > "$BD/Dockerfile.empty"
+t build-zero-layer-root "stat /nothing: no such file" bash -c 'cd "$1" && BUILDX_BUILDER="$2" perl -e "alarm 60; exec @ARGV" docker build -q -f Dockerfile.empty -t asagiri-test/nolayers . && docker run --rm asagiri-test/nolayers' _ "$BD" "$BX"
+$D rmi asagiri-test/built asagiri-test/net asagiri-test/nolayers >/dev/null 2>&1; rm -rf "$BD"
 
 section "registry: login, push, pull"
 REG=$(mktemp -d); export DOCKER_CONFIG_SAVED=${DOCKER_CONFIG:-}
