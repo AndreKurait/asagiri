@@ -28,8 +28,9 @@ jobs:
           cd Asagiri.app/Contents/MacOS
           export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
-          export ASAGIRI_SOCKET="$scratch/engine.sock"
-          mkdir -p "$HOME/.asagiri"
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
           echo '{"tab":"network","lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           echo '{"mode":"custom","http":"initial.invalid:3128"}' > "$HOME/.asagiri/proxy.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
