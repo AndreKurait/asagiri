@@ -777,7 +777,7 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
     let mut head = Vec::with_capacity(6);
     let loaded = (&mut body).take(6).read_to_end(&mut head)
         .map_err(|e| Error::BadRequest(e.to_string()))
-        .and_then(|_| upload_reader(head, body))
+        .and_then(|_| upload_reader(head, &mut body))
         .and_then(|archive| asagiri_image::archive::load_with_platform(&engine.store, archive, platform.as_ref())
             .map_err(|e| Error::BadRequest(e.to_string())));
     match loaded {
@@ -800,10 +800,41 @@ fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufRea
             }
             http::end(w)?;
         }
-        Err(e) => error_with(w, e, "Connection: close\r\n")?,
+        Err(e) => {
+            error_with(w, e, "Connection: close\r\n")?;
+            // Keep accepting a bounded amount of an upload in flight so the
+            // client can finish writing and report the archive error.
+            if body.has_unread_data() {
+                drain_rejected_load(w, r);
+            }
+        }
     }
-    // A failed load may leave part of the body unread.
     Ok(Next::Close)
+}
+
+fn drain_rejected_load(w: &UnixStream, r: &mut BufReader<UnixStream>) {
+    use std::io::Read;
+    use std::net::Shutdown;
+    use std::time::Instant;
+
+    const LIMIT: usize = 16 * 1024 * 1024;
+    let _ = w.shutdown(Shutdown::Write);
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut remaining = LIMIT;
+    let mut discard = [0; 8192];
+    while remaining > 0 {
+        let Some(timeout) = deadline.checked_duration_since(Instant::now()).filter(|t| !t.is_zero()) else { break };
+        if r.get_ref().set_read_timeout(Some(timeout)).is_err() {
+            break;
+        }
+        let size = remaining.min(discard.len());
+        match r.read(&mut discard[..size]) {
+            Ok(0) => break,
+            Ok(n) => remaining -= n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
 }
 
 /// `docker save`: the named images as one archive.
