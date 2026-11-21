@@ -136,7 +136,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #315: Support macOS 13 (Ventura): 0.2.1 x86_64 app requires macOS 14 even though the binary targets 10.12 [#147](https://github.com/AndreKurait/asagiri/issues/147)
 - [ ] Verify Kiri #316: guest stopped before connecting: Some("the agent exited: exit status: 1") [#148](https://github.com/AndreKurait/asagiri/issues/148)
 - [ ] Verify Kiri #319: Mac: containers can't reach hosts behind a split-tunnel VPN [#149](https://github.com/AndreKurait/asagiri/issues/149)
-- [ ] Verify Kiri #323: Install through Homebrew. The November 15 Homebrew receipt confirms Asagiri 0.1.5 was installed from `andrekurait/asagiri`. Homebrew fetched the cask successfully. The cask declares a quit action and has no zap stanza. Clean install and uninstall remain unverified. [#150](https://github.com/AndreKurait/asagiri/issues/150)
+- [x] Verify Kiri #323: Install through Homebrew. The published 0.1.14 cask passed clean install, signature verification, CLI execution, ordinary uninstall and reinstall on Intel and Apple Silicon. Existing user data survived both uninstalls. [Native runner logs](https://github.com/AndreKurait/asagiri/actions/runs/44938734299) · [#150](https://github.com/AndreKurait/asagiri/issues/150)
 - [ ] Verify Kiri #324: Linux: a signal can reach a reused process ID after a container exits [#151](https://github.com/AndreKurait/asagiri/issues/151)
 - [ ] Verify Kiri #326: Adjust swap memory [#152](https://github.com/AndreKurait/asagiri/issues/152)
 - [ ] Verify Kiri #329: Support insecure-registries (plain-HTTP and self-signed private registries), and read Docker's daemon.json [#153](https://github.com/AndreKurait/asagiri/issues/153)
