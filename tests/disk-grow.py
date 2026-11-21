@@ -102,6 +102,12 @@ def main():
             docker("load", "-i", str(args.image_archive.resolve()))
             checksum = volume("dd if=/dev/urandom of=/data/keep bs=1048576 count=1 2>/dev/null; sha256sum /data/keep").split()[0]
             check_capacity(64, checksum)
+            contender = subprocess.run(
+                [binary, "raw", "run", args.image_id, "true"],
+                env=dict(env, ASAGIRI_DISK_GB="128"), capture_output=True, text=True, timeout=30,
+            )
+            assert contender.returncode and "lock VM data directory" in contender.stderr, contender.stderr
+            check_capacity(64, checksum)
             stop()
             for setting in [128, 96, None]:
                 start(setting)

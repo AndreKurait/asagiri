@@ -108,8 +108,6 @@ mod disk;
 #[derive(Debug)]
 pub struct Guest {
     vm: Vm,
-    #[cfg(target_os = "macos")]
-    _disk_lock: Option<File>,
     conn: File,
     /// Reused for every frame, so steady-state traffic does not allocate.
     frame: Vec<u8>,
@@ -151,6 +149,13 @@ impl Guest {
             nat_mac: None,
         };
         #[cfg(target_os = "macos")]
+        let cfg = Self::vm_config(opts)?;
+        Self::start(cfg)
+    }
+
+    /// The VM: kernel, initramfs, data disk, NAT, the Mac's files, Rosetta.
+    #[cfg(target_os = "macos")]
+    fn vm_config(opts: &BootOptions) -> io::Result<Config> {
         let disk_lock = if opts.data_disk {
             let vm = asagiri_image::Store::default_root()?.join("vm");
             std::fs::create_dir_all(&vm)?;
@@ -158,14 +163,6 @@ impl Guest {
             lock.try_lock().map_err(|e| io::Error::other(format!("lock VM data directory: {e}")))?;
             Some(lock)
         } else { None };
-        #[cfg(target_os = "macos")]
-        let cfg = Self::vm_config(opts)?;
-        Self::start(cfg, #[cfg(target_os = "macos")] disk_lock)
-    }
-
-    /// The VM: kernel, initramfs, data disk, NAT, the Mac's files, Rosetta.
-    #[cfg(target_os = "macos")]
-    fn vm_config(opts: &BootOptions) -> io::Result<Config> {
         let dir = guest_dir();
         // swiotlb=noforce: the VM's virtio devices address all of memory, so
         // the kernel's 64 MB bounce buffer would sit there unused.
@@ -184,6 +181,7 @@ impl Guest {
             cmdline,
             console: console_output(opts)?,
             agent_port: asagiri_proto::HOST_PORT,
+            disk_lock,
             disk: if opts.data_disk { Some(data_disk(&dir)?) } else { None },
             nat_mac: if opts.data_disk { Some(mac_address()?) } else { None },
             // The Mac's filesystem, for bind mounts: /mnt/mac in the guest.
@@ -198,7 +196,7 @@ impl Guest {
         Ok(cfg)
     }
 
-    fn start(cfg: Config, #[cfg(target_os = "macos")] disk_lock: Option<File>) -> io::Result<Guest> {
+    fn start(cfg: Config) -> io::Result<Guest> {
         let t0 = Instant::now();
         let vm = Vm::start(cfg)?;
         let vm_started = t0.elapsed();
@@ -210,8 +208,6 @@ impl Guest {
             None => return Err(io::Error::new(io::ErrorKind::TimedOut, "guest did not connect within 10 s")),
         };
         let mut guest = Guest {
-            #[cfg(target_os = "macos")]
-            _disk_lock: disk_lock,
             vm,
             conn,
             frame: Vec::with_capacity(256),
