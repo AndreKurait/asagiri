@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   launch:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
       - name: Run the published portable CLI and desktop with FUSE
@@ -15,9 +15,10 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          asset=Asagiri-0.1.14-dev.159-x86_64.AppImage
+          test "$(uname -m)" = aarch64
+          asset=Asagiri-0.1.14-dev.159-aarch64.AppImage
           gh release download v0.1.14-dev.159 -R AndreKurait/asagiri -p "$asset"
-          echo "df8f3d58d8a1b43d4e2d036913caf7458e444506a3739097e1c21f17d7493567  $asset" | sha256sum -c -
+          echo "f7b978519666c9ef96b5e2e6c70acca1ed84a754e3ed9e729e329f6aa499de28  $asset" | sha256sum -c -
           sudo apt-get update -qq
           sudo apt-get install -y libfuse2t64 fuse3 libgtk-3-0t64 libwebkit2gtk-4.1-0 xvfb xauth xdotool dbus-x11
           sudo modprobe fuse
