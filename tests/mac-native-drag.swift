@@ -21,7 +21,19 @@ for _ in 0..<80 {
        let before = position(window) {
         Thread.sleep(forTimeInterval: 1)
         let start = CGPoint(x: before.x + 255, y: before.y + 17)
-        mouse(.mouseMoved, start); mouse(.leftMouseDown, start)
+        mouse(.mouseMoved, start)
+        mouse(.leftMouseDown, start)
+        mouse(.leftMouseUp, start)
+        Thread.sleep(forTimeInterval: 0.2)
+        mouse(.mouseMoved, CGPoint(x: start.x + 50, y: start.y + 30))
+        Thread.sleep(forTimeInterval: 0.3)
+        guard position(window) == before else {
+            print("FAIL window followed the pointer after mouse-up"); exit(1)
+        }
+        print("PASS fast click followed by pointer motion leaves the window stationary")
+        Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
+        mouse(.mouseMoved, start)
+        mouse(.leftMouseDown, start)
         Thread.sleep(forTimeInterval: 0.25)
         for step in 1...12 {
             mouse(.leftMouseDragged, CGPoint(x: start.x + CGFloat(step * 3), y: start.y + CGFloat(step * 2)))
