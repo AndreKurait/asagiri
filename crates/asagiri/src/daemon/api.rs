@@ -847,6 +847,12 @@ fn image_save(engine: &Engine, names: &[String], w: &mut UnixStream) -> io::Resu
             Err(e) => return reply(w, Err(Error::Io(e)), 200),
         }
     }
+    // Held from here to the end of the stream; a blob already gone is an
+    // error reply, not an archive cut short.
+    let archive = match asagiri_image::archive::prepare_save(&engine.store, &images) {
+        Ok(p) => p,
+        Err(e) => return reply(w, Err(Error::Io(e)), 200),
+    };
     http::begin_stream(w, 200, "application/x-tar")?;
     struct Chunked<'a>(&'a mut UnixStream);
     impl io::Write for Chunked<'_> {
@@ -859,7 +865,7 @@ fn image_save(engine: &Engine, names: &[String], w: &mut UnixStream) -> io::Resu
         }
     }
     let out = io::BufWriter::with_capacity(256 * 1024, Chunked(w));
-    asagiri_image::archive::save(&engine.store, &images, out)?;
+    archive.write(out)?;
     http::end(w)?;
     Ok(Next::KeepAlive)
 }
