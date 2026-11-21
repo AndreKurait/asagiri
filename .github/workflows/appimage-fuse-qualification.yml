@@ -1,0 +1,49 @@
+name: Published AppImage FUSE and desktop launch
+on:
+  push:
+    branches: [qualification/linux-appimage-fuse-132]
+permissions:
+  contents: read
+jobs:
+  launch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Run the published portable CLI and desktop with FUSE
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          asset=Asagiri-0.1.14-dev.159-x86_64.AppImage
+          gh release download v0.1.14-dev.159 -R AndreKurait/asagiri -p "$asset"
+          echo "df8f3d58d8a1b43d4e2d036913caf7458e444506a3739097e1c21f17d7493567  $asset" | sha256sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y libfuse2t64 fuse3 libgtk-3-0t64 libwebkit2gtk-4.1-0 xvfb xauth xdotool dbus-x11
+          sudo modprobe fuse
+          ls -l /dev/fuse
+          chmod +x "$asset"
+          unset APPIMAGE_EXTRACT_AND_RUN APPDIR
+          "./$asset" --version | tee cli-version
+          grep -F '0.1.14-dev.159' cli-version
+          export APPIMAGE_TEST_BINARY="$PWD/$asset"
+          dbus-run-session -- xvfb-run -a bash -euo pipefail <<'DESKTOP'
+          export GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1
+          "$APPIMAGE_TEST_BINARY" >desktop.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat desktop.log' EXIT
+          for i in {1..100}; do
+            kill -0 "$pid"
+            if xdotool search --onlyvisible --name 'Asagiri' >windows; then break; fi
+            sleep .3
+          done
+          test -s windows
+          window=$(head -1 windows)
+          xdotool getwindowname "$window"
+          owner=$(xdotool getwindowpid "$window")
+          exe=$(readlink -f "/proc/$owner/exe")
+          fs=$(findmnt -T "$exe" -no FSTYPE)
+          echo "Visible window PID $owner executable $exe filesystem $fs"
+          test "${exe##*/}" = asagiri-window
+          case "$fs" in fuse*) ;; *) exit 1 ;; esac
+          DESKTOP
