@@ -268,6 +268,8 @@ pub mod copy_flags {
     pub const CHUNKED: u32 = 4;
     /// Use the nonempty configured container user instead of tar owners.
     pub const CONTAINER_USER: u32 = 8;
+    /// Preserve the configured read-only root in the stopped copy worker.
+    pub const READONLY_ROOTFS: u32 = 16;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

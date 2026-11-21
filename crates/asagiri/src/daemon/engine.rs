@@ -2805,17 +2805,17 @@ impl Engine {
         // start/remove; an already-open copy stream keeps its existing lifetime.
         let lifecycle = self.lifecycle(key)?;
         let _copying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        let (id, layers, user, mounts) = {
+        let (id, layers, user, mounts, readonly_rootfs) = {
             let st = self.lock();
             let id = resolve(&st, key)?;
-            let (layers, user, mounts) = st.containers.get(&id)
-                .map(|c| (c.layers.clone(), c.spec.user.clone(), c.spec.mounts.clone())).unwrap_or_default();
-            (id, layers, user, mounts)
+            let c = &st.containers[&id];
+            (id.clone(), c.layers.clone(), c.spec.user.clone(), c.spec.mounts.clone(), c.spec.readonly_rootfs)
         };
         let vm = self.vm()?;
         vm.wait_cleanup(&id)?;
         let stream = vm.connect(asagiri_proto::COPY_PORT)?;
         let mut out = Vec::new();
+        let flags = if readonly_rootfs { flags | asagiri_proto::copy_flags::READONLY_ROOTFS } else { flags };
         asagiri_proto::encode_copy(&mut out, op, &id, path, flags, &layers, &user, &mounts);
         std::io::Write::write_all(&mut std::fs::File::from(stream.fd.try_clone()?), &out)?;
         Ok(stream)
