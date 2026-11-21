@@ -1,5 +1,6 @@
 import ApplicationServices
 import Foundation
+import AppKit
 
 let app = AXUIElementCreateApplication(pid_t(CommandLine.arguments[1])!)
 let prefs = URL(fileURLWithPath: CommandLine.arguments[2])
@@ -33,18 +34,46 @@ func waitFor(_ message: String, _ condition: () -> Bool) {
     }; dump(app,0); print("Timed out",message); exit(1)
 }
 func windows() -> [AXUIElement] { attr(app, "AXWindows") as? [AXUIElement] ?? [] }
-waitFor("find theme control") { windows().first.flatMap {button($0,"Dark")} != nil }
+let rtl = CommandLine.arguments[3] == "ar"
+let labels = rtl ? ["Dark":"داكن", "Light":"فاتح", "System":"النظام"] : ["Dark":"Dark", "Light":"Light", "System":"System"]
+waitFor("find theme control") { windows().first.flatMap {button($0,labels["Dark"]!)} != nil }
 let window = windows()[0]
-for theme in ["Dark", "Light", "System", "Light", "Dark", "System"] {
-    let control = button(window, theme)!
-    precondition(AXUIElementPerformAction(control, "AXPress" as CFString) == .success)
-    waitFor("persist \(theme)") { guard let data = try? Data(contentsOf: prefs), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }; return state["theme"] as? String == theme.lowercased() }
-    Thread.sleep(forTimeInterval: 0.4)
+func measure(_ phase: String) {
     let frame = geometry(window)
     for (index,key) in ["AXCloseButton","AXMinimizeButton","AXZoomButton"].enumerated() {
         let box = geometry(attr(window,key) as! AXUIElement)
-        let x = box.minX - frame.minX, y = box.midY - frame.minY
-        print(theme, key, "left", x, "center from top", y)
+        let x = rtl ? frame.maxX - box.maxX : box.minX - frame.minX, y = box.midY - frame.minY
+        print(phase, key, "outer inset", x, "center from top", y)
         precondition(abs(y-22) <= 1 && abs(x-CGFloat(20+20*index)) <= 1)
     }
 }
+
+func cycle(_ phase: String) {
+    for theme in ["Dark", "Light", "System"] {
+        let control = button(window, labels[theme]!)!
+        precondition(AXUIElementPerformAction(control, "AXPress" as CFString) == .success)
+        waitFor("persist theme") {
+            guard let data = try? Data(contentsOf: prefs), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+            return state["theme"] as? String == theme.lowercased()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        measure(phase + " " + theme)
+    }
+}
+cycle("launch")
+let original = geometry(window).size
+var resized = CGSize(width: original.width + 60, height: original.height - 40)
+precondition(AXUIElementSetAttributeValue(window, "AXSize" as CFString, AXValueCreate(.cgSize, &resized)!) == .success)
+waitFor("resized") { abs(geometry(window).width - original.width) > 10 }
+cycle("resize")
+for entering in [true, false] {
+    precondition(AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, entering ? kCFBooleanTrue : kCFBooleanFalse) == .success)
+    waitFor("full screen transition") { attr(window,"AXFullScreen") as? Bool == entering }
+    Thread.sleep(forTimeInterval: 1.5)
+}
+cycle("full screen exit")
+let target = NSRunningApplication(processIdentifier: pid_t(CommandLine.arguments[1])!)!
+let finder = NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.finder").first!
+_ = finder.activate(options: [.activateIgnoringOtherApps]); waitFor("focus Finder") { finder.isActive }
+_ = target.activate(options: [.activateIgnoringOtherApps]); waitFor("refocus app") { target.isActive }
+cycle("refocus")
