@@ -206,7 +206,16 @@ def check(path, image):
         assert found[back]["MacAddress"] == wanted.lower(), found
         described(promoted, "promoted", found[back], back_id)
         print("PASS a secondary endpoint retains its aliases and MAC when promoted before start", flush=True)
-        print("9 endpoint metadata scenarios passed")
+        detached = create("meta-detached-" + tag)
+        request("POST", "/networks/bridge/disconnect", {"Container": detached}, (200, 204))
+        assert endpoints(detached) == {}, endpoints(detached)
+        request("POST", "/networks/" + front_id + "/connect", {"Container": detached}, (200, 204))
+        request("POST", "/containers/" + detached + "/start", statuses=(204,))
+        found = endpoints(detached)
+        assert set(found) == {front}, found
+        described(detached, "reattached", found[front], front_id)
+        print("PASS a created container can leave bridge before connecting to its session network", flush=True)
+        print("10 endpoint metadata scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []
