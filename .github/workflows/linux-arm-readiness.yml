@@ -53,6 +53,7 @@ jobs:
           }
           network_snapshot
           uplink=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1);exit}}')
+          docker run --rm --network bridge "$pinned" true
           ip link show asagiri0
           test -n "$uplink"
           outbound=(-i asagiri0 -o "$uplink" -j ACCEPT)
