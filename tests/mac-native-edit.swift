@@ -39,10 +39,20 @@ func hasMenuTitle(_ element: AXUIElement, _ title: String, _ depth: Int = 0) -> 
     guard depth < 5 else { return false }
     return (attr(element, "AXChildren") as? [AXUIElement] ?? []).contains { hasMenuTitle($0, title, depth + 1) }
 }
-expect("German native Edit menu exposes localized clipboard and history commands") {
+var editMenu: AXUIElement?
+expect("German Edit menu is present in the native menu bar") {
     guard let bar = attr(app, "AXMenuBar") else { return false }
-    return ["Bearbeiten", "Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { hasMenuTitle(bar as! AXUIElement, $0) }
+    let entries = attr(bar as! AXUIElement, "AXChildren") as? [AXUIElement] ?? []
+    editMenu = entries.first { attr($0, "AXTitle") as? String == "Bearbeiten" }
+    if editMenu == nil { print("Menu titles: \(entries.map { attr($0, "AXTitle") as? String ?? "" })") }
+    return editMenu != nil
 }
+let menu = editMenu!
+_ = AXUIElementPerformAction(menu, kAXPressAction as CFString)
+expect("German native Edit menu exposes localized clipboard and history commands") {
+    return [ "Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { hasMenuTitle(menu, $0) }
+}
+key(53, []) // Dismiss the menu before editing the focused search field.
 let board = NSPasteboard.general
 board.clearContents(); board.setString(marker, forType: .string)
 key(9); expect("Command-V inserts clipboard text") { value() == marker }
