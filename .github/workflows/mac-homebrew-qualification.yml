@@ -14,18 +14,19 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
     env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Launch the installed application as the desktop user
+      - name: Open the published release archive in a fresh desktop account
         run: |
           set -euo pipefail
-          cask=andrekurait/asagiri/asagiri
-          app=/Applications/Asagiri.app
+          asset=Asagiri-0.1.14-dev.159-arm64.tar.gz
+          app="$RUNNER_TEMP/Asagiri.app"
           test ! -e "$app"
-          if brew list --cask asagiri >/dev/null 2>&1; then exit 1; fi
-          brew install --cask "$cask"
-          brew list --cask --versions asagiri
-          git -C "$(brew --repository andrekurait/asagiri)" rev-parse HEAD
+          test ! -e "$HOME/Library/LaunchAgents/dev.asagiri.daemon.plist"
+          cd "$RUNNER_TEMP"
+          gh release download v0.1.14-dev.159 -R AndreKurait/asagiri -p "$asset"
+          echo "56241cae1e3725a22dc8b9d0a83533946f535b69f3dc6fd8033d85190dc6f7c7  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/asagiri" --version
           "$app/Contents/Resources/bin/docker" --version
