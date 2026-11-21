@@ -1,0 +1,73 @@
+name: Arch package
+on:
+  pull_request:
+    paths:
+      - packaging/linux/arch/**
+      - .github/workflows/arch-package.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build and inspect the desktop package
+        run: |
+          stage=$(mktemp -d)
+          cp packaging/linux/arch/PKGBUILD "$stage/"
+          git archive --format=tar.gz --prefix=asagiri/ \
+            -o "$stage/asagiri-arch-c9179f64.tar.gz" c9179f64d476434e4ba5bcfd0ec5dc1fe9c93818
+          docker run --rm -v "$stage:/input:ro" \
+            archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
+            bash -euc '
+              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus weston
+              install -d -o nobody -g nobody /build
+              cp /input/* /build/
+              cd /build
+              runuser -u nobody -- env HOME=/build rustup toolchain install 1.99.1 --profile minimal
+              runuser -u nobody -- env HOME=/build makepkg --verifysource
+              runuser -u nobody -- env HOME=/build makepkg
+              pacman -U --noconfirm ./asagiri-desktop-*.pkg.tar.zst
+              pacman -Qk asagiri-desktop
+              test -x /usr/lib/asagiri/asagiri-window
+              data_dir=/build/gui/.local/share/asagiri
+              install -d -o nobody -g nobody -m 700 /build/gui
+              runuser -u nobody -- mkdir -p "$data_dir"
+              runuser -u nobody -- touch "$data_dir/package-lifecycle-sentinel"
+              initial_version=$(pacman -Q asagiri-desktop)
+              sed -i "s/^pkgrel=1$/pkgrel=2/" PKGBUILD
+              runuser -u nobody -- env HOME=/build makepkg --repackage
+              pacman -U --noconfirm ./asagiri-desktop-*-2-x86_64.pkg.tar.zst
+              test "$(pacman -Q asagiri-desktop)" != "$initial_version"
+              pacman -Qk asagiri-desktop
+              test -f "$data_dir/package-lifecycle-sentinel"
+              runuser -u nobody -- env HOME=/build/gui LIBGL_ALWAYS_SOFTWARE=1                 dbus-run-session -- xvfb-run -a bash -e -c "
+                  gio launch /usr/share/applications/asagiri.desktop
+                  timeout 30 xdotool search --sync --onlyvisible --name \"^Asagiri$\"
+                "
+              runuser -u nobody -- env HOME=/build/gui XDG_RUNTIME_DIR=/build/gui GDK_BACKEND=wayland \
+                WAYLAND_DISPLAY=arch-smoke LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- bash -euc "
+                  WAYLAND_DEBUG=server weston --backend=headless --socket=arch-smoke --idle-time=0 2>/build/gui/wayland.log &
+                  compositor=\$!
+                  trap \"kill \${compositor}\" EXIT
+                  for attempt in {1..50}; do
+                    test ! -S /build/gui/arch-smoke || break
+                    sleep 0.2
+                  done
+                  test -S /build/gui/arch-smoke
+                  gio launch /usr/share/applications/asagiri.desktop
+                  for attempt in {1..150}; do
+                    grep -Eq xdg_toplevel.*set_title.*Asagiri /build/gui/wayland.log && exit 0
+                    sleep 0.2
+                  done
+                  tail -100 /build/gui/wayland.log
+                  exit 1
+                "
+              pacman -R --noconfirm asagiri-desktop
+              test ! -e /usr/lib/asagiri/asagiri-window
+              test -f "$data_dir/package-lifecycle-sentinel"
+            '
