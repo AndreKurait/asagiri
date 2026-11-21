@@ -33,13 +33,16 @@ jobs:
           if ($LASTEXITCODE) { throw 'UI driver installation failed' }
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=19227 --remote-debugging-address=127.0.0.1'
           $env:ASAGIRI_TEST_CLI = Join-Path $bundle 'bin/asagiri.exe'
-          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'asagiri-settings-profile'
-          New-Item -ItemType Directory -Path $env:LOCALAPPDATA | Out-Null
+          $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          if (Test-Path $profileDir) { throw 'Expected a fresh hosted Windows user profile' }
           $env:RTL_APP = $app
           $env:RTL_DOCKER = $docker
           try {
             python "$env:GITHUB_WORKSPACE/tests/windows-rtl-restart.py"
             if ($LASTEXITCODE) { throw 'RTL restart qualification failed' }
           } finally {
+            Get-Process asagiri-win,msedgewebview2 -ErrorAction SilentlyContinue | Select-Object ProcessName,Id,SessionId
+            $appLog = Join-Path $profileDir 'asagiri-win.log'
+            if (Test-Path $appLog) { Get-Content $appLog -Tail 50 }
             wsl.exe --terminate Asagiri-rtl-140
           }
