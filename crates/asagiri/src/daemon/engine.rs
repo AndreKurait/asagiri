@@ -2367,7 +2367,19 @@ impl Engine {
             self.fail_start(&id, &spec, &e);
             return Err(e);
         }
-        match vm.run(&id, &layers, &argv, &spec.env, &spec.cwd, &spec.user, &hostname, flags, net_args, &spec.mounts, &spec.limits.wire(), spec.caps, &host_opts) {
+        let extra_networks = if flags & (run_flags::NET_HOST | run_flags::NET_NONE) == 0 && joined.is_none() {
+            match spec.extra_networks.iter().map(|extra| self.reserve_attachment(&id, extra)).collect::<Result<Vec<_>, _>>() {
+                Ok(endpoints) => endpoints,
+                Err(e) => {
+                    self.fail_start(&id, &spec, &e);
+                    return Err(e);
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let extra_args: Vec<_> = extra_networks.iter().map(Attachment::wire).collect();
+        match vm.run(&id, &layers, &argv, &spec.env, &spec.cwd, &spec.user, &hostname, flags, net_args, &spec.mounts, &spec.limits.wire(), spec.caps, &host_opts, &extra_args) {
             Ok(pid) => {
                 if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.status == Status::Running) {
                     c.pid = pid;
@@ -2381,13 +2393,6 @@ impl Engine {
         }
         if let (true, Some((rows, cols))) = (spec.tty, size) {
             let _ = vm.resize(&id, rows, cols);
-        }
-        if flags & (run_flags::NET_HOST | run_flags::NET_NONE) == 0 && joined.is_none() {
-            for extra in &spec.extra_networks {
-                if let Err(e) = self.attach_extra(&vm, &id, extra) {
-                    crate::diag::warn!("container not attached to a network", id = &id[..12], network = extra.name, error = format!("{e:?}"));
-                }
-            }
         }
         // Nothing outside a macvlan or ipvlan network reaches its
         // containers: Docker publishes no ports for them either.
@@ -2636,6 +2641,7 @@ impl Engine {
             for (net, ip) in std::mem::take(&mut c.extra_ips) {
                 self.release_ip(&net, ip);
             }
+            c.extra_ifs.clear();
             self.release_ip6s(c);
         }
         if !spec.auto_remove && st.containers.get(id).is_some_and(|c| c.vm_stopped) {
@@ -2979,10 +2985,32 @@ impl Engine {
         }
     }
 
-    /// SIGTERM, then SIGKILL after `timeout` if it is still running.
-    /// Plugs a running container into one more network, as the lowest
-    /// `eth{n}` it has free.
     fn attach_extra(&self, vm: &VmLink, id: &str, extra: &ExtraNetwork) -> Result<(), Error> {
+        let attachment = self.reserve_attachment(id, extra)?;
+        let wire = attachment.wire();
+        let net = wire.net;
+        vm.net_attach(id, wire.number, net.bridge, net.ip, net.prefix, net.gateway, net.dns_names, net.opts)
+            .map_err(Error::Io).inspect_err(|_| {
+                let mut state = self.lock();
+                if let Some(c) = state.containers.get_mut(id) {
+                    let name = &attachment.network.name;
+                    drop_ifnum(&mut c.extra_ifs, name, wire.number);
+                    let mut nets = self.lock_networks();
+                    if let Some(index) = c.extra_ips.iter().position(|(n, ip)| n == name && *ip == attachment.ip) {
+                        let (_, ip) = c.extra_ips.remove(index);
+                        nets.release(name, ip);
+                    }
+                    if let Some(index) = c.extra_ip6s.iter().position(|(n, ip)| n == name && Some(*ip) == attachment.ip6) {
+                        let (_, ip) = c.extra_ip6s.remove(index);
+                        nets.release6(name, ip);
+                    }
+                }
+            })
+    }
+
+    /// Record an attachment before handing it to the guest, so even an
+    /// application that exits immediately returns the reserved addresses.
+    fn reserve_attachment(&self, id: &str, extra: &ExtraNetwork) -> Result<Attachment, Error> {
         let net = self.lock_networks().find(&extra.name).cloned().ok_or_else(|| Error::NotFound(format!("network {} not found", extra.name)))?;
         if !matches!(net.driver.as_str(), "bridge" | "macvlan" | "ipvlan") {
             return Err(Error::BadRequest(format!("only bridge, macvlan and ipvlan networks can be connected, not {}", net.driver)));
@@ -2994,16 +3022,14 @@ impl Engine {
             Some(c) => take_ifnum(&mut c.extra_ifs, &net.name),
             None => return Err(Error::NotFound(format!("No such container: {id}"))),
         };
-        self.attach_as(vm, id, n, &net, extra).inspect_err(|_| {
+        self.prepare_attachment(id, n, net, extra).inspect_err(|_| {
             if let Some(c) = self.lock().containers.get_mut(id) {
-                drop_ifnum(&mut c.extra_ifs, &net.name, n);
+                drop_ifnum(&mut c.extra_ifs, &extra.name, n);
             }
         })
     }
 
-    /// Gives the container its addresses on `net` and has the guest make
-    /// `eth{n}` there.
-    fn attach_as(&self, vm: &VmLink, id: &str, n: u32, net: &super::network::Network, extra: &ExtraNetwork) -> Result<(), Error> {
+    fn prepare_attachment(&self, id: &str, n: u32, net: super::network::Network, extra: &ExtraNetwork) -> Result<Attachment, Error> {
         let ip = match super::network::parse_ip(&extra.ipv4_address) {
             Some(want) => self.lock_networks().reserve(&net.name, want).map(|()| want).map_err(Error::Conflict)?,
             None => {
@@ -3012,7 +3038,7 @@ impl Engine {
             }
         };
         let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
-        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(net, &extra.ipv6_address) } {
+        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(&net, &extra.ipv6_address) } {
             Ok(a) => a,
             Err(e) => {
                 self.lock_networks().release(&net.name, ip);
@@ -3046,21 +3072,20 @@ impl Engine {
             opts.push(format!("{}={mode}", asagiri_proto::net_opts::IPVLAN));
             opts.push(format!("{}={flag}", asagiri_proto::net_opts::IPVLAN_FLAG));
         }
-        if let Err(e) = vm.net_attach(id, n, &net.bridge, ip, net.prefix, net.gateway, &names, &opts) {
+        if let Some(c) = self.lock().containers.get_mut(id).filter(|c| c.status == Status::Running) {
+            c.extra_ips.push((net.name.clone(), ip));
+            if let Some(a) = ip6 {
+                c.extra_ip6s.push((net.name.clone(), a));
+            }
+        } else {
             let mut nets = self.lock_networks();
             nets.release(&net.name, ip);
             if let Some(a) = ip6 {
                 nets.release6(&net.name, a);
             }
-            return Err(Error::Io(e));
+            return Err(Error::Conflict(format!("container {id} stopped while connecting to {}", net.name)));
         }
-        if let Some(c) = self.lock().containers.get_mut(id) {
-            c.extra_ips.push((net.name.clone(), ip));
-            if let Some(a) = ip6 {
-                c.extra_ip6s.push((net.name.clone(), a));
-            }
-        }
-        Ok(())
+        Ok(Attachment { number: n, network: net, ip, ip6, names, opts })
     }
 
     /// `docker network connect`.
@@ -3852,6 +3877,32 @@ impl Engine {
             if !vm.wait_stopped(Duration::from_secs(10)) {
                 crate::diag::warn!("the VM did not power off in 10 s; stopped it");
             }
+        }
+    }
+}
+
+struct Attachment {
+    number: u32,
+    network: super::network::Network,
+    ip: [u8; 4],
+    ip6: Option<[u8; 16]>,
+    names: Vec<String>,
+    opts: Vec<String>,
+}
+
+impl Attachment {
+    fn wire(&self) -> asagiri_proto::RunNetwork<'_, String> {
+        asagiri_proto::RunNetwork {
+            number: self.number,
+            net: asagiri_proto::Net {
+                bridge: &self.network.bridge,
+                ip: self.ip,
+                prefix: self.network.prefix,
+                gateway: self.network.gateway,
+                extra_hosts: &[],
+                dns_names: &self.names,
+                opts: &self.opts,
+            },
         }
     }
 }

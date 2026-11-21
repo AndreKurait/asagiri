@@ -81,6 +81,29 @@ def check(path, reference_docker=False):
                 assert status == 200, (status, body)
                 assert published(name)
             print('PASS padded load waits for full body, then publishes image')
+            for chunked in (False, True):
+                first = b'x' * 512  # A tar header the parser rejects immediately.
+                late = b'y' * (2 << 20)
+                head = (b'Transfer-Encoding: chunked\r\n' if chunked else
+                        b'Content-Length: ' + str(len(first) + len(late)).encode() + b'\r\n')
+                with connect(head) as stream:
+                    def send(data):
+                        if chunked:
+                            stream.sendall(f'{len(data):x}\r\n'.encode() + data + b'\r\n')
+                        else:
+                            stream.sendall(data)
+
+                    send(first)
+                    # Give the server a chance to encounter the invalid header
+                    # while the client still has substantial data left to send.
+                    select.select([stream], [], [], 0.25)
+                    for offset in range(0, len(late), 65536):
+                        send(late[offset:offset + 65536])
+                    if chunked:
+                        stream.sendall(b'0\r\n\r\n')
+                    status, body = response(stream)
+                    assert status == 400 and b'cksum' in body, (chunked, status, body)
+            print('PASS refused chunked and content-length loads preserve the diagnostic with a late upload')
         for case, encode, expected in (
             ('plain tar', lambda data: data, 200),
 
