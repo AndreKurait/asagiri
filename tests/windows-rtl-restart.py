@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import time
 import urllib.request
@@ -33,9 +34,15 @@ def quit_from_tray(process):
 
 with sync_playwright() as driver:
     for expected, select in [('en', 'ar'), ('ar', 'fa'), ('fa', None)]:
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            port = listener.getsockname()[1]
+        endpoint = f'http://127.0.0.1:{port}'
+        os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (
+            f'--remote-debugging-port={port} --remote-debugging-address=127.0.0.1'
+        )
         proc = subprocess.Popen([os.environ['RTL_APP'], '--distro', 'Asagiri-rtl-140', '--pipe', r'\\.\pipe\asagiri-rtl-140'])
         try:
-            profile = Path(os.environ['LOCALAPPDATA']) / 'Asagiri' / 'WebView2'
             local_http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             deadline = time.monotonic() + 120
             last_targets = None
@@ -43,12 +50,6 @@ with sync_playwright() as driver:
             while time.monotonic() < deadline:
                 assert proc.poll() is None, proc.returncode
                 try:
-                    ports = list(profile.rglob('DevToolsActivePort'))
-                    if not ports:
-                        time.sleep(0.2)
-                        continue
-                    port = int(max(ports, key=lambda path: path.stat().st_mtime_ns).read_text().splitlines()[0])
-                    endpoint = f'http://127.0.0.1:{port}'
                     with local_http.open(endpoint + '/json/list', timeout=2) as response:
                         last_targets = [(t.get('type'), t.get('url', '')[:140]) for t in json.load(response)]
                         if ('page', 'https://asagiri.invalid/') in last_targets:

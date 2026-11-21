@@ -32,7 +32,6 @@ jobs:
           python -m pip install playwright pywin32
           if ($LASTEXITCODE) { throw 'UI driver installation failed' }
           $env:ASAGIRI_DEVTOOLS = '1'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=0 --remote-debugging-address=127.0.0.1'
           $env:NO_PROXY = '127.0.0.1,localhost'
           $env:ASAGIRI_TEST_CLI = Join-Path $bundle 'bin/asagiri.exe'
           $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
