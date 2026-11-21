@@ -3,6 +3,7 @@ import ApplicationServices
 
 let pid = Int32(CommandLine.arguments[1])!
 let app = AXUIElementCreateApplication(pid)
+print("Display scale factors: \(NSScreen.screens.map { $0.backingScaleFactor })")
 func attribute(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     return AXUIElementCopyAttributeValue(el, name as CFString, &value) == .success ? value : nil

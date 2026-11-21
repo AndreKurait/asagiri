@@ -2,7 +2,7 @@ name: Native macOS window drag
 on:
   push:
     branches: [qualification/mac-drag-candidate-156]
-    paths: [.github/workflows/mac-edit-qualification.yml, tests/mac-native-drag.swift]
+    paths: [.github/workflows/mac-edit-qualification.yml, tests/mac-native-drag.swift, tests/mac-drag-reopen.swift]
 permissions:
   contents: read
   actions: read
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Drag the published window using native mouse events
+      - name: Check dragging before and after closing and reopening the merged app
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -27,10 +27,12 @@ jobs:
           export HOME="$scratch/home"
           export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
           mkdir -p "$HOME/.asagiri/run"
-          echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           ./asagiri ui >"$scratch/ui.log" 2>&1 &
           ui_pid=$!
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
+          swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid"
+          swift "$GITHUB_WORKSPACE/tests/mac-drag-reopen.swift" "$ui_pid" "$daemon"
           swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid"
