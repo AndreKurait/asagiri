@@ -34,6 +34,15 @@ expect("Command-K focuses the search field") {
     guard let focus = attr(app, "AXFocusedUIElement") else { return false }
     return attr(focus as! AXUIElement, "AXRole") as? String == "AXComboBox" || attr(focus as! AXUIElement, "AXRole") as? String == "AXTextField"
 }
+func hasMenuTitle(_ element: AXUIElement, _ title: String, _ depth: Int = 0) -> Bool {
+    if attr(element, "AXTitle") as? String == title { return true }
+    guard depth < 5 else { return false }
+    return (attr(element, "AXChildren") as? [AXUIElement] ?? []).contains { hasMenuTitle($0, title, depth + 1) }
+}
+expect("German native Edit menu exposes localized clipboard and history commands") {
+    guard let bar = attr(app, "AXMenuBar") else { return false }
+    return ["Bearbeiten", "Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { hasMenuTitle(bar as! AXUIElement, $0) }
+}
 let board = NSPasteboard.general
 board.clearContents(); board.setString(marker, forType: .string)
 key(9); expect("Command-V inserts clipboard text") { value() == marker }

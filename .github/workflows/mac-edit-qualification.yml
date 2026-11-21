@@ -25,9 +25,10 @@ jobs:
           chmod +x asagiri
           export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
-          export ASAGIRI_SOCKET="$scratch/engine.sock"
-          mkdir -p "$HOME/.asagiri"
-          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
+          echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           ./asagiri ui >"$scratch/ui.log" 2>&1 &
