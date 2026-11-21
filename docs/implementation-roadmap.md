@@ -169,7 +169,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #382: macOS bind mount: chown succeeds but leaves the file owned by root [#183](https://github.com/AndreKurait/asagiri/issues/183)
 - [ ] Verify Kiri #383: macOS: VM's NAT DNS proxy (mDNSResponder on port 53) blocks Cloudflare WARP with CF_DNS_PROXY_FAILURE [#184](https://github.com/AndreKurait/asagiri/issues/184)
 - [ ] Verify Kiri #384: macOS: a setting for the VM disk size (data.img is fixed at 64 GiB) [#185](https://github.com/AndreKurait/asagiri/issues/185)
-- [ ] Verify Kiri #385: Engine: `name` filter is not a regex (`^[/]?name$` matches nothing), so `k3d cluster create` fails [#186](https://github.com/AndreKurait/asagiri/issues/186)
+- [x] Verify Kiri #385: container name filters accept the expressions used by k3d. Four CLI patterns and the API filter matched on the published Apple Silicon release. k3d v5.9.0 created a cluster, the authenticated `/readyz` returned `ok`, and its node reported Ready. [Verification report](verification/k3d-name-filter-macos-6857850b.json) [#186](https://github.com/AndreKurait/asagiri/issues/186)
 - [ ] Verify Kiri #387: exec start / attach answer 101 to clients that didn't ask to upgrade; Testcontainers reads no ExitCode [#187](https://github.com/AndreKurait/asagiri/issues/187)
 - [ ] Verify Kiri #394: Windows: launching Kiri at login undoes a Stop [#188](https://github.com/AndreKurait/asagiri/issues/188)
 - [ ] Verify Kiri #395: Windows: leftovers from the WSL restart fix (#318) [#189](https://github.com/AndreKurait/asagiri/issues/189)
