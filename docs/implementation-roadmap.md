@@ -1,5 +1,7 @@
 # Asagiri implementation roadmap
 
+See the [roadmap worklist](roadmap-worklist.md) for the pull request queue, issue inventory, and verification evidence.
+
 GitHub queue checked on 2026-11-20. There were 15 open pull requests and 177 open issues.
 
 See the [work inventory](roadmap-work-inventory.md) for the full GitHub snapshot.
@@ -23,12 +25,12 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [x] Include unpublished exposed ports in running endpoint inspection. Live fixture passed on disposable ARM64 Linux. GitHub merged the change as `6f93083d6948b2e147ec5b9da008acdf33dd8f7b`. [#282](https://github.com/AndreKurait/asagiri/pull/282)
 - [x] Honor HTTP/1.0 default closure and explicit keep-alive. Live ARM64 Linux and macOS HTTP fixtures passed. The isolated macOS daemon at `202b4626` also passed 33 upload framing cases and 10 image load cases. All nine required checks passed and GitHub merged `1e94949d`. Native Windows end-to-end qualification remains open. [#283](https://github.com/AndreKurait/asagiri/pull/283)
 - [ ] Support volumes-from and preserve shared anonymous volumes — auto-merge enabled. Corrected Docker reference fixture passed on Docker 28.0.4. The live volume ownership fixture also passed on disposable ARM64 Asagiri. [#284](https://github.com/AndreKurait/asagiri/pull/284)
-- [ ] Handle repeated container actions and build history removal — auto-merge enabled. The Linux package smoke test hit Docker Hub HTTP 429 for docker:cli and nginx:alpine. GitHub queued attempt 2. [#287](https://github.com/AndreKurait/asagiri/pull/287)
+- [x] Handle repeated container actions and build history removal. Merged as `59171936`. [#287](https://github.com/AndreKurait/asagiri/pull/287)
 - [ ] Flag unusually long short translations in changed locales — blocked, auto-merge enabled. [#288](https://github.com/AndreKurait/asagiri/pull/288)
 - [ ] Add Serbian Latin to the desktop and installer — blocked, auto-merge enabled. [#289](https://github.com/AndreKurait/asagiri/pull/289)
 - [x] Removed the per-person pull request limit. All nine required checks passed, and the workflow is absent from `main` at `ac4a738f`. [#290](https://github.com/AndreKurait/asagiri/pull/290)
 - [ ] Verify health probe exit codes and the startup grace boundary — blocked, auto-merge enabled. [#291](https://github.com/AndreKurait/asagiri/pull/291)
-- [ ] Prove arbitrary HTTP number padding and retire sampled value tests — blocked, auto-merge enabled. [#292](https://github.com/AndreKurait/asagiri/pull/292)
+- [x] Prove arbitrary HTTP number padding and retire sampled value tests. Required CI passed and GitHub merged `cfbeab94`. The [merged-main runtime proof](verification/runtime-proof-cfbeab94.json) passed. [#292](https://github.com/AndreKurait/asagiri/pull/292)
 - [x] Accept streamed gzip archives on image load. All nine required checks passed. Merged as `7100bdff`. [#293](https://github.com/AndreKurait/asagiri/pull/293)
 - [ ] Support OCI image layout archives in docker load — blocked, auto-merge enabled. [#294](https://github.com/AndreKurait/asagiri/pull/294)
 
@@ -46,7 +48,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Expand Docker reference coverage for mixed none networks. Auto-merge is enabled. Follow-up semantics qualification is tracked in issue #265. [#298](https://github.com/AndreKurait/asagiri/pull/298)
 - [ ] Verify default bridge reachability when Docker starts first. Auto-merge is enabled. The hosted fixture is part of the qualification for issue #234. [#303](https://github.com/AndreKurait/asagiri/pull/303)
-- [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
+- [x] Merge the initial roadmap as `bd80ab7a`. Checklist maintenance continues as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
 ## 2. Resolve the issue backlog
 
@@ -236,7 +238,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify and fix gzip-compressed docker load (Kiri #528). [PR #293](https://github.com/AndreKurait/asagiri/pull/293) adds streaming gzip support and five live API cases. All 33 HTTP module tests passed locally. Baseline via `docker --context asagiri load` on `27.5.1-asagiri`: gzip exited 1 with `failed to read entire block`; the same tar loaded successfully. The test tag was removed. All ten live cases passed on a disposable ARM64 Linux engine, including preservation of an existing image tag after a corrupt upload. Docker 28.0.4 published images in all six reference cases, including damaged checksum, truncated trailer, and bzip2. Asagiri rejects these three cases with HTTP 400. Hosted Linux job `135971488693` passed and PR #293 merged as `7100bdff`. On isolated macOS at `202b4626`, `docker image load` accepted a real Alpine gzip archive with a `.payload` filename and `docker run --pull never` ran its command. Native Windows CLI qualification remains open. [#266](https://github.com/AndreKurait/asagiri/issues/266)
 - [ ] Define supported behavior when the host blocks clone3 (Kiri #529) [#267](https://github.com/AndreKurait/asagiri/issues/267)
 - [ ] Review and qualify an Arch desktop package (Kiri PR #526) [#268](https://github.com/AndreKurait/asagiri/issues/268)
-- [ ] Define a self-contained headless Linux package (Kiri #532) [#269](https://github.com/AndreKurait/asagiri/issues/269)
+- [x] Qualify self-contained headless Linux DEB and RPM packages (Kiri #532). Issue #269 closed after installation, upgrade, and named-volume retention passed on both architectures. Release run `44403397895` passed installation. [#269](https://github.com/AndreKurait/asagiri/issues/269)
 - [ ] Verify download consistency during same-source Pages refreshes. Local tests cover both stale index and stale feed diagnostics. PR #295 adds publication identity verification and passes 11 local tests. Merge and release-triggered verification remain open. [#274](https://github.com/AndreKurait/asagiri/issues/274)
 - [ ] Measure native Mac networking and file sharing before kernel-bypass work [#275](https://github.com/AndreKurait/asagiri/issues/275)
 - [ ] Verify and port the nine reports covered by Kiri Docker compatibility PR 588. PR #281 merged the process-reporting change for Kiri #348. Paired Docker and Asagiri live fixtures passed in Linux platform run 44622598968. PR #282 merged unpublished TCP and UDP port inspection after live ARM64 and hosted Linux checks passed. Custom bridge-name handling also passed its Linux fixture. Four report-level acceptance checks remain open. The macOS CLI built from main retained the image and preserved the original bytes during index recovery. A signed macOS fixture verified Docker exec inspection after two VM stops [#280](https://github.com/AndreKurait/asagiri/issues/280)
