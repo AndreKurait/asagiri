@@ -58,17 +58,25 @@ jobs:
           docker pull --platform linux/amd64 alpine:3.20
           test "$(docker image inspect alpine:3.20 --format '{{.Architecture}}')" = amd64
           mkdir "$scratch/project" && cd "$scratch/project"
-          printf 'ARG BASE\nFROM ${BASE}\nRUN uname -m && test "$(uname -m)" = aarch64\n' > Dockerfile
-          docker buildx create --name intel-platform --driver docker-container --use
+          printf 'ARG BASE\nFROM ${BASE}\nARG EXPECTED\nRUN uname -m && test "$(uname -m)" = "$EXPECTED"\n' > Dockerfile
+          docker buildx create --name asagiri-build --driver docker-container --use
           failed=0
-          for scenario in cached forced uncached; do
+          for scenario in cached forced uncached reverse; do
+            platform=arm64
+            expected=aarch64
             ref=alpine:3.20
             flags=()
             if [ "$scenario" = forced ]; then flags+=(--pull); fi
             if [ "$scenario" = uncached ]; then ref=alpine:3.19; fi
-            if docker buildx build --builder intel-platform --platform linux/arm64 --progress=plain --no-cache ${flags[@]+"${flags[@]}"} --build-arg "BASE=$ref" --load -t "probe:$scenario" .; then
-              test "$(docker image inspect "probe:$scenario" --format '{{.Architecture}}')" = arm64
-              test "$(docker run --rm --platform linux/arm64 "probe:$scenario" uname -m)" = aarch64
+            if [ "$scenario" = reverse ]; then
+              ref=alpine:3.21
+              docker pull --platform linux/arm64 "$ref"
+              platform=amd64
+              expected=x86_64
+            fi
+            if docker buildx build --builder asagiri-build --platform "linux/$platform" --build-arg "EXPECTED=$expected" --progress=plain --no-cache ${flags[@]+"${flags[@]}"} --build-arg "BASE=$ref" --load -t "probe:$scenario" .; then
+              test "$(docker image inspect "probe:$scenario" --format '{{.Architecture}}')" = "$platform"
+              test "$(docker run --rm --platform "linux/$platform" "probe:$scenario" uname -m)" = "$expected"
               echo "PASS $scenario"
             else
               failed=1
