@@ -1,0 +1,48 @@
+name: Docker Hub mirror with outbound access disabled
+on:
+  push:
+    branches: [qualification/blocked-hub-261]
+permissions:
+  contents: read
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri
+      - name: Exercise CLI mirror configuration and Docker pull on isolated loopback
+        run: |
+          sudo unshare --net bash -eu <<'BASH'
+          ip link set lo up
+          ip route show
+          export ASAGIRI_SOCKET=/tmp/asagiri-mirror.sock ASAGIRI_DATA_DIR=/tmp/mirror-store
+          export DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+          cli="$PWD/target/debug/asagiri"
+          "$cli" daemon > /tmp/mirror-engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" || true; tail -40 /tmp/mirror-engine.log' EXIT
+          for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
+          docker version
+          python3 -u - <<'PY' &
+          import runpy
+          fixture = runpy.run_path('tests/registry-config.py')
+          model = fixture['Registry']('mirror-261')
+          fixture['Server'](('127.0.0.1', 15482), model).serve_forever()
+          PY
+          registry=$!
+          trap 'kill "$registry" "$daemon" || true; tail -40 /tmp/mirror-engine.log' EXIT
+          mirror=http://127.0.0.1:15482
+          curl --retry 10 --retry-connrefused -fsS "$mirror/v2/"
+          image=docker.io/library/asagiri-mirror-261:latest
+          if docker pull "$image"; then exit 1; fi
+          curl -fsS --unix-socket "$ASAGIRI_SOCKET" -H 'Content-Type: application/json' -d '{"insecure-registries":["127.0.0.1:15482"]}' http://localhost/asagiri/daemon-config
+          "$cli" registry-mirror add "$mirror"
+          "$cli" registry-mirror list | grep -F "$mirror"
+          docker pull "$image"
+          docker image inspect "$image" | jq -e '.[0].RootFS.Layers | length == 6'
+          "$cli" registry-mirror remove "$mirror"
+          if "$cli" registry-mirror list | grep -F "$mirror"; then exit 1; fi
+          BASH
