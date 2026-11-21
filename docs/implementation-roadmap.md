@@ -23,7 +23,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 - [x] Include unpublished exposed ports in running endpoint inspection. Live fixture passed on disposable ARM64 Linux. GitHub merged the change as `6f93083d6948b2e147ec5b9da008acdf33dd8f7b`. [#282](https://github.com/AndreKurait/asagiri/pull/282)
 - [x] Honor HTTP/1.0 default closure and explicit keep-alive. Live ARM64 Linux and macOS HTTP fixtures passed. The isolated macOS daemon at `202b4626` also passed 33 upload framing cases and 10 image load cases. All nine required checks passed and GitHub merged `1e94949d`. Native Windows end-to-end qualification remains open. [#283](https://github.com/AndreKurait/asagiri/pull/283)
 - [x] Support volumes-from and preserve shared anonymous volumes. Merged as `66e7523`. Corrected Docker reference fixture passed on Docker 28.0.4. The live volume ownership fixture also passed on disposable ARM64 Asagiri. [#284](https://github.com/AndreKurait/asagiri/pull/284)
-- [ ] Handle repeated container actions and build history removal — auto-merge enabled. The Linux package smoke test hit Docker Hub HTTP 429 for docker:cli and nginx:alpine. GitHub queued attempt 2. [#287](https://github.com/AndreKurait/asagiri/pull/287)
+- [x] Handle repeated container actions and build history removal. Merged as `59171936`. [#287](https://github.com/AndreKurait/asagiri/pull/287)
 - [x] Flag unusually long short translations in changed locales. All nine required checks passed and GitHub merged `6857850b` to `main`. [#288](https://github.com/AndreKurait/asagiri/pull/288)
 - [ ] Add Serbian Latin to the desktop and installer — blocked, auto-merge enabled. [#289](https://github.com/AndreKurait/asagiri/pull/289)
 - [x] Removed the per-person pull request limit. All nine required checks passed, and the workflow is absent from `main` at `ac4a738f`. [#290](https://github.com/AndreKurait/asagiri/pull/290)
@@ -36,7 +36,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [x] Verify Docker exec inspection after VM loss. The signed macOS fixture passed twice within one run. Merged on `main` as `d74d0120`. [#296](https://github.com/AndreKurait/asagiri/pull/296)
 
-- [ ] Verify container lifecycle generation checks. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. Hosted CI and merge remain pending. [#299](https://github.com/AndreKurait/asagiri/pull/299)
+- [x] Verify container lifecycle generation checks. Merged as `09387bd2`. Clean pinned Verus passed both production contracts and rejected all four incorrect variants at `c5c4e60c`. The live macOS fixture passed 3,008 concurrent inspections, restart cancellation, and automatic removal. All 16 hashed proof inputs on the merged revision match the successful local Verus run at `4b2190d0`. Local pinned Verus verification passed on clean merged revision `09387bd2`. Hosted IPAM and runtime verification, including negative controls, passed in run `44697940643`. GitHub preserved the runtime proof in artifact `14613318814`. [#299](https://github.com/AndreKurait/asagiri/pull/299)
 
 - [ ] Refresh embedded DNS after renaming a running container. The paired macOS daemon and Linux guest passed all seven live DNS scenarios. Hosted Linux and merge remain pending. [#300](https://github.com/AndreKurait/asagiri/pull/300)
 
@@ -46,7 +46,7 @@ Check required jobs, fix failures, update branches after earlier merges, and con
 
 - [ ] Expand Docker reference coverage for mixed none networks. Auto-merge is enabled. Follow-up semantics qualification is tracked in issue #265. [#298](https://github.com/AndreKurait/asagiri/pull/298)
 - [ ] Verify default bridge reachability when Docker starts first. In hosted Linux job `136217767541`, Docker reached its gateway, then Asagiri's agent stopped while moving PID 1 into a cgroup leaf. Revision `de51715f` runs the Docker image's cgroup initialization before either engine creates child cgroups. Hosted gateway verification remains open. [#303](https://github.com/AndreKurait/asagiri/pull/303)
-- [ ] Merge this roadmap and keep the checklist current as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
+- [x] Merge the initial roadmap as `bd80ab7a`. Checklist maintenance continues as work lands. [#297](https://github.com/AndreKurait/asagiri/pull/297)
 
 ## 2. Resolve the issue backlog
 
