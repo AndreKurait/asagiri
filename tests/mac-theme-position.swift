@@ -77,3 +77,29 @@ let finder = NSRunningApplication.runningApplications(withBundleIdentifier:"com.
 _ = finder.activate(options: [.activateIgnoringOtherApps]); waitFor("focus Finder") { finder.isActive }
 _ = target.activate(options: [.activateIgnoringOtherApps]); waitFor("refocus app") { target.isActive }
 cycle("refocus")
+
+// This check runs on a disposable hosted Mac and restores its initial appearance.
+func systemAppearance(_ statement: String) throws -> String {
+    let script = Process()
+    let output = Pipe()
+    script.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    script.arguments = ["-e", "tell application \"System Events\" to tell appearance preferences to " + statement]
+    script.standardOutput = output
+    try script.run()
+    script.waitUntilExit()
+    guard script.terminationStatus == 0 else { throw NSError(domain: "System Events appearance", code: Int(script.terminationStatus)) }
+    return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+func checkAppearanceChanges() throws {
+    let original = try systemAppearance("get dark mode")
+    guard ["true", "false"].contains(original) else { throw NSError(domain: "Unexpected appearance", code: 1) }
+    defer { _ = try? systemAppearance("set dark mode to " + original) }
+    for state in [original == "true" ? "false" : "true", original] {
+        _ = try systemAppearance("set dark mode to " + state)
+        let reported = try systemAppearance("get dark mode")
+        precondition(reported == state)
+        Thread.sleep(forTimeInterval: 1)
+        measure("System follows macOS dark mode " + state)
+    }
+}
+try checkAppearanceChanges()
