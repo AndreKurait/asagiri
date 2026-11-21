@@ -44,9 +44,11 @@ def check(path, image):
         finally:
             connection.close()
 
-    def run(name, host=None):
-        cid = request("POST", "/containers/create?name=" + name,
-                      {"Image": image, "Cmd": ["sleep", "120"], "HostConfig": host or {}}, (201,))["Id"]
+    def run(name, host=None, endpoints=None):
+        body = {"Image": image, "Cmd": ["sleep", "300"], "HostConfig": host or {}}
+        if endpoints:
+            body["NetworkingConfig"] = {"EndpointsConfig": endpoints}
+        cid = request("POST", "/containers/create?name=" + name, body, (201,))["Id"]
         request("POST", "/containers/" + cid + "/start", statuses=(204,))
         return cid
 
@@ -89,8 +91,9 @@ def check(path, image):
         assert code == 0 and text.strip().isdigit(), (code, text)
         return int(text)
 
-    def join(network, cid, statuses=(200, 204)):
-        request("POST", "/networks/" + network + "/connect", {"Container": cid}, statuses)
+    def join(network, cid, aliases=()):
+        request("POST", "/networks/" + network + "/connect",
+                {"Container": cid, "EndpointConfig": {"Aliases": list(aliases)}}, (200, 204))
 
     def address(cid, network):
         return request("GET", "/containers/" + cid + "/json")["NetworkSettings"]["Networks"][network]["IPAddress"]
@@ -99,7 +102,8 @@ def check(path, image):
     try:
         name = tag + "-net"
         network = request("POST", "/networks/create", {"Name": name}, (201,))["Id"]
-        peer = run(tag + "-peer", {"NetworkMode": name})
+        primary_alias = tag + "-primary-alias"
+        peer = run(tag + "-peer", {"NetworkMode": name}, {name: {"Aliases": [primary_alias]}})
         peer_ip = address(peer, name)
 
         # The default bridge has no names, so a container there asks other
@@ -169,10 +173,27 @@ def check(path, image):
         second = request("POST", "/networks/create", {"Name": other}, (201,))["Id"]
         far = run(tag + "-far", {"NetworkMode": other})
         assert not resolves(peer, tag + "-far", address(far, other))
-        join(second, peer)
+        second_alias = tag + "-second-alias"
+        join(second, peer, [second_alias])
         assert nameservers(peer) == ["127.0.0.11"], resolv(peer)
         assert resolves(peer, tag + "-far", address(far, other)), sh(peer, "nslookup -type=a " + tag + "-far")
         print("PASS a container on a user network joins a second one", flush=True)
+        cases += 1
+        old = tag + "-peer"
+        new = tag + "-renamed"
+        second_ip = address(peer, other)
+        observers = ((late, peer_ip, primary_alias), (far, second_ip, second_alias))
+        for observer, ip, alias in observers:
+            assert resolves(observer, old, ip), ("old name missing before rename", old, ip)
+            assert resolves(observer, alias, ip), ("alias missing before rename", alias, ip)
+        request("POST", "/containers/" + peer + "/rename?name=" + new, statuses=(204,))
+        for observer, ip, alias in observers:
+            assert resolves(observer, new, ip), ("new name missing after rename", new, ip)
+            assert resolves(observer, alias, ip), ("alias lost after rename", alias, ip)
+            assert not resolves(observer, old, ip), ("old name still resolves", old, ip)
+        assert not resolves(late, second_alias, second_ip), "second network alias leaked to first"
+        assert not resolves(far, primary_alias, peer_ip), "first network alias leaked to second"
+        print("PASS rename replaces the DNS name and preserves per-network aliases", flush=True)
         cases += 1
         print(cases, "network connect DNS scenarios passed")
     finally:

@@ -52,8 +52,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// remains prompt while same-container restarts wait for cleanup.
 /// 11 reports the file working set and refaults for pressure-aware ballooning.
 /// 12 adds the private, framed BuildKit Unix-socket relay.
+/// 13 updates embedded DNS when a container is renamed.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 12;
+pub const PROTOCOL: u16 = 13;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -180,6 +181,8 @@ pub enum Msg<'a> {
     NetAttach { id: &'a str, ifname: &'a str, net: NetSpec<'a> },
     /// Host → guest: unplug it again. Answered by `Ack` or `Error`.
     NetDetach { id: &'a str, ifname: &'a str, bridge: &'a str, ip: [u8; 4] },
+    /// Host → guest: replace a running endpoint's DNS names. Answered by `Ack`.
+    DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
     ListenQuery { id: &'a str },
@@ -757,6 +760,7 @@ mod kind {
     pub const CLEANUP_DONE: u16 = 79;
     pub const FS_EVENTS: u16 = 80;
     pub const START_REJECTED: u16 = 81;
+    pub const DNS_RENAME: u16 = 82;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -822,6 +826,16 @@ pub fn encode_net_attach<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, ifname: &st
         StrList::put::<&str>(o, &[]);
         StrList::put(o, dns_names);
         StrList::put(o, opts);
+    });
+}
+
+/// Encodes an endpoint DNS rename from the sender's names.
+pub fn encode_dns_rename<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, bridge: &str, ip: [u8; 4], names: &[S]) {
+    frame(out, kind::DNS_RENAME, |o| {
+        put_str(o, id);
+        put_str(o, bridge);
+        o.extend_from_slice(&ip);
+        StrList::put(o, names);
     });
 }
 
@@ -1114,6 +1128,13 @@ impl Msg<'_> {
                     o.extend_from_slice(list.raw);
                 }
             }),
+            Msg::DnsRename { id, bridge, ip, names } => frame(out, kind::DNS_RENAME, |o| {
+                put_str(o, id);
+                put_str(o, bridge);
+                o.extend_from_slice(&ip);
+                put_u32(o, names.count);
+                o.extend_from_slice(names.raw);
+            }),
             Msg::NetDetach { id, ifname, bridge, ip } => frame(out, kind::NET_DETACH, |o| {
                 put_str(o, id);
                 put_str(o, ifname);
@@ -1385,6 +1406,11 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             prefix: r.u8()?,
             via: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
             add: r.u8()? != 0,
+        },
+        kind::DNS_RENAME => Msg::DnsRename {
+            id: r.str()?, bridge: r.str()?,
+            ip: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+            names: r.list()?,
         },
         kind::NET_DETACH => Msg::NetDetach { id: r.str()?, ifname: r.str()?, bridge: r.str()?, ip: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)? },
         kind::UPLINK_QUERY => Msg::UplinkQuery,
