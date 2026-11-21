@@ -1,0 +1,122 @@
+{
+  "schema": "asagiri.published-mac-bind-qualification.v1",
+  "status": "passed on Apple Silicon",
+  "host": "26.7.3 ARM64",
+  "release": "v0.1.14-dev.154",
+  "source": "e151cc6ccb4b7845db3a98aa067396ccb3b62f5d",
+  "fix_pr": 312,
+  "release_run": 44878617244,
+  "guest_kernel_run": 44875390891,
+  "asset": {
+    "name": "Asagiri-0.1.14-dev.154-arm64.tar.gz",
+    "sha256": "1b595ca43b78867c551c9da40369c55dc10f01cf2564530bfe008523697e8de9",
+    "signed_bundle_verified": true,
+    "github_release_attestation_verified": true,
+    "guest_kernel_sha256": "bf37c4f8ba192435137af50d0d306f61d9591744fcc6a0e82ed5a9573983c321"
+  },
+  "commands": [
+    "gh attestation verify Asagiri-0.1.14-dev.154-arm64.tar.gz -R AndreKurait/asagiri --bundle attestation.sigstore.json --signer-workflow AndreKurait/asagiri/.github/workflows/release.yml",
+    "codesign --verify --deep --strict Asagiri.app",
+    "Asagiri.app/Contents/MacOS/asagiri daemon",
+    "ASAGIRI_SOCKET=<isolated socket> bash tests/bind-recreate.sh",
+    "docker compose up -d --pull never; docker compose exec -T web node /app/watch-hmr.mjs",
+    "docker run --network none -v <Mac directory>:/watched -v <Mac file>:/single alpine:3.21 inotifyd - /watched:ecnd /single:ec"
+  ],
+  "bind_recreate": "PASS bind recreate and replace, with and without a watcher (30 attempts)",
+  "vite_compose_watch": {
+    "1-write": {
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795270683389,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 127 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 2:18:03 PM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    "2-rename": {
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795270686079,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 127 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 2:18:06 PM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    "3-rename": {
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795270688940,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 116 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 2:18:08 PM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    "4-rename": {
+      "exit": 0,
+      "transcript": [
+        "hmr-connected",
+        "{\"type\":\"update\",\"updates\":[{\"type\":\"js-update\",\"timestamp\":1795270691670,\"path\":\"/main.js\",\"acceptedPath\":\"/main.js\",\"explicitImportRequired\":false,\"isWithinCircularImport\":false}]}",
+        "hmr served new source"
+      ],
+      "vite_logs": [
+        "web-1  | ",
+        "web-1  |   VITE v7.2.2  ready in 119 ms",
+        "web-1  | ",
+        "web-1  |   \u279c  Local:   http://127.0.0.1:5173/",
+        "web-1  | 2:18:11 PM [vite] (client) hmr update /main.js"
+      ],
+      "file_seen_in_container": true
+    },
+    "image": "sha256:9ca3f7b76099c042f1e655ca8936e0a1ccda68b3c74a8a36375428ef76476d4e [\"node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5\"]",
+    "container_cleaned": true
+  },
+  "native_metadata_watch": {
+    "write /watched touch": {
+      "event": "c\t/watched\ttouch",
+      "milliseconds": 47
+    },
+    "touch /watched touch": {
+      "event": "c\t/watched\ttouch",
+      "milliseconds": 38
+    },
+    "chmod /watched touch": {
+      "event": "e\t/watched\ttouch",
+      "milliseconds": 48
+    },
+    "write /single": {
+      "event": "c\t/single",
+      "milliseconds": 44
+    },
+    "touch /single": {
+      "event": "c\t/single",
+      "milliseconds": 40
+    },
+    "chmod /single": {
+      "event": "e\t/single",
+      "milliseconds": 73
+    },
+    "removed": true
+  },
+  "limits": "The ARM64 published app and packaged kernel ran unchanged on Apple Silicon. Native Intel Mac execution for #190 remains open. Windows C-drive behavior and larger watcher workloads are tracked separately."
+}
