@@ -55,8 +55,14 @@ jobs:
               $inside = Invoke-Docker @('exec',$id,'sha256sum','/var/www/html/index.html')
               Write-Host "Host SHA256 $expected. Container result $inside"
               if (($inside -split '\s+')[0] -ne $expected) { throw 'Container mount content mismatch' }
-              curl.exe --noproxy '*' --retry 12 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1/ -o served.html
-              if ($LASTEXITCODE -or (Get-FileHash served.html).Hash.ToLower() -ne $expected) { throw 'Published HTTP response mismatch' }
+              $bodyHash = Invoke-Docker @('exec',$id,'php','-r','echo hash("sha256",file_get_contents("http://127.0.0.1/index.html"));')
+              Write-Host "Apache container HTTP byte hash: $bodyHash"
+              if ($bodyHash -ne $expected) { throw 'Apache inside the container returned different content' }
+              curl.exe --dump-header response-headers.txt --noproxy '*' --retry 12 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1/ -o served.html
+              $transferExit = $LASTEXITCODE
+              Get-Content response-headers.txt
+              if (Test-Path served.html) { Write-Host "Windows response SHA256: $((Get-FileHash served.html).Hash)" }
+              if ($transferExit -or (Get-FileHash served.html).Hash.ToLower() -ne $expected) { throw 'Published HTTP response mismatch' }
               Write-Host 'PASS original relative bind file and Apache HTTP response match host bytes'
             } finally {
               & $compose down
