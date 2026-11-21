@@ -21,19 +21,60 @@ jobs:
           cp packaging/linux/arch/PKGBUILD "$stage/"
           git archive --format=tar.gz --prefix=asagiri/ \
             -o "$stage/asagiri-arch-c9179f64.tar.gz" c9179f64d476434e4ba5bcfd0ec5dc1fe9c93818
-          docker run --rm -v "$stage:/input:ro" \
+          # Give the nested engine native storage for its OverlayFS mounts.
+          docker run --rm --privileged -v "$stage:/input:ro" -v /var/lib/asagiri -v /test-store \
             archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
             bash -euc '
-              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus weston
+              pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus weston docker
               install -d -o nobody -g nobody /build
               cp /input/* /build/
-              cd /build
+              cd /build || exit
               runuser -u nobody -- env HOME=/build rustup toolchain install 1.99.1 --profile minimal
               runuser -u nobody -- env HOME=/build makepkg --verifysource
               runuser -u nobody -- env HOME=/build makepkg
+              # Install a separate engine from the same immutable source.
+              # Keep the window build used by makepkg --repackage.
+              cd /build/src/asagiri || exit
+              mv target/release/asagiri target/release/asagiri-window
+              runuser -u nobody -- env HOME=/build cargo +1.99.1 build --release --locked -p asagiri -p asagiri-init
+              install -m 755 target/release/asagiri target/release/asagiri-init /usr/bin/
+              mv target/release/asagiri-window target/release/asagiri
+              install -Dm644 packaging/linux/asagiri.service /usr/lib/systemd/system/asagiri.service
+              sha256sum /usr/bin/asagiri /usr/bin/asagiri-init /usr/lib/systemd/system/asagiri.service > /build/engine.sha256
+              cd /build || exit
+
+              export ASAGIRI_SOCKET=/run/asagiri-arch.sock ASAGIRI_DATA_DIR=/test-store ASAGIRI_TEST_ENGINE=1
+              engine_pid=
+              cleanup() {
+                if [ "$?" -ne 0 ]; then tail -100 /build/engine.log; fi
+                if [ -n "$engine_pid" ]; then kill "$engine_pid" 2>/dev/null || true; fi
+              }
+              trap cleanup EXIT
+              engine() { docker -H "unix://$ASAGIRI_SOCKET" "$@"; }
+              start_engine() {
+                /usr/bin/asagiri daemon >> /build/engine.log 2>&1 &
+                engine_pid=$!
+                for _ in {1..60}; do
+                  kill -0 "$engine_pid"
+                  if engine version >/dev/null 2>&1; then return; fi
+                  sleep 0.5
+                done
+                return 1
+              }
+              image=alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+              start_engine
+              engine pull "$image"
+              engine volume create arch-package-data
+              engine run --rm -v arch-package-data:/state "$image" sh -c "printf %s arch-package-data >/state/value"
+              verify_engine() {
+                sha256sum -c /build/engine.sha256
+                test "$(engine run --rm -v arch-package-data:/state:ro "$image" cat /state/value)" = arch-package-data
+              }
+
               pacman -U --noconfirm ./asagiri-desktop-*.pkg.tar.zst
               pacman -Qk asagiri-desktop
               test -x /usr/lib/asagiri/asagiri-window
+              verify_engine
               data_dir=/build/gui/.local/share/asagiri
               install -d -o nobody -g nobody -m 700 /build/gui
               runuser -u nobody -- mkdir -p "$data_dir"
@@ -45,6 +86,7 @@ jobs:
               test "$(pacman -Q asagiri-desktop)" != "$initial_version"
               pacman -Qk asagiri-desktop
               test -f "$data_dir/package-lifecycle-sentinel"
+              verify_engine
               runuser -u nobody -- env HOME=/build/gui LIBGL_ALWAYS_SOFTWARE=1                 dbus-run-session -- xvfb-run -a bash -e -c "
                   gio launch /usr/share/applications/asagiri.desktop
                   timeout 30 xdotool search --sync --onlyvisible --name \"^Asagiri$\"
@@ -70,4 +112,11 @@ jobs:
               pacman -R --noconfirm asagiri-desktop
               test ! -e /usr/lib/asagiri/asagiri-window
               test -f "$data_dir/package-lifecycle-sentinel"
+              verify_engine
+              kill "$engine_pid"
+              wait "$engine_pid"
+              engine_pid=
+              start_engine
+              verify_engine
+              echo "Verified the separate engine and named-volume data across desktop installation, upgrade, removal, and engine restart"
             '

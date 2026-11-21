@@ -407,8 +407,10 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         }
     };
     let mut veths = Vec::new();
+    let mut dns_entries = Vec::new();
     let started: io::Result<Process> = (|| {
         let mut macvlans = Unplug(Vec::new());
+        let mut ways_out = Vec::new();
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
             drop(prepared.net_ready.take());
@@ -434,6 +436,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 None => veths.push(host_if),
             }
             if embedded_dns {
+                dns_entries.push((spec.net.bridge.to_owned(), spec.net.ip));
                 // An IPv6-only network's bridge has no IPv4 address to serve on,
                 // and its containers no A records. A macvlan or ipvlan network
                 // has no gateway to serve on: its containers ask 127.0.0.11.
@@ -460,6 +463,34 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 net.dns.set_upstream(spec.net.ip, servers);
                 net.dns.describe_network(pid, spec.net);
             }
+            for (n, endpoint) in spec.extra_networks.iter() {
+                let host_if = net::extra_veth(spec.id, n);
+                let mac = net_opts::values(endpoint.opts, net_opts::MAC).next().and_then(net::parse_mac);
+                let v6 = net::Ip6::from_opts(endpoint.opts);
+                let plug = net::Plug::from_opts(endpoint.opts);
+                let _ = net::detach(&host_if);
+                match net::attach(net.bridges, endpoint.bridge, &host_if, pid, n, endpoint.ip, endpoint.prefix, endpoint.gateway, mac, v6, plug)
+                    .map_err(|e| kill_child(io::Error::new(e.kind(), format!("network {}: {e}", endpoint.bridge))))?
+                {
+                    Some(link) => macvlans.0.push(link),
+                    None => veths.push(host_if),
+                }
+                if !plug.no_ipv4 && !plug.own_link() {
+                    net.dns.serve(endpoint.bridge, endpoint.gateway).map_err(kill_child)?;
+                }
+                std::fs::File::open(format!("/proc/{pid}/ns/net"))
+                    .and_then(|ns| net.dns.serve_in(&ns, pid, spec.net.ip, endpoint.bridge))
+                    .map_err(kill_child)?;
+                if !plug.no_ipv4 {
+                    net.dns.register(endpoint.bridge, endpoint.dns_names.iter(), endpoint.ip);
+                }
+                if let Some(v) = v6 {
+                    net.dns.register6(endpoint.bridge, endpoint.dns_names.iter(), endpoint.ip, v.ip);
+                }
+                dns_entries.push((endpoint.bridge.to_owned(), endpoint.ip));
+                net.dns.describe_network(pid, endpoint);
+                ways_out.extend(net::WayOut::of(&format!("eth{n}"), endpoint.gateway, v6, plug));
+            }
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
@@ -481,10 +512,10 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             stderr,
             stdin,
             tty: prepared.tty,
-            dns_entries: (bridged && embedded_dns).then(|| (spec.net.bridge.to_owned(), spec.net.ip)).into_iter().collect(),
+            dns_entries: std::mem::take(&mut dns_entries),
             late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
             veths: std::mem::take(&mut veths),
-            ways_out: Vec::new(),
+            ways_out,
             macvlans: std::mem::take(&mut macvlans.0),
             netns,
             teardown: Some(Teardown { base, cgroup, remove }),
@@ -495,8 +526,8 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         // reap path cannot release DNS. Close the namespace-owned socket and
         // pending queries now, and remove only this container's registrations.
         net.dns.drop_container(pid);
-        if bridged && embedded_dns {
-            net.dns.unregister(spec.net.bridge, spec.net.ip);
+        for (bridge, ip) in dns_entries {
+            net.dns.unregister(&bridge, ip);
         }
         // SIGKILL is asynchronous. Use the bounded cgroup shutdown path so
         // rmdir does not race the failed child (or any descendants) exiting.
@@ -1085,7 +1116,7 @@ fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 
 /// can go through the host (dns.rs), unless the container names its own
 /// servers (`--dns`).
 fn embedded_dns(spec: &RunSpec<'_>, upstream: &[[u8; 4]], relay: bool) -> bool {
-    if spec.flags & run_flags::DNS_GATEWAY != 0 {
+    if spec.flags & run_flags::DNS_GATEWAY != 0 || !spec.extra_networks.is_empty() {
         return true;
     }
     let bridged = !spec.net.bridge.is_empty()
@@ -1104,7 +1135,11 @@ fn embedded_dns(spec: &RunSpec<'_>, upstream: &[[u8; 4]], relay: bool) -> bool {
 /// the host's resolver, and VPN and company names would stop resolving.
 /// This also applies to WSL and Linux hosts with a local upstream resolver.
 fn embedded_address(spec: &RunSpec<'_>) -> [u8; 4] {
-    if spec.flags & run_flags::DNS_GATEWAY == 0 && spec.net.gateway != [0; 4] { spec.net.gateway } else { super::dns::EMBEDDED }
+    if spec.flags & run_flags::DNS_GATEWAY == 0 && spec.extra_networks.is_empty() && spec.net.gateway != [0; 4] {
+        spec.net.gateway
+    } else {
+        super::dns::EMBEDDED
+    }
 }
 
 /// A container on the default bridge asks the host's resolvers, or its own
@@ -2452,7 +2487,7 @@ mod tests {
     fn resolv(flags: u32, opts: &[&str], upstream: &[[u8; 4]]) -> String {
         let mut buf = Vec::new();
         let net = Net { bridge: "asagiri1", ip: [10, 5, 0, 2], prefix: 24, gateway: [10, 5, 0, 1], extra_hosts: &[], dns_names: &[], opts };
-        encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str]);
+        encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str], &[]);
         let Ok(Msg::Run(spec)) = decode(&buf) else { panic!() };
         super::resolv_conf(&spec, upstream, (flags & run_flags::DNS_GATEWAY != 0).then_some(super::super::dns::EMBEDDED))
     }
@@ -2472,7 +2507,7 @@ mod tests {
         let late = |flags: u32, opts: &[&str], nameserver: Option<[u8; 4]>, dir: &std::path::Path| {
             let mut buf = Vec::new();
             let net = Net { bridge: "asagiri0", ip: [172, 17, 0, 2], prefix: 16, gateway: [172, 17, 0, 1], extra_hosts: &[], dns_names: &[], opts };
-            encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str]);
+            encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str], &[]);
             let Ok(Msg::Run(spec)) = decode(&buf) else { panic!() };
             super::late_dns(&spec, dir, &[[192, 168, 64, 1]], nameserver)
         };
@@ -2518,7 +2553,7 @@ mod tests {
     fn a_resolver_at_one_of_the_hosts_own_addresses_goes_through_the_agent() {
         let mut buf = Vec::new();
         let net = Net { bridge: "asagiri0", ip: [172, 17, 0, 2], prefix: 16, gateway: [172, 17, 0, 1], extra_hosts: &[], dns_names: &[], opts: &[] };
-        encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", 0, net, &[], &Limits::default(), 0, &[] as &[&str]);
+        encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", 0, net, &[], &Limits::default(), 0, &[] as &[&str], &[]);
         let Ok(Msg::Run(spec)) = decode(&buf) else { panic!() };
         // TEST-NET-3: no machine running the tests has it.
         assert!(!super::embedded_dns(&spec, &[[203, 0, 113, 53]], false), "a resolver elsewhere is asked directly");
@@ -2530,7 +2565,7 @@ mod tests {
         let spec_with = |flags: u32, opts: &[&str], f: &dyn Fn(&asagiri_proto::RunSpec<'_>)| {
             let mut buf = Vec::new();
             let net = Net { bridge: "asagiri0", ip: [172, 17, 0, 2], prefix: 16, gateway: [172, 17, 0, 1], extra_hosts: &[], dns_names: &[], opts };
-            encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str]);
+            encode_run(&mut buf, "c1", &[], &["sh"], &[], "/", "", "c1", flags, net, &[], &Limits::default(), 0, &[] as &[&str], &[]);
             let Ok(Msg::Run(spec)) = decode(&buf) else { panic!() };
             f(&spec);
         };

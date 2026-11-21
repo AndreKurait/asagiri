@@ -13,11 +13,13 @@
 //! while the Mac itself resolves fine. So a lookup the gateway refuses, or
 //! leaves unanswered for `FALLBACK_AFTER`, is asked again through the Asagiri
 //! daemon on the Mac, over vsock, which asks the Mac's own resolvers
-//! (crates/asagiri/src/daemon/dns.rs). A container's own `--dns` servers are
-//! never second-guessed.
+//! (crates/asagiri/src/daemon/dns.rs). A container's own `--dns` servers
+//! are tried in order after a refusal, transient response, or timeout and
+//! are never replaced by the host or VM resolver.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
@@ -47,6 +49,8 @@ const RELAY_BACKOFF: Duration = Duration::from_secs(5);
 /// host (VM only). Gateway answers take milliseconds; a slow recursive one
 /// that loses the race is simply replaced by the host's.
 const FALLBACK_AFTER: Duration = Duration::from_secs(1);
+/// Advance to the next configured resolver after a silent attempt.
+const CONFIGURED_RETRY_AFTER: Duration = Duration::from_millis(750);
 /// Largest reply the host relay may send (a DNS over TCP frame's limit).
 const MAX_RELAYED: usize = 2 + 65_535;
 
@@ -84,13 +88,38 @@ struct Pending {
     id: u16,
     question: Vec<u8>,
     sent: Instant,
-    /// The query as sent (with `our` ID), to send again through the host.
+    /// The query as sent (with `our` ID), to send again.
     query: Vec<u8>,
+    remaining: ConfiguredServers,
+    /// Keep the latest transient answer to return if no later server answers.
+    transient: Option<Vec<u8>>,
     /// It may still go through the host: in the VM, asked of the VM's own
     /// resolver (not `--dns` servers), and not tried there yet.
     may_relay: bool,
     /// Sent through the host: the reply's bytes so far, `u16 len | reply`.
     relayed: Option<Vec<u8>>,
+}
+
+#[derive(Default)]
+struct ConfiguredServers {
+    addresses: Arc<[[u8; 4]]>,
+    next: usize,
+}
+
+impl ConfiguredServers {
+    fn is_empty(&self) -> bool {
+        self.next == self.addresses.len()
+    }
+
+    fn send(&mut self, msg: &[u8]) -> Option<OwnedFd> {
+        while let Some(&dest) = self.addresses.get(self.next) {
+            self.next += 1;
+            if let Some(sock) = ask(dest, msg) {
+                return Some(sock);
+            }
+        }
+        None
+    }
 }
 
 /// One name's IPv6 addresses, each with its container's IPv4 address.
@@ -107,7 +136,7 @@ pub struct Dns {
     /// Bridge to its Docker network name, for DNS search order.
     networks: HashMap<String, String>,
     /// Container address → its `--dns` servers, used instead of the VM's.
-    clients: HashMap<[u8; 4], Vec<[u8; 4]>>,
+    clients: HashMap<[u8; 4], Arc<[[u8; 4]]>>,
     pending: Vec<Pending>,
     /// Lookups the VM's resolver fails go through the host (in the VM; a
     /// Linux host's agent asks the host's resolvers itself).
@@ -274,7 +303,7 @@ impl Dns {
         if servers.is_empty() {
             self.clients.remove(&client);
         } else {
-            self.clients.insert(client, servers);
+            self.clients.insert(client, servers.into());
         }
     }
 
@@ -334,9 +363,11 @@ impl Dns {
                 // SAFETY: receiving into a buffer we own.
                 let n = unsafe { libc::recv(fd, buf.as_mut_ptr().cast(), buf.len(), 0) };
                 if n < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ECONNREFUSED) {
-                    // Nothing listens at the resolver: ask the host now
-                    // rather than wait for the client to give up.
-                    self.relay(at);
+                    if self.pending[at].may_relay {
+                        self.relay(at);
+                    } else {
+                        self.retry_configured(at);
+                    }
                     break;
                 }
                 if n < 12 {
@@ -345,7 +376,12 @@ impl Dns {
                 let msg = &mut buf[..n as usize];
                 let p = &self.pending[at];
                 if u16::from_be_bytes([msg[0], msg[1]]) == p.our && response_matches(msg, p) {
-                    self.answered(at, msg);
+                    if !p.remaining.is_empty() && matches!(msg[3] & 0x0f, 2 | 5) {
+                        self.pending[at].transient = Some(msg.to_vec());
+                        self.retry_configured(at);
+                    } else {
+                        self.answered(at, msg);
+                    }
                     break;
                 }
             }
@@ -421,9 +457,7 @@ impl Dns {
 
     fn forward(&mut self, server: usize, q: &[u8], client: libc::sockaddr_in, upstream: &[[u8; 4]]) {
         let now = Instant::now();
-        self.pending.retain(|p| now.duration_since(p.sent) < FORWARD_TIMEOUT);
         let key = self.servers[server].container.map_or(client.sin_addr.s_addr.to_ne_bytes(), |(_, owner)| owner);
-        let own = self.clients.get(&key).and_then(|v| v.first()).copied();
         if self.pending.len() >= MAX_PENDING || self.pending.iter().filter(|p| p.key == key).count() >= MAX_PER_CLIENT {
             return;
         }
@@ -434,10 +468,16 @@ impl Dns {
         let mut msg = q.to_vec();
         let id = u16::from_be_bytes([msg[0], msg[1]]);
         msg[0..2].copy_from_slice(&our.to_be_bytes());
+        let own = self.clients.get(&key);
         let may_relay = self.relay && own.is_none();
-        let dest = own.or(upstream.first().copied());
+        let mut remaining = ConfiguredServers { addresses: own.cloned().unwrap_or_default(), next: 0 };
+        let sent = if own.is_some() {
+            remaining.send(&msg)
+        } else {
+            upstream.first().and_then(|&dest| ask(dest, &msg))
+        };
         // No resolver yet, or it can't be reached: the host, if allowed.
-        let (sock, relayed) = match dest.and_then(|d| ask(d, &msg)) {
+        let (sock, relayed) = match sent {
             Some(s) => (s, false),
             None if may_relay => match self.relay_stream(&msg) {
                 Some(s) => (s, true),
@@ -455,6 +495,8 @@ impl Dns {
             question: q[12..end].to_vec(),
             sent: now,
             query: msg,
+            remaining,
+            transient: None,
             may_relay: may_relay && !relayed,
             relayed: relayed.then(Vec::new),
         };
@@ -468,6 +510,22 @@ impl Dns {
         if let Some(s) = self.servers.iter().find(|s| s.sock.as_raw_fd() == p.server) {
             send_to(s.sock.as_raw_fd(), msg, &p.client);
         }
+    }
+
+    /// Returns whether this query is still pending at `at`.
+    fn retry_configured(&mut self, at: usize) -> bool {
+        let p = &mut self.pending[at];
+        if let Some(sock) = p.remaining.send(&p.query) {
+            p.sock = sock;
+            p.sent = Instant::now();
+            return true;
+        }
+        if let Some(mut reply) = p.transient.take() {
+            self.answered(at, &mut reply);
+        } else {
+            self.pending.swap_remove(at);
+        }
+        false
     }
 
     /// Sends pending query `at` again, through the host, once.
@@ -552,14 +610,19 @@ impl Dns {
         Some(stream)
     }
 
-    /// Sends lookups the VM's resolver has left unanswered too long
-    /// through the host. Called on every turn of the agent's loop.
+    /// Advances unanswered queries when an attempt reaches its deadline.
     pub fn on_timer(&mut self) {
         let now = Instant::now();
-        for at in 0..self.pending.len() {
+        let mut at = 0;
+        while at < self.pending.len() {
             let p = &self.pending[at];
-            if p.may_relay && now.duration_since(p.sent) >= FALLBACK_AFTER {
+            if now.saturating_duration_since(p.sent) < p.delay() {
+                at += 1;
+            } else if p.may_relay {
                 self.relay(at);
+                at += 1;
+            } else if self.retry_configured(at) {
+                at += 1;
             }
         }
     }
@@ -569,10 +632,21 @@ impl Dns {
         let now = Instant::now();
         self.pending
             .iter()
-            .filter(|p| p.may_relay)
-            .map(|p| FALLBACK_AFTER.saturating_sub(now.duration_since(p.sent)).as_millis().min(i32::MAX as u128) as i32)
+            .map(|p| p.delay().saturating_sub(now.duration_since(p.sent)).as_millis() as i32)
             .min()
             .unwrap_or(-1)
+    }
+}
+
+impl Pending {
+    fn delay(&self) -> Duration {
+        if self.may_relay {
+            FALLBACK_AFTER
+        } else if self.remaining.is_empty() {
+            FORWARD_TIMEOUT
+        } else {
+            CONFIGURED_RETRY_AFTER
+        }
     }
 }
 
@@ -876,11 +950,62 @@ mod tests {
     fn own_servers_go_with_the_container() {
         let mut dns = Dns::default();
         dns.set_upstream([10, 5, 0, 2], vec![[8, 8, 8, 8]]);
-        assert_eq!(dns.clients.get(&[10, 5, 0, 2]), Some(&vec![[8, 8, 8, 8]]));
+        assert_eq!(dns.clients.get(&[10, 5, 0, 2]).map(AsRef::as_ref), Some([[8, 8, 8, 8]].as_slice()));
         dns.unregister("asagiri1", [10, 5, 0, 2]);
         assert!(dns.clients.is_empty());
         dns.set_upstream([10, 5, 0, 3], vec![]);
         assert!(dns.clients.is_empty());
+    }
+
+    #[test]
+    fn configured_servers_advance_after_silence_or_transient_failure() {
+        use std::net::{SocketAddr, UdpSocket};
+        use std::os::fd::AsRawFd;
+
+        let first = UdpSocket::bind("127.0.0.21:53").unwrap();
+        let second = UdpSocket::bind("127.0.0.22:53").unwrap();
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        for socket in [&first, &second, &receiver] {
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        }
+        let SocketAddr::V4(client) = receiver.local_addr().unwrap() else { panic!() };
+        let from = super::sockaddr(client.ip().octets(), client.port());
+        let owner = [10, 5, 0, 2];
+        let mut dns = Dns { relay: true, ..Default::default() };
+        dns.servers.push(Server {
+            bridges: vec!["asagiri1".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(),
+            container: Some((42, owner)),
+        });
+        dns.set_upstream(owner, vec![[127, 0, 0, 21], [127, 0, 0, 22]]);
+        let question = query("example.com", 1);
+        let mut bytes = [0; 512];
+        for rcode in [None, Some(2), Some(5)] {
+            dns.forward(0, &question, from, &[]);
+            let (n, first_peer) = first.recv_from(&mut bytes).unwrap();
+            let sent = bytes[..n].to_vec();
+            if let Some(rcode) = rcode {
+                bytes[2] |= 0x80;
+                bytes[3] = rcode;
+                first.send_to(&bytes[..n], first_peer).unwrap();
+                dns.on_readable(dns.pending[0].sock.as_raw_fd(), &[]);
+            } else {
+                dns.pending[0].sent = Instant::now() - super::CONFIGURED_RETRY_AFTER;
+                dns.on_timer();
+            }
+            let (n, second_peer) = second.recv_from(&mut bytes).unwrap();
+            assert_eq!(bytes[..n], sent);
+            assert_ne!(first_peer.port(), second_peer.port());
+            // A definitive NXDOMAIN from the second server should reach the client.
+            bytes[2] |= 0x80;
+            bytes[3] = 3;
+            second.send_to(&bytes[..n], second_peer).unwrap();
+            dns.on_readable(dns.pending[0].sock.as_raw_fd(), &[]);
+            receiver.recv(&mut bytes).unwrap();
+            assert_eq!(bytes[..2], question[..2]);
+            assert_eq!(bytes[3] & 0xf, 3);
+            assert!(dns.pending.is_empty());
+        }
+        assert!(dns.relay_down_until.is_none(), "the configured query never asks the host");
     }
     use std::time::Instant;
 
@@ -951,6 +1076,8 @@ mod tests {
             question: b"\x03www\x07example\x03com\x00\x00\x01\x00\x01".to_vec(),
             sent: Instant::now(),
             query: Vec::new(),
+            remaining: super::ConfiguredServers::default(),
+            transient: None,
             may_relay: false,
             relayed: None,
         }
@@ -996,11 +1123,12 @@ mod tests {
     }
 
     #[test]
-    fn only_lookups_the_vm_resolver_may_miss_wait_for_the_host() {
+    fn only_lookups_the_vm_resolver_may_miss_try_the_host() {
         let mut dns = Dns::default();
         assert_eq!(dns.timeout_ms(), -1, "nothing pending");
         dns.pending.push(pending());
-        assert_eq!(dns.timeout_ms(), -1, "--dns servers are not second-guessed");
+        let t = dns.timeout_ms();
+        assert!(t > 1000 && t <= 5000, "unanswered queries expire: {t}");
         let mut p = pending();
         p.may_relay = true;
         dns.pending.push(p);
@@ -1011,6 +1139,9 @@ mod tests {
         assert_eq!(dns.timeout_ms(), 0);
         dns.on_timer();
         assert!(!dns.pending[1].may_relay);
+        assert!(!dns.pending[0].may_relay);
+        dns.pending.iter_mut().for_each(|p| p.sent = Instant::now() - super::FORWARD_TIMEOUT);
+        dns.on_timer();
         assert_eq!(dns.timeout_ms(), -1);
     }
 

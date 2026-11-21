@@ -294,6 +294,10 @@ impl<'a> Body<'a> {
         let left = if chunked { 0 } else { req.header("content-length").and_then(|v| parse_number(v.as_bytes(), false)).unwrap_or(0) };
         Body { req, r, chunked, left, done: !chunked && left == 0 }
     }
+
+    pub(super) fn has_unread_data(&self) -> bool {
+        !self.done
+    }
 }
 
 impl Read for Body<'_> {

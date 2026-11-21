@@ -1,0 +1,29 @@
+{
+  "schema": "asagiri.native-webview2-response.v1",
+  "issue": 236,
+  "pull_request": 310,
+  "run": 44916704308,
+  "job": 136883867227,
+  "job_result": "success",
+  "checkout": "9d9e0984607b2409842ca53bf445366f02e40424",
+  "candidate": "11cf6359fcdf9226082a301e0cabef68497c8700",
+  "tree": "d32b421acee97d92f762557fa5e574a35cb4095d",
+  "log_sha256": "bbec2fe6bdf1adf4493a75c50d450b470d03122367ebe8aba1f158c99788aa0f",
+  "runtime": "Microsoft Edge WebView2 157.0.4341.46",
+  "host": "GitHub hosted Windows x86-64",
+  "command": "cargo test --locked -p asagiri-win webview2_shows_the_page_at_its_largest_and_only_it -- --ignored --nocapture",
+  "checks": [
+    "Response handles a document padded above 2 MiB",
+    "Setup and desktop render in 40 locales",
+    "Setup reloads and opens desktop",
+    "Secure context and response CSP base URL policy",
+    "Application web message accepted from the page origin",
+    "External navigation cancelled",
+    "Other application-origin paths report 404",
+    "Replaced page is released",
+    "Error page and close"
+  ],
+  "observed_assembled_utf8_bytes_without_test_padding": 1668224,
+  "merged_commit": "4ee2e902dc09b6cc784a8666a80d70ba8cdeee65",
+  "verified_tree_matches_merged_source": true
+}
