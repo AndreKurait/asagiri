@@ -32,11 +32,17 @@ jobs:
             }
             trap cleanup EXIT
             "$docker" volume create "$name-data" >/dev/null
-            "$docker" create --name "$name" -v "$name-data:/usr/bin" --entrypoint /bin/sh localstack/localstack:4.7 -c 'while [ ! -f /marker.txt ]; do sleep 0.1; done; cat /marker.txt; sleep 60' >/dev/null
+            "$docker" create --name "$name" -v "$name-data:/usr/bin" --entrypoint /bin/sh localstack/localstack:4.7 -c 'while [ ! -f /marker.txt ]; do sleep 0.1; done; cat /marker.txt; echo; sleep 60' >/dev/null
             curl --unix-socket "$ASAGIRI_SOCKET" -fsS -X POST "http://localhost/v1.47/containers/$name/start" -o /dev/null
             status=$(curl --unix-socket "$ASAGIRI_SOCKET" -sS -w '%{http_code}' -T "$base/marker.tar" "http://localhost/v1.47/containers/$name/archive?path=/" -o "$base/upload.out")
+            echo "trial=$trial upload HTTP=$status"
             test "$status" = 200
+            visible=$("$docker" exec "$name" cat /marker.txt)
+            test "$visible" = "$token"
+            echo "PASS exec observed exact archive bytes"
             for i in {1..40}; do [ "$("$docker" logs "$name")" = "$token" ] && break; sleep .25; done
+            "$docker" inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' "$name"
+            "$docker" logs "$name"
             test "$("$docker" logs "$name")" = "$token"
             test "$("$docker" exec "$name" cat /marker.txt)" = "$token"
             "$docker" rm -f "$name" && "$docker" volume rm "$name-data"
