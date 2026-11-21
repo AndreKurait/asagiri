@@ -1,7 +1,7 @@
 name: Native macOS edit shortcuts
 on:
   push:
-    branches: [qualification/appkit-edit-255]
+    branches: [qualification/settings-clipboard-158]
     paths: [.github/workflows/mac-edit-qualification.yml, tests/mac-native-edit.swift]
 permissions:
   contents: read
@@ -19,18 +19,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download 44936324877 -n macos-ARM64 -D "$RUNNER_TEMP/build"
-          cd "$RUNNER_TEMP/build"
-          shasum -a 256 -c SHA256SUMS
-          chmod +x asagiri
+          cd "$RUNNER_TEMP"
+          asset=Asagiri-0.1.14-dev.158-arm64.tar.gz
+          gh release download v0.1.14-dev.158 -R AndreKurait/asagiri -p "$asset"
+          echo "b623c6ec1aac8b4250f6c0856293fdec4957c715ef737b79a17d5dd689a7fe21  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          cd Asagiri.app/Contents/MacOS
           export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
           export ASAGIRI_SOCKET="$scratch/engine.sock"
           mkdir -p "$HOME/.asagiri"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          echo '{"mode":"custom","http":"initial.invalid:3128"}' > "$HOME/.asagiri/proxy.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
-          ./asagiri ui >"$scratch/ui.log" 2>&1 &
+          ./asagiri ui --view settings >"$scratch/ui.log" 2>&1 &
           ui_pid=$!
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
           swift "$GITHUB_WORKSPACE/tests/mac-native-edit.swift" "$ui_pid"

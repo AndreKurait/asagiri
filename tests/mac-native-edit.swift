@@ -29,16 +29,33 @@ func key(_ code: CGKeyCode, _ flags: CGEventFlags = .maskCommand) {
 }
 expect("AX access on disposable runner") { AXIsProcessTrusted() }
 expect("native window active") { NSRunningApplication(processIdentifier: pid)?.isActive == true }
-expect("Command-K focuses the search field") {
-    key(40)
-    guard let focus = attr(app, "AXFocusedUIElement") else { return false }
-    return attr(focus as! AXUIElement, "AXRole") as? String == "AXComboBox" || attr(focus as! AXUIElement, "AXRole") as? String == "AXTextField"
+func find(_ element: AXUIElement, depth: Int, predicate: (AXUIElement) -> Bool) -> AXUIElement? {
+    if predicate(element) { return element }
+    if depth > 0 {
+        for child in attr(element, "AXChildren") as? [AXUIElement] ?? [] {
+            if let match = find(child, depth: depth - 1, predicate: predicate) { return match }
+        }
+    }
+    return nil
+}
+func findInWindow(_ predicate: (AXUIElement) -> Bool) -> AXUIElement? {
+    guard let window = (attr(app, "AXWindows") as? [AXUIElement])?.first else { return nil }
+    return find(window, depth: 24, predicate: predicate)
+}
+key(43) // Command-comma opens Settings.
+expect("opened Network settings") {
+    guard let button = findInWindow({ item in
+        attr(item, "AXRole") as? String == "AXButton" && ["AXTitle", "AXDescription"].contains { attr(item, $0) as? String == "Network" }
+    }) else { return false }
+    return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+}
+expect("focused the configured HTTP proxy field") {
+    guard let field = findInWindow({ attr($0, "AXValue") as? String == "initial.invalid:3128" }) else { return false }
+    _ = AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    return value() == "initial.invalid:3128"
 }
 let board = NSPasteboard.general
+key(0); board.clearContents(); key(8)
+expect("Command-C copied the configured HTTP proxy") { board.string(forType: .string) == "initial.invalid:3128" }
 board.clearContents(); board.setString(marker, forType: .string)
-key(9); expect("Command-V inserts clipboard text") { value() == marker }
-key(0); key(7); expect("Command-X cuts the selection") { value() == "" && board.string(forType: .string) == marker }
-key(6); expect("Command-Z restores cut text") { value() == marker }
-key(6, [.maskCommand, .maskShift]); expect("Shift-Command-Z reapplies the cut") { value() == "" }
-key(9); expect("paste after redo") { value() == marker }
-key(0); board.clearContents(); key(8); expect("Command-C copies selected text") { board.string(forType: .string) == marker }
+key(9); expect("Command-V replaced the selected HTTP proxy text") { value() == marker }
