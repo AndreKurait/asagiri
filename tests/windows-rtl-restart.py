@@ -37,16 +37,29 @@ with sync_playwright() as driver:
         try:
             endpoint = 'http://127.0.0.1:19227'
             deadline = time.monotonic() + 120
+            last_targets = None
+            last_connection_error = None
             while time.monotonic() < deadline:
                 assert proc.poll() is None, proc.returncode
                 try:
                     with urllib.request.urlopen(endpoint + '/json/list', timeout=2) as response:
-                        if any(t.get('url') == 'https://asagiri.invalid/' for t in json.load(response)):
+                        last_targets = [(t.get('type'), t.get('url', '')[:140]) for t in json.load(response)]
+                        if ('page', 'https://asagiri.invalid/') in last_targets:
                             break
-                except OSError:
-                    pass
+                except OSError as error:
+                    last_connection_error = str(error)
                 time.sleep(0.5)
             else:
+                windows = []
+                def inspect_window(hwnd, _):
+                    if win32process.GetWindowThreadProcessId(hwnd)[1] == proc.pid:
+                        windows.append((win32gui.GetClassName(hwnd), win32gui.GetWindowText(hwnd), bool(win32gui.IsWindowVisible(hwnd))))
+                    return True
+                win32gui.EnumWindows(inspect_window, None)
+                print(f'PID {proc.pid} windows={windows}, targets={last_targets}, last connection error={last_connection_error}', flush=True)
+                profile = Path(os.environ['LOCALAPPDATA']) / 'Asagiri'
+                print('Profile entries:', [entry.name for entry in profile.iterdir()] if profile.exists() else [], flush=True)
+                subprocess.run(['tasklist', '/fi', 'imagename eq msedgewebview2.exe'], check=False)
                 raise RuntimeError(f'{expected} desktop did not render after launch')
             browser = driver.chromium.connect_over_cdp(endpoint)
             page = next(p for c in browser.contexts for p in c.pages if p.url == 'https://asagiri.invalid/')
