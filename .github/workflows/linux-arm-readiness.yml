@@ -38,8 +38,16 @@ jobs:
           test -n "$pinned"
           docker pull "$pinned"
           echo "Testing $pinned"
-          docker run --rm "$pinned" sh -ec 'wget -q -O /dev/null --timeout=15 https://registry.npmjs.org/'
-          echo 'PASS default bridge DNS and HTTPS from Bun image'
+          failed=0
+          probe() {
+            local label=$1
+            shift
+            if timeout 120 "$@"; then echo "PASS $label"; else echo "FAIL $label exit=$?"; failed=1; fi
+          }
+          for network in bridge host; do
+            probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
+            probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
+          done
           mkdir project && cd project
           echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
           printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
@@ -50,4 +58,10 @@ jobs:
                 context: .
                 network: host
           COMPOSE
-          docker compose up --build --exit-code-from app
+          if timeout 300 docker compose up --build --exit-code-from app; then
+            echo 'PASS digest-pinned Compose build and Bun dependency load'
+          else
+            echo "FAIL Compose build or startup exit=$?"; failed=1
+          fi
+          probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
+          exit "$failed"
