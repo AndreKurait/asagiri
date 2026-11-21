@@ -1,7 +1,7 @@
 name: Published Ubuntu x86 Compose Bun build
 on:
   push:
-    branches: [qualification/linux-compose-coexist-154]
+    branches: [qualification/linux-compose-firewall-154]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -52,6 +52,15 @@ jobs:
             sysctl net.ipv4.ip_forward
           }
           network_snapshot
+          uplink=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1);exit}}')
+          ip link show asagiri0
+          test -n "$uplink"
+          outbound=(-i asagiri0 -o "$uplink" -j ACCEPT)
+          inbound=(-i "$uplink" -o asagiri0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT)
+          sudo iptables -w -I DOCKER-USER 1 "${outbound[@]}"
+          trap 'sudo iptables -w -D DOCKER-USER "${outbound[@]}"' EXIT
+          sudo iptables -w -I DOCKER-USER 1 "${inbound[@]}"
+          trap 'sudo iptables -w -D DOCKER-USER "${inbound[@]}"; sudo iptables -w -D DOCKER-USER "${outbound[@]}"; tail -40 "$work/engine.log"' EXIT
           for network in bridge host; do
             probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
             probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
