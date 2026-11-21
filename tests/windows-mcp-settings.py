@@ -28,6 +28,14 @@ with sync_playwright() as driver:
         raise RuntimeError('Published desktop document did not open in WebView2')
     browser = driver.chromium.connect_over_cdp(endpoint)
     page = next(p for c in browser.contexts for p in c.pages if p.url == 'https://asagiri.invalid/')
+    # A fresh desktop can present these first-run dialogs before Settings.
+    page.add_locator_handler(page.locator('.langstep'), lambda: page.keyboard.press('Escape'))
+    def choose_localhost():
+        page.locator('[data-pick="localhost"]').click()
+        page.locator('#welcome-go').click()
+    page.add_locator_handler(page.locator('#welcome-go'), choose_localhost)
+    keep_builder = page.locator('[data-bwpick="docker"]')
+    page.add_locator_handler(keep_builder, lambda: keep_builder.click())
     page.locator('[data-view="settings"]').click()
     page.locator('[data-stab="integrations"]').click()
 
