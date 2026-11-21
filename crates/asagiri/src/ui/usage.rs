@@ -333,4 +333,29 @@ mod tests {
         assert!(windows_sample(std::process::id()).unwrap().0 > 0);
         assert!(procs().iter().any(|p| p.pid == std::process::id() && p.part == "Window"));
     }
+    #[cfg(windows)]
+    #[test]
+    fn live_windows_usage_attributes_the_helper_and_excludes_an_older_unrelated_process() {
+        use std::process::Command;
+        let unrelated: u32 = std::env::var("USAGE_UNRELATED_PID").unwrap().parse().unwrap();
+        let mut helper = Command::new("powershell.exe")
+            .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 45"]).spawn().unwrap();
+        let own_pid = std::process::id();
+        let helper_pid = helper.id();
+        let processes = procs();
+        let message: serde_json::Value = serde_json::from_str(&event()).unwrap();
+        let edges = [(helper_pid, own_pid), (unrelated, helper_pid)];
+        let filtered = descendants(own_pid, &edges, |pid| windows_sample(pid).map(|s| s.0));
+        helper.kill().unwrap();
+        helper.wait().unwrap();
+        let older = windows_sample(unrelated).unwrap();
+        assert!(older.0 > 0 && older.1 > 0);
+        assert_eq!(filtered, [own_pid, helper_pid]);
+        assert!(processes.iter().any(|p| p.pid == helper_pid && p.part == "Helpers" && p.started > older.0));
+        assert!(processes.iter().all(|p| p.pid != unrelated));
+        assert!(message["parts"].as_array().unwrap().iter().any(|p| p["name"] == "Helpers" && p["n"].as_u64().unwrap() > 0));
+        assert!(procs().iter().all(|p| p.pid != helper_pid));
+        println!("usage event {message}; excluded unrelated PID {unrelated}, memory {} bytes", older.1);
+    }
+
 }
