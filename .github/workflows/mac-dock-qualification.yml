@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [qualification/macos-dock-92]
-    paths: [.github/workflows/mac-dock-qualification.yml]
+    paths: [.github/workflows/mac-dock-qualification.yml, tests/mac-dock-qualification.swift]
 permissions:
   contents: read
 jobs:
