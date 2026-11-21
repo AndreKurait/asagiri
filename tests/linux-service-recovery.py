@@ -89,11 +89,13 @@ def inner():
         assert expected == set(current.values()) and len(current) == len(expected), ("old mounts were stacked instead of reclaimed", current)
 
     try:
-        # Model a desktop user's runtime directory and proxy. The outer
-        # container gives /run a private mount, so this is never the host's.
+        # The desktop user can manage its proxy through group access. The
+        # old agent chmodded the root-owned directory to 0700 on startup,
+        # preventing the user from removing its own socket.
         shared_run = Path("/run/host-services")
-        shared_run.mkdir(mode=0o700)
-        os.chown(shared_run, 65534, 65534)
+        shared_run.mkdir()
+        os.chown(shared_run, 0, 65534)
+        shared_run.chmod(0o770)
         original = shared_run.stat()
         proxy = shared_run / "docker.proxy.sock"
         desktop = ["python3", "-c"]
