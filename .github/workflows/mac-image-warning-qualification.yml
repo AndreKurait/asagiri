@@ -1,0 +1,49 @@
+name: Native macOS image recovery warning
+on:
+  push:
+    branches: [qualification/image-warning-215]
+    paths: [.github/workflows/mac-image-warning-qualification.yml, tests/mac-image-warning.swift]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  native-images:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Observe recovery in the real Images window
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 44936772832 -n macos-ARM64 -D "$RUNNER_TEMP/build"
+          cd "$RUNNER_TEMP/build"
+          shasum -a 256 -c SHA256SUMS
+          chmod +x asagiri
+          export HOME="$RUNNER_TEMP/images-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/images-store"
+          scratch=$(mktemp -d /tmp/images215.XXXXXX)
+          export ASAGIRI_SOCKET="$scratch/engine.sock"
+          mkdir -p "$HOME/.asagiri"
+          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          ./asagiri raw pull alpine:3.21
+          index="$ASAGIRI_DATA_DIR/images.json"
+          cp "$index" "$scratch/clean"
+          printf 'stale trailing bytes' >> "$index"
+          cp "$index" "$scratch/damaged"
+          ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          ./asagiri ui --view images >"$scratch/ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log" "$scratch/daemon.log"' EXIT
+          for attempt in {1..40}; do
+            if compgen -G "$index.corrupt.*" >/dev/null; then break; fi
+            sleep 1
+          done
+          backups=("$index".corrupt.*)
+          test "${#backups[@]}" = 1
+          cmp "$scratch/damaged" "${backups[0]}"
+          cmp "$scratch/clean" "$index"
+          swift "$GITHUB_WORKSPACE/tests/mac-image-warning.swift" "$ui_pid" "${backups[0]}"
