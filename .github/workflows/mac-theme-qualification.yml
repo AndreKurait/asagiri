@@ -2,7 +2,6 @@ name: Native macOS window button positions
 on:
   push:
     branches: [qualification/mac-system-theme-candidate]
-    paths: [.github/workflows/mac-theme-qualification.yml, tests/mac-theme-position.swift]
 permissions:
   contents: read
   actions: read
