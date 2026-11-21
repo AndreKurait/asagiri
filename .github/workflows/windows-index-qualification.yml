@@ -1,0 +1,35 @@
+name: Windows image index durability
+on:
+  push:
+    branches: [qualification/windows-index-247]
+permissions:
+  contents: read
+jobs:
+  store:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify Windows file flush semantics and the Asagiri image store
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          cat > "$RUNNER_TEMP/flush.rs" <<'RS'
+          use std::fs::{self,File};
+          fn main() {
+              let path = std::env::temp_dir().join(format!("asagiri-flush-{}",std::process::id()));
+              let writable = File::options().create_new(true).write(true).open(&path).unwrap();
+              writable.sync_all().unwrap();
+              drop(writable);
+              let error = File::open(&path).unwrap().sync_all().unwrap_err();
+              assert_eq!(error.raw_os_error(), Some(5));
+              fs::remove_file(path).unwrap();
+              println!("Writable flush passed and read-only flush returned Windows error 5");
+          }
+          RS
+          rustc "$RUNNER_TEMP/flush.rs" -o "$RUNNER_TEMP/flush.exe"
+          "$RUNNER_TEMP/flush.exe"
+          cargo test --locked -p asagiri-image --lib store::tests:: -- --nocapture
