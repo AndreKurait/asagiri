@@ -1,7 +1,7 @@
-name: Published Windows compressed image load
+name: Published Windows C-drive bind events
 on:
   push:
-    branches: [qualification/windows-image-load-266]
+    branches: [qualification/windows-bind-232]
     paths: [.github/workflows/windows-image-load-qualification.yml]
 permissions:
   contents: read
@@ -41,17 +41,34 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            Invoke-Docker @('tag','alpine:3.21','local/gzip-proof:loaded')
-            Invoke-Docker @('save','-o','image.tar','local/gzip-proof:loaded')
-            python -c "import gzip,shutil; f=open('image.tar','rb'); z=gzip.open('archive.payload','wb'); shutil.copyfileobj(f,z); z.close(); f.close()"
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            Invoke-Docker @('rmi','local/gzip-proof:loaded','alpine:3.21')
-            & $docker image inspect local/gzip-proof:loaded 2>$null
-            if ($LASTEXITCODE -eq 0) { throw 'Proof image still present before load' }
-            Invoke-Docker @('image','load','--input','archive.payload')
-            $output = Invoke-Docker @('run','--rm','--pull','never','--network','none','local/gzip-proof:loaded','echo','windows-gzip-load-ok')
-            if ($output -notcontains 'windows-gzip-load-ok') { throw 'Loaded image did not execute the expected command' }
-            Write-Host 'PASS native Windows docker.exe loaded gzip by content and executed the restored image without pulling'
+            $source = Join-Path 'C:\' ('asagiri-inotify-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $source | Out-Null
+            $linuxSource = '/mnt/c/' + (Split-Path $source -Leaf)
+            Invoke-Docker @('run','-d','--name','bind-watch','--network','none','--mount',"type=bind,source=$linuxSource,target=/watch",'alpine:3.21','inotifyd','-','/watch:ncd')
+            function Wait-EventText($eventName, $file) {
+              for ($n=0; $n -lt 25; $n++) {
+                $lines = Invoke-Docker @('logs','bind-watch')
+                if ($lines -match "^$eventName\s+/watch\s+$file$") { return $true }
+                Start-Sleep -Milliseconds 200
+              }
+              return $false
+            }
+            Start-Sleep -Seconds 2
+            Invoke-Docker @('exec','bind-watch','touch','/watch/control')
+            if (!(Wait-EventText 'n' 'control')) { throw 'Guest watcher control failed' }
+            if (!(Test-Path (Join-Path $source 'control'))) { throw 'Guest and Windows are not viewing the same bind' }
+            $file = Join-Path $source 'host-edit'
+            [IO.File]::WriteAllText($file,'first')
+            $created = Wait-EventText 'n' 'host-edit'
+            [IO.File]::AppendAllText($file,'-second')
+            $modified = Wait-EventText 'c' 'host-edit'
+            $contents = Invoke-Docker @('exec','bind-watch','cat','/watch/host-edit')
+            if ($contents -notcontains 'first-second') { throw 'Host writes not visible to container' }
+            Remove-Item $file
+            $deleted = Wait-EventText 'd' 'host-edit'
+            Invoke-Docker @('logs','bind-watch')
+            Write-Host "Windows C-drive inotify create=$created modify=$modified delete=$deleted"
+            if (!($created -and $modified -and $deleted)) { throw 'Missing host-originated inotify events' }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-load-test
