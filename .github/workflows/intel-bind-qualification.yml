@@ -1,8 +1,8 @@
-name: Intel Mac bind mount qualification
+name: Intel Mac ARM64 container execution
 on:
   workflow_dispatch:
   push:
-    branches: [qualification/intel-bind-190]
+    branches: [qualification/intel-arm-execution-103]
     paths: [.github/workflows/intel-bind-qualification.yml]
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
           codesign --verify --deep --strict Asagiri.app
           export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
           export HOME="$RUNNER_TEMP/qualification-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/qualification-store"
-          scratch=$(mktemp -d /tmp/asagiri-190.XXXXXX)
+          scratch=$(mktemp -d /tmp/asagiri-103.XXXXXX)
           export ASAGIRI_SOCKET="$scratch/engine.sock" DOCKER_HOST="unix://$scratch/engine.sock"
           unset DOCKER_CONTEXT
           mkdir -p "$HOME"
@@ -46,5 +46,12 @@ jobs:
             sleep 1
           done
           docker version
-          docker pull alpine:3.21
-          bash "$GITHUB_WORKSPACE/tests/bind-recreate.sh"
+          docker pull --platform linux/arm64 alpine:3.21
+          test "$(docker image inspect alpine:3.21 --format '{{.Architecture}}')" = arm64
+          arch=$(docker run --rm --platform linux/arm64 alpine:3.21 uname -m)
+          echo "ARM64 container reported $arch"
+          test "$arch" = aarch64
+          docker run --rm --platform linux/arm64 alpine:3.21 sh -ec 'echo payload >/tmp/payload; test "$(cat /tmp/payload | tr a-z A-Z)" = PAYLOAD'
+          arch=$(docker run --rm --platform linux/amd64 alpine:3.21 uname -m)
+          echo "Native container after ARM64 pull reported $arch"
+          test "$arch" = x86_64
