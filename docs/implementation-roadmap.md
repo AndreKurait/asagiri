@@ -108,7 +108,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #190: Windows: the window's usage figure counts unrelated processes (PID reuse when building the process tree) [#119](https://github.com/AndreKurait/asagiri/issues/119)
 - [ ] Verify Kiri #199: Every linux/amd64 container crashes with "rosetta error: unhandled auxillary vector type 29" (SIGTRAP) on Apple Silicon [#120](https://github.com/AndreKurait/asagiri/issues/120)
 - [ ] Verify Kiri #202: USB device detaches by itself after ~8 minutes idle (ESP32-S3) [#121](https://github.com/AndreKurait/asagiri/issues/121)
-- [ ] Verify Kiri #203: Proposal for a Kiri MCP server (As suggested in Issue #74) [#122](https://github.com/AndreKurait/asagiri/issues/122)
+- [x] Verify Kiri #203: Proposal for a Kiri MCP server (As suggested in Issue #74) [#122](https://github.com/AndreKurait/asagiri/issues/122)
 - [ ] Verify Kiri #209: Windows: docker build hangs when a RUN step needs network (BuildKit has no usable DNS) [#123](https://github.com/AndreKurait/asagiri/issues/123)
 - [ ] Verify Kiri #210: macOS: containers report hundreds of GB of block reads while the guest has no page cache [#124](https://github.com/AndreKurait/asagiri/issues/124)
 - [ ] Verify Kiri #218: Windows: publishing a port on a host IP (-p IP:port:port) fails with 'Address not available (os error 99)'; 0.0.0.0 is loopback-only [#125](https://github.com/AndreKurait/asagiri/issues/125)
