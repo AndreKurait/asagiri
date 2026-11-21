@@ -78,7 +78,7 @@ pub fn handle(action: &str, id: &str, value: &Value, emit: fn(String)) {
                 emit(termwire::shells(&list, &default));
             });
         }
-        "open" if termwire::valid_id(id) => start_open(id, value, emit, shells),
+        "open" if termwire::valid_id(id) => { drop(start_open(id, value, emit, shells)); }
         "input" => {
             if let Some(bytes) = value.as_str().and_then(termwire::unb64) {
                 with(|s| {
@@ -132,7 +132,7 @@ fn end(s: Session) {
     end_running(console, process);
 }
 
-fn start_open(id: &str, value: &Value, emit: fn(String), list_shells: impl FnOnce() -> Vec<Shell> + Send + 'static) {
+fn start_open(id: &str, value: &Value, emit: fn(String), list_shells: impl FnOnce() -> Vec<Shell> + Send + 'static) -> std::thread::JoinHandle<()> {
     let (cols, rows) = termwire::size(value);
     let asked = value["shell"].as_str().unwrap_or("").to_owned();
     let seq = NEXT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -158,7 +158,7 @@ fn start_open(id: &str, value: &Value, emit: fn(String), list_shells: impl FnOnc
         {
             emit(termwire::exit(&id, None, Some(&e.to_string())));
         }
-    });
+    })
 }
 
 fn end_running(console: Arc<Console>, process: Arc<OwnedHandle>) {
@@ -618,23 +618,21 @@ mod tests {
         // 1. Open -> close while shells() is still running -> release stale open -> no shell spawned.
         let (entered1, entered1_rx) = channel();
         let (release1, release1_rx) = channel();
-        let (done1, done1_rx) = channel();
-        start_open("w2", &serde_json::json!({"shell": "cmd", "cols": 80, "rows": 20}), record, move || {
+        let closed = start_open("w2", &serde_json::json!({"shell": "cmd", "cols": 80, "rows": 20}), record, move || {
             entered1.send(()).unwrap();
             release1_rx.recv().unwrap();
-            let list = cmd_shell();
-            let _ = done1.send(());
-            list
+            cmd_shell()
         });
         entered1_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         handle("close", "w2", &serde_json::json!({}), record);
         release1.send(()).unwrap();
-        done1_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        closed.join().unwrap();
+        assert!(!with(|s| s.contains_key("w2")));
 
         // 2. Stale open#1 finishing after newer open#2 must not replace open#2; early input while opening arrives.
         let (entered_a, entered_a_rx) = channel();
         let (release_a, release_a_rx) = channel();
-        start_open("w3", &serde_json::json!({"shell": "cmd", "cols": 80, "rows": 20}), record, move || {
+        let older = start_open("w3", &serde_json::json!({"shell": "cmd", "cols": 80, "rows": 20}), record, move || {
             entered_a.send(()).unwrap();
             release_a_rx.recv().unwrap();
             cmd_shell()
@@ -643,21 +641,22 @@ mod tests {
 
         let (entered_b, entered_b_rx) = channel();
         let (release_b, release_b_rx) = channel();
-        start_open("w3", &serde_json::json!({"shell": "cmd", "cols": 100, "rows": 25}), record, move || {
+        let newer = start_open("w3", &serde_json::json!({"shell": "cmd", "cols": 100, "rows": 25}), record, move || {
             entered_b.send(()).unwrap();
             release_b_rx.recv().unwrap();
             cmd_shell()
         });
         entered_b_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        handle("input", "w3", &Value::String(termwire::b64(b"echo EARLY_OK\r")), record);
+        handle("input", "w3", &Value::String(termwire::b64(b"set /a 138*7\r")), record);
         release_b.send(()).unwrap();
-        output_until(&rx, "w3", "EARLY_OK");
+        newer.join().unwrap();
+        output_until(&rx, "w3", "966");
 
         // Now release stale open#1 and verify open#2 still answers on w3.
         release_a.send(()).unwrap();
-        handle("input", "w3", &Value::String(termwire::b64(b"set /a 19+23 & echo KEPT_W3\r")), record);
-        let (out, _) = output_until(&rx, "w3", "KEPT_W3");
-        assert!(out.contains("42"), "{out}");
+        older.join().unwrap();
+        handle("input", "w3", &Value::String(termwire::b64(b"set /a 19+23\r")), record);
+        output_until(&rx, "w3", "42");
         handle("close", "w3", &serde_json::json!({}), record);
 
         assert!(!with(|s| s.contains_key("w2")), "closed pending w2 must not remain in SESSIONS");
