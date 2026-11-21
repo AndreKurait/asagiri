@@ -7,6 +7,8 @@ What Asagiri supports today, through the `asagiri` Docker context.
 Apple silicon and Intel Macs (macOS 14+), Windows 10 and 11 (x86-64 and Arm, through WSL 2), and Linux (.deb and .rpm, tested on Ubuntu and Fedora). 
 ## What works
 
+On macOS and Linux, `asagiri scan IMAGE` scans a local image using the desktop scanner and its vulnerability database. Use `--json` for a machine-readable report or `--history` to read saved scans for that image without refreshing the database. A completed scan exits successfully even when it finds vulnerabilities. Missing images, invalid arguments, and scanner failures return an error. Progress and errors go to standard error.
+
 - **Containers**: `run` (`--rm`, `-d`, `-it`, `-e`, `-u`, `-w`, `--name`,
   `--restart`, `--entrypoint`), `exec`, `logs`, `attach`, `stop`, `kill`,
   `restart`, `rm`, `wait`, `rename`, `pause`/`unpause`, `update`, `stats`,
