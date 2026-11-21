@@ -44,8 +44,9 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            $repo = (wsl.exe -d Asagiri-health-168 -- wslpath -a $env:GITHUB_WORKSPACE).Trim()
-            if ($LASTEXITCODE) { throw 'Cannot resolve checkout inside WSL' }
+            $repo = (wsl.exe -d Asagiri-health-168 --cd "$env:GITHUB_WORKSPACE" --exec pwd)
+            if ($LASTEXITCODE -or !$repo) { throw 'Cannot resolve checkout inside WSL' }
+            $repo = $repo.Trim()
             wsl.exe -d Asagiri-health-168 -u root -- apk add --no-cache python3 docker-cli ca-certificates
             if ($LASTEXITCODE) { throw 'Cannot install native WSL test clients' }
             wsl.exe -d Asagiri-health-168 -u root -- python3 "$repo/scripts/ci/compose-health-client.py" /tmp/compose-health-client
