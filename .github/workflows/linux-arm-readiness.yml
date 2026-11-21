@@ -1,7 +1,7 @@
-name: Published Ubuntu x86 Compose Bun build
+name: Shared-network DNS ordering on Ubuntu
 on:
   push:
-    branches: [qualification/linux-compose-coexist-154]
+    branches: [qualification/shared-network-alias-154]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Resolve the npm registry and build a digest-pinned Bun Compose service
+      - name: Compare shared-network alias resolution on Docker and released Asagiri
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -27,51 +27,22 @@ jobs:
           docker -H unix:///var/run/docker.sock info --format 'Reference Docker {{.ServerVersion}}'
           sudo iptables -S DOCKER-USER
           sock="$work/asagiri.sock"
-          sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
+          sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR=/test-store "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
           trap 'tail -40 "$work/engine.log"' EXIT
           for i in {1..50}; do if sudo docker -H "unix://$sock" info >/dev/null 2>&1; then break; fi; sleep 1; done
           export DOCKER_HOST="unix://$sock"
           sudo chmod 660 "$sock"
           sudo chown "$(id -u):$(id -g)" "$sock"
-          cd "$work"
-          pinned=oven/bun:1-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
-          test -n "$pinned"
-          docker pull "$pinned"
-          echo "Testing $pinned"
+          image=alpine:3.22
+          ref=/var/run/docker.sock
+          docker -H "unix://$ref" pull "$image"
+          docker pull "$image"
           failed=0
-          probe() {
-            local label=$1
-            shift
-            if timeout 120 "$@"; then echo "PASS $label"; else echo "FAIL $label exit=$?"; failed=1; fi
-          }
-          network_snapshot() {
-            sudo iptables -w -t filter -nvL FORWARD
-            sudo iptables -w -t filter -nvL DOCKER-USER
-            sudo iptables -w -t nat -nvL POSTROUTING
-            ip -4 route show
-            sysctl net.ipv4.ip_forward
-          }
-          network_snapshot
-          for network in bridge host; do
-            probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
-            probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
-          done
-          network_snapshot
-          mkdir project && cd project
-          echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
-          printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
-          cat > compose.yaml <<'COMPOSE'
-          services:
-            app:
-              build:
-                context: .
-          COMPOSE
-          if timeout 300 docker compose up --build --exit-code-from app; then
-            echo 'PASS digest-pinned Compose build and Bun dependency load'
-          else
-            echo "FAIL Compose build or startup exit=$?"; failed=1
-          fi
-          probe 'classic host-network Bun build' env DOCKER_BUILDKIT=0 docker build --no-cache --network host -t bun-host-check .
-          probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
-          docker logs --tail 80 buildx_buildkit_asagiri-build0 2>&1 | sed -E 's@/v2/[^/ ]+/[/a-zA-Z0-9.-]+/@/v2/[redacted]/registry/@g' || true
+          python3 tests/network-dns-order.py "$ref" "$image" --reference-docker --output "$RUNNER_TEMP/docker-order.json" || failed=1
+          ASAGIRI_TEST_ENGINE=1 ASAGIRI_DATA_DIR=/test-store python3 tests/network-dns-order.py "$sock" "$image" --output "$RUNNER_TEMP/asagiri-order.json" || failed=1
           exit "$failed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: dns-network-order
+          path: ${{ runner.temp }}/*-order.json
