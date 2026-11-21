@@ -1,0 +1,11 @@
+const search = document.getElementById("gq");
+const results = [];
+search.focus();
+const selection = getComputedStyle(search).userSelect;
+results.push((selection === "text" ? "PASS" : "FAIL") + " search field allows text selection (" + selection + ")");
+document.execCommand("insertText", false, "container");
+document.execCommand("undo");
+results.push((search.value === "" ? "PASS" : "FAIL") + " undo clears the typed search");
+document.execCommand("redo");
+results.push((search.value === "container" ? "PASS" : "FAIL") + " redo restores the typed search");
+report(results);
