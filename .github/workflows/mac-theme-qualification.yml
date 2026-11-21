@@ -1,0 +1,42 @@
+name: Native macOS window button positions
+on:
+  push:
+    branches: [qualification/mac-system-theme-candidate]
+    paths: [.github/workflows/mac-theme-qualification.yml, tests/mac-theme-position.swift]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-edit:
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [en, ar]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Measure AppKit window buttons after Settings theme changes
+        env:
+          APP_LANGUAGE: ${{ matrix.language }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cargo build --locked -p asagiri
+          cd target/debug
+          export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
+          scratch=$(mktemp -d /tmp/edit255.XXXXXX)
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
+          echo '{"tab":"appearance","theme":"light","lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          plutil -replace lang -string "$APP_LANGUAGE" "$HOME/.asagiri/ui.json"
+          plutil -convert json "$HOME/.asagiri/ui.json"
+          ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          ./asagiri ui --view settings >"$scratch/ui.log" 2>&1 &
+          ui_pid=$!
+          trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
+          swift "$GITHUB_WORKSPACE/tests/mac-theme-position.swift" "$ui_pid" "$HOME/.asagiri/ui.json" "$APP_LANGUAGE"
