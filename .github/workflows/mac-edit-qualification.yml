@@ -35,4 +35,4 @@ jobs:
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
           swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid"
           swift "$GITHUB_WORKSPACE/tests/mac-drag-reopen.swift" "$ui_pid" "$daemon"
-          swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid"
+          swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid" --reverse

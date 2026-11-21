@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 
 let pid = Int32(CommandLine.arguments[1])!
+let direction: CGFloat = CommandLine.arguments.contains("--reverse") ? -1 : 1
 let app = AXUIElementCreateApplication(pid)
 print("Display scale factors: \(NSScreen.screens.map { $0.backingScaleFactor })")
 func attribute(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -37,17 +38,17 @@ for _ in 0..<80 {
         mouse(.leftMouseDown, start)
         // The pointer is already moving when WebKit delivers the strip message.
         // Leave the button down and give AppKit time to process that first move.
-        mouse(.leftMouseDragged, CGPoint(x: start.x + 12, y: start.y + 8))
+        mouse(.leftMouseDragged, CGPoint(x: start.x + direction * 12, y: start.y + direction * 8))
         Thread.sleep(forTimeInterval: 0.12)
         for step in 5...12 {
-            mouse(.leftMouseDragged, CGPoint(x: start.x + CGFloat(step * 3), y: start.y + CGFloat(step * 2)))
+            mouse(.leftMouseDragged, CGPoint(x: start.x + direction * CGFloat(step * 3), y: start.y + direction * CGFloat(step * 2)))
             Thread.sleep(forTimeInterval: 0.04)
         }
-        mouse(.leftMouseUp, CGPoint(x: start.x + 36, y: start.y + 24))
+        mouse(.leftMouseUp, CGPoint(x: start.x + direction * 36, y: start.y + direction * 24))
         Thread.sleep(forTimeInterval: 0.4)
         guard let after = position(window) else { exit(1) }
         print("Native window origin before \(before), after \(after)")
-        guard abs(after.x - before.x - 36) <= 4, abs(after.y - before.y - 24) <= 4 else { exit(1) }
+        guard abs(after.x - before.x - direction * 36) <= 4, abs(after.y - before.y - direction * 24) <= 4 else { exit(1) }
         print("PASS native title strip drag moved the window by the pointer displacement"); exit(0)
     }
     Thread.sleep(forTimeInterval: 0.25)
