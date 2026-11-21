@@ -30,6 +30,9 @@ CONTROLS = [
     "container namespace denied with inherited descriptor",
     "rejected outside-share path", "rejected parent traversal",
     "rejected symlink traversal", "rejected nested mount",
+    "replacement looks up new inode and preserves open file",
+    "replacement expires cache without watchers",
+    "deletion expires cache without watchers",
 ]
 
 
