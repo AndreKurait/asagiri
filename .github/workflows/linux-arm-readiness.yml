@@ -1,7 +1,7 @@
-name: Published Ubuntu ARM64 immediate exec
+name: Docker ARM64 archive upload after idle
 on:
   push:
-    branches: [qualification/linux-arm-readiness-146]
+    branches: [qualification/docker-archive-146]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -10,24 +10,36 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Verify immediate exec after fresh image-volume population
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Exercise archive uploads on the disposable Docker reference engine
         run: |
           set -euo pipefail
-          uname -a
-          cat /etc/os-release
-          work=$(mktemp -d)
-          archive=asagiri-0.1.14-dev.159-linux-aarch64.tar.gz
-          gh release download v0.1.14-dev.159 --pattern "$archive" --dir "$work"
-          (cd "$work" && echo "a14c9a5b986cba9ff2d3e6b029636f619545995f3c6876d467d988ab3566975f  $archive" | sha256sum -c - && tar xzf "$archive")
-          sudo systemctl stop docker.socket docker.service
-          sock="$work/asagiri.sock"
-          sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
-          trap 'tail -40 "$work/engine.log"' EXIT
-          for i in {1..50}; do if sudo docker -H "unix://$sock" info >/dev/null 2>&1; then break; fi; sleep 1; done
-          sudo docker -H "unix://$sock" pull alpine:3.21
-          sudo python3 tests/start-exec-image-user.py "$sock" alpine:3.21 --native-asagiri --output "$work/results.json"
+          base=$(mktemp -d)
+          docker=docker
+          ASAGIRI_SOCKET=/var/run/docker.sock
+          docker version
+          "$docker" pull localstack/localstack:4.7
+          # Start the first workload after a full three-minute idle interval, as reported.
+          sleep 181
+          for trial in 1 2 3; do
+            name="archive146-$trial"
+            token="$(cat /proc/sys/kernel/random/uuid)"
+            mkdir -p "$base/payload"
+            printf '%s' "$token" > "$base/payload/marker.txt"
+            tar -C "$base/payload" -cf "$base/marker.tar" marker.txt
+            cleanup() {
+              "$docker" rm -f "$name" >/dev/null 2>&1 || true
+              "$docker" volume rm "$name-data" >/dev/null 2>&1 || true
+            }
+            trap cleanup EXIT
+            "$docker" volume create "$name-data" >/dev/null
+            "$docker" create --name "$name" -v "$name-data:/usr/bin" --entrypoint /bin/sh localstack/localstack:4.7 -c 'while [ ! -f /marker.txt ]; do sleep 0.1; done; cat /marker.txt; sleep 60' >/dev/null
+            curl --unix-socket "$ASAGIRI_SOCKET" -fsS -X POST "http://localhost/v1.47/containers/$name/start" -o /dev/null
+            status=$(curl --unix-socket "$ASAGIRI_SOCKET" -sS -w '%{http_code}' -T "$base/marker.tar" "http://localhost/v1.47/containers/$name/archive?path=/" -o "$base/upload.out")
+            test "$status" = 200
+            for i in {1..40}; do [ "$("$docker" logs "$name")" = "$token" ] && break; sleep .25; done
+            test "$("$docker" logs "$name")" = "$token"
+            test "$("$docker" exec "$name" cat /marker.txt)" = "$token"
+            "$docker" rm -f "$name" && "$docker" volume rm "$name-data"
+            trap - EXIT
+            echo "PASS trial=$trial HTTP=$status exact marker seen by entrypoint and exec"
+          done
