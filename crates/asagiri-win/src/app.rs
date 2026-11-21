@@ -1043,6 +1043,7 @@ mod tests {
             report('disabled');
             (await wait(control('enabled',1))).click();
             await checked('enabled',1); report('reads');
+            (await wait('[data-mcpcopy]')).click();
             (await wait(control('allowContainerChanges',1))).click();
             await checked('allowContainerChanges',1); report('changes');
             (await wait(control('enabled',0))).click();
@@ -1053,7 +1054,7 @@ mod tests {
             let event: serde_json::Value = serde_json::from_str(&message).unwrap();
             match event["cmd"].as_str() {
                 Some("ready") => Handle.eval(actions.to_owned()),
-                Some("integrations" | "setintegrations") => crate::engine::on_message(&message),
+                Some("integrations" | "setintegrations" | "copy") => crate::engine::on_message(&message),
                 Some("qualification") => {
                     let phase = event["name"].as_str().unwrap().to_owned();
                     let policy = crate::integrations::report(None)["permissions"].clone();

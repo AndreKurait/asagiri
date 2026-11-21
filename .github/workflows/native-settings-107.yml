@@ -12,4 +12,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - run: cargo build --locked -p asagiri
       - run: cargo test --locked -p asagiri-win native_settings_updates_persisted_mcp_permissions -- --ignored --nocapture
+      - name: Read copied client configuration from the Windows clipboard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $config = Get-Clipboard -Raw | ConvertFrom-Json
+          $server = $config.mcpServers.asagiri
+          if ($server.args.Count -ne 1 -or $server.args[0] -ne 'mcp') { throw 'Incorrect stdio arguments' }
+          $command = $server.command
+          if (![IO.Path]::IsPathFullyQualified($command) -or [IO.Path]::GetFileName($command) -ne 'asagiri.exe') { throw 'Incorrect CLI path' }
+          # Cargo runs the window test from its own output directory. Populate
+          # the adjacent CLI slot used in an installed Windows application.
+          if (!(Test-Path -LiteralPath $command)) { Copy-Item target/debug/asagiri.exe -Destination $command }
+          if ((Get-FileHash $command).Hash -ne (Get-FileHash target/debug/asagiri.exe).Hash) { throw 'Unexpected CLI binary' }
+          $request = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"clipboard-check","version":"1"}}}'
+          $response = $request | & $command $server.args[0] | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $response.result.serverInfo.name -ne 'asagiri') { throw 'Copied client configuration failed to initialize' }
+          Write-Host 'PASS Windows Settings clipboard configuration started the CLI and completed MCP initialization'
