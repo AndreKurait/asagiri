@@ -29,7 +29,8 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/asagiri" --version
           "$app/Contents/Resources/bin/docker" --version
-          open -a "$app"
+          open -a "$app" > "$RUNNER_TEMP/open.log" 2>&1 &
+          trap 'cat "$RUNNER_TEMP/open.log"; tail -20 "$HOME/.asagiri/logs/ui.log" || true' EXIT
           swift - <<'SWIFT'
           import AppKit
           import ApplicationServices
