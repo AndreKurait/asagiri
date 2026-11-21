@@ -1,7 +1,7 @@
-name: Published Ubuntu x86 Compose Bun build
+name: Published Linux engine Watchtower image check
 on:
   push:
-    branches: [qualification/linux-compose-coexist-154]
+    branches: [qualification/watchtower-134]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Resolve the npm registry and build a digest-pinned Bun Compose service
+      - name: Check nginx registry metadata with the API and Watchtower
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -24,8 +24,7 @@ jobs:
           archive=asagiri-0.1.14-dev.159-linux-x86_64.tar.gz
           gh release download v0.1.14-dev.159 --pattern "$archive" --dir "$work"
           (cd "$work" && echo "77e6972afb66005bd33692f379f9b3dd42f13095cbab469130a7bfad805f9165  $archive" | sha256sum -c - && tar xzf "$archive")
-          docker -H unix:///var/run/docker.sock info --format 'Reference Docker {{.ServerVersion}}'
-          sudo iptables -S DOCKER-USER
+          sudo systemctl stop docker.socket docker.service
           sock="$work/asagiri.sock"
           sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
           trap 'tail -40 "$work/engine.log"' EXIT
@@ -34,34 +33,13 @@ jobs:
           sudo chmod 660 "$sock"
           sudo chown "$(id -u):$(id -g)" "$sock"
           cd "$work"
-          pinned=oven/bun:1-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
-          test -n "$pinned"
-          docker pull "$pinned"
-          echo "Testing $pinned"
-          failed=0
-          probe() {
-            local label=$1
-            shift
-            if timeout 120 "$@"; then echo "PASS $label"; else echo "FAIL $label exit=$?"; failed=1; fi
-          }
-          for network in bridge host; do
-            probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
-            probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
-          done
-          mkdir project && cd project
-          echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
-          printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
-          cat > compose.yaml <<'COMPOSE'
-          services:
-            app:
-              build:
-                context: .
-                network: host
-          COMPOSE
-          if timeout 300 docker compose up --build --exit-code-from app; then
-            echo 'PASS digest-pinned Compose build and Bun dependency load'
-          else
-            echo "FAIL Compose build or startup exit=$?"; failed=1
-          fi
-          probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
-          exit "$failed"
+          docker pull oven/bun:1-alpine
+          docker run -d --name probe nginx:alpine
+          curl --fail --silent --show-error --unix-socket "$sock" http://localhost/v1.47/distribution/library/nginx:alpine/json > dist.json
+          jq -e '.Descriptor.digest | test("^sha256:[a-f0-9]{64}$")' dist.json
+          jq '{digest:.Descriptor.digest,platforms:(.Platforms|length)}' dist.json
+          docker pull containrrr/watchtower:1.7.1
+          docker run --rm --network host -e DOCKER_API_VERSION=1.47 -v "$sock:/var/run/docker.sock" containrrr/watchtower:1.7.1 --run-once --monitor-only --debug probe 2>&1 | tee watchtower.log
+          grep -E 'Scanned=1|scanned=1' watchtower.log
+          grep -E 'Failed=0|failed=0' watchtower.log
+          if grep -Ei 'falling back to (a )?(regular |full )?pull|Digest retrieval failed' watchtower.log; then exit 1; fi
