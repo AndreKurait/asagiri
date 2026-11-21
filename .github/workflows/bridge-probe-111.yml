@@ -1,0 +1,34 @@
+name: WSL guest bridge protocol on Linux
+on:
+  push:
+    branches: [qualification/linux-bridge-111]
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        variant: [baseline, candidate]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.variant == 'baseline' && 'cc0f8fafe0fbfb7912d183b2a79639b8348a8b5f' || github.sha }}
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri
+      - name: Check the executable's control frames
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          python3 - <<'PY'
+          import os, struct, subprocess, tempfile
+          def frame(kind, data=b''):
+              return struct.pack('>BII', kind, 0, len(data)) + data
+          with tempfile.TemporaryDirectory() as temp:
+              run = subprocess.run(['target/debug/asagiri', 'bridge', '--socket', temp+'/unused.sock'], input=frame(7), capture_output=True, timeout=10)
+          print('Exit', run.returncode, 'frames', run.stdout.hex(), 'diagnostics', run.stderr.decode())
+          if os.environ['VARIANT'] == 'baseline':
+              assert run.stdout == frame(5) and run.returncode != 0 and b'bad bridge frame 7' in run.stderr
+          else:
+              assert run.stdout == frame(5,b'\x01') + frame(7) and run.returncode == 0
+          PY
