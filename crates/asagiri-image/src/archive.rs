@@ -872,7 +872,7 @@ mod tests {
         let dir = scratch();
         let store = Store::open(&dir).unwrap();
         let archive = |name: &str, cmd: &str| {
-            let src = Store::open(dir.join(format!("src-{name}"))).unwrap();
+            let src = Store::open(dir.join(format!("src-{cmd}"))).unwrap();
             let put = |bytes: &[u8]| {
                 let mut w = src.ingest().unwrap();
                 w.write_all(bytes).unwrap();
