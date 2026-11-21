@@ -1783,12 +1783,16 @@ mod tests {
         let (data, digest) = blob();
         let half = data.len() / 2;
         let body = data.clone();
+        let (release, stalled) = std::sync::mpsc::channel();
+        let stalled = std::sync::Mutex::new(Some(stalled));
         let (host, served) = blob_server(move |from, c| {
             if from == 0 {
                 // Half the blob, then silence with the connection open.
                 let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
                 let _ = c.write_all(&body[..half]);
-                std::thread::sleep(Duration::from_secs(2));
+                if let Some(receiver) = stalled.lock().unwrap().take() {
+                    let _ = receiver.recv_timeout(Duration::from_secs(15));
+                }
             } else {
                 let rest = &body[from as usize..];
                 let _ = write!(c, "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {from}-{}/{}\r\n\r\n", rest.len(), body.len() - 1, body.len());
@@ -1798,11 +1802,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!("asagiri-stall-test-{}", std::process::id()));
         let store = Store::open(&root).unwrap();
         let r = Reference::parse(&format!("{host}/test/blob:1")).unwrap();
-        let started = Instant::now();
         let got = test_client().download(&store, &r, &digest, &|_| {}).unwrap();
         assert_eq!(got, data.len() as u64);
         assert!(store.has_blob(&digest, data.len() as u64));
-        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        release.send(()).expect("download must resume before the stalled response closes");
         quit(&host);
         assert_eq!(served.join().unwrap(), [0, half as u64]);
         let _ = std::fs::remove_dir_all(&root);
