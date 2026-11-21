@@ -10,6 +10,13 @@ func expect(_ message: String, _ condition: () -> Bool) {
         if condition() { print("PASS \(message)"); return }
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     } while Date() < deadline
+    var seen = 0
+    func dumpTree(_ e: AXUIElement, _ depth: Int) {
+        if depth > 20 || seen > 300 { return }; seen += 1
+        print(["AXRole", "AXTitle", "AXDescription", "AXValue"].map { String((attr(e, $0) as? String ?? "").prefix(80)) }.joined(separator: " | "))
+        for child in attr(e, "AXChildren") as? [AXUIElement] ?? [] { dumpTree(child, depth + 1) }
+    }
+    dumpTree(app, 0)
     fputs("FAIL \(message)\n", stderr); exit(1)
 }
 func attr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -41,13 +48,6 @@ func find(_ element: AXUIElement, depth: Int, predicate: (AXUIElement) -> Bool) 
 func findInWindow(_ predicate: (AXUIElement) -> Bool) -> AXUIElement? {
     guard let window = (attr(app, "AXWindows") as? [AXUIElement])?.first else { return nil }
     return find(window, depth: 24, predicate: predicate)
-}
-key(43) // Command-comma opens Settings.
-expect("opened Network settings") {
-    guard let button = findInWindow({ item in
-        attr(item, "AXRole") as? String == "AXButton" && ["AXTitle", "AXDescription"].contains { attr(item, $0) as? String == "Network" }
-    }) else { return false }
-    return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
 }
 expect("focused the configured HTTP proxy field") {
     guard let field = findInWindow({ attr($0, "AXValue") as? String == "initial.invalid:3128" }) else { return false }

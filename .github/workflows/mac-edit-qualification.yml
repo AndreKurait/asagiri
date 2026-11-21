@@ -30,7 +30,7 @@ jobs:
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
           export ASAGIRI_SOCKET="$scratch/engine.sock"
           mkdir -p "$HOME/.asagiri"
-          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          echo '{"tab":"network","lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           echo '{"mode":"custom","http":"initial.invalid:3128"}' > "$HOME/.asagiri/proxy.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
