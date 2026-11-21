@@ -195,7 +195,27 @@ def check(path, image):
         stop(fresh)
         assert sorted(endpoints(fresh)[front]["DNSNames"]) == names, endpoints(fresh)[front]
         print("PASS DNS names of the network a container was created on are listed from its first start on", flush=True)
-        print("8 endpoint metadata scenarios passed")
+        promoted = create("meta-promoted-" + tag)
+        alias = "meta-promoted-alias-" + tag
+        request("POST", "/networks/" + back_id + "/connect",
+                {"Container": promoted, "EndpointConfig": {"Aliases": [alias], "MacAddress": wanted}}, (200, 204))
+        request("POST", "/networks/bridge/disconnect", {"Container": promoted}, (200, 204))
+        request("POST", "/containers/" + promoted + "/start", statuses=(204,))
+        found = endpoints(promoted)
+        assert set(found) == {back} and alias in found[back]["DNSNames"], found
+        assert found[back]["MacAddress"] == wanted.lower(), found
+        described(promoted, "promoted", found[back], back_id)
+        print("PASS a secondary endpoint retains its aliases and MAC when promoted before start", flush=True)
+        detached = create("meta-detached-" + tag)
+        request("POST", "/networks/bridge/disconnect", {"Container": detached}, (200, 204))
+        assert endpoints(detached) == {}, endpoints(detached)
+        request("POST", "/networks/" + front_id + "/connect", {"Container": detached}, (200, 204))
+        request("POST", "/containers/" + detached + "/start", statuses=(204,))
+        found = endpoints(detached)
+        assert set(found) == {front}, found
+        described(detached, "reattached", found[front], front_id)
+        print("PASS a created container can leave bridge before connecting to its session network", flush=True)
+        print("10 endpoint metadata scenarios passed")
     finally:
         primary_failure = sys.exc_info()[0] is not None
         errors = []

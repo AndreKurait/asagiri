@@ -2299,6 +2299,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         extra_networks,
         log_config,
         network_mode,
+        network_detached: false,
         ipv4_address,
         ipv6_address,
         mac_address,
@@ -2494,7 +2495,7 @@ fn endpoint_gateways(net: Option<&super::network::Network>, v4: bool, v6: bool) 
 fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
     // Another container's namespace: no endpoints of its own, as Docker
     // shows it (`{}`), not an entry named `container:<id>`.
-    if c.spec.network_mode.starts_with("container:") {
+    if c.spec.network_detached || c.spec.network_mode.starts_with("container:") {
         return json!({});
     }
     let running = c.status == Status::Running;
@@ -2646,7 +2647,7 @@ fn list(req: &Request, engine: &Engine) -> Result<Value, Error> {
             && f.any("exited", |v| c.status == Status::Exited && v.parse() == Ok(c.exit_code))
             && (f.values("ancestor").is_none() || ancestors.contains(&c.spec.image_id))
             && f.any("network", |v| networks.iter().any(|n| (n.name == v || n.id.starts_with(v))
-                && (n.name == c.spec.network_mode || n.id == c.spec.network_mode
+                && ((!c.spec.network_detached && (n.name == c.spec.network_mode || n.id == c.spec.network_mode))
                     || (c.spec.network_mode == "default" && n.name == "bridge")
                     || c.spec.extra_networks.iter().any(|x| x.name == n.name || x.name == n.id))))
             && f.any("volume", |v| c.spec.volumes.iter().chain(&c.spec.anon_volumes).any(|n| n == v) || c.spec.mount_info.iter().any(|m| m["Destination"] == v || m["Source"] == v))
@@ -2776,7 +2777,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
 
 fn network_settings(c: &Container, nets: &[super::network::Network]) -> Value {
     // Another container's namespace: nothing of its own, as Docker shows it.
-    if c.spec.network_mode.starts_with("container:") {
+    if c.spec.network_detached || c.spec.network_mode.starts_with("container:") {
         return json!({"IPAddress": "", "IPPrefixLen": 0, "MacAddress": "", "Ports": {}, "Networks": {}});
     }
     let prefix_of = |name: &str, has_ip: bool| if has_ip { nets.iter().find(|n| n.name == name).map_or(16, |n| n.prefix) } else { 0 };
