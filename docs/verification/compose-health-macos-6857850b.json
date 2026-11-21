@@ -1,0 +1,106 @@
+{
+  "schema": "asagiri.compose-health-native.v1",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": {
+    "platform": "macOS ARM64",
+    "version": "26.7.3"
+  },
+  "scope": "Native macOS Compose; Windows WSL remains pending.",
+  "fixture": {
+    "source": "tests/compose-health.py",
+    "source_sha256": "7f5c09139adf896a37a7a32dd425d7ca67d5c563ae786a71b91ab33d7bc94ce4",
+    "changes": [
+      "Require an isolated macOS release engine and a dedicated Unix socket.",
+      "Pin Compose 5.7.1 for darwin-aarch64 and install the bundled Buildx plugin in the test config.",
+      "Read interface names from /proc/net/dev because /sys/class/net also contains bonding_masters on this kernel."
+    ],
+    "base": "Pull alpine:3.21 through the daemon and tag the same image alpine:asagiri-roadmap-base before running the fixture.",
+    "command": "python3 compose-health.py \"$ASAGIRI_SOCKET\" alpine:asagiri-roadmap-base --compose-plugin ./docker-compose-darwin-aarch64 --output compose-health-native-macos.json"
+  },
+  "registry_observation": {
+    "original_base": "alpine:3.21",
+    "build_status": "failed",
+    "build_error": "BuildKit could not resolve docker.io/library/alpine:3.21.",
+    "network_check": "An Alpine container resolved registry-1.docker.io. HTTPS requests to registry-1.docker.io and auth.docker.io timed out. The host-side daemon pulled alpine:3.21 successfully."
+  },
+  "status": "passed",
+  "compose_version": "5.7.1",
+  "compose_sha256": "5a9aa8b5fb5b1e3cd83f39c80e570ae30aafd74cd9b47264fbe4ff7e6e6251ca",
+  "base_image_id": "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee",
+  "cases": [
+    {
+      "case": "compose-up-build-wait",
+      "status": "passed"
+    },
+    {
+      "case": "service-healthy-dependency",
+      "status": "passed",
+      "start_delay_seconds": 2.5079851150512695
+    },
+    {
+      "case": "service-completed-successfully-dependency",
+      "status": "passed"
+    },
+    {
+      "case": "native-platform-and-built-image",
+      "status": "passed",
+      "image_id": "sha256:dcf442c2dacf1a75ebc70c55837aed4573be38519cfcd72ba2afffaf9d14cb06"
+    },
+    {
+      "case": "local-volume-bind-roundtrip",
+      "status": "passed",
+      "bytes": 65792,
+      "sha256": "120c518a83325c66464701a6ee080302f332bc768ea3f60473b209f1bfb091df"
+    },
+    {
+      "case": "init-readonly-capabilities-nnp-network-and-tmpfs",
+      "status": "passed"
+    },
+    {
+      "case": "failed-completion-blocks-dependent",
+      "status": "passed"
+    },
+    {
+      "case": "compose-down-preserves-bind-data",
+      "status": "passed"
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "container",
+      "name": "asagiri-health-fe32eea08a90433f-db-1",
+      "status": 404
+    },
+    {
+      "kind": "container",
+      "name": "asagiri-health-fe32eea08a90433f-completed-1",
+      "status": 404
+    },
+    {
+      "kind": "container",
+      "name": "asagiri-health-fe32eea08a90433f-app-1",
+      "status": 404
+    },
+    {
+      "kind": "container",
+      "name": "asagiri-health-fe32eea08a90433f-failed-completed-1",
+      "status": 404
+    },
+    {
+      "kind": "container",
+      "name": "asagiri-health-fe32eea08a90433f-failed-app-1",
+      "status": 404
+    },
+    {
+      "kind": "volume",
+      "name": "asagiri-health-fe32eea08a90433f_proof",
+      "status": 404
+    },
+    {
+      "kind": "image",
+      "name": "asagiri-health-fe32eea08a90433f:built",
+      "status": 404
+    }
+  ]
+}

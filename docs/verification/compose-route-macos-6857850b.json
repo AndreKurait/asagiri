@@ -1,0 +1,36 @@
+{
+  "schema": "asagiri.compose-native-route.v1",
+  "status": "passed",
+  "release": "v0.1.14-dev.152",
+  "commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "at": "2026-11-21T06:06:18.801585+00:00",
+  "host": "macOS 26.7.3 ARM64",
+  "compose_file": "services:\n  public-only:\n    image: alpine:3.22\n    command: [sh, -c, 'ip -4 route; ip -4 route get 1.1.1.1']\n    networks: [public]\n  mixed:\n    image: alpine:3.22\n    command: [sh, -c, 'ip -4 route; ip -4 route get 1.1.1.1']\n    networks: [public, private]\n  private-only:\n    image: alpine:3.22\n    command: [sh, -c, 'ip -4 route; ip -4 route get 1.1.1.1']\n    networks: [private]\nnetworks:\n  public: {}\n  private:\n    internal: true\n",
+  "cases": {
+    "public-only": {
+      "exit": 0,
+      "stdout": "default via 172.18.0.1 dev eth0 \n172.18.0.0/16 dev eth0 scope link  src 172.18.0.2 \n1.1.1.1 via 172.18.0.1 dev eth0  src 172.18.0.2",
+      "stderr": "Network asagiri-mac-route-182_public Creating \n Network asagiri-mac-route-182_public Created \n Container asagiri-mac-route-182-public-only-run-85d2a43436f7 Creating \n Container asagiri-mac-route-182-public-only-run-85d2a43436f7 Created"
+    },
+    "mixed": {
+      "exit": 0,
+      "stdout": "default via 172.18.0.1 dev eth1 \n172.18.0.0/16 dev eth1 scope link  src 172.18.0.2 \n172.19.0.0/16 dev eth0 scope link  src 172.19.0.2 \n1.1.1.1 via 172.18.0.1 dev eth1  src 172.18.0.2",
+      "stderr": "Network asagiri-mac-route-182_private Creating \n Network asagiri-mac-route-182_private Created \n Container asagiri-mac-route-182-mixed-run-a4e55a78561a Creating \n Container asagiri-mac-route-182-mixed-run-a4e55a78561a Created"
+    },
+    "private-only": {
+      "exit": 2,
+      "stdout": "172.19.0.0/16 dev eth0 scope link  src 172.19.0.2",
+      "stderr": "Container asagiri-mac-route-182-private-only-run-44735237eef3 Creating \n Container asagiri-mac-route-182-private-only-run-44735237eef3 Created \nip: RTNETLINK answers: Network unreachable"
+    }
+  },
+  "compose": "Docker Compose version v5.7.1",
+  "image": [
+    "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
+  ],
+  "late_attach": {
+    "exit": 0,
+    "stdout": "PASS two internal networks have no default route before or after restart\nPASS a routed network joined after an internal one is the way out\nPASS after a restart with both networks\nPASS a second routed network leaves the way out where it is\nPASS the way out moves on when its network leaves\nPASS after a restart with what is left\nPASS no way out once the last routed network leaves\nPASS a container that starts on a routed network keeps its way out\n8 late default route scenarios passed\n",
+    "stderr": ""
+  },
+  "owned_networks_removed": true
+}

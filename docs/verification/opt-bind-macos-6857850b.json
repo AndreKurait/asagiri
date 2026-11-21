@@ -1,0 +1,52 @@
+{
+  "schema": "asagiri.mac-outside-home-bind.v1",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "at": "2026-11-21T06:07:42.341946+00:00",
+  "template": "/opt/homebrew/var/asagiri-opt-bind-*",
+  "status": "passed",
+  "cases": [
+    {
+      "read_only": false,
+      "command": [
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--pull",
+        "never",
+        "-v",
+        "${FIXTURE}:/data",
+        "alpine:3.22",
+        "sh",
+        "-ec",
+        "ls -la /data; cat /data/any-file; printf container-marker >/data/from-container"
+      ],
+      "stdout": "total 8\ndrwx------    3 root     root            96 Nov 21 06:07 .\ndrwxr-xr-x    1 root     root          4096 Nov 21 06:07 ..\n-rw-r--r--    1 root     root            22 Nov 21 06:07 any-file\nmacOS /opt bind works\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "read_only": true,
+      "command": [
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--pull",
+        "never",
+        "-v",
+        "${FIXTURE}:/data:ro",
+        "alpine:3.22",
+        "sh",
+        "-ec",
+        "ls -la /data; cat /data/any-file; printf container-marker >/data/from-container"
+      ],
+      "stdout": "total 8\ndrwx------    3 root     root            96 Nov 21 06:07 .\ndrwxr-xr-x    1 root     root          4096 Nov 21 06:07 ..\n-rw-r--r--    1 root     root            22 Nov 21 06:07 any-file\nmacOS /opt bind works\n",
+      "stderr": "sh: can't create /data/from-container: Read-only file system\n",
+      "exit": 1
+    }
+  ],
+  "fixture_removed": true
+}

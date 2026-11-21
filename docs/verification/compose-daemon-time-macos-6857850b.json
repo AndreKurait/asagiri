@@ -1,0 +1,263 @@
+{
+  "status": "passed",
+  "recorded_at": "2026-11-21T05:47:22.776237+00:00",
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": {
+    "platform": "macOS arm64",
+    "version": "26.7.3"
+  },
+  "compose_sha256": "5a9aa8b5fb5b1e3cd83f39c80e570ae30aafd74cd9b47264fbe4ff7e6e6251ca",
+  "release_sha256": "afb7306d0a612e64ee189e610e231c922fda6dedc48fdab537998594b441496d",
+  "commands": {
+    "compose version": {
+      "args": [
+        "compose",
+        "version"
+      ],
+      "output": "Docker Compose version v5.7.1",
+      "exit": 0
+    },
+    "docker version": {
+      "args": [
+        "version",
+        "--format",
+        "{{json .}}"
+      ],
+      "output": "{\"Client\":{\"Version\":\"29.9.2\",\"ApiVersion\":\"1.47\",\"DefaultAPIVersion\":\"1.56\",\"GitCommit\":\"a82e528\",\"GoVersion\":\"go1.26.10\",\"Os\":\"darwin\",\"Arch\":\"arm64\",\"BuildTime\":\"Tue Oct 20 18:43:59 2026\",\"Context\":\"default\"},\"Server\":{\"Platform\":{\"Name\":\"Asagiri\"},\"Version\":\"27.5.1-asagiri\",\"ApiVersion\":\"1.47\",\"MinAPIVersion\":\"1.24\",\"Os\":\"linux\",\"Arch\":\"arm64\",\"Components\":[{\"Name\":\"Engine\",\"Version\":\"27.5.1-asagiri\",\"Details\":{\"ApiVersion\":\"1.47\",\"Arch\":\"arm64\",\"AsagiriVersion\":\"0.1.14-dev.152\",\"MinAPIVersion\":\"1.24\",\"Os\":\"linux\"}}]}}",
+      "exit": 0
+    },
+    "info system time": {
+      "args": [
+        "info",
+        "--format",
+        "{{.SystemTime}}"
+      ],
+      "output": "2026-11-21T05:47:23.174818000Z",
+      "exit": 0
+    },
+    "pull test image": {
+      "args": [
+        "pull",
+        "alpine:3.21"
+      ],
+      "output": "3.21: Pulling from library/alpine\n26089ff12bb1: Pulling fs layer\n26089ff12bb1: Download complete\n26089ff12bb1: Pull complete\nDigest: sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab\nStatus: Downloaded newer image for alpine:3.21\ndocker.io/library/alpine:3.21",
+      "exit": 0
+    },
+    "attached-up publish live marker": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "exec",
+        "-T",
+        "probe",
+        "touch",
+        "/tmp/go"
+      ],
+      "output": "",
+      "exit": 0
+    },
+    "allow attached service to exit": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "exec",
+        "-T",
+        "probe",
+        "touch",
+        "/tmp/end"
+      ],
+      "output": "",
+      "exit": 0
+    },
+    "remove first service": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "down"
+      ],
+      "output": "Container asagiri-daemon-time-compose-probe-1 Stopping \n Container asagiri-daemon-time-compose-probe-1 Stopped \n Container asagiri-daemon-time-compose-probe-1 Removing \n Container asagiri-daemon-time-compose-probe-1 Removed \n Network asagiri-daemon-time-compose_default Removing \n Network asagiri-daemon-time-compose_default Removed",
+      "exit": 0
+    },
+    "start service for follow": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "up",
+        "-d"
+      ],
+      "output": "Network asagiri-daemon-time-compose_default Creating \n Network asagiri-daemon-time-compose_default Created \n Container asagiri-daemon-time-compose-probe-1 Creating \n Container asagiri-daemon-time-compose-probe-1 Created \n Container asagiri-daemon-time-compose-probe-1 Starting \n Container asagiri-daemon-time-compose-probe-1 Started",
+      "exit": 0
+    },
+    "logs-follow publish live marker": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "exec",
+        "-T",
+        "probe",
+        "touch",
+        "/tmp/go"
+      ],
+      "output": "",
+      "exit": 0
+    },
+    "remove fixture project": {
+      "args": [
+        "compose",
+        "--ansi",
+        "never",
+        "--file",
+        "${FIXTURE_DIR}/compose.yaml",
+        "--project-name",
+        "asagiri-daemon-time-compose",
+        "down",
+        "--remove-orphans"
+      ],
+      "output": "Container asagiri-daemon-time-compose-probe-1 Stopping \n Container asagiri-daemon-time-compose-probe-1 Stopped \n Container asagiri-daemon-time-compose-probe-1 Removing \n Container asagiri-daemon-time-compose-probe-1 Removed \n Network asagiri-daemon-time-compose_default Removing \n Network asagiri-daemon-time-compose_default Removed",
+      "exit": 0
+    },
+    "verify project containers removed": {
+      "args": [
+        "ps",
+        "-aq",
+        "--filter",
+        "label=com.docker.compose.project=asagiri-daemon-time-compose"
+      ],
+      "output": "",
+      "exit": 0
+    }
+  },
+  "cases": {
+    "attached-up": {
+      "command": [
+        "up",
+        "--abort-on-container-exit"
+      ],
+      "stream": "Network asagiri-daemon-time-compose_default Creating\n Network asagiri-daemon-time-compose_default Created\n Container asagiri-daemon-time-compose-probe-1 Creating\n Container asagiri-daemon-time-compose-probe-1 Created\nAttaching to probe-1\n Container asagiri-daemon-time-compose-probe-1 Starting\nprobe-1  | first-marker\n Container asagiri-daemon-time-compose-probe-1 Started\nprobe-1  | live-marker\n\nprobe-1 exited with code 0\n Compose Stopping Aborting on container exit...\n Container asagiri-daemon-time-compose-probe-1 Stopping\n Container asagiri-daemon-time-compose-probe-1 Stopped",
+      "exit": 0,
+      "stopped_by_fixture": false
+    },
+    "logs-follow": {
+      "command": [
+        "logs",
+        "-f"
+      ],
+      "stream": "probe-1  | first-marker\nprobe-1  | live-marker",
+      "exit": 130,
+      "stopped_by_fixture": true
+    }
+  },
+  "engine": {
+    "Client": {
+      "Version": "29.9.2",
+      "ApiVersion": "1.47",
+      "DefaultAPIVersion": "1.56",
+      "GitCommit": "a82e528",
+      "GoVersion": "go1.26.10",
+      "Os": "darwin",
+      "Arch": "arm64",
+      "BuildTime": "Tue Oct 20 18:43:59 2026",
+      "Context": "default"
+    },
+    "Server": {
+      "Platform": {
+        "Name": "Asagiri"
+      },
+      "Version": "27.5.1-asagiri",
+      "ApiVersion": "1.47",
+      "MinAPIVersion": "1.24",
+      "Os": "linux",
+      "Arch": "arm64",
+      "Components": [
+        {
+          "Name": "Engine",
+          "Version": "27.5.1-asagiri",
+          "Details": {
+            "ApiVersion": "1.47",
+            "Arch": "arm64",
+            "AsagiriVersion": "0.1.14-dev.152",
+            "MinAPIVersion": "1.24",
+            "Os": "linux"
+          }
+        }
+      ]
+    }
+  },
+  "schema": "asagiri.compose-daemon-time.v1",
+  "fixture": "services:\n  probe:\n    image: alpine:3.21\n    command: [\"sh\", \"-ec\", \"echo first-marker; until test -f /tmp/go; do sleep 0.2; done; echo live-marker; until test -f /tmp/end; do sleep 0.2; done\"]\n",
+  "daemon_time": {
+    "schema": "asagiri.daemon-time.v1",
+    "status": "passed",
+    "cases": [
+      "RFC3339Nano SystemTime advances on each information request",
+      "SystemTime and volume events use the same daemon clock",
+      "Compose-style since replays events emitted before subscription",
+      "A later cutoff excludes earlier events",
+      "The final cutoff excludes all completed events"
+    ],
+    "volume": "asagiri-daemon-time-abee09f3d7c1410f9e0d6f84230e2e44",
+    "cleanup": {
+      "verified_absent": true
+    },
+    "version": "0.1.14-dev.152",
+    "times": {
+      "before": "2026-11-21T05:47:23.274017000Z",
+      "between": "2026-11-21T05:47:23.275545000Z",
+      "after": "2026-11-21T05:47:23.508530000Z"
+    },
+    "events": [
+      {
+        "Action": "create",
+        "Actor": {
+          "Attributes": {
+            "driver": "local"
+          },
+          "ID": "asagiri-daemon-time-abee09f3d7c1410f9e0d6f84230e2e44"
+        },
+        "Type": "volume",
+        "scope": "local",
+        "time": 1795240043,
+        "timeNano": 1795240043275340000
+      },
+      {
+        "Action": "destroy",
+        "Actor": {
+          "Attributes": {
+            "driver": "local"
+          },
+          "ID": "asagiri-daemon-time-abee09f3d7c1410f9e0d6f84230e2e44"
+        },
+        "Type": "volume",
+        "scope": "local",
+        "time": 1795240043,
+        "timeNano": 1795240043507991000
+      }
+    ]
+  }
+}
