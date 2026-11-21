@@ -1,7 +1,7 @@
 name: Published Linux engine Watchtower image check
 on:
   push:
-    branches: [qualification/watchtower-134]
+    branches: [qualification/arcane-134]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Check nginx registry metadata with the API and Watchtower
+      - name: Check the nginx image through Arcane 3.0
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -33,13 +33,15 @@ jobs:
           sudo chmod 660 "$sock"
           sudo chown "$(id -u):$(id -g)" "$sock"
           cd "$work"
-          docker pull oven/bun:1-alpine
           docker run -d --name probe nginx:alpine
-          curl --fail --silent --show-error --unix-socket "$sock" http://localhost/v1.47/distribution/library/nginx:alpine/json > dist.json
-          jq -e '.Descriptor.digest | test("^sha256:[a-f0-9]{64}$")' dist.json
-          jq '{digest:.Descriptor.digest,platforms:(.Platforms|length)}' dist.json
-          docker pull containrrr/watchtower:1.7.1
-          docker run --rm --network host -e DOCKER_API_VERSION=1.47 -v "$sock:/var/run/docker.sock" containrrr/watchtower:1.7.1 --run-once --monitor-only --debug probe 2>&1 | tee watchtower.log
-          grep -E 'Scanned=1|scanned=1' watchtower.log
-          grep -E 'Failed=0|failed=0' watchtower.log
-          if grep -Ei 'falling back to (a )?(regular |full )?pull|Digest retrieval failed' watchtower.log; then exit 1; fi
+          image=ghcr.io/getarcaneapp/arcane:3.0.0
+          key="arc_$(openssl rand -hex 32)"
+          echo "::add-mask::$key"
+          # Run the UI on the runner's Docker daemon with only Asagiri as its target engine.
+          sudo systemctl start docker
+          reference=(sudo docker -H unix:///var/run/docker.sock)
+          "${reference[@]}" run -d --name arcane -p 127.0.0.1:3552:3552 -e PUID=0 -e PGID=0 -e ARCANE_ADMIN_STATIC_API_KEY="$key" -v "$sock:/var/run/docker.sock" "$image"
+          trap '"${reference[@]}" logs --tail 80 arcane; tail -30 "$work/engine.log"' EXIT
+          for i in {1..90}; do if curl -fsS http://127.0.0.1:3552/health >/dev/null; then break; fi; sleep 1; done
+          curl --fail-with-body -sS -H "X-Api-Key: $key" 'http://127.0.0.1:3552/api/agents/0/images/updates/check?imageRef=nginx%3Aalpine' | tee result.json
+          jq -e '.success and ([.data | .. | objects | select(.latestDigest? | type == "string") | select(.latestDigest == .currentDigest and (.error // "") == "")] | length > 0)' result.json
