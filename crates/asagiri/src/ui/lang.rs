@@ -21,7 +21,8 @@ use std::sync::OnceLock;
 
 /// Every translation Asagiri ships, by language tag, as lang/<tag>.json maps
 /// English to it. English itself has no file.
-pub const FILES: [(&str, &str); 39] = [
+pub const FILES: [(&str, &str); 40] = [
+    ("az", include_str!("lang/az.json")),
     ("id", include_str!("lang/id.json")),
     ("ca", include_str!("lang/ca.json")),
     ("cs", include_str!("lang/cs.json")),
@@ -359,6 +360,7 @@ mod tests {
     #[test]
     fn tags_map_to_the_languages_asagiri_has() {
         for (tag, want) in [
+            ("az-Latn-AZ", Some("az")),
             ("zh", Some("zh-Hans")),
             ("zh-CN", Some("zh-Hans")),
             ("zh-SG", Some("zh-Hans")),
