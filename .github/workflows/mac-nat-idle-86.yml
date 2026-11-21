@@ -1,0 +1,53 @@
+name: Published Intel macOS NAT idle relay
+on:
+  push:
+    branches: [qualification/mac-nat-idle-86]
+permissions:
+  contents: read
+jobs:
+  nat:
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Observe direct NAT connections during published TCP and WebSocket tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d /private/tmp/nat86.XXXXXX)"
+          asset=Asagiri-0.1.14-dev.158-x86_64.tar.gz
+          gh release download v0.1.14-dev.158 -R AndreKurait/asagiri -p "$asset"
+          echo "120bf91342eee2dc611efa3eeebb6a8512c2b58f33046f0dec8a1007d456a7cb  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          export HOME="$PWD/home" ASAGIRI_DATA_DIR="$PWD/engine-data" ASAGIRI_SOCKET="$PWD/docker.sock" DOCKER_HOST="unix://$PWD/docker.sock" PATH="$PWD/Asagiri.app/Contents/Resources/bin:$PATH"
+          mkdir "$HOME"
+          Asagiri.app/Contents/MacOS/asagiri daemon >engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" || true; tail -40 engine.log' EXIT
+          for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep .5; done
+          docker pull alpine:3.21
+          python3 -u "$GITHUB_WORKSPACE/tests/mac-nat-tcp-86.py" >tcp.log 2>&1 &
+          tcp=$!
+          python3 -u "$GITHUB_WORKSPACE/tests/mac-nat-websocket-86.py" >ws.log 2>&1 &
+          ws=$!
+          for i in {1..120}; do grep -q 'PASS initial echo' tcp.log && grep -q 'PASS WebSocket upgrade' ws.log && break; sleep 1; done
+          cat tcp.log ws.log
+          # Each published binding owns a separate guest NAT port in 61000..65535.
+          lsof -nP -a -p "$daemon" -iTCP -sTCP:ESTABLISHED -Fn >sockets
+          cat sockets
+          python3 - <<'PY'
+          import ipaddress, re
+          from pathlib import Path
+          peers = set()
+          for address, port in re.findall(r'->([0-9.]+):(\d+)', Path('sockets').read_text()):
+              if not ipaddress.ip_address(address).is_loopback and 61000 <= int(port) <= 65535:
+                  peers.add((address, port))
+          assert len(peers) == 2, f'Expected two live guest NAT sockets, observed {peers}'
+          PY
+          wait "$tcp"
+          wait "$ws"
+          cat tcp.log ws.log
