@@ -28,18 +28,30 @@ jobs:
           echo '{"credsStore":"osxkeychain"}' > "$DOCKER_CONFIG/config.json"
           mkdir -p registry/v2
           echo '{}' > registry/v2/index.html
-          python3 -m http.server 15481 --bind 127.0.0.1 --directory registry >registry.log 2>&1 &
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1' -keyout registry.key -out registry.pem
+          python3 - <<'PYTHON' >registry.log 2>&1 &
+          from functools import partial
+          from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+          import ssl
+          server = ThreadingHTTPServer(('127.0.0.1', 15481), partial(SimpleHTTPRequestHandler, directory='registry'))
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain('registry.pem', 'registry.key')
+          server.socket = tls.wrap_socket(server.socket, server_side=True)
+          server.serve_forever()
+          PYTHON
           server=$!
           trap 'kill "$server" || true' EXIT
           registry=127.0.0.1:15481
-          curl --retry 10 --retry-connrefused --noproxy '*' -fsS "http://$registry/v2/"
-          if printf 'fixture-only\n' | PATH="$bin:/usr/bin:/bin" docker login "$registry" -u asagiri-fixture --password-stdin >baseline.log 2>&1; then exit 1; fi
+          security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" registry.pem
+          curl --cacert registry.pem --retry 10 --retry-connrefused --noproxy '*' -fsS "https://$registry/v2/"
+          if printf 'fixture-only\n' | PATH="$bin:/usr/bin:/bin" docker login "$registry" -u asagiri-fixture --password-stdin >baseline.log 2>&1; then cat baseline.log; exit 1; fi
+          cat baseline.log
           grep -F 'docker-credential-osxkeychain' baseline.log
           brew install docker-credential-helper
           export PATH="$bin:$PATH"
           security create-keychain -p fixture-only asagiri-test.keychain
           security unlock-keychain -p fixture-only asagiri-test.keychain
-          security list-keychains -d user -s asagiri-test.keychain
+          security list-keychains -d user -s asagiri-test.keychain "$HOME/Library/Keychains/login.keychain-db"
           security default-keychain -d user -s asagiri-test.keychain
           printf 'fixture-only\n' | docker login "$registry" -u asagiri-fixture --password-stdin
           printf '%s\n' "$registry" | docker-credential-osxkeychain get | jq -e '.Username=="asagiri-fixture" and .Secret=="fixture-only"'
