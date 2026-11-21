@@ -205,12 +205,18 @@ def main():
         raise TimeoutError("The private engine did not start")
 
     def check_docker_first():
+        # The fixture entered the dind image through a shell, so its normal
+        # cgroup setup did not run. Initialize the private hierarchy before
+        # either daemon creates nested cgroups. Both still share the network.
         engine("sh", "-ec",
-               "dockerd --host=unix:///run/firewall-reference.sock "
+               "/usr/local/bin/dind dockerd --host=unix:///run/firewall-reference.sock "
                "--data-root=/test-docker --exec-root=/run/firewall-reference "
                "--pidfile=/run/firewall-reference.pid --bip=172.17.0.1/16 "
                "> /tmp/firewall-docker.log 2>&1 &")
         await_api(reference)
+        delegation = engine("cat", "/sys/fs/cgroup/cgroup.subtree_control").stdout.split()
+        assert {"cpu", "memory", "pids"} <= set(delegation), delegation
+        record["delegated_controllers"] = delegation
         record["reference_docker"] = json.loads(reference("version", "--format", "{{json .Server}}").stdout)
         docker_subnet = ipaddress.ip_network("172.17.0.0/16")
 
