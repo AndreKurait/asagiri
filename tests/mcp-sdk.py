@@ -12,12 +12,20 @@ from mcp import ClientSession, StdioServerParameters, stdio_client
 
 
 async def check(sock, image):
-    assert sys.platform == "linux" and os.geteuid() == 0 and Path("/.dockerenv").is_file()
-    assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1" and os.environ.get("ASAGIRI_DATA_DIR") == "/test-store"
-    assert sock == "/run/asagiri/docker.sock"
-    binary = "/opt/asagiri/asagiri"
-    environment = dict(os.environ, ASAGIRI_SOCKET=sock)
-    policy = Path.home() / ".asagiri/integrations/mcp.json"
+    if sys.platform == "win32":
+        assert os.environ.get("GITHUB_ACTIONS") == "true" and sock == "npipe:////./pipe/asagiri-mcp-107"
+        binary = os.environ["ASAGIRI_TEST_CLI"]
+        local = Path(os.environ["RUNNER_TEMP"]) / "mcp-107-profile"
+        local.mkdir(exist_ok=False)
+        environment = dict(os.environ, LOCALAPPDATA=str(local), ASAGIRI_PIPE=r"\\.\pipe\asagiri-mcp-107")
+        policy = local / "Asagiri/integrations/mcp.json"
+    else:
+        assert sys.platform == "linux" and os.geteuid() == 0 and Path("/.dockerenv").is_file()
+        assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1" and os.environ.get("ASAGIRI_DATA_DIR") == "/test-store"
+        assert sock == "/run/asagiri/docker.sock"
+        binary = "/opt/asagiri/asagiri"
+        environment = dict(os.environ, ASAGIRI_SOCKET=sock)
+        policy = Path.home() / ".asagiri/integrations/mcp.json"
     assert not policy.exists(), "Run against a fresh private integration configuration"
     container = None
 
