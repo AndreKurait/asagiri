@@ -1,0 +1,69 @@
+{
+  "schema": "asagiri.typesense-startup.v1",
+  "at": "2026-11-21T05:59:25.622204+00:00",
+  "commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "image": {
+    "Id": "sha256:bbe4ed419e346900b30228f1551623e7747529de91d0b731d558748af483a509",
+    "RepoDigests": [
+      "typesense/typesense@sha256:316b7e71c21f7e5e5caa8daa150e1b3f2be8c876081ee1f77bc2d92cd7f137d0"
+    ],
+    "Architecture": "arm64",
+    "Os": "linux"
+  },
+  "tooling": {
+    "Client": {
+      "Version": "29.9.2",
+      "ApiVersion": "1.47",
+      "DefaultAPIVersion": "1.56",
+      "GitCommit": "a82e528",
+      "GoVersion": "go1.26.10",
+      "Os": "darwin",
+      "Arch": "arm64",
+      "BuildTime": "Tue Oct 20 18:43:59 2026",
+      "Context": "default"
+    },
+    "Server": {
+      "Platform": {
+        "Name": "Asagiri"
+      },
+      "Version": "27.5.1-asagiri",
+      "ApiVersion": "1.47",
+      "MinAPIVersion": "1.24",
+      "Os": "linux",
+      "Arch": "arm64",
+      "Components": [
+        {
+          "Name": "Engine",
+          "Version": "27.5.1-asagiri",
+          "Details": {
+            "ApiVersion": "1.47",
+            "Arch": "arm64",
+            "AsagiriVersion": "0.1.14-dev.152",
+            "MinAPIVersion": "1.24",
+            "Os": "linux"
+          }
+        }
+      ]
+    }
+  },
+  "kernel": "Linux 6.18.58",
+  "proc_io": "rchar: 4365\nwchar: 0\nsyscr: 12\nsyscw: 0\nread_bytes: 0\nwrite_bytes: 0\ncancelled_write_bytes: 0",
+  "health": "HTTP/1.1 200 OK\nConnection: close\naccess-control-allow-origin: *\ncontent-type: application/json; charset=utf-8\ntransfer-encoding: chunked\n\nb\n{\"ok\":true}\n0",
+  "status": "passed",
+  "container_removed": true,
+  "verification": {
+    "runtime": "Published ARM64 app, isolated HOME, data directory, and Docker Unix socket",
+    "release_bundle_sha256": "afb7306d0a612e64ee189e610e231c922fda6dedc48fdab537998594b441496d",
+    "commands": [
+      "docker pull --platform linux/arm64 typesense/typesense:29.0",
+      "docker run --pull never -d --network none --name asagiri-roadmap-typesense-96 typesense/typesense:29.0 --data-dir=/tmp --api-key=local-qa-only",
+      "docker exec asagiri-roadmap-typesense-96 cat /proc/self/io",
+      "HTTP GET /health on port 8108 from inside the Typesense container"
+    ],
+    "limits": [
+      "Apple Silicon was the reported platform. The startup check did not exercise search workloads."
+    ]
+  }
+}
