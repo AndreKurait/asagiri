@@ -38,6 +38,8 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod console;
+#[cfg(target_os = "macos")]
+mod daemon_output;
 
 pub mod redact;
 pub mod report;
@@ -320,6 +322,10 @@ fn echo(text: &str) {
     // SAFETY: `fd` is the dup of stderr this module owns and never closes;
     // ManuallyDrop keeps the File from closing it.
     let mut f = ManuallyDrop::new(unsafe { File::from_raw_fd(fd) });
+    #[cfg(target_os = "macos")]
+    if part() == Part::Daemon && daemon_output::echo(&mut f, text) {
+        return;
+    }
     let _ = f.write_all(format!("{text}\n").as_bytes());
 }
 
@@ -352,6 +358,11 @@ pub fn capture_stderr() {
         libc::fcntl(orig, libc::F_SETFD, libc::FD_CLOEXEC);
         (fds[0], orig)
     };
+    #[cfg(target_os = "macos")]
+    if part() == Part::Daemon {
+        // SAFETY: `orig` is the owned duplicate of the original stderr.
+        daemon_output::init(&ManuallyDrop::new(unsafe { File::from_raw_fd(orig) }));
+    }
     ECHO.store(orig, Ordering::Relaxed);
     // SAFETY: the pipe's read end, owned from here by the thread.
     let reader = unsafe { File::from_raw_fd(read) };
@@ -389,6 +400,10 @@ pub fn capture_stderr() {
             }
         }
     });
+    #[cfg(target_os = "macos")]
+    if spawned.is_ok() && part() == Part::Daemon {
+        daemon_output::capture_matching_stdout();
+    }
     if spawned.is_err() {
         // Nobody would drain the pipe: put stderr back.
         ECHO.store(-1, Ordering::Relaxed);
