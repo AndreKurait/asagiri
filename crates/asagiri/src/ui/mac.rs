@@ -348,6 +348,7 @@ fn main_menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
     let edit_menu = NSMenu::new(mtm);
     edit_menu.setTitle(&NSString::from_str(&tr("Edit")));
     edit_menu.addItem(&item(&tr("Undo"), sel!(undo:), "z"));
+    edit_menu.addItem(&item(&tr("Redo"), sel!(redo:), "Z"));
     edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
     edit_menu.addItem(&item(&tr("Cut"), sel!(cut:), "x"));
     edit_menu.addItem(&item(&tr("Copy"), sel!(copy:), "c"));
