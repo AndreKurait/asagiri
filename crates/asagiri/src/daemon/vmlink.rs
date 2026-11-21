@@ -554,6 +554,10 @@ impl VmLink {
         self.ack(|o| asagiri_proto::encode_net_attach(o, id, &ifname, bridge, ip, prefix, gateway, dns_names, opts))
     }
 
+    pub fn dns_rename(&self, id: &str, bridge: &str, ip: [u8; 4], names: &[String]) -> io::Result<()> {
+        self.ack(|o| asagiri_proto::encode_dns_rename(o, id, bridge, ip, names))
+    }
+
     pub fn net_detach(&self, id: &str, n: u32, bridge: &str, ip: [u8; 4]) -> io::Result<()> {
         let ifname = format!("eth{n}");
         self.ack(|o| Msg::NetDetach { id, ifname: &ifname, bridge, ip }.encode(o))
