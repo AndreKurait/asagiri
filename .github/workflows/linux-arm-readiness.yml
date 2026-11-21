@@ -1,0 +1,33 @@
+name: Published Ubuntu ARM64 immediate exec
+on:
+  push:
+    branches: [qualification/linux-arm-readiness-146]
+    paths: [.github/workflows/linux-arm-readiness.yml]
+permissions:
+  contents: read
+jobs:
+  immediate-exec:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify immediate exec after fresh image-volume population
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uname -a
+          cat /etc/os-release
+          work=$(mktemp -d)
+          archive=asagiri-0.1.14-dev.159-linux-aarch64.tar.gz
+          gh release download v0.1.14-dev.159 --pattern "$archive" --dir "$work"
+          (cd "$work" && echo "a14c9a5b986cba9ff2d3e6b029636f619545995f3c6876d467d988ab3566975f  $archive" | sha256sum -c - && tar xzf "$archive")
+          sudo systemctl stop docker.socket docker.service
+          sock="$work/asagiri.sock"
+          sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
+          trap 'tail -40 "$work/engine.log"' EXIT
+          for i in {1..50}; do if sudo docker -H "unix://$sock" info >/dev/null 2>&1; then break; fi; sleep 1; done
+          sudo docker -H "unix://$sock" pull alpine:3.21
+          sudo python3 tests/start-exec-image-user.py "$sock" alpine:3.21 --native-asagiri --output "$work/results.json"
