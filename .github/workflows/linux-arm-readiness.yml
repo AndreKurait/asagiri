@@ -1,45 +1,53 @@
-name: Docker ARM64 archive upload after idle
+name: Published Ubuntu x86 Compose Bun build
 on:
   push:
-    branches: [qualification/docker-archive-146]
+    branches: [qualification/linux-compose-bun-154]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
 jobs:
   immediate-exec:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Exercise archive uploads on the disposable Docker reference engine
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Resolve the npm registry and build a digest-pinned Bun Compose service
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          base=$(mktemp -d)
-          docker=docker
-          ASAGIRI_SOCKET=/var/run/docker.sock
-          docker version
-          "$docker" pull localstack/localstack:4.7
-          # Start the first workload after a full three-minute idle interval, as reported.
-          sleep 181
-          for trial in 1 2 3; do
-            name="archive146-$trial"
-            token="$(cat /proc/sys/kernel/random/uuid)"
-            mkdir -p "$base/payload"
-            printf '%s' "$token" > "$base/payload/marker.txt"
-            tar -C "$base/payload" -cf "$base/marker.tar" marker.txt
-            cleanup() {
-              "$docker" rm -f "$name" >/dev/null 2>&1 || true
-              "$docker" volume rm "$name-data" >/dev/null 2>&1 || true
-            }
-            trap cleanup EXIT
-            "$docker" volume create "$name-data" >/dev/null
-            "$docker" create --name "$name" -v "$name-data:/usr/bin" --entrypoint /bin/sh localstack/localstack:4.7 -c 'while [ ! -f /marker.txt ]; do sleep 0.1; done; cat /marker.txt; sleep 60' >/dev/null
-            curl --unix-socket "$ASAGIRI_SOCKET" -fsS -X POST "http://localhost/v1.47/containers/$name/start" -o /dev/null
-            status=$(curl --unix-socket "$ASAGIRI_SOCKET" -sS -w '%{http_code}' -T "$base/marker.tar" "http://localhost/v1.47/containers/$name/archive?path=/" -o "$base/upload.out")
-            test "$status" = 200
-            for i in {1..40}; do [ "$("$docker" logs "$name")" = "$token" ] && break; sleep .25; done
-            test "$("$docker" logs "$name")" = "$token"
-            test "$("$docker" exec "$name" cat /marker.txt)" = "$token"
-            "$docker" rm -f "$name" && "$docker" volume rm "$name-data"
-            trap - EXIT
-            echo "PASS trial=$trial HTTP=$status exact marker seen by entrypoint and exec"
-          done
+          uname -a
+          cat /etc/os-release
+          work=$(mktemp -d)
+          archive=asagiri-0.1.14-dev.159-linux-x86_64.tar.gz
+          gh release download v0.1.14-dev.159 --pattern "$archive" --dir "$work"
+          (cd "$work" && echo "77e6972afb66005bd33692f379f9b3dd42f13095cbab469130a7bfad805f9165  $archive" | sha256sum -c - && tar xzf "$archive")
+          sudo systemctl stop docker.socket docker.service
+          sock="$work/asagiri.sock"
+          sudo env PATH="$work:$PATH" HOME="$work" ASAGIRI_SOCKET="$sock" ASAGIRI_DATA_DIR="$work/data" "$work/asagiri" daemon >"$work/engine.log" 2>&1 &
+          trap 'tail -40 "$work/engine.log"' EXIT
+          for i in {1..50}; do if sudo docker -H "unix://$sock" info >/dev/null 2>&1; then break; fi; sleep 1; done
+          export DOCKER_HOST="unix://$sock"
+          sudo chmod 660 "$sock"
+          sudo chown "$(id -u):$(id -g)" "$sock"
+          cd "$work"
+          docker pull oven/bun:1-alpine
+          pinned=$(docker image inspect --format '{{index .RepoDigests 0}}' oven/bun:1-alpine)
+          test -n "$pinned"
+          docker pull "$pinned"
+          echo "Testing $pinned"
+          docker run --rm "$pinned" sh -ec 'wget -q -O /dev/null --timeout=15 https://registry.npmjs.org/'
+          echo 'PASS default bridge DNS and HTTPS from Bun image'
+          mkdir project && cd project
+          echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
+          printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
+          cat > compose.yaml <<'COMPOSE'
+          services:
+            app:
+              build:
+                context: .
+                network: host
+          COMPOSE
+          docker compose up --build --exit-code-from app
