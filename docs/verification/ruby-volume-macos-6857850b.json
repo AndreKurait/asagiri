@@ -1,0 +1,47 @@
+{
+  "source_commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+  "release": "v0.1.14-dev.152",
+  "host": "macOS 26.7.3 ARM64",
+  "at": "2026-11-21T06:11:47.918951+00:00",
+  "schema": "asagiri.native-volume-copyup.v1",
+  "status": "passed",
+  "checks": [
+    {
+      "iteration": 1,
+      "immediate_count": 2544,
+      "later_count": 2544,
+      "paths_match_image": true
+    },
+    {
+      "iteration": 2,
+      "immediate_count": 2544,
+      "later_count": 2544,
+      "paths_match_image": true
+    },
+    {
+      "iteration": 3,
+      "immediate_count": 2544,
+      "later_count": 2544,
+      "paths_match_image": true
+    }
+  ],
+  "images": {
+    "ruby:3.4-slim": [
+      "ruby@sha256:f68986140e98b6043956af9679af452cd3baaa4c19f9b00440fa06e9006c892a"
+    ],
+    "alpine:3.22": [
+      "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
+    ]
+  },
+  "image_file_count": 2544,
+  "cleanup": true,
+  "commands": [
+    "docker run --rm --network none --pull never ruby:3.4-slim sh -ec <inventory> sh /usr/local/lib/ruby",
+    "docker volume create <test-volume>",
+    "docker run -d --network none --pull never --name <test-container> -v <test-volume>:/usr/local/lib/ruby ruby:3.4-slim sleep 90",
+    "docker run --rm --network none --pull never -v <test-volume>:/g:ro alpine:3.22 sh -ec <inventory> sh /g"
+  ],
+  "inventory": "find \"$1\" -type f | sed \"s|^$1/||\" | LC_ALL=C sort",
+  "read_timing": "First Alpine read directly followed the successful detached Ruby start. The same sorted list was compared again after three seconds.",
+  "scope": "Successful starts and immediate named-volume visibility. Failed population and rollback remain tracked in #200 and #81."
+}
