@@ -184,6 +184,25 @@ impl Store {
         &self.root
     }
 
+    /// An archive's unverified and unselected blobs stay outside the live store.
+    pub(crate) fn stage_archive(&self) -> io::Result<ArchiveStage> {
+        loop {
+            let path = self.root.join("tmp").join(format!(
+                "archive.{}.{}", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&path) {
+                Ok(()) => {
+                    let stage = ArchiveStage(Store { root: path });
+                    fs::create_dir_all(stage.0.root.join("blobs/sha256"))?;
+                    fs::create_dir(stage.0.root.join("tmp"))?;
+                    return Ok(stage);
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     /// An image config, read whole for parsing. Configs are small JSON; a
     /// registry could serve a huge blob under that name, so anything over
     /// `MAX_CONFIG` is refused rather than loaded into memory.
@@ -302,6 +321,27 @@ impl Store {
     pub fn put_image(&self, image: Image) -> io::Result<()> {
         let _index = self.lock_index()?;
         let mut images = self.read_or_repair_index()?;
+        Self::update_image_index(&mut images, image);
+        self.write_index(&images)
+    }
+
+    /// Publish the selected blobs and all archive records under the index lock.
+    pub(crate) fn publish_archive(&self, stage: &Store, loaded: &[Image]) -> io::Result<()> {
+        let _index = self.lock_index()?;
+        let mut images = self.read_or_repair_index()?;
+        for image in loaded {
+            for digest in std::iter::once(&image.config_digest).chain(image.layers.iter().map(|l| &l.digest)) {
+                let dest = self.blob_path(digest)?;
+                if !dest.try_exists()? {
+                    fs::rename(stage.blob_path(digest)?, dest)?;
+                }
+            }
+            Self::update_image_index(&mut images, image.clone());
+        }
+        self.write_index(&images)
+    }
+
+    fn update_image_index(images: &mut Vec<Image>, image: Image) {
         let displaced = images.iter().find(|i| i.name == image.name && i.config_digest != image.config_digest).cloned();
         // A config that gains a name no longer needs its dangling record.
         images.retain(|i| i.name != image.name && !(i.name == i.config_digest && i.config_digest == image.config_digest));
@@ -315,7 +355,6 @@ impl Store {
             images.push(old.tagged(old.config_digest.clone()));
         }
         images.push(image);
-        self.write_index(&images)
     }
 
     /// Records the manifest a push of `name` left in its registry, so
@@ -415,6 +454,14 @@ impl Store {
         })();
         if result.is_err() { let _ = fs::remove_file(&tmp); }
         result
+    }
+}
+
+pub(crate) struct ArchiveStage(pub(crate) Store);
+
+impl Drop for ArchiveStage {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(self.0.root());
     }
 }
 

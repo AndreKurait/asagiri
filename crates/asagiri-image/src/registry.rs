@@ -76,6 +76,7 @@ impl From<ureq::Error> for Error {
 pub struct Platform {
     pub os: String,
     pub architecture: String,
+    pub variant: Option<String>,
 }
 
 impl Platform {
@@ -92,7 +93,11 @@ impl Platform {
             "aarch64" => "arm64",
             a => a,
         };
-        (!os.is_empty() && !arch.is_empty()).then(|| Platform { os: os.to_owned(), architecture: arch.to_owned() })
+        let variant = parts.next();
+        if os.is_empty() || arch.is_empty() || variant == Some("") || parts.next().is_some() {
+            return None;
+        }
+        Some(Platform { os: os.to_owned(), architecture: arch.to_owned(), variant: variant.map(str::to_owned) })
     }
 
     /// Linux on this machine's CPU architecture, which is what the guest runs.
@@ -102,7 +107,7 @@ impl Platform {
             "x86_64" => "amd64",
             other => other,
         };
-        Platform { os: "linux".into(), architecture: architecture.into() }
+        Platform { os: "linux".into(), architecture: architecture.into(), variant: None }
     }
 }
 
@@ -1971,7 +1976,7 @@ mod tests {
         let store = Store::open(&root).unwrap();
         let name = Reference::parse("alpine:3.22").unwrap();
         let targets = vec![name.via(&mirror, None), name.via(&origin, None)];
-        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         let image = test_client().pull_from(&store, &name, &targets, &platform, &|_| {}, &Cancel::new()).unwrap();
         assert_eq!(image.name, "alpine:3.22", "the mirror's name never shows");
         assert_eq!(image.layers.len(), 1);
@@ -1988,7 +1993,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("asagiri-mirror-auth-{}", std::process::id()));
         let store = Store::open(&root).unwrap();
         let name = Reference::parse("alpine:3.22").unwrap();
-        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         let client = test_client().with_credentials(Some(Credentials {
             registry_token: "origin-only-test-token".into(), ..Default::default()
         }));
@@ -2010,7 +2015,7 @@ mod tests {
         let store = Store::open(&root).unwrap();
         let name = Reference::parse("alpine:3.22").unwrap();
         let targets = vec![name.via(&mirror, None), name.via(&origin, None)];
-        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         let image = test_client().pull_from(&store, &name, &targets, &platform, &|_| {}, &Cancel::new()).unwrap();
         assert_eq!(image.name, "alpine:3.22");
         quit(&mirror);
@@ -2028,7 +2033,7 @@ mod tests {
         let store = Store::open(&root).unwrap();
         let name = Reference::parse("alpine:3.22").unwrap();
         let targets = vec![name.via(&mirror, None), name.via(&origin, None)];
-        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         let cancel = Cancel::new();
         cancel.cancel();
         let result = test_client().pull_from(&store, &name, &targets, &platform, &|_| {}, &cancel);
@@ -2046,7 +2051,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("asagiri-fetch-record-{}", std::process::id()));
         let store = Store::open(&root).unwrap();
         let name = Reference::parse("fetch-record:latest").unwrap();
-        let platform = Platform { os: "linux".into(), architecture: "amd64".into() };
+        let platform = Platform { os: "linux".into(), architecture: "amd64".into(), variant: None };
         let client = test_client().with_mirrors(vec![Mirror::parse(&format!("http://{mirror}")).unwrap()]);
         let image = client.fetch_with(&store, &name, &platform, &|_| {}, &Cancel::new()).unwrap();
         assert!(store.images().unwrap().is_empty());
