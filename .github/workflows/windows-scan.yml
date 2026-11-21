@@ -18,33 +18,54 @@ jobs:
   windows:
     needs: guest
     runs-on: windows-2025
-    timeout-minutes: 40
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: guest-engine
           path: candidate
-      - name: Exercise the Windows executable with a real WSL image store
+      - name: Build the Windows CLI
+        run: cargo build --locked -p asagiri
+      - name: Verify and unpack the published WSL bundle
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          cargo build --locked -p asagiri
-          $cli = (Resolve-Path target/debug/asagiri.exe).Path
           $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
           gh release download v0.1.14-dev.158 -R AndreKurait/asagiri -p $asset -D $env:RUNNER_TEMP
           $zip = Join-Path $env:RUNNER_TEMP $asset
           if ((Get-FileHash $zip).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Bundle hash mismatch' }
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP/bundle"
+      - name: Import the published distro and install the candidate engine
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          wsl.exe --status
           $rootfs = (Get-ChildItem "$env:RUNNER_TEMP/bundle" -Recurse -Filter asagiri-linux.tar.gz).FullName
           $distro = 'Asagiri-scan-248'
           wsl.exe --import $distro "$env:RUNNER_TEMP/scan-distro" $rootfs --version 2
           wsl.exe -d $distro --cd "$env:GITHUB_WORKSPACE" -u root --exec install -m 755 candidate/asagiri /usr/local/bin/asagiri-candidate
           wsl.exe -d $distro -u root --exec mv /usr/local/bin/asagiri-candidate /usr/local/bin/asagiri
+      - name: Pull Alpine into the WSL image store
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $distro = 'Asagiri-scan-248'
           wsl.exe -d $distro -u root --exec env HOME=/var/lib/asagiri-daemon /usr/local/bin/asagiri raw pull alpine:3.22
+      - name: Run the Windows scan and verify persisted history
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $cli = (Resolve-Path target/debug/asagiri.exe).Path
+          $distro = 'Asagiri-scan-248'
           $setup = New-Item -Force -Type Directory "$env:LOCALAPPDATA/Asagiri"
           @{distro=$distro} | ConvertTo-Json | Set-Content "$setup/setup.json" -Encoding utf8NoBOM
           $empty = & $cli scan --history --json alpine:3.22 | ConvertFrom-Json
