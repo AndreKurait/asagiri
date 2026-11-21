@@ -7,13 +7,32 @@ on:
 permissions:
   contents: read
 jobs:
+  arm-image:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Save the ARM64 Alpine image for an independent registry-free execution check
+        run: |
+          docker pull --platform linux/arm64 alpine:3.21
+          docker image inspect alpine:3.21 --format '{{.Id}}' > "$RUNNER_TEMP/expected-id"
+          docker save -o "$RUNNER_TEMP/alpine.tar" alpine:3.21
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: arm64-alpine
+          path: |
+            ${{ runner.temp }}/alpine.tar
+            ${{ runner.temp }}/expected-id
   published-app:
+    needs: arm-image
     runs-on: macos-26-intel
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: arm64-alpine
+          path: ${{ runner.temp }}/arm-image
       - name: Identify Intel virtualization capability
         run: |
           uname -m
@@ -55,7 +74,11 @@ jobs:
             fi
             sleep 3
           done
-          docker pull --platform linux/arm64 alpine:3.21
+          if ! docker pull --platform linux/arm64 alpine:3.21; then
+            echo 'Registry pull failed; checking execution separately with Docker-saved ARM64 Alpine'
+            docker load -i "$RUNNER_TEMP/arm-image/alpine.tar"
+            test "$(docker image inspect alpine:3.21 --format '{{.Id}}')" = "$(cat "$RUNNER_TEMP/arm-image/expected-id")"
+          fi
           test "$(docker image inspect alpine:3.21 --format '{{.Architecture}}')" = arm64
           arch=$(docker run --rm --platform linux/arm64 alpine:3.21 uname -m)
           echo "ARM64 container reported $arch"
