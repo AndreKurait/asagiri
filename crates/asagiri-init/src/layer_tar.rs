@@ -1,53 +1,73 @@
 //! OCI hard-link targets name paths in the layer, including when rooted.
+use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub(crate) fn unpack_hardlink<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path) -> io::Result<bool> {
-    let Some(link) = entry.link_name()?.map(|p| p.into_owned()) else {
-        return unpack_link(entry, dest);
-    };
-    let Ok(relative) = link.strip_prefix("/") else {
-        return unpack_link(entry, dest);
-    };
-    // Entry exposes resolved GNU/PAX names, but does not allow editing them.
-    // Re-encode this one link and retain tar-rs's canonical destination and
-    // source checks. Do not use Entry::unpack, which omits those checks.
-    // The Linux layer extractor applies header attributes after creating
-    // the link; tar-rs only creates the shared inode reference here.
-    let mut header = entry.header().clone();
-    header.set_size(0);
-    let mut builder = tar::Builder::new(Vec::new());
-    builder.preserve_absolute(true);
-    builder.append_link(&mut header, entry.path()?, relative)?;
-    let bytes = builder.into_inner()?;
-    let mut archive = tar::Archive::new(bytes.as_slice());
-    let mut entries = archive.entries()?;
-    let mut link = entries.next().ok_or_else(|| io::Error::other("normalized hard link is missing"))??;
-    unpack_link(&mut link, dest)
-}
-
-fn unpack_link<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path) -> io::Result<bool> {
-    match entry.unpack_in(dest) {
-        // tar-rs validates both paths before link(), but does not implement
-        // overwrite for hard links. Replace only this directory entry.
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let path = target_path(dest, &entry.path()?)?;
-            std::fs::remove_file(path)?;
-            entry.unpack_in(dest)
-        },
-        result => result,
+    let path = entry.path()?;
+    let mut relative = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(name) => relative.push(name),
+            Component::ParentDir => return Ok(false),
+            _ => {}
+        }
     }
+    let name = file_name(&relative)?;
+    let link = entry.link_name()?.ok_or_else(|| invalid("hard link has no source"))?;
+    let source = target_path(dest, &link)?;
+    let root = dest.canonicalize()?;
+
+    let mut parent = root.clone();
+    for directory in relative.parent().ok_or_else(|| invalid("hard link has no parent"))? {
+        let next = parent.join(directory);
+        parent = match checked_dir(&root, &next) {
+            Ok(existing) => existing,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&next)?;
+                next
+            },
+            Err(error) => return Err(error),
+        };
+    }
+    let target = parent.join(name);
+
+    // Link the source inode itself. A symlink can be rooted in the eventual
+    // container or point to a path that has not been unpacked yet.
+    match fs::hard_link(&source, &target) {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            if source != target {
+                fs::remove_file(&target)?;
+                fs::hard_link(&source, &target)?;
+            }
+        },
+        result => result?,
+    }
+    Ok(true)
 }
 
 pub(crate) fn target_path(dest: &Path, path: &Path) -> io::Result<PathBuf> {
-    let base = dest.canonicalize()?;
-    let path = dest.join(path.strip_prefix("/").unwrap_or(path));
-    let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hard link has no file name"))?;
-    let parent = path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hard link has no parent"))?.canonicalize()?;
-    if !parent.starts_with(base) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "hard link parent escapes the layer"));
+    let root = dest.canonicalize()?;
+    let relative = path.strip_prefix("/").unwrap_or(path);
+    let name = file_name(relative)?;
+    let parent = relative.parent().ok_or_else(|| invalid("hard link has no parent"))?;
+    Ok(checked_dir(&root, &root.join(parent))?.join(name))
+}
+
+fn checked_dir(root: &Path, path: &Path) -> io::Result<PathBuf> {
+    let canonical = path.canonicalize()?;
+    if !canonical.starts_with(root) {
+        return Err(invalid("trying to unpack outside of destination path"));
     }
-    Ok(parent.join(name))
+    Ok(canonical)
+}
+
+fn file_name(path: &Path) -> io::Result<&std::ffi::OsStr> {
+    path.file_name().ok_or_else(|| invalid("hard link has no file name"))
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 #[cfg(test)]
@@ -137,6 +157,26 @@ mod tests {
             let linked = fixture.0.join(name.trim_start_matches('/'));
             assert_eq!(fs::read(&linked).unwrap(), b"inside");
             same_inode(&source, &linked);
+        }
+    }
+
+    #[test]
+    fn hardlinks_preserve_rooted_and_dangling_symlink_inodes() {
+        let fixture = Fixture::new();
+        fixture.file("bin/tool", b"inside");
+        for (index, (source, contents)) in [
+            ("bin/rooted", "/bin/tool"),
+            ("/bin/dangling", "not-unpacked-yet"),
+        ].into_iter().enumerate() {
+            let linked = format!("links/copy-{index}");
+            let source_path = fixture.0.join(source.trim_start_matches('/'));
+            symlink(contents, &source_path).unwrap();
+            assert!(unpack(&archive(&linked, source), &fixture.0).unwrap());
+            let original = fs::symlink_metadata(source_path).unwrap();
+            let copy = fs::symlink_metadata(fixture.0.join(&linked)).unwrap();
+            assert!(copy.file_type().is_symlink());
+            assert_eq!((original.dev(), original.ino()), (copy.dev(), copy.ino()));
+            assert_eq!(fs::read_link(fixture.0.join(linked)).unwrap(), Path::new(contents));
         }
     }
 
