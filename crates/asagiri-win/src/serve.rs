@@ -1313,7 +1313,7 @@ try {
         let (hub, started) = hub(|_| silent().0);
         let (reply, took) = request(&hub);
         assert!(reply.starts_with("HTTP/1.1 503 ") && reply.contains("WSL is not answering"), "{reply}");
-        assert!(reply.contains("asagiri start"), "{reply}");
+        assert!(reply.contains("Open Asagiri and press Start"), "{reply}");
         assert_eq!(started.load(Ordering::SeqCst), 2);
         assert!(took < Duration::from_secs(8), "{took:?}");
         // docker's next request for the same command is told at once,
