@@ -2,6 +2,8 @@
 """Regression tests for verifying downloads after a Pages deployment."""
 import importlib.util
 import io
+import hashlib
+import json
 from pathlib import Path
 import ssl
 import unittest
@@ -107,6 +109,51 @@ class FetchTests(unittest.TestCase):
                 pages.fetch(URL)
         request.assert_called_once()
         sleep.assert_not_called()
+
+
+class DownloadConsistencyTests(unittest.TestCase):
+    def test_verifier_rejects_stale_publication_with_matching_commit(self):
+        commit = "a" * 40
+        args = ["verify-pages.py", "https://example.test/asagiri/", commit,
+                "--publication", "100-2", "--timeout", "0"]
+        stale = json.dumps({"commit": commit, "publication": "100-1"}).encode()
+        with patch("sys.argv", args), patch.object(pages, "fetch", return_value=stale) as fetch:
+            with self.assertRaisesRegex(SystemExit, "publication '100-2'"):
+                pages.main()
+        fetch.assert_called_once_with(
+            f"https://example.test/asagiri/deployment.json?commit={commit}&publication=100-2"
+        )
+
+    def test_mixed_publications_report_both_versions(self):
+        key = (ROOT / "packaging/keys/asagiri-rpm.asc").read_bytes()
+        for indexed, served in (("1.2.3", "1.2.4"), ("1.2.4", "1.2.3")):
+            with self.subTest(indexed=indexed, served=served):
+                prefix = f"https://github.com/AndreKurait/asagiri/releases/download/v{indexed}/Asagiri-{indexed}-arm64"
+                release = {
+                    "version": indexed, "commit": "a" * 40, "tag": "v" + indexed,
+                    "release_url": f"https://github.com/AndreKurait/asagiri/releases/tag/v{indexed}",
+                    "downloads": {"macos-arm64": {
+                        "url": prefix + ".dmg", "archive_url": prefix + ".tar.gz",
+                        "sha256": "b" * 64, "archive_sha256": "c" * 64,
+                    }},
+                }
+                index = {"repository": "AndreKurait/asagiri", "channels": {
+                    "latest": release, "stable": None, "preview": None,
+                }}
+                base = "https://example.test/asagiri/"
+                responses = {
+                    base + "install.sh": f"key_sha256={hashlib.sha256(key).hexdigest()}".encode(),
+                    base + "keys/asagiri-rpm.asc": key,
+                    base + "releases.json": json.dumps(index).encode(),
+                    URL: f"version {served}\n".encode(),
+                }
+                with patch.object(pages, "fetch", side_effect=responses.__getitem__):
+                    with self.assertRaises(SystemExit) as caught:
+                        pages.verify_downloads(base)
+                message = str(caught.exception)
+                self.assertIn("latest/arm64", message)
+                self.assertIn(f"Expected 'version {indexed}", message)
+                self.assertIn(f"observed 'version {served}", message)
 
 
 if __name__ == "__main__":
