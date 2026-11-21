@@ -1,7 +1,7 @@
-name: Published Windows WSL host overrides
+name: Published Windows Compose relative bind mount
 on:
   push:
-    branches: [qualification/windows-host-override-207]
+    branches: [qualification/windows-compose-bind-203]
     paths: [.github/workflows/windows-image-load-qualification.yml]
 permissions:
   contents: read
@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - name: Verify explicit host aliases through the Windows named pipe
+      - name: Serve the original Apache fixture from a Windows relative bind mount
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -40,20 +40,27 @@ jobs:
               if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
               Start-Sleep -Seconds 2
             }
-            Invoke-Docker @('pull','alpine:3.21')
-            foreach ($name in 'host.docker.internal','HOST.DOCKER.INTERNAL','gateway.docker.internal','host.asagiri.internal','winhost') {
-              $base = @('run','--rm','--add-host',"${name}:10.9.8.7",'alpine:3.21')
-              $hosts = Invoke-Docker ($base + @('cat','/etc/hosts'))
-              Write-Host ($hosts -join "`n")
-              $matching = @($hosts | Where-Object { (($_ -split '#')[0] -split '\s+' | Select-Object -Skip 1) -contains $name })
-              if ($matching.Count -ne 1 -or $matching[0] -notmatch '^10\.9\.8\.7\s') { throw "Unexpected entries for $name" }
-              $resolved = Invoke-Docker ($base + @('getent','hosts',$name))
-              Write-Host $resolved
-              if ($resolved -notmatch '^10\.9\.8\.7\s') { throw "Resolution mismatch for $name" }
+            Invoke-WebRequest 'https://github.com/user-attachments/files/34941683/apache1.zip' -OutFile apache1.zip
+            if ((Get-FileHash apache1.zip).Hash.ToLower() -ne '357d2c1bef5df519ca608ceba49172ff273c818ae52d46251d96ede6447b0580') { throw 'Fixture hash mismatch' }
+            Expand-Archive apache1.zip -DestinationPath apache1
+            Set-Location apache1
+            $expected = (Get-FileHash www/index.html).Hash.ToLower()
+            $compose = Join-Path $bundle 'bin/cli-plugins/docker-compose.exe'
+            & $compose up -d
+            if ($LASTEXITCODE) { throw 'Original Compose project failed to start' }
+            try {
+              $id = & $compose ps -q apache
+              if ($LASTEXITCODE -or !$id) { throw 'Missing Apache container' }
+              Invoke-Docker @('inspect','--format','{{json .Mounts}}',$id)
+              $inside = Invoke-Docker @('exec',$id,'sha256sum','/var/www/html/index.html')
+              Write-Host "Host SHA256 $expected. Container result $inside"
+              if (($inside -split '\s+')[0] -ne $expected) { throw 'Container mount content mismatch' }
+              curl.exe --noproxy '*' --retry 12 --retry-all-errors --retry-delay 1 --max-time 5 --fail http://127.0.0.1/ -o served.html
+              if ($LASTEXITCODE -or (Get-FileHash served.html).Hash.ToLower() -ne $expected) { throw 'Published HTTP response mismatch' }
+              Write-Host 'PASS original relative bind file and Apache HTTP response match host bytes'
+            } finally {
+              & $compose down
             }
-            $default = Invoke-Docker @('run','--rm','alpine:3.21','getent','hosts','host.docker.internal')
-            Write-Host "Default host entry: $default"
-            if ($default -notmatch '^\d+\.\d+\.\d+\.\d+\s' -or $default -match '^10\.9\.8\.7\s') { throw 'Default host alias missing or leaked an override' }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-load-test
