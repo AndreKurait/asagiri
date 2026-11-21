@@ -49,6 +49,7 @@ expect("German Edit menu is present in the native menu bar") {
     return editMenu != nil
 }
 let menu = editMenu!
+print("Before opening Edit: \(menuTitles(menu).filter { !$0.isEmpty })")
 _ = AXUIElementPerformAction(menu, kAXPressAction as CFString)
 var lastTitles: [String] = []
 expect("German native Edit menu exposes localized clipboard and history commands") {
