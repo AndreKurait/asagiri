@@ -205,7 +205,7 @@ pub fn scan(name: &str, progress: &mut dyn FnMut(&str, u8)) -> io::Result<Value>
         let sbom = dir.join("sbom.cdx.json.part");
         let target = format!("oci-dir:{}", tmp.display());
         let out = (|| {
-            let mut c = command(&["-q", &target, "-o", &format!("json={}", report.display()), "-o", &format!("cyclonedx-json={}", sbom.display())])?;
+            let mut c = command(&[&target, "-o", &format!("json={}", report.display()), "-o", &format!("cyclonedx-json={}", sbom.display())])?;
             c.env("GRYPE_DB_AUTO_UPDATE", "false");
             run(c, "The scan failed")
         })();
