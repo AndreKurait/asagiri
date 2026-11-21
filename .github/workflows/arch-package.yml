@@ -21,7 +21,8 @@ jobs:
           cp packaging/linux/arch/PKGBUILD "$stage/"
           git archive --format=tar.gz --prefix=asagiri/ \
             -o "$stage/asagiri-arch-c9179f64.tar.gz" c9179f64d476434e4ba5bcfd0ec5dc1fe9c93818
-          docker run --rm --privileged -v "$stage:/input:ro" \
+          # Give the nested engine native storage for its OverlayFS mounts.
+          docker run --rm --privileged -v "$stage:/input:ro" -v /var/lib/asagiri -v /test-store \
             archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899 \
             bash -euc '
               pacman -Syu --noconfirm --needed base-devel rustup gtk3 webkit2gtk-4.1 xorg-server-xvfb xorg-xauth xdotool dbus weston docker
