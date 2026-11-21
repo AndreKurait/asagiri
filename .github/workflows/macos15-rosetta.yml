@@ -1,0 +1,40 @@
+name: Published amd64 containers on macOS 15 Apple Silicon
+on:
+  push:
+    branches: [qualification/macos15-rosetta-120]
+permissions:
+  contents: read
+jobs:
+  rosetta:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Run the reporter's amd64 images with the published ARM64 guest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sw_vers
+          test "$(uname -m)" = arm64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+          sysctl kern.hv_support
+          cd "$(mktemp -d /private/tmp/auxv120.XXXXXX)"
+          asset=Asagiri-0.1.14-dev.159-arm64.tar.gz
+          gh release download v0.1.14-dev.159 -R AndreKurait/asagiri -p "$asset"
+          echo "56241cae1e3725a22dc8b9d0a83533946f535b69f3dc6fd8033d85190dc6f7c7  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --strict --deep Asagiri.app
+          export HOME="$PWD/home" ASAGIRI_DATA_DIR="$PWD/data" ASAGIRI_SOCKET="$PWD/engine.sock" DOCKER_HOST="unix://$PWD/engine.sock" ASAGIRI_CPUS=2 ASAGIRI_MEMORY_MIB=2048
+          mkdir "$HOME"
+          cli="$PWD/Asagiri.app/Contents/Resources/bin/docker"
+          Asagiri.app/Contents/MacOS/asagiri daemon >engine.log 2>&1 &
+          engine=$!
+          trap 'kill "$engine" 2>/dev/null || true; tail -40 engine.log; tail -20 "$HOME/.asagiri/logs/guest-console.log" || true' EXIT
+          for i in {1..60}; do "$cli" version >/dev/null 2>&1 && break; sleep .25; done
+          "$cli" run --rm --platform linux/arm64 alpine:3.20 uname -a
+          for image in alpine:3.20 debian:bookworm-slim ubuntu:24.04; do
+            arch=$("$cli" run --rm --platform linux/amd64 "$image" uname -m)
+            test "$arch" = x86_64
+            "$cli" image inspect "$image" --format '{{.Id}} {{.Architecture}}'
+            echo "PASS $image reported $arch"
+          done
