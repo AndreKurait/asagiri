@@ -14,7 +14,14 @@
     "command": "docker load -i <reported archive>",
     "exit": 1,
     "failure": "layer upload failed to unpack bin/hl",
-    "layer_digest": "23940b6fdae3e4747ca0fc1a03a1dd6b0a4bc8209a1c0cae9229ecf10b5cce8a"
+    "layer_digest": "23940b6fdae3e4747ca0fc1a03a1dd6b0a4bc8209a1c0cae9229ecf10b5cce8a",
+    "supabase_image": {
+      "image": "supabase/postgres:15.8.1.085",
+      "platform": "linux/arm64",
+      "host_release": "v0.1.14-dev.152",
+      "baseline_error": "layer upload: failed to unpack `/var/lib/asagiri/layers/.tmp-9924014064b069be4612c4ccd625a2df71b5626a5fabd7ac9c053edfd45bb81f/nix/store/275h385vig1sqzaf3a098ywm5vdbnvqv-user-environment/manifest.nix`",
+      "outcome": "reproduced"
+    }
   },
   "patched_guest": {
     "source_base": "43af0e694b0a5b4f2b47501c66c0ed874f8682b4",
