@@ -34,10 +34,11 @@ expect("Command-K focuses the search field") {
     guard let focus = attr(app, "AXFocusedUIElement") else { return false }
     return attr(focus as! AXUIElement, "AXRole") as? String == "AXComboBox" || attr(focus as! AXUIElement, "AXRole") as? String == "AXTextField"
 }
-func hasMenuTitle(_ element: AXUIElement, _ title: String, _ depth: Int = 0) -> Bool {
-    if attr(element, "AXTitle") as? String == title { return true }
-    guard depth < 5 else { return false }
-    return (attr(element, "AXChildren") as? [AXUIElement] ?? []).contains { hasMenuTitle($0, title, depth + 1) }
+func menuTitles(_ element: AXUIElement, _ depth: Int = 0) -> [String] {
+    let title = attr(element, "AXTitle") as? String ?? ""
+    guard depth < 7 else { return [title] }
+    let children = attr(element, "AXChildren") as? [AXUIElement] ?? []
+    return [title] + children.flatMap { menuTitles($0, depth + 1) }
 }
 var editMenu: AXUIElement?
 expect("German Edit menu is present in the native menu bar") {
@@ -49,8 +50,11 @@ expect("German Edit menu is present in the native menu bar") {
 }
 let menu = editMenu!
 _ = AXUIElementPerformAction(menu, kAXPressAction as CFString)
+var lastTitles: [String] = []
 expect("German native Edit menu exposes localized clipboard and history commands") {
-    return [ "Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { hasMenuTitle(menu, $0) }
+    let titles = menuTitles(menu).filter { !$0.isEmpty }
+    if titles != lastTitles { print("Observed native Edit titles: \(titles)"); lastTitles = titles }
+    return ["Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { titles.contains($0) }
 }
 key(53, []) // Dismiss the menu before editing the focused search field.
 let board = NSPasteboard.general
