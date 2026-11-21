@@ -141,7 +141,8 @@ jobs:
               bin="$RUNNER_TEMP/native-bin"
               options=(--native)
             fi
-            sudo --preserve-env=GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,ImageOS,ImageVersion \
+            python3 scripts/ci/runtime-trace.py "$RUNNER_TEMP/runtime-spans.jsonl" "comparison/$variant" \
+              sudo --preserve-env=GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,ImageOS,ImageVersion \
               python3 scripts/ci/reference-run.py --binaries "$bin" \
                 --out "$RUNNER_TEMP/native-reference/$variant" --runs 400 "${options[@]}"
           done
@@ -193,7 +194,23 @@ jobs:
         # The build just made, run as an engine, and the conformance scripts
         # in tests/ against it: containers, archives, attach, networks,
         # limits and seccomp, on busybox and alpine.
+        env:
+          ASAGIRI_CI_TRACE: ${{ runner.temp }}/runtime-spans.jsonl
         run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+      - name: Summarize runner timings
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -s "$RUNNER_TEMP/runtime-spans.jsonl" ]; then
+            python3 scripts/ci/runtime-trace.py "$RUNNER_TEMP/runtime-spans.jsonl" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve Linux runtime trace
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-runtime-trace-${{ runner.arch }}
+          path: ${{ runner.temp }}/runtime-spans.json*
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Preserve Docker-to-Asagiri import evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
