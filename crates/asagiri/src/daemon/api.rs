@@ -737,15 +737,41 @@ fn image_import(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufR
     Ok(Next::Close)
 }
 
+fn parse_load_platform(value: &str) -> Option<Platform> {
+    if !value.trim_start().starts_with('{') {
+        return Platform::parse(value);
+    }
+    #[derive(serde::Deserialize)]
+    struct LoadPlatform {
+        os: String,
+        architecture: String,
+    }
+    let platform: LoadPlatform = serde_json::from_str(value).ok()?;
+    if platform.os.contains('/') || platform.architecture.contains('/') {
+        return None;
+    }
+    Platform::parse(&format!("{}/{}", platform.os, platform.architecture))
+}
+
 /// `docker load`: store the archive and prepare its layers before reporting success.
 fn image_load(req: &Request, engine: &Engine, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    let platform = match req.query("platform").filter(|value| !value.is_empty()) {
+        Some(value) => match parse_load_platform(value) {
+            Some(platform) => Some(platform),
+            None => {
+                error_with(w, Error::BadRequest(format!("invalid platform: {value}")), "Connection: close\r\n")?;
+                return Ok(Next::Close);
+            }
+        },
+        None => None,
+    };
     use std::io::Read;
     let mut body = http::Body::new(req, r);
     let mut head = Vec::with_capacity(6);
     let loaded = (&mut body).take(6).read_to_end(&mut head)
         .map_err(|e| Error::BadRequest(e.to_string()))
         .and_then(|_| upload_reader(head, body))
-        .and_then(|archive| asagiri_image::archive::load(&engine.store, archive)
+        .and_then(|archive| asagiri_image::archive::load_with_platform(&engine.store, archive, platform.as_ref())
             .map_err(|e| Error::BadRequest(e.to_string())));
     match loaded {
         Ok(images) => {
