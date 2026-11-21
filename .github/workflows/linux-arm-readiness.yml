@@ -56,14 +56,12 @@ jobs:
             app:
               build:
                 context: .
-                network: host
-                entitlements:
-                  - network.host
           COMPOSE
           if timeout 300 docker compose up --build --exit-code-from app; then
             echo 'PASS digest-pinned Compose build and Bun dependency load'
           else
             echo "FAIL Compose build or startup exit=$?"; failed=1
           fi
+          probe 'classic host-network Bun build' env DOCKER_BUILDKIT=0 docker build --no-cache --network host -t bun-host-check .
           probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
           exit "$failed"
