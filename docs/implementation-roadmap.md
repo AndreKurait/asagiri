@@ -94,7 +94,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [x] Verify Kiri #72: macOS bind mounts support creating write-only files and Node's native `fs.cpSync`. Node 22 and 24 each passed six checks on the Apple Silicon `v0.1.14-dev.152` release. Both new files retained mode `0200` on the Mac, and recursive copies preserved content and modes. [Verification report](verification/bind-create-macos-6857850b.json) [#105](https://github.com/AndreKurait/asagiri/issues/105)
 - [ ] Verify Kiri #73: Control Kiri from browser. [#106](https://github.com/AndreKurait/asagiri/issues/106)
 - [ ] Verify Kiri #74: Create an MCP server to allow agents to work smoother [#107](https://github.com/AndreKurait/asagiri/issues/107)
-- [ ] Verify Kiri #85: docker load / import always fail (400): "archive is missing <config>.json" though the file is in the tar — cannot ingest local images [#108](https://github.com/AndreKurait/asagiri/issues/108)
+- [x] Verify Kiri #85: docker load / import always fail (400): "archive is missing <config>.json" though the file is in the tar — cannot ingest local images [#108](https://github.com/AndreKurait/asagiri/issues/108)
 - [ ] Verify Kiri #91: Setup failure is undiagnosable: "the test container did not run" hides the real cause [#109](https://github.com/AndreKurait/asagiri/issues/109)
 - [ ] Verify Kiri #92: `setup.json` `done:false` leaves Kiri silently dead — no retry, engine never starts [#110](https://github.com/AndreKurait/asagiri/issues/110)
 - [ ] Verify Kiri #93: After long idle / Windows sleep, `docker` fails with "Kiri is stopped: press Start" and the bridge is not rebuilt [#111](https://github.com/AndreKurait/asagiri/issues/111)
