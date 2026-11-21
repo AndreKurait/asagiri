@@ -62,7 +62,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 
 ### Upstream change reviews (12)
 
-- [ ] Review and verify Kiri PR #514: Windows: cancel in-flight terminal opens on close or replacement [#243](https://github.com/AndreKurait/asagiri/issues/243)
+- [x] Cancel in-flight Windows host terminal opens on close or replacement. The [native baseline](https://github.com/AndreKurait/asagiri/actions/runs/44948420240) opened a stale cmd session after close. The [ConPTY regression](https://github.com/AndreKurait/asagiri/actions/runs/44942578221/job/136962823581) passed on the implementation merged as `cc0f8faf`. [#243](https://github.com/AndreKurait/asagiri/issues/243)
 - [ ] Review and verify Kiri PR #506: Security: import runs only an official image as its volume helper [#244](https://github.com/AndreKurait/asagiri/issues/244)
 - [x] Verify Kiri PR #502: retain the error when a rejected image load still has bytes in flight. On macOS ARM64, the baseline returned broken pipes for both body formats. PR #317 passed 32 HTTP unit tests and 11 live scenarios, including the late malformed uploads and unchanged publication rules. [Verification evidence](verification/image-load-late-refusal-macos-7468728f.json). Hosted Linux and the published app passed the late-upload and image publication checks. [Release evidence](verification/roadmap-release-dev157-macos-arm64.json). [#245](https://github.com/AndreKurait/asagiri/issues/245)
 - [ ] Review and verify Kiri PR #501: Compose gets its own section [#246](https://github.com/AndreKurait/asagiri/issues/246)
