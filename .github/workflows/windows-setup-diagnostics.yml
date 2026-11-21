@@ -26,13 +26,13 @@ jobs:
           $bundle = Split-Path $app
           $docker = Join-Path $bundle 'bin/docker.exe'
           wsl.exe --version
-          wsl.exe --import Asagiri-diag-109 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip install pywinauto
+          if ($LASTEXITCODE) { throw 'Unable to install UI automation' }
+          $chooseScript = Join-Path $env:GITHUB_WORKSPACE 'tests/windows-choose-linux-109.py'
           $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
           if (Test-Path $profileDir) { throw 'Expected a fresh hosted user profile' }
           New-Item -ItemType Directory -Path $profileDir | Out-Null
           $setupPath = Join-Path $profileDir 'setup.json'
-          @{ done=$false; linux='asagiri'; distro='Asagiri-diag-109' } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM $setupPath
           @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $profileDir 'ui.json')
           $settings = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
           $old = Get-ItemProperty $settings
@@ -40,11 +40,13 @@ jobs:
             Set-ItemProperty $settings ProxyServer '127.0.0.1:17892'
             Set-ItemProperty $settings ProxyEnable 1
             $process = Start-Process $app -PassThru
+            python $chooseScript $process.Id
+            if ($LASTEXITCODE) { throw "Could not select Asagiri Linux" }
             $deadline = [DateTime]::UtcNow.AddMinutes(5)
             do {
               Start-Sleep -Seconds 1
               if ($process.HasExited) { throw "Desktop exited $($process.ExitCode)" }
-              $saved = Get-Content $setupPath -Raw | ConvertFrom-Json
+              if (Test-Path $setupPath) { $saved = Get-Content $setupPath -Raw | ConvertFrom-Json }
             } until ($saved.testError -or [DateTime]::UtcNow -ge $deadline)
             if ($saved.testError -notmatch 'pull alpine' -or $saved.testError -notmatch '(proxy|refused|connect)') { throw "Missing pull diagnostic: $($saved | ConvertTo-Json -Compress)" }
             Write-Host "PASS persisted first-run error: $($saved.testError)"
@@ -56,5 +58,5 @@ jobs:
             if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force }
             $log = Join-Path $profileDir 'asagiri-win.log'
             if (Test-Path $log) { Get-Content $log -Tail 35 }
-            wsl.exe --terminate Asagiri-diag-109
+            wsl.exe --terminate asagiri
           }
