@@ -13,4 +13,5 @@ jobs:
         with:
           persist-credentials: false
       - name: Run silent bridge recovery and byte-mode EOF tests
-        run: cargo test --locked -p asagiri-win serve::tests:: -- --nocapture
+        run: |
+          cargo test --locked -p asagiri-win serve::tests:: -- --nocapture
