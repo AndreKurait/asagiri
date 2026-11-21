@@ -913,6 +913,48 @@ mod tests {
     use std::time::{Duration, Instant};
     use windows::Win32::UI::WindowsAndMessaging::{PeekMessageW, PM_REMOVE};
 
+    #[test]
+    #[ignore = "requires the Windows PostgreSQL qualification engine"]
+    fn native_postgres_terminal_command_order() {
+        crate::client::set_pipe(r"\\.\pipe\asagiri-terminal-157");
+        let containers = crate::client::get("/containers/json").unwrap();
+        let lists = serde_json::json!({"type":"lists","containers":containers,"images":[],"volumes":[],"networks":[]});
+        let (tx, rx) = mpsc::channel();
+        run(true, false, move |message| {
+            let event: serde_json::Value = serde_json::from_str(&message).unwrap();
+            match event["cmd"].as_str() {
+                Some("ready") => {
+                    Handle.eval(format!("asagiri.on({{type:'state',state:'running'}});asagiri.on({lists});"));
+                    Handle.eval(r#"(async () => {
+                      const report = value => send('qualification',{name:value});
+                      try {
+                        const c = ui.containers.find(c => c.Names.includes('/term157'));
+                        openDetail(c.Id); setTab('terminal'); render();
+                        const input = $('term-in');
+                        const submit = line => { input.value = line; $('term-form').requestSubmit(); };
+                        const wait = async predicate => { for(let n=0;n<300;n++) { if(predicate()) return; await new Promise(r=>setTimeout(r,100)); } throw Error('timeout: '+$('term-out').innerText); };
+                        submit(`psql -U postgres -Atc 'select pg_sleep(2), 157'`);
+                        submit('ls /');
+                        if(input.value !== 'ls /' || $('term-out').children.length !== 1) throw Error('concurrent submit accepted');
+                        await wait(()=>!$('term-out').querySelector('[data-pending]'));
+                        $('term-form').requestSubmit();
+                        await wait(()=>!$('term-out').querySelector('[data-pending]'));
+                        const outputs = [...$('term-out').querySelectorAll('.body')].map(x=>x.textContent);
+                        if(outputs.length !== 2 || !outputs[0].includes('157') || !outputs[1].split(/\s+/).includes('etc')) throw Error(JSON.stringify(outputs));
+                        report('PASS PostgreSQL query and ls outputs under their respective commands');
+                      } catch(e) { report('FAIL '+e.message); }
+                    })()"#.to_owned());
+                }
+                Some("exec" | "inspect") => crate::engine::on_message(&message),
+                Some("qualification") => { tx.send(event["name"].as_str().unwrap().to_owned()).unwrap(); unsafe {PostQuitMessage(0)}; }
+                _ => {}
+            }
+        }, |_| {}).unwrap();
+        let outcome = rx.try_recv().unwrap();
+        println!("{outcome}");
+        assert!(outcome.starts_with("PASS"));
+    }
+
     /// Runs this thread's messages until `rx` has an answer, or `secs` pass.
     fn pump<T>(rx: &mpsc::Receiver<T>, secs: u64) -> Option<T> {
         let end = Instant::now() + Duration::from_secs(secs);

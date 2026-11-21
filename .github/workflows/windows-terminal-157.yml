@@ -1,0 +1,58 @@
+name: Native Windows PostgreSQL terminal command ordering
+on:
+  push:
+    branches: [qualification/windows-terminal-157]
+    paths: [.github/workflows/windows-terminal-157.yml, crates/asagiri-win/src/app.rs]
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Submit concurrent commands through the Windows container Terminal tab
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          Set-Location $env:RUNNER_TEMP
+          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath load-test
+          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $bundle = Split-Path $app
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --version
+          wsl.exe --import Asagiri-terminal-157 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-terminal-157','--pipe','\\.\pipe\asagiri-terminal-157' -PassThru
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-terminal-157'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              & $docker version --format '{{.Server.Version}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+            Invoke-Docker @('run','-d','--name','term157','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:17-alpine')
+            for ($i = 0; $i -lt 60; $i++) {
+              & $docker exec term157 pg_isready -U postgres
+              if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Seconds 1
+            }
+            Invoke-Docker @('exec','term157','psql','-U','postgres','-Atc','select 157')
+            Set-Location $env:GITHUB_WORKSPACE
+            cargo test --locked -p asagiri-win native_postgres_terminal_command_order -- --ignored --nocapture
+            if ($LASTEXITCODE) { throw 'Native terminal test failed' }
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate Asagiri-terminal-157
+          }
