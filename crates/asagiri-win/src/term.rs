@@ -52,6 +52,9 @@ struct Session {
     input: Sender<Vec<u8>>,
 }
 
+#[cfg(test)]
+static OPEN_BARRIER: std::sync::LazyLock<std::sync::Barrier> = std::sync::LazyLock::new(|| std::sync::Barrier::new(2));
+
 static SESSIONS: Mutex<Option<HashMap<String, Session>>> = Mutex::new(None);
 
 fn with<R>(f: impl FnOnce(&mut HashMap<String, Session>) -> R) -> R {
@@ -74,6 +77,11 @@ pub fn handle(action: &str, id: &str, value: &Value, emit: fn(String)) {
             let id = id.to_owned();
             // Listing WSL's distros runs wsl.exe: not on the window's thread.
             std::thread::spawn(move || {
+                #[cfg(test)]
+                if id == "w243" {
+                    OPEN_BARRIER.wait();
+                    OPEN_BARRIER.wait();
+                }
                 let list = shells();
                 // Only a shell from the list: the page never names a program.
                 let Some(shell) = list.iter().find(|s| s.id == asked).or(list.first()) else {
@@ -512,6 +520,20 @@ mod tests {
             }
         }
         panic!("no {want:?} in {:?}", String::from_utf8_lossy(&out));
+    }
+
+    #[test]
+    fn baseline_records_terminal_after_close_during_discovery() {
+        let (tx, rx) = channel();
+        EVENTS.lock().unwrap().push(tx);
+        handle("open", "w243", &serde_json::json!({"shell":"cmd"}), record);
+        OPEN_BARRIER.wait();
+        handle("close", "w243", &Value::Null, record);
+        OPEN_BARRIER.wait();
+        let (output, _) = output_until(&rx, "w243", ">");
+        assert!(with(|s| s.contains_key("w243")));
+        handle("close", "w243", &Value::Null, record);
+        println!("REPRODUCED: stale cmd session opened after close and emitted {} bytes", output.len());
     }
 
     #[test]

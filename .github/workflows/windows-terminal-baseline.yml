@@ -1,0 +1,15 @@
+name: Windows terminal close during discovery baseline
+on:
+  push:
+    branches: [qualification/windows-terminal-baseline-243]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo test --locked -p asagiri-win baseline_records_terminal_after_close_during_discovery -- --nocapture
