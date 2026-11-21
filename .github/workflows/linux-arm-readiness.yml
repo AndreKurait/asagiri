@@ -44,10 +44,19 @@ jobs:
             shift
             if timeout 120 "$@"; then echo "PASS $label"; else echo "FAIL $label exit=$?"; failed=1; fi
           }
+          network_snapshot() {
+            sudo iptables -w -t filter -nvL FORWARD
+            sudo iptables -w -t filter -nvL DOCKER-USER
+            sudo iptables -w -t nat -nvL POSTROUTING
+            ip -4 route show
+            sysctl net.ipv4.ip_forward
+          }
+          network_snapshot
           for network in bridge host; do
             probe "$network resolver" docker run --rm --network "$network" "$pinned" sh -c 'cat /etc/resolv.conf; nslookup registry.npmjs.org'
             probe "$network HTTPS" docker run --rm --network "$network" "$pinned" wget -S -O /dev/null --timeout=15 https://registry.npmjs.org/
           done
+          network_snapshot
           mkdir project && cd project
           echo '{"dependencies":{"hono":"4.10.6"}}' > package.json
           printf 'FROM %s\nWORKDIR /app\nCOPY package.json .\nRUN bun install\nCMD ["bun", "-e", "console.log(require.resolve(\x27hono\x27))"]\n' "$pinned" > Dockerfile
@@ -64,4 +73,5 @@ jobs:
           fi
           probe 'classic host-network Bun build' env DOCKER_BUILDKIT=0 docker build --no-cache --network host -t bun-host-check .
           probe 'host-network Bun dependency install' docker run --rm --network host -v "$PWD/package.json:/app/package.json:ro" -w /app "$pinned" bun install
+          docker logs --tail 80 buildx_buildkit_asagiri-build0 2>&1 | sed -E 's@/v2/[^/ ]+/[/a-zA-Z0-9.-]+/@/v2/[redacted]/registry/@g' || true
           exit "$failed"
