@@ -1,7 +1,7 @@
-name: Published Homebrew cask lifecycle
+name: Published macOS LaunchServices startup
 on:
   push:
-    branches: [qualification/homebrew-150]
+    branches: [qualification/mac-launchservices-131]
     paths: [.github/workflows/mac-homebrew-qualification.yml]
 permissions:
   contents: read
@@ -10,13 +10,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-26, macos-26-intel]
+        runner: [macos-26]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
-      - name: Install, uninstall, and reinstall from the documented tap
+      - name: Launch the installed application as the desktop user
         run: |
           set -euo pipefail
           cask=andrekurait/asagiri/asagiri
@@ -29,17 +29,24 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/asagiri" --version
           "$app/Contents/Resources/bin/docker" --version
-          data="$HOME/Library/Application Support/Asagiri"
-          mkdir -p "$data"
-          marker=$(mktemp "$data/qualification.XXXXXX")
-          printf 'preserved' > "$marker"
-          brew uninstall --cask "$cask"
-          test ! -e "$app"
-          test "$(cat "$marker")" = preserved
-          if brew list --cask asagiri >/dev/null 2>&1; then exit 1; fi
-          brew install --cask "$cask"
-          test "$(cat "$marker")" = preserved
-          "$app/Contents/MacOS/asagiri" --version
-          brew uninstall --cask "$cask"
-          test ! -e "$app" && test "$(cat "$marker")" = preserved
-          echo 'PASS published cask install, CLI execution, uninstall, and reinstall preserve existing user data'
+          open -a "$app"
+          swift - <<'SWIFT'
+          import AppKit
+          import ApplicationServices
+          let deadline = Date().addingTimeInterval(90)
+          while Date() < deadline {
+              for process in NSRunningApplication.runningApplications(withBundleIdentifier: "dev.asagiri.app") {
+                  var windows: CFTypeRef?
+                  let result = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(process.processIdentifier), kAXWindowsAttribute as CFString, &windows)
+                  if result == .success, let list = windows as? [AXUIElement], !list.isEmpty {
+                      print("PASS LaunchServices opened a native window for PID \(process.processIdentifier)"); exit(0)
+                  }
+              }
+              RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+          }
+          exit(1)
+          SWIFT
+          agent="$HOME/Library/LaunchAgents/dev.asagiri.daemon.plist"
+          plutil -lint "$agent"
+          launchctl print "gui/$(id -u)/dev.asagiri.daemon"
+          "$app/Contents/Resources/bin/docker" --host "unix://$HOME/.asagiri/run/docker.sock" version --format '{{.Server.Version}}'
