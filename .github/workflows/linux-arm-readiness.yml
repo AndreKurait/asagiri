@@ -1,51 +1,36 @@
-name: Docker ARM64 archive upload after idle
+name: Published Ubuntu 22.04 desktop package
 on:
   push:
-    branches: [qualification/docker-archive-146]
+    branches: [qualification/ubuntu-jammy-desktop-133]
     paths: [.github/workflows/linux-arm-readiness.yml]
 permissions:
   contents: read
 jobs:
-  immediate-exec:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+  install-and-open:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 18
     steps:
-      - name: Exercise archive uploads on the disposable Docker reference engine
+      - name: Install the desktop package and observe its GTK window
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          base=$(mktemp -d)
-          docker=docker
-          ASAGIRI_SOCKET=/var/run/docker.sock
-          docker version
-          "$docker" pull localstack/localstack:4.7
-          # Start the first workload after a full three-minute idle interval, as reported.
-          sleep 181
-          for trial in 1 2 3; do
-            name="archive146-$trial"
-            token="$(cat /proc/sys/kernel/random/uuid)"
-            mkdir -p "$base/payload"
-            printf '%s' "$token" > "$base/payload/marker.txt"
-            tar -C "$base/payload" -cf "$base/marker.tar" marker.txt
-            cleanup() {
-              "$docker" rm -f "$name" >/dev/null 2>&1 || true
-              "$docker" volume rm "$name-data" >/dev/null 2>&1 || true
-            }
-            trap cleanup EXIT
-            "$docker" volume create "$name-data" >/dev/null
-            "$docker" create --name "$name" -v "$name-data:/usr/bin" --entrypoint /bin/sh localstack/localstack:4.7 -c 'while [ ! -f /marker.txt ]; do sleep 0.1; done; cat /marker.txt; echo; sleep 60' >/dev/null
-            curl --unix-socket "$ASAGIRI_SOCKET" -fsS -X POST "http://localhost/v1.47/containers/$name/start" -o /dev/null
-            status=$(curl --unix-socket "$ASAGIRI_SOCKET" -sS -w '%{http_code}' -T "$base/marker.tar" "http://localhost/v1.47/containers/$name/archive?path=/" -o "$base/upload.out")
-            echo "trial=$trial upload HTTP=$status"
-            test "$status" = 200
-            visible=$("$docker" exec "$name" cat /marker.txt)
-            test "$visible" = "$token"
-            echo "PASS exec observed exact archive bytes"
-            for i in {1..40}; do [ "$("$docker" logs "$name")" = "$token" ] && break; sleep .25; done
-            "$docker" inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' "$name"
-            "$docker" logs "$name"
-            test "$("$docker" logs "$name")" = "$token"
-            test "$("$docker" exec "$name" cat /marker.txt)" = "$token"
-            "$docker" rm -f "$name" && "$docker" volume rm "$name-data"
-            trap - EXIT
-            echo "PASS trial=$trial HTTP=$status exact marker seen by entrypoint and exec"
-          done
+          cat /etc/os-release
+          getconf GNU_LIBC_VERSION
+          cd "$RUNNER_TEMP"
+          pkg=asagiri_0.1.14.dev.159_amd64.deb
+          gh release download v0.1.14-dev.159 -R AndreKurait/asagiri --pattern "$pkg"
+          echo "2b65f3c4e33233a5ec4c23c50b525758b235cdc2ea7a1b3292b312530794b770  $pkg" | sha256sum -c -
+          dpkg-deb -f "$pkg" Package Version Depends
+          sudo apt-get update -qq
+          sudo apt-get install -y "./$pkg" xdotool xvfb dbus-x11
+          dpkg-query -W asagiri
+          asagiri --version
+          xvfb-run -a dbus-run-session -- bash -ec '
+            asagiri ui > "$RUNNER_TEMP/asagiri-ui.log" 2>&1 & pid=$!
+            trap '\''kill "$pid" 2>/dev/null || true; cat "$RUNNER_TEMP/asagiri-ui.log"'\'' EXIT
+            window=$(timeout 60 xdotool search --sync --onlyvisible --pid "$pid" --name "Asagiri" | head -1)
+            test -n "$window"
+            xdotool getwindowname "$window"
+            xdotool getwindowgeometry "$window"
+          '
