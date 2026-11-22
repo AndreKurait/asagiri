@@ -2047,34 +2047,35 @@ fn create_project_file(root: &Path, name: &str) -> io::Result<PathBuf> {
 /// gives it) is remembered and listed. `{type: "composeopened", name}`, or
 /// `{…, error}`. The path never goes to the page.
 pub fn open_file(cli: Cli, store: Store, path: &Path) -> String {
-    open_file_with_default(cli, store, path, None)
+    opened_event(register_file(cli, store, path, None))
 }
 
-fn open_file_with_default(cli: Cli, store: Store, path: &Path, default_location: Option<&str>) -> String {
-    let r = (|| {
-        if !compose_like(path) || !path.is_file() {
-            return Err("pick a .yaml or .yml compose file".to_owned());
-        }
-        if !compose_text(&std::fs::read_to_string(path).map_err(|e| e.to_string())?) {
-            return Err(NOT_COMPOSE.to_owned());
-        }
-        let path = real_path(path).map_err(|e| e.to_string())?;
-        let dir = path.parent().unwrap_or(Path::new("/"));
-        let file = path.to_string_lossy().into_owned();
-        let mut p = Project { name: folder_name(dir), dir: dir.to_string_lossy().into_owned(), files: vec![file.clone()], members: Vec::new(), env_files: Vec::new() };
-        p.name = opened_name(cli, &p);
-        // The name is another folder's project: never shown as this file's.
-        let containers = client::get_background("/containers/json?all=1").unwrap_or_default();
-        if let Some(dir) = clash(&p, &all_projects(&containers, store)) {
-            return Err(format!("A project named {} already runs from {dir}", p.name));
-        }
-        save_opened_with_default(store, |n, f| n != p.name && f != file, Some((&p.name, &file)), default_location).map_err(|e| e.to_string())?;
-        Ok(p.name)
-    })();
-    match r {
+fn opened_event(result: Result<String, String>) -> String {
+    match result {
         Ok(name) => json!({"type": "composeopened", "name": name}).to_string(),
         Err(e) => own_event(json!({"type": "composeopened"}), e),
     }
+}
+
+fn register_file(cli: Cli, store: Store, path: &Path, default_location: Option<&str>) -> Result<String, String> {
+    if !compose_like(path) || !path.is_file() {
+        return Err("pick a .yaml or .yml compose file".to_owned());
+    }
+    if !compose_text(&std::fs::read_to_string(path).map_err(|e| e.to_string())?) {
+        return Err(NOT_COMPOSE.to_owned());
+    }
+    let path = real_path(path).map_err(|e| e.to_string())?;
+    let dir = path.parent().unwrap_or(Path::new("/"));
+    let file = path.to_string_lossy().into_owned();
+    let mut p = Project { name: folder_name(dir), dir: dir.to_string_lossy().into_owned(), files: vec![file.clone()], members: Vec::new(), env_files: Vec::new() };
+    p.name = opened_name(cli, &p);
+    // The name is another folder's project: never shown as this file's.
+    let containers = client::get_background("/containers/json?all=1").unwrap_or_default();
+    if let Some(dir) = clash(&p, &all_projects(&containers, store)) {
+        return Err(format!("A project named {} already runs from {dir}", p.name));
+    }
+    save_opened_with_default(store, |n, f| n != p.name && f != file, Some((&p.name, &file)), default_location).map_err(|e| e.to_string())?;
+    Ok(p.name)
 }
 
 /// The name Compose gives a file just opened: its own `name:` wins, as with
@@ -4518,7 +4519,12 @@ pub fn handle(cmd: &str, name: String, value: &Value, cli: Cli, store: Store, em
             match result {
                 Ok(path) => {
                     let default_location = value["location"].as_str().filter(|s| !s.is_empty() && value["saveDefault"] == true);
-                    send(open_file_with_default(cli, store, &path, default_location));
+                    let registered = register_file(cli, store, &path, default_location);
+                    if registered.is_err() && std::fs::read(&path).is_ok_and(|bytes| bytes == b"services: {}\n") {
+                        let _ = std::fs::remove_file(&path);
+                        if let Some(dir) = path.parent() { let _ = std::fs::remove_dir(dir); }
+                    }
+                    send(opened_event(registered));
                     send(projects_event(cli, store));
                 }
                 Err(error) => send(own_event(json!({"type": "composeopened"}), error.to_string())),
@@ -5979,6 +5985,14 @@ mod tests {
         assert!(create("second", json!({"location": other, "saveDefault": true}))["error"].is_string());
         assert_eq!(std::fs::read(&state).unwrap(), before);
         assert_eq!(opened(store).len(), 3);
+        std::fs::write(&state, b"{").unwrap();
+        assert!(create("retry", json!({"location": other}))["error"].is_string());
+        let _ = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+        assert!(!other.join("retry").exists());
+        assert_eq!(std::fs::read(&state).unwrap(), b"{");
+        std::fs::write(&state, before).unwrap();
+        assert_eq!(create("retry", json!({"location": other}))["name"], "retry");
+        let _ = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
