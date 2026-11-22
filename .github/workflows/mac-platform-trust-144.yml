@@ -63,3 +63,43 @@ jobs:
           "$app" share login --dev probe144 | grep -F 'probe144'
           if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
           grep -Ei 'NotValidForName|host(name)? mismatch|did not match|does not match|hostname.*incorrect' wrong-name.log
+      - name: Pull a TLS OCI image using the ARM64 platform-build artifact
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh run download 45041101891 -R AndreKurait/asagiri -n macos-ARM64 -D candidate
+          (cd candidate && shasum -a 256 -c SHA256SUMS)
+          # Use the runner NIC because loopback registries can use plain HTTP.
+          export FIXTURE_IP=$(ipconfig getifaddr en0)
+          test -n "$FIXTURE_IP"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=registry-144-root -keyout registry.key -out registry.pem
+          printf 'subjectAltName=IP:%s\nextendedKeyUsage=serverAuth\n' "$FIXTURE_IP" > registry.ext
+          openssl x509 -req -in leaf.csr -CA registry.pem -CAkey registry.key -CAcreateserial -days 1 -extfile registry.ext -out registry-leaf.pem
+          python3 - <<'PY' &
+          import os, pathlib, runpy, signal, ssl
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain('registry-leaf.pem', 'leaf.key')
+          fixture = runpy.run_path(os.environ['GITHUB_WORKSPACE'] + '/tests/registry-ca.py')['Registry']
+          registry = fixture(os.environ['FIXTURE_IP'], tls, {tls: 'registry-144'}, 'mac-arm64', 'system')
+          repo = 'registryca/keychain'
+          pathlib.Path('registry-ref').write_text(registry.authority + '/' + repo + ':latest')
+          expected = registry.image(repo)['manifest_digest'].split(':')[1][:12]
+          pathlib.Path('registry-digest').write_text(expected)
+          signal.pause()
+          PY
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do [[ -s registry-digest ]] && break; sleep 0.1; done
+          ref=$(cat registry-ref)
+          export ASAGIRI_DATA_DIR="$RUNNER_TEMP/oci-store"
+          unset SSL_CERT_FILE SSL_CERT_DIR
+          if candidate/asagiri raw pull "$ref" >registry-before.log 2>&1; then exit 1; fi
+          grep -Ei 'UnknownIssuer|not trusted|unknown issuer' registry-before.log
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain registry.pem
+          candidate/asagiri raw pull "$ref" 2>&1 | tee registry-after.log
+          grep -F "$(cat registry-digest)" registry-after.log
+          grep -F '0 already here' registry-after.log

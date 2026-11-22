@@ -287,7 +287,7 @@ class Registry:
             layer = gzip.compress(raw_layer, mtime=0)
             oci_sha = lambda data: "sha256:" + sha(data)
             config = json.dumps({
-                "architecture": {"aarch64": "arm64", "x86_64": "amd64"}[platform.machine()],
+                "architecture": {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64"}[platform.machine()],
                 "os": "linux", "config": {"Labels": {"dev.asagiri.registry-ca-fixture": self.token}},
                 "rootfs": {"type": "layers", "diff_ids": [oci_sha(raw_layer)]},
             }, sort_keys=True).encode()
