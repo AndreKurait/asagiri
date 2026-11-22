@@ -162,21 +162,26 @@ pub enum Progress {
 /// (base64url JSON) and in `POST /auth`.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Credentials {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_is_empty")]
     pub username: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_is_empty")]
     pub password: String,
     /// `base64(user:password)`, which some clients send instead.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_is_empty")]
     pub auth: String,
-    #[serde(default, rename = "serveraddress")]
+    #[serde(default, deserialize_with = "null_is_empty", rename = "serveraddress")]
     pub server_address: String,
     /// An OAuth refresh token from an earlier login.
-    #[serde(default, rename = "identitytoken")]
+    #[serde(default, deserialize_with = "null_is_empty", rename = "identitytoken")]
     pub identity_token: String,
     /// A bearer token to use as is.
-    #[serde(default, rename = "registrytoken")]
+    #[serde(default, deserialize_with = "null_is_empty", rename = "registrytoken")]
     pub registry_token: String,
+}
+
+/// docker-java sends unused credential fields as explicit nulls.
+fn null_is_empty<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 impl Credentials {
@@ -1435,6 +1440,22 @@ fn not_found(e: Error, r: &Reference) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Testcontainers' docker-java sends the fields it does not use as
+    /// `null`; those read as empty instead of failing the header (#654).
+    #[test]
+    fn credentials_survive_null_fields() {
+        let json = r#"{"username":null,"password":null,"auth":null,"email":null,"serveraddress":null,"identitytoken":"tok"}"#;
+        let header = crate::b64::encode(json.as_bytes());
+        let c = Credentials::from_header(&header).expect("the header decodes");
+        assert_eq!(c.identity_token, "tok");
+        assert_eq!(c.username, "");
+        // An unknown field such as `email` is still fine, and a header with
+        // only nulls is no credentials at all, as an empty one is.
+        let only_nulls = crate::b64::encode(r#"{"username":null,"password":null}"#.as_bytes());
+        assert!(Credentials::from_header(&only_nulls).is_none());
+        assert!(Credentials::from_header("").is_none());
+    }
 
     #[test]
     fn a_missing_image_reads_as_docker_says_it() {
