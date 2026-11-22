@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 899b3166b6a25c4864ddfdb50a17515370bdd3f4
+          ref: e1e1373793d336c176769e2a8b3cbb14722f1bcc
           persist-credentials: false
       - name: Exercise outbound traffic from host, default and Compose networks
         env:
@@ -39,6 +39,7 @@ jobs:
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
+          $rollback = $imported -and $build -eq '158'
           if (!$imported) {
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -49,6 +50,8 @@ jobs:
               "$_=$digest"
             }) -join ';'
             Push-Location $env:GITHUB_WORKSPACE
+            python scripts/ci/release.py stamp 0.1.14-dev.158
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
             cargo build --locked --release -p asagiri-win --bin asagiri-win
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
             Pop-Location
@@ -105,7 +108,13 @@ jobs:
             if ((Get-FileHash $app).Hash -ne (Get-FileHash $original).Hash) { throw 'Original dev.158 launcher was not restored' }
             $imported = $true
           }
-          $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
+          $bridgeArgs = @('--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test')
+          if ($rollback) {
+            Copy-Item $launcher $app -Force
+            $bridge = Start-Process $app -ArgumentList $bridgeArgs -PassThru
+          } else {
+            $bridge = Start-Process $app -ArgumentList (@('--background') + $bridgeArgs) -PassThru
+          }
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
           Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
           function Invoke-Docker([string[]]$arguments) {
@@ -113,6 +122,39 @@ jobs:
             if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
           }
           try {
+            if ($rollback) {
+              for ($attempt = 0; $attempt -lt 45; $attempt++) {
+                $response = & $docker version --format '{{json .Server.Components}}' 2>$null
+                if ($LASTEXITCODE -eq 0 -and $response) { break }
+                Start-Sleep -Seconds 2
+              }
+              $before = $response | ConvertFrom-Json
+              $beforeVersion = ($before | Where-Object Name -eq 'Engine').Details.AsagiriVersion
+              if ($beforeVersion -ne '0.1.14-dev.181') { throw "Expected dev.181 before explicit restart, got $beforeVersion" }
+              @'
+          import sys, time
+          from comtypes import COMError
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          for label in ['Settings', 'About', 'Check now', 'Restart engine']:
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  try:
+                      button = next((c for c in window.descendants(control_type='Button') if c.window_text() == label and c.is_enabled()), None)
+                      if button:
+                          button.invoke()
+                          print('Invoked ' + label, flush=True)
+                          break
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                  time.sleep(1)
+              else:
+                  raise RuntimeError('Missing desktop control: ' + label)
+          '@ | python - $bridge.Id
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
             $running = $null
             for ($i = 0; $i -lt 45; $i++) {
               $server = & $docker version --format '{{json .Server.Components}}' 2>$null
