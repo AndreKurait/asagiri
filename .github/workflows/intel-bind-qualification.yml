@@ -81,6 +81,8 @@ jobs:
           probe_host_dns after-daemon-ready
           for attempt in 1 2 3; do
             if docker run --rm alpine:3.21 true; then break; fi
+            echo "Guest console after failed container attempt $attempt"
+            find "$HOME" -type f -name guest-console.log -exec tail -n 160 {} \;
             test "$attempt" != 3
           done
           probe_host_dns after-first-container
