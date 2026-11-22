@@ -216,6 +216,22 @@ impl Store {
         }
     }
 
+    /// Keep immutable blob data available to an export, even after a different
+    /// process unlinks the image. Hold the index lock only while making links.
+    pub(crate) fn snapshot_blobs(&self, images: &[Image]) -> io::Result<ArchiveStage> {
+        let stage = self.stage_archive()?;
+        let _index = self.lock_index()?;
+        let mut linked = std::collections::HashSet::new();
+        for image in images {
+            for digest in std::iter::once(&image.config_digest).chain(image.layers.iter().map(|layer| &layer.digest)) {
+                if linked.insert(digest) {
+                    fs::hard_link(self.blob_path(digest)?, stage.0.blob_path(digest)?)?;
+                }
+            }
+        }
+        Ok(stage)
+    }
+
     /// An image config, read whole for parsing. Configs are small JSON; a
     /// registry could serve a huge blob under that name, so anything over
     /// `MAX_CONFIG` is refused rather than loaded into memory.
@@ -470,6 +486,7 @@ impl Store {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ArchiveStage(pub(crate) Store);
 
 impl Drop for ArchiveStage {
