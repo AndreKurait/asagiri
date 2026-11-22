@@ -3357,6 +3357,8 @@ impl Engine {
     /// If the new ones cannot be bound, the old ones are put back.
     pub fn set_ports(&self, key: &str, ports: Vec<super::ports::Binding>) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _updating = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let mode = self.lock().containers.get(&id).map(|c| c.spec.network_mode.clone()).unwrap_or_default();
         if let Some(driver) = self.lock_networks().find(&mode).filter(|n| n.own_link() && !ports.is_empty()).map(|n| n.driver.clone()) {
             return Err(Error::BadRequest(format!("a container on a {driver} network cannot publish ports")));
@@ -3395,6 +3397,9 @@ impl Engine {
                     return Err(Error::Conflict(e.to_string()));
                 }
             }
+        }
+        if let Some(c) = self.lock().containers.get_mut(&id) {
+            c.detached_ports.clear();
         }
         self.save();
         self.emit_container("update", &id, &[]);
