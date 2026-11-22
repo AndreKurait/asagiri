@@ -56,7 +56,10 @@ jobs:
                       break
                   language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
                   if language:
-                      language.invoke()
+                      english = next((c for c in controls if c.element_info.automation_id == 'lo-a-en'), None)
+                      if english:
+                          english.click_input()
+                      language.click_input()
                   time.sleep(1)
               else:
                   raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
