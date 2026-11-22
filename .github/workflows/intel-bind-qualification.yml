@@ -42,6 +42,8 @@ jobs:
           docker compose version
           probe_host_dns() {
             echo "Host resolver check $1"
+            resolver=$(scutil --dns | awk '/nameserver\[0\]/{if (!first) first=$3} END{print first}')
+            if [ -n "$resolver" ]; then route -n get "$resolver" || true; fi
             scutil --dns | grep -E 'resolver #|nameserver\[|if_index|reach ' || true
             curl --silent --show-error --max-time 5 --output /dev/null --write-out 'registry HTTP %{http_code} DNS %{time_namelookup}s\n' https://registry-1.docker.io/v2/ || true
           }
@@ -66,10 +68,12 @@ jobs:
             sleep 1
           done
           docker version
+          probe_host_dns after-daemon-ready
           for attempt in 1 2 3; do
             if docker run --rm alpine:3.21 true; then break; fi
             test "$attempt" != 3
           done
+          probe_host_dns after-first-container
           # Isolate builder admission from registry downloads and DDEV startup.
           mkdir "$scratch/build-probe"
           printf 'intel-ddev-builder\n' > "$scratch/build-probe/marker"
