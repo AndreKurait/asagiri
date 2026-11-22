@@ -15,6 +15,15 @@ jobs:
         with:
           ref: e1e1373793d336c176769e2a8b3cbb14722f1bcc
           persist-credentials: false
+      - name: Prepare WSL for the engine rollback test
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
       - name: Exercise outbound traffic from host, default and Compose networks
         env:
           GH_TOKEN: ${{ github.token }}
