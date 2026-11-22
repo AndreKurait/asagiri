@@ -36,6 +36,6 @@ jobs:
                       window.destroy()
               webview.start(inspect, gui='edgechromium')
               print(observed, flush=True)
-              assert len(observed) == 3 and all(line.startswith('PASS') for line in observed)
+              assert len(observed) == 3 and all(line.startswith('ITEM ') for line in observed)
           '@ | python -
           exit $LASTEXITCODE
