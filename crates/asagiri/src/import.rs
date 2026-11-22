@@ -237,11 +237,17 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
         drop(destination);
         Ok((source.join().map_err(|_| io::Error::other("source helper wait failed"))??, write?))
     })?;
-    if !r.status.success() {
-        return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&r.stderr).trim())));
+    let mut failures = Vec::new();
+    for (engine, operation, output) in [(ctx, "read", r), (crate::flavor::CONTEXT.get(), "extract", write)] {
+        if !output.status.success() {
+            let mut message = format!("{engine} {operation} helper failed ({})", output.status);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.trim().is_empty() { message.push_str(": "); message.push_str(stderr.trim()); }
+            failures.push(message);
+        }
     }
-    if !write.status.success() {
-        return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&write.stderr).trim())));
+    if !failures.is_empty() {
+        return Err(io::Error::other(format!("volume {name} may be partially copied: {}", failures.join("; "))));
     }
     inspect_idle_volume(ctx, name, make_cli).map(drop).map_err(|e| io::Error::other(format!(
         "volume {name} was copied, but the source is no longer confirmed idle: {e}; stop the source users and inspect the destination before retrying")))
