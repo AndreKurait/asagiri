@@ -25,6 +25,14 @@ case "$1 $2" in
     fi
     ;;
   "ps --all")
+    if [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
+      [ "$*" = 'ps --all --filter volume=fixture-volume --format {{.Names}}' ] || exit 92
+      case "$scenario" in
+        destination-attached) echo stopped-database ;;
+        destination-list-error) echo 'cannot list destination' >&2; exit 42 ;;
+      esac
+      exit 0
+    fi
     [ "$context" = orbstack ] || exit 91
     [ "$*" = 'ps --all --filter volume=fixture-volume --filter status=running --filter status=paused --filter status=restarting --format {{json .}}' ] || exit 92
     case "$scenario" in

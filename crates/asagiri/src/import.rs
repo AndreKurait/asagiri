@@ -207,6 +207,14 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     let labels: Option<std::collections::BTreeMap<String, String>> = serde_json::from_value(source["Labels"].clone())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume labels: {e}")))?;
     let img = helper_image(ctx, make_cli)?;
+    let users = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "ps", "--all", "--filter", &format!("volume={name}"), "--format", "{{.Names}}"]).output()?;
+    if !users.status.success() {
+        return Err(io::Error::other(format!("could not check destination users of {name}: {}", String::from_utf8_lossy(&users.stderr).trim())));
+    }
+    let users = String::from_utf8_lossy(&users.stdout);
+    if !users.trim().is_empty() {
+        return Err(io::Error::other(format!("destination volume {name} is attached to {}", users.lines().collect::<Vec<_>>().join(", "))));
+    }
     let mut create = make_cli()?;
     create.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create"]);
     for (key, value) in labels.into_iter().flatten() {
@@ -539,6 +547,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn volume_import_preserves_attached_or_uninspectable_destinations() {
+        for (case, reason) in [("destination-attached", "stopped-database"), ("destination-list-error", "cannot list destination")] {
+            let fixture = VolumeFixture::new(case);
+            std::fs::write(fixture.0.join("copied"), b"existing data").unwrap();
+            assert!(fixture.run().unwrap_err().to_string().contains(reason));
+            assert_eq!(std::fs::read(fixture.0.join("copied")).unwrap(), b"existing data");
+            assert!(!fixture.trace().contains(" volume create "));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn volume_import_drains_source_diagnostics_during_copy() {
         let fixture = VolumeFixture::new("verbose-source");
         fixture.run().unwrap();
@@ -584,7 +604,7 @@ mod tests {
         let idle = VolumeFixture::new("idle");
         idle.run().unwrap();
         assert_eq!(std::fs::read(idle.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
-        assert_eq!(idle.trace().matches(" ps --all ").count(), 2);
+        assert_eq!(idle.trace().matches("orbstack ps --all ").count(), 2);
         assert!(idle.trace().contains("fixture-volume:/from:ro"));
         for case in ["create-error", "source-error", "write-error", "late-writer", "late-inspect-error"] {
             let fixture = VolumeFixture::new(case);
