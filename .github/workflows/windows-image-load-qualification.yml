@@ -94,8 +94,15 @@ jobs:
             }
             $saved = Get-Content (Join-Path $bundle 'setup.json') -Raw | ConvertFrom-Json
             if (!$saved.done -or $saved.distro -ne 'asagiri') { throw 'Windows setup did not complete' }
-            Stop-Process -Id $wizard.Id -Force
-            Copy-Item $original $app -Force
+            for ($attempt = 1; $attempt -le 15; $attempt++) {
+              Get-Process -Name asagiri-win -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $app } | ForEach-Object {
+                $_.Kill()
+                if (!$_.WaitForExit(5000)) { throw "Candidate launcher process $($_.Id) did not exit" }
+              }
+              try { Copy-Item $original $app -Force -ErrorAction Stop; break }
+              catch [System.IO.IOException] { if ($attempt -eq 15) { throw }; Start-Sleep -Seconds 1 }
+            }
+            if ((Get-FileHash $app).Hash -ne (Get-FileHash $original).Hash) { throw 'Original dev.158 launcher was not restored' }
             $imported = $true
           }
           $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
