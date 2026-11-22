@@ -15,6 +15,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 SOCKET = "unix:///run/asagiri/docker.sock"
+FIXTURE_ARCHIVE = "/asagiri-firewall-alpine.tar"
 IMAGE = "alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"
 SERVER = """
 import selectors, socket
@@ -235,7 +236,7 @@ def main():
             reply = cli("exec", container, "wget", "-qO-", "-T", "5", f"http://{gateway}:18473/")
             assert reply.stdout == "asagiri-gateway", reply.stdout
 
-        reference("load", "-i", "/tmp/alpine.tar")
+        reference("load", "-i", FIXTURE_ARCHIVE)
         reference("run", "-d", "--name", "firewall-reference", image_id, "sleep", "3600")
         gateway_request(reference, "firewall-reference", "172.17.0.1")
         # With no containers attached, Docker's route still has linkdown.
@@ -251,7 +252,7 @@ def main():
                    "wait \"$pid\"; echo \"$?\" >/tmp/asagiri.status ) >>/tmp/asagiri.log 2>&1 &")
             await_api(dock)
             if attempt == 1:
-                dock("load", "-i", "/tmp/alpine.tar")
+                dock("load", "-i", FIXTURE_ARCHIVE)
             bridge = json.loads(dock("network", "inspect", "bridge").stdout)[0]["IPAM"]["Config"][0]
             subnet = ipaddress.ip_network(bridge["Subnet"])
             assert not subnet.overlaps(docker_subnet), bridge
@@ -318,7 +319,8 @@ def main():
         with tempfile.TemporaryDirectory() as directory:
             archive = str(Path(directory) / "alpine.tar")
             run("docker", "image", "save", "-o", archive, image_id)
-            run("docker", "cp", archive, host + ":/tmp/alpine.tar")
+            run("docker", "cp", archive, f"{host}:{FIXTURE_ARCHIVE}")
+        engine("test", "-s", FIXTURE_ARCHIVE)
         if args.docker_first:
             check_docker_first()
             record["status"] = "passed"
@@ -326,7 +328,7 @@ def main():
             return
         host_ip, peer_ip = (item["NetworkSettings"]["Networks"][network]["IPAddress"] for item in info)
         record["peer_ip"], record["engine_ip"] = peer_ip, host_ip
-        dock("load", "-i", "/tmp/alpine.tar")
+        dock("load", "-i", FIXTURE_ARCHIVE)
         tested_network = "bridge"
         if args.user_network:
             dock("network", "create", "firewall-placeholder")
@@ -416,7 +418,7 @@ def main():
         assert docker_user_before.startswith("-N DOCKER-USER\n")
         assert iptables("-S", "FORWARD").stdout.startswith("-P FORWARD DROP\n")
         check_diagnostic("docker-user", "DOCKER-USER")
-        reference("load", "-i", "/tmp/alpine.tar")
+        reference("load", "-i", FIXTURE_ARCHIVE)
         reference("run", "-d", "--name", "firewall-reference", image_id, "sleep", "3600")
         reference("exec", "firewall-reference", "apk", "add", "-q", "--no-cache", "python3")
         exchange("Docker coexistence still requires bridge forwarding", peer_ip, True, False, host_ip)
