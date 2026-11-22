@@ -8,25 +8,36 @@ permissions:
 jobs:
   windows-cli:
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Exercise outbound traffic from host, default and Compose networks
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
           Set-Location $env:RUNNER_TEMP
-          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
-          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
-          Expand-Archive $asset -DestinationPath load-test
-          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $hashes = @{
+            '158' = '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6'
+            '181' = 'f0c9529a44bb11deb83fe47c7b3489c8354e400f5157efaaa4b7e831d8377354'
+          }
+          $imported = $false
+          foreach ($build in '158','181','158') {
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-windows-x86_64.zip"
+          if (!(Test-Path "bundle-$build")) {
+            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
+            if ((Get-FileHash $asset).Hash.ToLower() -ne $hashes[$build]) { throw "Hash mismatch for $asset" }
+            Expand-Archive $asset -DestinationPath "bundle-$build"
+          }
+          $app = (Get-ChildItem "bundle-$build" -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
           $bundle = Split-Path $app
           $docker = Join-Path $bundle 'bin/docker.exe'
-          wsl.exe --version
-          wsl.exe --import Asagiri-load-test "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-load-test','--pipe','\\.\pipe\asagiri-load-test' -PassThru
+          if (!$imported) {
+            wsl.exe --import asagiri "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $imported = $true
+          }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
           Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
           function Invoke-Docker([string[]]$arguments) {
@@ -40,6 +51,9 @@ jobs:
               if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
               Start-Sleep -Seconds 2
             }
+            $installed = wsl.exe -d asagiri -u root -- asagiri --version
+            if ($LASTEXITCODE -or ($installed -join ' ') -notmatch [regex]::Escape($version)) { throw "Expected $version, found $installed" }
+            Write-Host "Engine binary in persistent WSL installation: $installed"
             Invoke-Docker @('pull','alpine:3.21')
             $compose = Join-Path $bundle 'bin/cli-plugins/docker-compose.exe'
             @'
@@ -63,5 +77,6 @@ jobs:
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
-            wsl.exe --terminate Asagiri-load-test
+            wsl.exe --terminate asagiri
+          }
           }
