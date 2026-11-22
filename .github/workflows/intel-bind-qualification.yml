@@ -25,10 +25,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          asset=Asagiri-0.1.14-dev.181-x86_64.tar.gz
-          gh release download v0.1.14-dev.181 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
+          asset=Asagiri-0.1.14-dev.188-x86_64.tar.gz
+          gh release download v0.1.14-dev.188 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
           cd "$RUNNER_TEMP"
-          echo "628bb843fbdf2518bc8d0fbebdf2514777ceb97a89e6f709473bcaddd78d28b2  $asset" | shasum -a 256 -c -
+          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  $asset" | shasum -a 256 -c -
           tar xzf "$asset"
           codesign --verify --deep --strict Asagiri.app
           export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
