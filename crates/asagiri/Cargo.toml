@@ -21,7 +21,7 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # HTTPS for container names: the same rustls and ring ureq already brings in.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # Roots for `asagiri share`'s connection to the edge.
-webpki-roots = "1"
+rustls-platform-verifier = "0.7"
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
 # Docker's attach WebSocket framing and handshake, without a TLS stack.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
