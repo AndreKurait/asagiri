@@ -63,8 +63,12 @@ case "$1 $2" in
       printf '\000volume fixture\377\n'
     else
       [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
+      if [ "$scenario" = write-error ]; then
+        dd bs=1 count=4 of="$fixture/copied" 2>/dev/null
+        echo "destination tar failed" >&2
+        exit 42
+      fi
       cat > "$fixture/copied"
-      if [ "$scenario" = write-error ]; then echo "destination tar failed" >&2; exit 42; fi
     fi
     ;;
   *) echo "unexpected fixture command" >&2; exit 93 ;;
