@@ -83,5 +83,11 @@ jobs:
           fi
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
-          "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"
+          if ! "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"; then
+            for image in node:22-alpine golang:1.25-alpine alpine:3.20; do
+              docker buildx imagetools inspect "$image" || true
+            done
+            docker logs --tail 100 buildx_buildkit_asagiri-build0 || true
+            exit 1
+          fi
           grep -F '1 passed; 0 failed' "$scratch/test.log"
