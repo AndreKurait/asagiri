@@ -24,7 +24,34 @@ jobs:
           if ((Get-FileHash candidate/asagiri-win.exe).Hash.ToLower() -ne "acddd4b265ec4558199bea2dbf75d40f5ea5cd57cd0ae631a6f67cb9f8c5e4a8") { throw "candidate hash" }
           $env:PIPE_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
           Copy-Item candidate/asagiri-win.exe $env:PIPE_APP -Force
-          wsl.exe --import Asagiri-pipe80 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PIPE_APP)\asagiri-linux.tar.gz" --version 2
+          gh run download 45010054727 -R AndreKurait/asagiri -n linux-X64 -D portable
+          if ($LASTEXITCODE) { throw "portable artifact download" }
+          if ((Get-Content portable/SOURCE_COMMIT -Raw).Trim() -ne "988bfbbf7851160b16933684961db96910f954b7") { throw "engine source" }
+          @'
+          import hashlib, os, pathlib, shutil, tarfile
+          root = pathlib.Path("portable")
+          appdir = pathlib.Path(os.environ["PIPE_APP"]).parent
+          hashes = dict(line.split()[::-1] for line in (root / "SHA256SUMS").read_text().splitlines())
+          expected = {"asagiri", "asagiri-init"}
+          for name in expected:
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == hashes[name]
+              shutil.copyfile(root / name, appdir / name)
+          installed = set()
+          with tarfile.open(appdir / "asagiri-linux.tar.gz", "r:gz") as src, tarfile.open("qualification.tar.gz", "w:gz") as dst:
+              for member in src:
+                  path = pathlib.PurePosixPath(member.name)
+                  if path.parent == pathlib.PurePosixPath("usr/local/bin") and path.name in expected:
+                      assert member.isfile()
+                      member.size = (root / path.name).stat().st_size
+                      with (root / path.name).open("rb") as binary:
+                          dst.addfile(member, binary)
+                      installed.add(path.name)
+                  else:
+                      dst.addfile(member, src.extractfile(member) if member.isfile() else None)
+          assert installed == expected, installed
+          '@ | python -
+          if ($LASTEXITCODE) { throw "qualified root filesystem assembly" }
+          wsl.exe --import Asagiri-pipe80 "$env:RUNNER_TEMP\picker-distro" "$env:RUNNER_TEMP\qualification.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
           @'
           import http.client, io, json, os, subprocess, time
