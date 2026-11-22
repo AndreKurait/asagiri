@@ -82,7 +82,15 @@ jobs:
           mkcert -install
           ddev config --project-name=asagiri-ddev --project-type=php --docroot=public --php-version=8.4 --database=mariadb:11.8 --router-http-port=8080 --router-https-port=8443 --performance-mode=none
           for action in start restart; do
-            ddev "$action"
+            if ! ddev "$action"; then
+              for registry_host in registry-1.docker.io auth.docker.io; do
+                dscacheutil -q host -a name "$registry_host"
+                curl --max-time 10 -sS -o /dev/null -w '%{http_code}\n' "https://$registry_host/" || true
+              done
+              docker run --rm --pull=never alpine:3.21 nslookup registry-1.docker.io || true
+              docker pull ddev/ddev-utilities:latest || true
+              exit 1
+            fi
             test "$(curl -fsS --max-time 30 --resolve asagiri-ddev.ddev.site:8080:127.0.0.1 http://asagiri-ddev.ddev.site:8080/)" = asagiri-ddev:42
             test "$(curl -fsS --max-time 30 --cacert "$(mkcert -CAROOT)/rootCA.pem" --resolve asagiri-ddev.ddev.site:8443:127.0.0.1 https://asagiri-ddev.ddev.site:8443/)" = asagiri-ddev:42
             echo "PASS HTTP and trusted HTTPS with MariaDB after ddev $action"
