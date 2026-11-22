@@ -229,6 +229,16 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
 pub fn container(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
+    // Docker creates missing named volumes as empty volumes during container
+    // creation. Refuse that implicit creation when moving a source container.
+    for mount in info["Mounts"].as_array().into_iter().flatten().filter(|m| m["Type"] == "volume") {
+        let Some(volume) = mount["Name"].as_str().filter(|v| !v.is_empty() && !anonymous(v)) else { continue };
+        let found = json_lines(crate::flavor::CONTEXT.get(), &["volume", "inspect", "--format", "{{json .Name}}", "--", volume])
+            .map_err(|e| io::Error::other(format!("{name}: import volume {volume} first: {e}")))?;
+        if !found.iter().any(|v| v.as_str() == Some(volume)) {
+            return Err(io::Error::other(format!("{name}: import volume {volume} first")));
+        }
+    }
     let cfg = &info["Config"];
     let image = cfg["Image"].as_str().unwrap_or("").to_owned();
     if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {

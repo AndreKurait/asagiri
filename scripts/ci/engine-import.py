@@ -353,6 +353,11 @@ def main():
                     assert get("destination", "/containers/json?all=1") == []
                     assert get("destination", "/images/json?all=1") == []
                     case("reject-" + state + "-before-helper-or-destination")
+                error = imported("container", writer, success=False)
+                assert "import volume " + volume + " first" in error, error
+                assert request("destination", "GET", "/volumes/" + volume)[0] == 404
+                assert get("destination", "/containers/json?all=1") == []
+                case("failed-volume-copy-does-not-create-empty-dependent-volume")
                 docker("source", "unpause", cid)
                 docker("source", "stop", "-t", "1", cid)
                 docker("source", "rm", cid)
