@@ -4196,27 +4196,33 @@ pub fn failed(project: &str, touched: &[String], containers: &Value) -> Vec<Valu
 /// service that failed in that time, in the order they did (one that dies
 /// a moment after another is named too).
 fn watch(project: &str, touched: &[String], within: std::time::Duration) -> Vec<Value> {
-    watch_with(|| client::get_background("/containers/json?all=1").ok(), project, touched, within, std::time::Duration::from_secs(1))
+    let until = std::time::Instant::now() + within;
+    let mut first = true;
+    let polls = std::iter::from_fn(|| {
+        if !first && std::time::Instant::now() >= until {
+            return None;
+        }
+        first = false;
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        Some(client::get_background("/containers/json?all=1").ok())
+    });
+    watch_with(polls, project, touched)
 }
 
-fn watch_with(mut list: impl FnMut() -> Option<Value>, project: &str, touched: &[String], within: std::time::Duration, every: std::time::Duration) -> Vec<Value> {
+fn watch_with(polls: impl IntoIterator<Item = Option<Value>>, project: &str, touched: &[String]) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     if touched.is_empty() {
         return out;
     }
-    let until = std::time::Instant::now() + within;
-    loop {
-        std::thread::sleep(every);
-        for f in list().map(|c| failed(project, touched, &c)).unwrap_or_default() {
+    for poll in polls {
+        for f in poll.map(|c| failed(project, touched, &c)).unwrap_or_default() {
             match out.iter_mut().find(|o| o["svc"] == f["svc"]) {
                 Some(o) => *o = f,
                 None => out.push(f),
             }
         }
-        if std::time::Instant::now() >= until {
-            return out;
-        }
     }
+    out
 }
 
 /// `{type: "composelogs", name, lines}`: the project's last lines, each
@@ -6003,7 +6009,7 @@ mod tests {
         let mut c = c("myapp", "web", 5, "/w/myapp/compose.yaml");
         c["State"] = "exited".into();
         c["Status"] = "Exited (1) 1 second ago".into();
-        let f = watch_with(|| Some(json!([c.clone()])), "myapp", &touched, std::time::Duration::ZERO, std::time::Duration::ZERO);
+        let f = watch_with([Some(json!([c.clone()]))], "myapp", &touched);
         assert_eq!(f.iter().map(|f| f["svc"].clone()).collect::<Vec<_>>(), [json!("web")]);
         // A secret that is the project's name: the name stays where Asagiri shows it.
         let hide = Hider::new(vec![("${APP_TOKEN}".into(), "myapp".into())], vec!["web".to_owned()]);
@@ -6294,20 +6300,10 @@ mod tests {
             json!([m("a", "shop-a-1", "exited", "Exited (2) 3 seconds ago"), m("b", "shop-b-1", "exited", "Exited (4) Less than a second ago"), m("db", "shop-db-1", "restarting", "Restarting (1) 1 second ago"), m("job", "nightly-job", "exited", "Exited (1) Less than a second ago")]),
             json!([m("a", "shop-a-1", "exited", "Exited (2) 4 seconds ago"), m("b", "shop-b-1", "exited", "Exited (4) 1 second ago"), m("db", "shop-db-1", "restarting", "Restarting (1) 2 seconds ago"), m("job", "nightly-job", "exited", "Exited (1) 1 second ago")]),
         ];
-        let mut i = 0;
         let touched: Vec<String> = ["a", "b", "db", "job"].map(String::from).to_vec();
-        let f = watch_with(
-            || {
-                i += 1;
-                polls.get(i - 1).cloned()
-            },
-            "shop",
-            &touched,
-            std::time::Duration::from_millis(60),
-            std::time::Duration::from_millis(20),
-        );
+        let f = watch_with(polls.into_iter().map(Some), "shop", &touched);
         assert_eq!(f.iter().map(|f| f["svc"].as_str().unwrap()).collect::<Vec<_>>(), ["a", "db", "b", "job"], "{f:?}");
-        assert!(i >= 3, "watched past the first failure");
+        assert_eq!(f[1]["status"], "Restarting (1) 2 seconds ago");
     }
 
     #[test]
