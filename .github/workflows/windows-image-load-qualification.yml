@@ -100,7 +100,18 @@ jobs:
               else:
                   raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
           '@ | python - $wizard.Id
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            if ($LASTEXITCODE) {
+              $env:WSL_UTF8 = '1'
+              $systemWsl = Join-Path ([Environment]::SystemDirectory) 'wsl.exe'
+              Get-Command wsl.exe | Select-Object -ExpandProperty Source
+              foreach ($arg in '--version', '--status') {
+                & $systemWsl $arg
+                Write-Host "System WSL $arg exited with $LASTEXITCODE"
+              }
+              $log = Join-Path $bundle 'asagiri-win.log'
+              if (Test-Path $log) { Get-Content $log -Tail 40 }
+              throw 'Windows setup did not reach the expected control'
+            }
             for ($i = 0; $i -lt 30; $i++) {
               if ((Test-Path "$bundle/setup.json") -and (Get-Content "$bundle/setup.json" -Raw | ConvertFrom-Json).done) { break }
               Start-Sleep -Seconds 1
