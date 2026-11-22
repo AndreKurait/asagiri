@@ -7295,7 +7295,10 @@ mod tests {
         assert_eq!(m["services"]["inc"]["image"], "reg/app:${DB_PASSWORD}");
         assert_eq!(m["services"]["deep"]["image"], "reg/deep:${DEEP_TOKEN}");
         assert_eq!(m["services"]["long"]["image"], "reg/long:${API_SECRET}");
-        assert!(text.contains("/sub/data/${DB_PASSWORD}"), "{text}");
+        let mount = &m["services"]["inc"]["volumes"][0];
+        let source = mount["source"].as_str().expect("included bind source");
+        assert_eq!(Path::new(source), d.join("sub").join("data").join("${DB_PASSWORD}"));
+        assert_eq!(mount["target"], "/var/lib/x");
         // An error that quotes the value names the variable.
         std::fs::write(d.join("sub/compose.yaml"), "services:\n  inc:\n    image: alpine\n    ports: [\"${DB_PASSWORD}:80\"]\n").unwrap();
         let e = config(dcli, &p, None, &[]).unwrap_err();
