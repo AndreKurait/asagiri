@@ -138,6 +138,11 @@ jobs:
               for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
                 echo "Host registry manifest check for $image"
                 docker buildx imagetools inspect "$image" || echo "Host manifest lookup failed for $image"
+                if docker pull --platform linux/amd64 "$image"; then
+                  docker image inspect "$image" --format 'Engine pull succeeded: {{.Id}} {{.Architecture}}'
+                else
+                  echo "Standalone engine pull failed for $image"
+                fi
               done
               for registry_host in registry-1.docker.io auth.docker.io; do
                 dscacheutil -q host -a name "$registry_host"
