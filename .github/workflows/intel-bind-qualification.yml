@@ -86,6 +86,23 @@ jobs:
             test "$attempt" != 3
           done
           probe_host_dns after-alpine-pull
+          # Diagnose the runner's upstream DNS independently of cached macOS answers.
+          primary_dns=$(scutil --dns | awk '/nameserver\[0\]/{print $3; exit}')
+          resolves_registry() {
+            dig +short +time=2 +tries=1 "@$1" registry-1.docker.io A | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+          }
+          if [ -n "$primary_dns" ] && ! resolves_registry "$primary_dns"; then
+            device=$(route -n get default | awk '/interface:/{print $2}')
+            service=$(networksetup -listnetworkserviceorder | awk -v dev="$device" '/^\([0-9]+\)/ {name=$0; sub(/^\([0-9]+\) /,"",name)} index($0,"Device: " dev ")") {print name; exit}')
+            for candidate in 1.1.1.1 8.8.8.8; do
+              if [ -n "$service" ] && resolves_registry "$candidate"; then
+                echo "Hosted runner resolver $primary_dns timed out; using verified resolver $candidate on $service for this disposable job"
+                sudo networksetup -setdnsservers "$service" "$candidate"
+                probe_host_dns after-resolver-change
+                break
+              fi
+            done
+          fi
           docker run --rm --pull=never alpine:3.21 true
           probe_host_dns after-first-container
           # Isolate builder admission from registry downloads and DDEV startup.
