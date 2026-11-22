@@ -19,8 +19,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cargo build --locked -p asagiri
-          cd target/debug
+          cd "$RUNNER_TEMP"
+          gh run download 45026195874 --repo "$GITHUB_REPOSITORY" --name packages-macos-arm64
+          echo '942f38505f144d30a6698a9ea9ad39a74752b47fa0dc01c8490ba243c47e80d7  Asagiri-0.1.14-dev.181-arm64.tar.gz' | shasum -a 256 -c -
+          tar xzf Asagiri-0.1.14-dev.181-arm64.tar.gz
+          codesign --verify --deep --strict Asagiri.app
+          cd Asagiri.app/Contents/MacOS
           export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
           export HOME="$scratch/home"
