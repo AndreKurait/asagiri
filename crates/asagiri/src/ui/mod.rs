@@ -2048,6 +2048,11 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             }
             Ok(())
         }
+        #[cfg(target_os = "macos")]
+        "systemappearance" => {
+            window::layout_window_buttons();
+            Ok(())
+        }
         // The page covers the title bar, and WebKit ignores CSS drag
         // regions, so the page asks for the drag itself on mouse-down
         // over empty chrome. The message lands after the mouse-down:
