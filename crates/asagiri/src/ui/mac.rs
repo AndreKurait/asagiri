@@ -351,6 +351,34 @@ fn show_window(mtm: MainThreadMarker) {
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
 }
 
+// AppKit rewrites history titles during responder validation using the system
+// language. Keep the app's translated titles while retaining native validation
+// and dispatch of undo: and redo: to the focused control.
+define_class!(
+    #[unsafe(super(NSMenuItem))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AsagiriHistoryMenuItem"]
+    #[ivars = Retained<NSString>]
+    struct HistoryMenuItem;
+
+    impl HistoryMenuItem {
+        #[unsafe(method(setTitle:))]
+        fn set_history_title(&self, _title: &NSString) {
+            // SAFETY: call NSMenuItem's setter with the title retained by this instance.
+            unsafe { msg_send![super(self), setTitle: &**self.ivars()] }
+        }
+    }
+);
+
+impl HistoryMenuItem {
+    fn new(mtm: MainThreadMarker, title: &str, action: objc2::runtime::Sel, key: &str) -> Retained<Self> {
+        let title = NSString::from_str(title);
+        let this = Self::alloc(mtm).set_ivars(title.clone());
+        // SAFETY: initialize the newly allocated menu item with a standard action.
+        unsafe { msg_send![super(this), initWithTitle: &*title, action: action, keyEquivalent: &*NSString::from_str(key)] }
+    }
+}
+
 /// The app menu, so the standard shortcuts work: ⌘Q quits (the daemon keeps
 /// running), ⌘W closes, ⌘H hides, ⌘, opens Settings, and editing shortcuts
 /// reach the focused WebKit text field.
@@ -385,8 +413,8 @@ fn main_menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
     // responder chain to the focused field, including Settings inputs.
     let edit_menu = NSMenu::new(mtm);
     edit_menu.setTitle(&NSString::from_str(&tr("Edit")));
-    edit_menu.addItem(&item(&tr("Undo"), sel!(undo:), "z"));
-    edit_menu.addItem(&item(&tr("Redo"), sel!(redo:), "Z"));
+    edit_menu.addItem(&HistoryMenuItem::new(mtm, &tr("Undo"), sel!(undo:), "z"));
+    edit_menu.addItem(&HistoryMenuItem::new(mtm, &tr("Redo"), sel!(redo:), "Z"));
     edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
     edit_menu.addItem(&item(&tr("Cut"), sel!(cut:), "x"));
     edit_menu.addItem(&item(&tr("Copy"), sel!(copy:), "c"));
