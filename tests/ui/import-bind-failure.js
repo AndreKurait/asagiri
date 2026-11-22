@@ -8,7 +8,8 @@
   asagiri.on(inventory);
   ui.imp.col = "containers";
   openImportModal();
-  asagiri.on({type: "importstep", kind: "containers", name: "example", state: "failed", error});
+  asagiri.on({type: "importstep", kind: "containers", name: "example", state: "running"});
+  asagiri.on({type: "importstep", kind: "containers", name: "example", state: "error", error});
   asagiri.on({type: "importdone", done: 0, failed: 1});
   asagiri.on(inventory);
   const failure = document.querySelector('.imp-dialog .irow .err-text');
