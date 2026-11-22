@@ -1,0 +1,47 @@
+name: Four-service Compose dashboard qualification
+on:
+  push:
+    branches: [qualification/compose-live-358]
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: macos-26-intel
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build candidate dashboard tests
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --no-self-update
+          cargo +1.99.1 test --locked -p asagiri --bin asagiri --no-run --message-format=json > "$RUNNER_TEMP/build.jsonl"
+          jq -er 'select(.reason == "compiler-artifact" and .target.name == "asagiri" and .profile.test and .executable != null) | .executable' "$RUNNER_TEMP/build.jsonl" > "$RUNNER_TEMP/test-path"
+      - name: Exercise the dashboard against the published engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset=Asagiri-0.1.14-dev.161-x86_64.tar.gz
+          gh release download v0.1.14-dev.161 -p "$asset" -D "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP"
+          echo "a72fcb055f510aa3c59b54169caed97d07d01ba492fdd02f7cb33a4e11731c66  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker-config" ASAGIRI_DATA_DIR="$RUNNER_TEMP/engine-store"
+          scratch=$(mktemp -d /tmp/asagiri-358.XXXXXX)
+          export ASAGIRI_SOCKET="$scratch/engine.sock" DOCKER_HOST="unix://$scratch/engine.sock"
+          unset DOCKER_CONTEXT
+          mkdir -p "$DOCKER_CONFIG"
+          jq -n --arg dir "$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin/cli-plugins" '{cliPluginsExtraDirs:[$dir]}' > "$DOCKER_CONFIG/config.json"
+          docker compose version
+          Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -80 "$scratch/daemon.log"' EXIT
+          for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
+          docker version
+          export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
+          cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
+          "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"
+          grep -F '1 passed; 0 failed' "$scratch/test.log"
