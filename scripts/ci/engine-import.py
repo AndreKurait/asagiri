@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OWNER = "dev.asagiri.import-test"
 
 
-def verify_volume_xattr(docker, imported, helper, volume):
+def verify_volume_metadata(docker, imported, helper, volume):
     filename = "metadata Δ file"
     key = "SCHILY.xattr.user.supabase.storage.metadata"
     value = "supabase-metadata-" * 128
@@ -29,15 +29,19 @@ def verify_volume_xattr(docker, imported, helper, volume):
     with tarfile.open(fileobj=seed, mode="w", format=tarfile.PAX_FORMAT) as archive:
         member = tarfile.TarInfo(filename)
         member.pax_headers[key] = value
+        member.pax_headers["SCHILY.acl.access"] = "user::rw-,user:4242:r--,group::r--,mask::r--,other::---"
         archive.addfile(member)
     docker("source", "run", "--rm", "-i", "--network", "none", "-v", volume + ":/data",
-           helper, "tar", "--xattrs", "-C", "/data", "-xf", "-", input=seed.getvalue())
+           helper, "tar", "--xattrs", "--acls", "--numeric-owner", "-C", "/data", "-xf", "-", input=seed.getvalue())
     imported("volume", volume)
     for engine in ("source", "destination"):
         result = docker(engine, "run", "--rm", "--network", "none", "-v", volume + ":/data:ro",
-                        helper, "tar", "--xattrs", "-C", "/data", "-cf", "-", filename)
+                        helper, "tar", "--xattrs", "--acls", "--numeric-owner", "-C", "/data", "-cf", "-", filename)
         with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
-            assert archive.getmember(filename).pax_headers.get(key) == value, engine
+            headers = archive.getmember(filename).pax_headers
+            assert headers.get(key) == value, engine
+            entries = headers.get("SCHILY.acl.access", "").replace("\n", ",").split(",")
+            assert any(entry.split(":")[:3] == ["user", "4242", "r--"] for entry in entries), (engine, entries)
 
 
 def archive_identity(data):
@@ -502,8 +506,8 @@ def main():
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
-                verify_volume_xattr(docker, imported, helper, volume)
-                case("volume-reimport-preserves-user-xattr-on-unicode-path")
+                verify_volume_metadata(docker, imported, helper, volume)
+                case("volume-reimport-preserves-user-xattr-and-access-acl-on-unicode-path")
 
                 imported("container", definition)
                 copied = get("destination", "/containers/" + definition + "/json")
