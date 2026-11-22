@@ -8057,6 +8057,9 @@ mod tests {
             let script = format!("case \"$*\" in *'config --quiet'*) sleep 5; exit 1;; esac; exec '{}' \"$@\"", std::path::Path::new(&docker).display());
             let mut c = Command::new("sh");
             c.env_clear().env("PATH", std::env::var_os("PATH").unwrap_or_default()).env("HOME", std::env::var_os("HOME").unwrap_or_default()).env("DOCKER_HOST", "unix:///nonexistent/asagiri-test.sock").args(["-c", &script, "sh"]);
+            if let Some(config) = std::env::var_os("DOCKER_CONFIG") {
+                c.env("DOCKER_CONFIG", config);
+            }
             Ok(c)
         }
         let d = tdir("realslow");
