@@ -80,7 +80,7 @@ mod scan;
 mod setup;
 #[cfg(unix)]
 mod usb;
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "window")))]
 mod stale;
 #[cfg(windows)]
 mod wsl;

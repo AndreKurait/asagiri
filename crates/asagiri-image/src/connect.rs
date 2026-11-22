@@ -37,14 +37,8 @@ const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// waiting forever with the builder's lock held.
 pub(crate) const STALL: Duration = Duration::from_secs(60);
 
-/// ureq's default chain with the TCP step swapped for Happy Eyeballs: an
-/// HTTP CONNECT proxy if one is set (its own connection to the proxy goes
-/// through this chain too), then TCP, then TLS for https.
-pub(crate) fn connector() -> impl Connector<(), Out = impl Transport> {
-    connector_with(STALL)
-}
-
-/// [`connector`], with reads and writes giving up after `stall` of silence.
+/// A registry transport with a short stall timeout for the network tests.
+#[cfg(test)]
 pub(crate) fn connector_with(stall: Duration) -> impl Connector<(), Out = impl Transport> {
     ().chain(ConnectProxyConnector::default()).chain(HappyConnector { stall }).chain(RustlsConnector::default())
 }
