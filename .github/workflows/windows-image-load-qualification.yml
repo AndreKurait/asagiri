@@ -59,6 +59,11 @@ jobs:
               "$_=$digest"
             }) -join ';'
             Push-Location $env:GITHUB_WORKSPACE
+            # Include PR #352 so the setup wizard can reach the rollback scenario.
+            git fetch --depth=1 origin c24eb520a28b52174b7205f6d736de643c16ca52
+            if ($LASTEXITCODE) { throw 'Could not fetch the chooser fix' }
+            git restore --source=FETCH_HEAD -- crates/asagiri-win/src/setup.html
+            if ($LASTEXITCODE) { throw 'Could not apply the setup page for this combined test' }
             python scripts/ci/release.py stamp 0.1.14-dev.158
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
             cargo build --locked --release -p asagiri-win --bin asagiri-win
