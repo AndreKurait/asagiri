@@ -224,7 +224,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 - [ ] Verify Kiri #510: Windows Defender quarantines kiri-win.exe from 0.2.1 x64 as Bearfoos.A!ml [#239](https://github.com/AndreKurait/asagiri/issues/239)
 - [ ] Verify Kiri #516: Apache Iggy can't start: the host-boundary filter blocks io_uring, and `seccomp=unconfined` / `--privileged` can't lift it [#240](https://github.com/AndreKurait/asagiri/issues/240)
 - [ ] Verify Kiri #517: [Feature Request] Allow using an existing WSL distribution instead of installing a new one [#241](https://github.com/AndreKurait/asagiri/issues/241)
-- [ ] Verify Kiri #518: Floci doesn't run the floci-ui sidecar container [#242](https://github.com/AndreKurait/asagiri/issues/242)
+- [x] Verify Kiri #518: Floci doesn't run the floci-ui sidecar container [#242](https://github.com/AndreKurait/asagiri/issues/242). [Published macOS cold pull](https://github.com/AndreKurait/asagiri/issues/242#issuecomment-7071957133) and [Floci CLI and browser verification](https://github.com/AndreKurait/asagiri/issues/242#issuecomment-7071970859).
 - [ ] Verify Kiri #587: Kiri doesn't render UI [#285](https://github.com/AndreKurait/asagiri/issues/285)
 - [ ] Verify Kiri #586: Windows terminal loses input focus during refresh. The [native regression runbook](../tests/native-window-regressions.md#windows-terminal-focus-during-status-refresh-286) defines the WebView2 check. Native execution remains pending. [#286](https://github.com/AndreKurait/asagiri/issues/286)
 
