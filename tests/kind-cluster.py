@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Boot a real kind cluster and check node/pod DNS in a disposable Linux engine."""
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -29,7 +30,17 @@ def check(path, _image):
     env = {**os.environ, "DOCKER_HOST": "unix://" + path, "KIND_EXPERIMENTAL_PROVIDER": "docker"}
     env.pop("DOCKER_CONTEXT", None)
     peer = None
-    with tempfile.TemporaryDirectory(prefix="asagiri-kind-") as directory:
+    with tempfile.TemporaryDirectory(prefix="asagiri-kind-") as directory, ExitStack() as routes:
+        # Reproduce a VPN split default in the private engine's namespace.
+        # Keep the existing gateway and interface so the node can pull images.
+        default = subprocess.check_output(["ip", "-4", "route", "show", "default"], text=True).splitlines()[0].split()
+        gateway = default[default.index("via") + 1]
+        interface = default[default.index("dev") + 1]
+        for prefix in ("0.0.0.0/1", "128.0.0.0/1"):
+            route = [prefix, "via", gateway, "dev", interface]
+            subprocess.run(["ip", "route", "add", *route], check=True)
+            routes.callback(subprocess.run, ["ip", "route", "del", *route], check=True)
+        print(subprocess.check_output(["ip", "-4", "route", "show"], text=True), flush=True)
         root = Path(directory)
         architecture, expected = BINARIES[platform.machine()]
         # Exact official v0.27.0 release binaries and the release's default
