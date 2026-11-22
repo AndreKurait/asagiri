@@ -112,6 +112,10 @@ jobs:
           for action in start restart; do
             if ! ddev "$action"; then
               probe_host_dns "after-failed-$action"
+              for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
+                echo "Host registry manifest check for $image"
+                docker buildx imagetools inspect "$image" || echo "Host manifest lookup failed for $image"
+              done
               for registry_host in registry-1.docker.io auth.docker.io; do
                 dscacheutil -q host -a name "$registry_host"
                 curl --max-time 10 -sS -o /dev/null -w '%{http_code}\n' "https://$registry_host/" || true
