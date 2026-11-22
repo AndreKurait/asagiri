@@ -1,7 +1,7 @@
 name: Windows first-run setup pull diagnostics
 on:
   push:
-    branches: [qualification/windows-setup-diagnostics-109]
+    branches: [qualification/published-windows-setup-110]
 permissions:
   contents: read
 jobs:
@@ -17,30 +17,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          $version = '0.1.14-dev.188'
+          $asset = "Asagiri-$version-x86_64.msi"
           Set-Location $env:RUNNER_TEMP
-          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
-          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
-          Expand-Archive $asset -DestinationPath load-test
-          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
-          $bundle = Split-Path $app
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE contrib/windows/setup-tools.ps1) (Join-Path $bundle setup-tools.ps1) -Force
-          $files = @('asagiri','asagiri-init','asagiri-linux.tar.gz','install.sh','asagiri.ps1','setup-tools.ps1','asagiri-admin.ps1','bin/docker.exe','bin/asagiri.exe','bin/cli-plugins/docker-compose.exe','bin/cli-plugins/docker-buildx.exe')
-          $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object { "$_=$((Get-FileHash (Join-Path $bundle $_)).Hash.ToLowerInvariant())" }) -join ';'
-          Push-Location $env:GITHUB_WORKSPACE
-          try {
-            cargo build --release --locked -p asagiri-win
-            if ($LASTEXITCODE) { throw 'Candidate desktop build failed' }
-            Copy-Item target/release/asagiri-win.exe $app -Force
-          } finally { Pop-Location }
+          gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset --pattern SHA256SUMS
+          if ($LASTEXITCODE) { throw 'Published installer download failed' }
+          $digest = (Get-FileHash $asset).Hash.ToLowerInvariant()
+          if (!(Select-String -Path SHA256SUMS -Pattern "^$digest\s+\*?$([regex]::Escape($asset))$" -Quiet)) { throw 'Published MSI checksum mismatch' }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          if (Test-Path $bundle) { throw 'Expected a fresh hosted user profile before installation' }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode) { throw "Installer failed: $($install.ExitCode)" }
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          if ((Get-Item $app).VersionInfo.ProductVersion -ne $version) { throw 'Unexpected installed launcher version' }
+          Write-Host "Installed $asset SHA256 $digest"
           $docker = Join-Path $bundle 'bin/docker.exe'
           wsl.exe --version
           python -m pip install pywinauto
           if ($LASTEXITCODE) { throw 'Unable to install UI automation' }
           $chooseScript = Join-Path $env:GITHUB_WORKSPACE 'tests/windows-choose-linux-109.py'
           $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
-          if (Test-Path $profileDir) { throw 'Expected a fresh hosted user profile' }
-          New-Item -ItemType Directory -Path $profileDir | Out-Null
           $setupPath = Join-Path $profileDir 'setup.json'
           @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $profileDir 'ui.json')
           $settings = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
