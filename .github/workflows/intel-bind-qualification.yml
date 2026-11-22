@@ -130,11 +130,11 @@ jobs:
           for action in start restart; do
             if ! ddev "$action"; then
               probe_host_dns "after-failed-$action"
-              for builder in $(docker ps --filter name=buildx_buildkit --format '{{.Names}}'); do
-                echo "Registry configuration and resolver errors from $builder"
-                docker exec "$builder" cat /etc/buildkit/buildkitd.toml || true
-                docker logs --tail 150 "$builder" 2>&1 | grep -Ei 'mirror|trying next host|failed to resolve|not found|response.status' || true
-              done
+              builder=buildx_buildkit_asagiri-build0
+              docker buildx inspect || true
+              docker inspect "$builder" --format '{{.State.Status}}' || true
+              docker exec "$builder" cat /etc/buildkit/buildkitd.toml || true
+              docker logs --tail 150 "$builder" 2>&1 | grep -Ei 'mirror|trying next host|failed to resolve|not found|response.status' || true
               for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
                 echo "Host registry manifest check for $image"
                 docker buildx imagetools inspect "$image" || echo "Host manifest lookup failed for $image"
