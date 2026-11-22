@@ -10,6 +10,59 @@ Configure the firewall that owns the drop policy to allow the intended
 Asagiri bridge traffic. Keep unrelated forwarding and unsolicited inbound
 traffic restricted. Asagiri does not change another firewall's policy.
 
+## Fedora firewalld and bridge DNS
+
+On Fedora 44 with the `FedoraWorkstation` default zone, a container on the
+host network could resolve names while a bridge container reported `Host is
+unreachable` for its gateway resolver. Check the bridge's zone with
+`sudo firewall-cmd --get-zone-of-interface=asagiri0`. An unassigned bridge
+uses the default zone. DNS to the bridge gateway traverses the host input
+chain, so inspect that path as well as forwarding.
+
+For the default bridge, the following temporary rule allows DNS from its IPv4
+subnet to its gateway. Run it with the Docker CLI connected to Asagiri. Use
+the zone that applies to the bridge and confirm the subnet and gateway before
+applying the rule.
+
+```sh
+subnet=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+rule="rule family=\"ipv4\" source address=\"$subnet\" destination address=\"$gateway/32\" service name=\"dns\" accept"
+sudo firewall-cmd --zone=FedoraWorkstation --add-rich-rule="$rule" --timeout=90
+docker run --rm alpine:3.21 nslookup -type=A example.com
+```
+
+The rule expires after 90 seconds. A successful lookup verifies gateway DNS.
+Test the intended VPN destination separately to check forwarding and NAT.
+
+## Forward to one Tailscale service with firewalld
+
+On Fedora 44 kernel 7.2.15, a container reached a Tailscale peer through a
+firewalld policy with a dedicated bridge ingress zone and VPN egress zone.
+The policy accepted IPv4 TCP traffic to `100.64.0.2/32` on port `9010`. An
+HTTP listener on port `9011` remained reachable from the host and was blocked
+from the bridge container.
+
+For an existing deployment, inspect `firewall-cmd --get-active-zones` and
+use the zones assigned to the intended interfaces. A zone shared with other
+interfaces expands the policy's scope. The following example assumes the
+administrator has dedicated zones named `asagiri-bridge` for `asagiri0` and
+`tailnet` for `tailscale0`. Configure the peer address and port for the service
+you intend to expose to containers.
+
+```sh
+sudo firewall-cmd --permanent --new-policy=asagiri-to-peer
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-ingress-zone=asagiri-bridge
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-egress-zone=tailnet
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-rich-rule='rule family="ipv4" destination address="100.64.0.2/32" port port="9010" protocol="tcp" accept'
+sudo firewall-cmd --check-config
+sudo firewall-cmd --reload
+```
+
+To remove this policy, run `sudo firewall-cmd --permanent --delete-policy=asagiri-to-peer`
+and reload firewalld. A reload also discards runtime-only changes, including
+interface assignments made only for a temporary test.
+
 ## Find the failing boundary
 
 With a bridged container running, inspect the engine's NAT table and the

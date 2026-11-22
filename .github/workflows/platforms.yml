@@ -38,6 +38,11 @@ jobs:
           fetch-depth: 2
       - name: Install the pinned Rust toolchain for formal verification
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+      - name: Cache the pinned Verus release archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/verus-cache/*.zip
+          key: verus-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/verus.json') }}
       - name: Verify IPAM contracts and prover negative controls
         run: |
           python3 scripts/ci/test-proof-runner.py
