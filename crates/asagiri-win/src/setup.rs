@@ -265,7 +265,7 @@ fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, missin
     let installed = installed();
     match &s.distro {
         Some(d) if installed.contains(d) => {
-            if alive() {
+            if s.test_error.is_none() && alive() {
                 "tools"
             } else {
                 "engine"
@@ -930,6 +930,8 @@ mod tests {
         assert_eq!(resume_step(&saved, true, |_| true, || false, || installed.clone(), || true), "tools");
         assert_eq!(resume_step(&saved, true, |_| true, || false, Vec::new, || panic!("no daemon probe without a distro")), "choose");
         assert_eq!(resume_step(&saved, true, |_| true, || true, || panic!("repair the Windows component first"), || panic!("repair first")), "welcome");
+        let failed_pull = Saved { test_error: Some("proxy refused".into()), ..saved.clone() };
+        assert_eq!(resume_step(&failed_pull, true, |_| true, || false, || installed.clone(), || true), "engine");
         let complete = Saved { done: true, ..saved };
         assert!(!setup_needed(&complete, &installed));
         assert!(setup_needed(&complete, &[]));
