@@ -66,6 +66,10 @@ jobs:
           # Pull the fixture services before starting the BuildKit container.
           docker pull redis:7-alpine
           docker pull postgres:16-alpine
+          # Populate the engine mirror with the fixture Dockerfiles' base images.
+          for image in node:22-alpine golang:1.25-alpine alpine:3.20; do
+            docker pull "$image"
+          done
           docker load -i "$RUNNER_TEMP/buildkit.tar"
           docker image inspect moby/buildkit:buildx-stable-1 >/dev/null
           docker context create compose-qualification --docker "host=$DOCKER_HOST"
