@@ -74,12 +74,20 @@ pub fn inventory(source: &str) -> io::Result<Value> {
         .collect();
     let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name");
     let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names");
-    let images: Vec<Value> = json_lines(ctx, &["image", "ls", "--format", "{{json .}}"])?
+    let images: Vec<Value> = json_lines(ctx, &["image", "ls", "-a", "--digests", "--format", "{{json .}}"])?
         .into_iter()
-        .filter(|v| v["Repository"] != "<none>" && v["Tag"] != "<none>")
-        .map(|v| {
-            let name = format!("{}:{}", v["Repository"].as_str().unwrap_or(""), v["Tag"].as_str().unwrap_or(""));
-            json!({"name": name, "size": v["Size"], "have": asagiri_images.contains(&name)})
+        .filter_map(|v| {
+            let repository = v["Repository"].as_str()?;
+            if repository == "<none>" { return None; }
+            let name = match v["Tag"].as_str()? {
+                "<none>" => {
+                    let digest = v["Digest"].as_str()?.strip_prefix("sha256:")?;
+                    if !anonymous(digest) { return None; }
+                    format!("{repository}@sha256:{digest}")
+                }
+                tag => format!("{repository}:{tag}"),
+            };
+            Some(json!({"name": name, "size": v["Size"], "have": asagiri_images.contains(&name)}))
         })
         .collect();
     let volumes: Vec<Value> = json_lines(ctx, &["volume", "ls", "--format", "{{json .}}"])?
@@ -219,9 +227,19 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
     let cfg = &info["Config"];
-    let image = cfg["Image"].as_str().unwrap_or("").to_owned();
+    let mut image = cfg["Image"].as_str().unwrap_or("").to_owned();
     if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
         self::image(source, &image)?;
+        // Classic Docker archives omit repository digests. A full source image
+        // ID can identify the loaded content when the registry name is lost.
+        if image.contains("@sha256:") {
+            if let Some(id) = info["Image"].as_str().filter(|id| id.strip_prefix("sha256:").is_some_and(anonymous)) {
+                let inspected = json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", id]);
+                if inspected.is_ok_and(|rows| rows.first().and_then(Value::as_str) == Some(id)) {
+                    image = id.to_owned();
+                }
+            }
+        }
     }
     let mut networks = serde_json::Map::new();
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
