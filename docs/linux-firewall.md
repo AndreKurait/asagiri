@@ -10,6 +10,31 @@ Configure the firewall that owns the drop policy to allow the intended
 Asagiri bridge traffic. Keep unrelated forwarding and unsolicited inbound
 traffic restricted. Asagiri does not change another firewall's policy.
 
+## Fedora firewalld and bridge DNS
+
+On Fedora 44 with the `FedoraWorkstation` default zone, a container on the
+host network could resolve names while a bridge container reported `Host is
+unreachable` for its gateway resolver. Check the bridge's zone with
+`sudo firewall-cmd --get-zone-of-interface=asagiri0`. An unassigned bridge
+uses the default zone. DNS to the bridge gateway traverses the host input
+chain, so inspect that path as well as forwarding.
+
+For the default bridge, the following temporary rule allows DNS from its IPv4
+subnet to its gateway. Run it with the Docker CLI connected to Asagiri. Use
+the zone that applies to the bridge and confirm the subnet and gateway before
+applying the rule.
+
+```sh
+subnet=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Subnet}}')
+gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+rule="rule family=\"ipv4\" source address=\"$subnet\" destination address=\"$gateway/32\" service name=\"dns\" accept"
+sudo firewall-cmd --zone=FedoraWorkstation --add-rich-rule="$rule" --timeout=90
+docker run --rm alpine:3.21 nslookup -type=A example.com
+```
+
+The rule expires after 90 seconds. A successful lookup verifies gateway DNS.
+Test the intended VPN destination separately to check forwarding and NAT.
+
 ## Find the failing boundary
 
 With a bridged container running, inspect the engine's NAT table and the
