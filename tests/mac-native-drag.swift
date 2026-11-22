@@ -56,6 +56,9 @@ func verifyForeignPress(_ window: AXUIElement, _ before: CGPoint, _ start: CGPoi
     print("Foreign window received press: \(receivedDown), Asagiri origin: \(String(describing: position(window)))")
     return receivedDown && position(window) == before
 }
+if CommandLine.arguments.contains("--foreign-press") {
+    NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+}
 for _ in 0..<80 {
     if NSRunningApplication(processIdentifier: pid)?.isActive == true,
        let window = (attribute(app, "AXWindows") as? [AXUIElement])?.first,
