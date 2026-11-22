@@ -89,6 +89,16 @@ jobs:
             wsl.exe -d asagiri -u root -- chmod 755 /tmp/buildx
             wsl.exe -d asagiri -u root -- env DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock /tmp/buildx inspect default
             Write-Host "Direct WSL worker inspection exit=$LASTEXITCODE, client=$tag"
+            $wslContext = (wsl.exe -d asagiri -- wslpath -a ($context.FullName.Replace('\','/'))).Trim()
+            $wslProof = (wsl.exe -d asagiri -- wslpath -a ($proof.Replace('\','/'))).Trim()
+            wsl.exe -d asagiri -u root -- env DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock /tmp/buildx build --progress plain --load --secret "id=proof,src=$wslProof" -t ak100:wsl-control $wslContext
+            $wslBuildExit = $LASTEXITCODE
+            Write-Host "Direct WSL build exit=$wslBuildExit"
+            if ($wslBuildExit -eq 0) {
+              $controlDigest = Invoke-Docker @('run','--rm','--network','none','ak100:wsl-control','sh','-ec','test "$(cat /marker)" = windows-wsl-buildx && test ! -e /run/secrets/proof && cat /proof.digest')
+              if ($controlDigest -ne (Get-FileHash $proof).Hash.ToLower()) { throw 'Direct WSL image content mismatch' }
+              Write-Host 'PASS direct WSL build, load, secret digest and Windows CLI execution'
+            }
             & $buildx inspect default
             if ($LASTEXITCODE) { throw 'Buildx inspection failed' }
             & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
