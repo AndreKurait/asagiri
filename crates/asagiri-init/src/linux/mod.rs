@@ -16,6 +16,7 @@ mod netlink;
 mod overlay;
 mod pid1;
 mod relay;
+mod tarnum;
 mod removal;
 mod roots;
 mod seccomp;
