@@ -104,6 +104,7 @@ def main():
     architecture = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64"}[docker_arch]
     host_image = json.loads((ROOT / "scripts/ci/reference-images.json").read_text())["docker"]
     token = uuid.uuid4().hex[:12]
+    fixture_tag = f"asagiri-firewall-fixture:{token}"
     network, host, peer = (f"asagiri-firewall-{token}-{part}" for part in ("net", "engine", "peer"))
     hosts = []
     network_created = False
@@ -237,7 +238,7 @@ def main():
             assert reply.stdout == "asagiri-gateway", reply.stdout
 
         reference("load", "-i", FIXTURE_ARCHIVE)
-        reference("run", "-d", "--name", "firewall-reference", image_id, "sleep", "3600")
+        reference("run", "-d", "--name", "firewall-reference", "--pull=never", fixture_tag, "sleep", "3600")
         gateway_request(reference, "firewall-reference", "172.17.0.1")
         # With no containers attached, Docker's route still has linkdown.
         # Compare against the same running reference container after shutdown.
@@ -256,7 +257,7 @@ def main():
             bridge = json.loads(dock("network", "inspect", "bridge").stdout)[0]["IPAM"]["Config"][0]
             subnet = ipaddress.ip_network(bridge["Subnet"])
             assert not subnet.overlaps(docker_subnet), bridge
-            dock("run", "-d", "--name", "firewall-client", "--pull=never", image_id, "sleep", "3600")
+            dock("run", "-d", "--name", "firewall-client", "--pull=never", fixture_tag, "sleep", "3600")
             gateway_request(dock, "firewall-client", bridge["Gateway"])
             gateway_request(reference, "firewall-reference", "172.17.0.1")
             result("Both containers can reach their own gateway", start=attempt, asagiri_bridge=bridge)
@@ -318,7 +319,11 @@ def main():
         record["fixture_image_id"] = image_id
         with tempfile.TemporaryDirectory() as directory:
             archive = str(Path(directory) / "alpine.tar")
-            run("docker", "image", "save", "-o", archive, image_id)
+            run("docker", "image", "tag", IMAGE, fixture_tag)
+            try:
+                run("docker", "image", "save", "-o", archive, fixture_tag)
+            finally:
+                run("docker", "image", "rm", fixture_tag)
             run("docker", "cp", archive, f"{host}:{FIXTURE_ARCHIVE}")
         engine("test", "-s", FIXTURE_ARCHIVE)
         if args.docker_first:
@@ -334,7 +339,7 @@ def main():
             dock("network", "create", "firewall-placeholder")
             tested_network = "firewall-custom"
             dock("network", "create", tested_network)
-        dock("run", "-d", "--name", "firewall-client", "--network", tested_network, image_id, "sleep", "3600")
+        dock("run", "-d", "--name", "firewall-client", "--network", tested_network, fixture_tag, "sleep", "3600")
         dock("exec", "firewall-client", "apk", "add", "-q", "--no-cache", "python3")
         bridge = json.loads(dock("network", "inspect", tested_network).stdout)[0]
         record["bridge"] = bridge
@@ -419,7 +424,7 @@ def main():
         assert iptables("-S", "FORWARD").stdout.startswith("-P FORWARD DROP\n")
         check_diagnostic("docker-user", "DOCKER-USER")
         reference("load", "-i", FIXTURE_ARCHIVE)
-        reference("run", "-d", "--name", "firewall-reference", image_id, "sleep", "3600")
+        reference("run", "-d", "--name", "firewall-reference", "--pull=never", fixture_tag, "sleep", "3600")
         reference("exec", "firewall-reference", "apk", "add", "-q", "--no-cache", "python3")
         exchange("Docker coexistence still requires bridge forwarding", peer_ip, True, False, host_ip)
         for rule in (outbound, replies):
