@@ -27,6 +27,15 @@ jobs:
           wsl.exe --import Asagiri-picker246 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
           python -m pip install playwright pywinauto
+          $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+          if (!$runtime) {
+            $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $signature = Get-AuthenticodeSignature $installer
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation,') { throw 'Invalid WebView2 installer signature' }
+            $install = Start-Process $installer -ArgumentList '/silent','/install' -Wait -PassThru
+            if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
+          }
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1"
           @'
           import json, os, pathlib, subprocess, time
@@ -61,6 +70,13 @@ jobs:
                       entries = json.loads(store.read_text(encoding="utf-8"))["opened"]
                       assert any(x["name"] == "picker246" and pathlib.Path(x["file"]) == project for x in entries), entries
                       print("PASS", "restart" if attempt else "picker", entries, flush=True)
+              except Exception:
+                  print("App PID and exit code", app.pid, app.poll(), flush=True)
+                  log = store.with_name("asagiri-win.log")
+                  if log.exists(): print(log.read_text(errors="replace")[-8000:], flush=True)
+                  print("App windows", [(w.class_name(), w.window_text()) for w in Desktop(backend="win32").windows(process=app.pid, visible_only=False)], flush=True)
+                  subprocess.run(["tasklist", "/FI", "IMAGENAME eq msedgewebview2.exe"])
+                  raise
               finally:
                   subprocess.run(["taskkill", "/PID", str(app.pid), "/T", "/F"], check=False)
                   app.wait(timeout=30)
