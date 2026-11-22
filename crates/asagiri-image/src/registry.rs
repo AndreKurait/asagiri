@@ -293,6 +293,7 @@ fn shared_agent(settings: &RegistrySettings) -> ureq::Agent {
         return agent.clone();
     }
     let mut cfg = ureq::Agent::config_builder()
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
         .http_status_as_error(false)
         .timeout_connect(Some(Duration::from_secs(15)))
         .max_idle_age(IDLE)
