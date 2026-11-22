@@ -8,6 +8,14 @@ cli=$(cd "$2" && pwd)
 helper=$(cd "$(dirname "$0")" && pwd)/test-amazon-container.sh
 key=${3:-}
 image=${ASAGIRI_CI_AL2023_IMAGE:-public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:5c6ed3b38335b2aa424a045f1e564c8c508409ead0ff3f8bf5e62c31b94082cb}
+alpine_mount=()
+if [ -n "${ASAGIRI_CI_PERF_IMAGE:-}" ]; then
+  [[ $ASAGIRI_CI_PERF_IMAGE =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Invalid Alpine image ID' >&2; exit 1; }
+  archive=$(mktemp)
+  trap 'rm -f "$archive"' EXIT
+  docker image save -o "$archive" "$ASAGIRI_CI_PERF_IMAGE"
+  alpine_mount=(--mount "type=bind,src=$archive,dst=/alpine.tar,readonly" -e "ASAGIRI_CI_PERF_IMAGE=$ASAGIRI_CI_PERF_IMAGE")
+fi
 key_mount=()
 if [ -n "$key" ]; then
   key=$(cd "$(dirname "$key")" && pwd)/$(basename "$key")
@@ -28,7 +36,7 @@ for name in asagiri-lite asagiri; do
     --mount "type=bind,src=$packages,dst=/packages,readonly" \
     --mount "type=bind,src=$cli,dst=/opt/docker,readonly" \
     --mount "type=bind,src=$helper,dst=/test-amazon-container.sh,readonly" \
-    "${key_mount[@]}" \
+    "${key_mount[@]}" "${alpine_mount[@]}" \
     -e "ASAGIRI_PACKAGE=$package" -e "ASAGIRI_PACKAGE_NAME=$name" \
     -e "ASAGIRI_EXPECTED_VERSION=${ASAGIRI_EXPECTED_VERSION:-}" \
     "$image" bash /test-amazon-container.sh
