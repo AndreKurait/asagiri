@@ -63,6 +63,21 @@ jobs:
               if ($null -eq $old.$key) { Remove-ItemProperty $settings $key -ErrorAction SilentlyContinue }
               else { Set-ItemProperty $settings $key $old.$key }
             }
+            if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() }
+          }
+          if ($saved.done -ne $false -or $saved.distro -ne 'asagiri') { throw 'Missing incomplete setup state' }
+          wsl.exe --terminate asagiri
+          if ($LASTEXITCODE) { throw 'Could not stop the guest before relaunch' }
+          try {
+            $process = Start-Process $app -PassThru
+            python (Join-Path $env:GITHUB_WORKSPACE 'tests/windows-observe-setup-recovery.py') $process.Id
+            if ($LASTEXITCODE) { throw 'Recovery window did not reach the tools step' }
+            $after = Get-Content $setupPath -Raw | ConvertFrom-Json
+            if ($after.testError) { throw "Setup still reports a failed pull: $($after.testError)" }
+            $reply = & $docker --host npipe:////./pipe/asagiri run --pull=never --rm alpine echo recovered
+            if ($LASTEXITCODE -or $reply -notcontains 'recovered') { throw "Container recovery failed: $reply" }
+            Write-Host 'PASS recovered the saved setup and ran alpine through the Windows pipe'
+          } finally {
             if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force }
             $log = Join-Path $profileDir 'asagiri-win.log'
             if (Test-Path $log) { Get-Content $log -Tail 35 }
