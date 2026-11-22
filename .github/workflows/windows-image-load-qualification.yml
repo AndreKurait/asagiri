@@ -4,6 +4,7 @@ on:
     branches: [qualification/windows-bridge-97]
     paths: [.github/workflows/windows-image-load-qualification.yml]
 permissions:
+  actions: read
   contents: read
 jobs:
   windows-cli:
