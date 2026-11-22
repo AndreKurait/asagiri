@@ -518,6 +518,7 @@ fn set_pref(name: &str, value: serde_json::Value) {
     }
     // Whether the tray setting just turned on: read before `value` moves
     // into the saved prefs below.
+    #[cfg(target_os = "linux")]
     let close_to_tray = name == "closeToTray" && value == true;
     // Crash reports go from when they're turned on: crashes from before that
     // wait for the person to pick them.
