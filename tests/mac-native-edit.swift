@@ -49,7 +49,6 @@ expect("German Edit menu is present in the native menu bar") {
     return editMenu != nil
 }
 let menu = editMenu!
-print("Before opening Edit: \(menuTitles(menu).filter { !$0.isEmpty })")
 _ = AXUIElementPerformAction(menu, kAXPressAction as CFString)
 var lastTitles: [String] = []
 expect("German native Edit menu exposes localized clipboard and history commands") {
@@ -66,3 +65,16 @@ key(6); expect("Command-Z restores cut text") { value() == marker }
 key(6, [.maskCommand, .maskShift]); expect("Shift-Command-Z reapplies the cut") { value() == "" }
 key(9); expect("paste after redo") { value() == marker }
 key(0); board.clearContents(); key(8); expect("Command-C copies selected text") { board.string(forType: .string) == marker }
+
+key(53, [])
+key(50, .maskControl)
+Thread.sleep(forTimeInterval: 2)
+let path = "/tmp/host-terminal-" + UUID().uuidString
+board.clearContents()
+board.setString("printf %s host-terminal-paste > " + path, forType: .string)
+key(9)
+Thread.sleep(forTimeInterval: 0.5)
+key(36, [])
+expect("host shell executes command pasted through Command-V") {
+    (try? String(contentsOfFile: path, encoding: .utf8)) == "host-terminal-paste"
+}
