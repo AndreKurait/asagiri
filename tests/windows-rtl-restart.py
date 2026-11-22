@@ -1,4 +1,6 @@
 """Reproduce #140 with a fresh native process for each persisted language."""
+import ctypes
+from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -24,9 +26,21 @@ def quit_from_tray(process):
         time.sleep(0.05)
     else:
         raise RuntimeError('Native tray menu did not open')
-    for key in (win32con.VK_END, win32con.VK_RETURN):
-        win32api.keybd_event(key, 0, 0, 0)
-        win32api.keybd_event(key, 0, win32con.KEYEVENTF_KEYUP, 0)
+    # Locate the actual Quit command in the localized popup by its native ID.
+    user32 = ctypes.windll.user32
+    hmenu = win32gui.SendMessage(menu, 0x01E1, 0, 0)  # MN_GETHMENU
+    count = user32.GetMenuItemCount(wintypes.HMENU(hmenu))
+    for index in range(count):
+        if user32.GetMenuItemID(wintypes.HMENU(hmenu), index) == 4:  # ID_QUIT
+            break
+    else:
+        raise RuntimeError('Quit command missing from native tray menu')
+    rect = wintypes.RECT()
+    if not user32.GetMenuItemRect(None, wintypes.HMENU(hmenu), index, ctypes.byref(rect)):
+        raise ctypes.WinError()
+    win32api.SetCursorPos(((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2))
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0)
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0)
     assert process.wait(timeout=45) == 0
 
 
