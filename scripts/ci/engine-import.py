@@ -353,7 +353,14 @@ def main():
                     assert get("destination", "/containers/json?all=1") == []
                     assert get("destination", "/images/json?all=1") == []
                     case("reject-" + state + "-before-helper-or-destination")
-                error = imported("container", writer, success=False)
+                definition = "asagiri-import-definition-" + nonce
+                source_id = docker("source", "create", "--name", definition, "--network", "none",
+                                   "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
+                                   "--user", "1001:1002", "--workdir", "/tmp",
+                                   "-v", volume + ":/data:ro", image, "sh", "-ec",
+                                   "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
+                                   text=True).stdout.strip()
+                error = imported("container", definition, success=False)
                 assert "import volume " + volume + " first" in error, error
                 assert request("destination", "GET", "/volumes/" + volume)[0] == 404
                 assert get("destination", "/containers/json?all=1") == []
@@ -442,13 +449,6 @@ def main():
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
-                definition = "asagiri-import-definition-" + nonce
-                source_id = docker("source", "create", "--name", definition, "--network", "none",
-                                   "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
-                                   "--user", "1001:1002", "--workdir", "/tmp",
-                                   "-v", volume + ":/data:ro", image, "sh", "-ec",
-                                   "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
-                                   text=True).stdout.strip()
                 imported("container", definition)
                 copied = get("destination", "/containers/" + definition + "/json")
                 original = get("source", "/containers/" + source_id + "/json")
@@ -461,7 +461,8 @@ def main():
                            for m in copied["Mounts"]), copied["Mounts"]
                 assert docker("destination", "start", "-a", copied["Id"]).stdout == payload
                 assert get("source", "/containers/" + source_id + "/json")["State"]["Status"] == "created"
-                case("container-definition-arrives-stopped-and-runs-with-copied-volume")
+                case("container-definition-arrives-stopped-and-runs-with-copied-volume",
+                     retried_source_container=source_id)
 
                 # Prove removal through each API before removing its private host.
                 for engine in names:
