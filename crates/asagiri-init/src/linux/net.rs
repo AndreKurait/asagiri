@@ -210,10 +210,13 @@ static NO_FIB4: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// keeps `nat` for `refresh_nat`.
 fn install_nat(nat: Nat) -> io::Result<()> {
     use std::sync::atomic::Ordering;
-    let bridges = MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let made = MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner());
+    let bridges: Vec<_> = made.iter().map(|b| b.name.clone()).collect();
+    let subnets: Vec<_> = made.iter().filter_map(|b| b.subnet).collect();
+    drop(made);
     let apart = APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let any_addr = nat.dnat.iter().any(|d| d.host_ip == [0; 4]);
-    let install = |local: Option<&[[u8; 4]]>| netlink::install_nat_from(nat.uplink, HOST_ADDR, HOST_RELAY_PORT, nat.redirect, &nat.dnat, nat.gateway, &bridges, &apart, local);
+    let install = |local: Option<&[[u8; 4]]>| netlink::install_nat_from(nat.uplink, HOST_ADDR, HOST_RELAY_PORT, nat.redirect, &nat.dnat, nat.gateway, &bridges, &apart, &subnets, local);
     let r = if any_addr && NO_FIB4.load(Ordering::Relaxed) {
         install(Some(&local_addrs()))
     } else {
@@ -554,7 +557,7 @@ impl Bridges {
             if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
                 let _ = netlink::delete_link(&mut nl, name);
             }
-            MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
+            MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m.name != name);
             APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
             let had6 = matches!(self.made.remove(name), Some((.., Some(_))));
             let _ = refresh_nat();
@@ -569,8 +572,12 @@ impl Bridges {
         let mut nl = Netlink::open(libc::NETLINK_ROUTE)?;
         netlink::create_bridge(&mut nl, name)?;
         let mut made = MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner());
-        if !made.iter().any(|m| m == name) {
-            made.push(name.to_owned());
+        if !made.iter().any(|m| m.name == name) {
+            let subnet = gateway.map(|addr| {
+                let mask = u32::MAX.checked_shl(32 - u32::from(prefix.min(32))).unwrap_or(0);
+                ((u32::from_be_bytes(addr) & mask).to_be_bytes(), prefix)
+            });
+            made.push(MadeBridge { name: name.to_owned(), subnet });
         }
         drop(made);
         let index = netlink::index_of(name)?;
@@ -602,7 +609,7 @@ impl Bridges {
         if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
             let _ = netlink::delete_link(&mut nl, name);
         }
-        MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
+        MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m.name != name);
         APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
         MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m != name);
         if let Err(e) = refresh_nat() {
@@ -709,7 +716,12 @@ fn ipv6_forwarding(on: bool) -> io::Result<()> {
 }
 
 /// Every bridge this agent brought up, for `remove_bridges`.
-static MADE_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+struct MadeBridge {
+    name: String,
+    subnet: Option<([u8; 4], u8)>,
+}
+
+static MADE_BRIDGES: std::sync::Mutex<Vec<MadeBridge>> = std::sync::Mutex::new(Vec::new());
 /// Those of them whose network has `enable_icc` off, for the forward
 /// filter (see `Bridges::keep_apart`).
 static APART_BRIDGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
@@ -746,7 +758,7 @@ fn macvlan_parent(nl: &mut Netlink, name: &str) -> io::Result<i32> {
 /// those: another engine's may share the network namespace) and Asagiri's
 /// nftables table, so nothing of the engine is left in the host's network.
 pub fn remove_host_network() {
-    let mut names = std::mem::take(&mut *MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut names: Vec<_> = std::mem::take(&mut *MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner())).into_iter().map(|b| b.name).collect();
     names.append(&mut MADE_PARENTS.lock().unwrap_or_else(|e| e.into_inner()));
     APART_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).clear();
     if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
