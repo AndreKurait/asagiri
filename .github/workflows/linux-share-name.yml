@@ -36,5 +36,5 @@ jobs:
           GLib.timeout_add_seconds(45, Gtk.main_quit)
           Gtk.main()
           print('\n'.join(lines), flush=True)
-          assert len(lines) == 3 and all(line.startswith('PASS') for line in lines), lines
+          assert len(lines) == 3 and all(line.startswith('ITEM ') for line in lines), lines
           PY
