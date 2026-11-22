@@ -1,5 +1,6 @@
 //! Operation context shared by the application and its HTTP client.
 
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 use std::time::SystemTime;
 
 thread_local! {
@@ -10,6 +11,7 @@ thread_local! {
 
 /// A new op id, `run-7c2e`: what the window started, and 4 random hex
 /// digits, so one action's lines (window and engine) can be picked out.
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 pub fn new_op(kind: &str) -> String {
     use std::hash::BuildHasher;
     let kind: String = kind.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();

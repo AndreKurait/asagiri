@@ -137,7 +137,7 @@ fn local(t: &str) -> String {
         return t.to_owned();
     }
     let ms = t.get(20..23).filter(|m| m.bytes().all(|b| b.is_ascii_digit())).unwrap_or("000");
-    let at = secs as libc::time_t;
+    let at = secs as _;
     // SAFETY: localtime_r fills the tm it is given and keeps no pointer.
     let tm = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
@@ -697,12 +697,14 @@ fn replace_whole(s: &str, name: &str, with: &str) -> String {
 }
 
 /// The id a sent crash file ends with.
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 fn sent_id(text: &str) -> Option<&str> {
     text.lines().rev().find_map(|l| l.strip_prefix("Sent to Share server as ")).map(str::trim).filter(|id| !id.is_empty())
 }
 
 /// Sends one crash file the person picked in the window, whether or not
 /// crash reports go by themselves. Returns its id.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn send_crash(name: &str) -> io::Result<String> {
     let dir = super::crashes_dir().ok_or_else(|| io::Error::other("HOME is not set"))?;
     if name.contains('/') || name.ends_with(".sending") || crash_name(name).is_none() {
@@ -718,6 +720,7 @@ pub fn send_crash(name: &str) -> io::Result<String> {
 
 /// The window's Diagnostics: the newest `n` crash files with their
 /// message, where, whether they went (and the id), and the text.
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 fn crash_list(dir: &Path, n: usize) -> Vec<Value> {
     crash_files(dir)
         .into_iter()
@@ -742,6 +745,7 @@ fn crash_list(dir: &Path, n: usize) -> Vec<Value> {
 }
 
 /// The page's `diagcrashes`.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn page_crashes(n: usize) -> Value {
     let crashes = super::crashes_dir().map(|dir| crash_list(&dir, n)).unwrap_or_default();
     json!({"type": "diagcrashes", "crashes": crashes})
@@ -764,6 +768,7 @@ pub fn spawn_crash_sender(delay: Duration, every: Option<Duration>) {
 
 /// The newest crash since the window last opened, for the page's
 /// `lastcrash` event; remembers this opening. Nothing the first time.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn last_crash() -> Option<Value> {
     let dir = super::crashes_dir()?;
     let marker = dir.join(".window-opened");
@@ -793,6 +798,7 @@ pub fn last_crash() -> Option<Value> {
 
 /// The page's `diaglogs`: the last `n` events, as their JSON objects; with
 /// `op`, only that action's lines, from the window and the engine.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn page_lines(part: &str, errors: bool, op: &str, n: usize) -> Value {
     let parts = Part::parse(part).map_or_else(|| Part::ALL.to_vec(), |p| vec![p]);
     let filter = Filter { errors, op: Some(op).filter(|o| !o.is_empty()) };
