@@ -1963,12 +1963,22 @@ fn save_opened(store: Store, keep: impl Fn(&str, &str) -> bool, add: Option<(&st
     // Lock a separate file: renaming the registry replaces its file identity.
     let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path.with_extension("lock"))?;
     lock.lock()?;
-    let mut list: Vec<Value> = opened(store).into_iter().filter(|p| keep(&p.name, &p.files[0])).map(|p| json!({"name": p.name, "file": p.files[0]})).collect();
+    let mut registry: Value = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => json!({"opened": []}),
+        Err(error) => return Err(error),
+    };
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid saved Compose project list");
+    let list = registry.get_mut("opened").and_then(Value::as_array_mut).ok_or_else(invalid)?;
+    if list.iter().any(|entry| !entry["name"].is_string() || !entry["file"].is_string()) {
+        return Err(invalid());
+    }
+    list.retain(|entry| keep(entry["name"].as_str().unwrap(), entry["file"].as_str().unwrap()));
     if let Some((name, file)) = add {
         list.push(json!({"name": name, "file": file}));
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json!({"opened": list}).to_string())?;
+    std::fs::write(&tmp, registry.to_string())?;
     std::fs::rename(&tmp, &path)
 }
 
@@ -5798,6 +5808,21 @@ mod tests {
         save_opened(tstore, |n, _| n != "shop", None).unwrap();
         assert_eq!(opened(tstore).iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["blog"]);
         let _ = std::fs::remove_dir_all(tstore().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn opening_a_project_preserves_an_unreadable_registry() {
+        fn store() -> Option<PathBuf> {
+            Some(std::env::temp_dir().join(format!("asagiri-open-invalid-{}", std::process::id())).join("compose.json"))
+        }
+        let path = store().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for contents in ["{", r#"{"opened":[{"name":"first"}]}"#] {
+            std::fs::write(&path, contents).unwrap();
+            assert!(save_opened(store, |_, _| true, Some(("second", "/second/compose.yaml"))).is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), contents);
+        }
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
