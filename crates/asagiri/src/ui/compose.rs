@@ -5941,6 +5941,48 @@ mod tests {
     }
 
     #[test]
+    fn create_command_remembers_default_and_preserves_overrides() {
+        use std::sync::{OnceLock, mpsc};
+        static EVENTS: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+        fn store() -> Option<PathBuf> {
+            Some(std::env::temp_dir().join(format!("asagiri-create-project-{}", std::process::id())).join("compose.json"))
+        }
+        fn emit(event: String) { EVENTS.get().unwrap().send(event).unwrap(); }
+        let (sender, receiver) = mpsc::channel();
+        EVENTS.set(sender).unwrap();
+        let state = store().unwrap();
+        let root = state.parent().unwrap();
+        let default = root.join("default");
+        let other = root.join("other");
+        std::fs::create_dir_all(&default).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let create = |name: &str, options: Value| {
+            handle("composecreate", name.to_owned(), &options, || Err(io::Error::other("no CLI")), store, emit);
+            loop {
+                let event = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+                let value: Value = serde_json::from_str(&event).unwrap();
+                if value["type"] == "composeopened" { break value; }
+            }
+        };
+        for (name, options, folder) in [
+            ("first", json!({"location": default, "saveDefault": true}), &default),
+            ("second", json!({"location": other}), &other),
+            ("third", json!({}), &default),
+        ] {
+            let event = create(name, options);
+            assert_eq!(event["name"], name, "{event}");
+            let refreshed = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&refreshed).unwrap()["type"], "composeprojects");
+            assert_eq!(std::fs::read_to_string(folder.join(name).join("compose.yaml")).unwrap(), "services: {}\n");
+        }
+        let before = std::fs::read(&state).unwrap();
+        assert!(create("second", json!({"location": other, "saveDefault": true}))["error"].is_string());
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        assert_eq!(opened(store).len(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn opening_a_project_preserves_an_unreadable_registry() {
         fn store() -> Option<PathBuf> {
             Some(std::env::temp_dir().join(format!("asagiri-open-invalid-{}", std::process::id())).join("compose.json"))
