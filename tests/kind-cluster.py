@@ -2,6 +2,7 @@
 """Boot a real kind cluster and check node/pod DNS in a disposable Linux engine."""
 from contextlib import ExitStack
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -68,11 +69,17 @@ def check(path, _image):
             return command([*docker, "exec", node, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf", *args],
                            timeout=timeout)
 
+        # A reused kind network would bypass the automatic allocation under test.
+        network_names = command([*docker, "network", "ls", "--format", "{{.Name}}"]).splitlines()
+        assert "kind" not in network_names, network_names
         try:
             result = command([str(kind), "create", "cluster", "--name", name, "--image", NODE,
                               "--config", str(config), "--kubeconfig", str(root / "kubeconfig"),
                               "--retain", "--wait", "120s"], timeout=360)
             print(result[-4000:], flush=True)
+            network = json.loads(command([*docker, "network", "inspect", "kind"]))[0]
+            subnets = [entry["Subnet"] for entry in network["IPAM"]["Config"]]
+            assert any(ipaddress.ip_network(subnet).version == 4 for subnet in subnets), subnets
             kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=120s", timeout=130)
             kubectl("-n", "kube-system", "rollout", "status", "deployment/coredns",
                     "--timeout=120s", timeout=130)
@@ -97,7 +104,7 @@ def check(path, _image):
             assert "kind-dns-ok" in output and address in output, output
             nodes = json.loads(kubectl("get", "nodes", "-o", "json"))
             print(json.dumps({"probe": "kind-cluster", "kind": VERSION, "nodeImage": NODE,
-                              "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
+                              "kindNetworkSubnets": subnets, "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
                               "nodeContainerdPull": "passed", "nodeAndPodExternalDNS": "passed",
                               "nodeBareContainerAliasDNS": "passed",
                               "podAbsoluteContainerAliasDNS": "passed"}), flush=True)
