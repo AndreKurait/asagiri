@@ -74,6 +74,11 @@ fn enter_stopped(spec: &CopySpec<'_>, paths: &Paths) -> io::Result<()> {
         sys::check(libc::umount2(c".".as_ptr(), libc::MNT_DETACH) as _, "copy detach old root")?;
         sys::check(libc::chdir(c"/".as_ptr()) as _, "chdir")?;
     }
+    if spec.op == copy_op::IN && spec.flags & copy_flags::READONLY_ROOTFS != 0 {
+        // Only the private worker's root mount changes. Writable volumes
+        // mounted beneath it retain their own mount flags.
+        sys::mount(c"none", c"/", c"none", libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY, None)?;
+    }
     Ok(())
 }
 
