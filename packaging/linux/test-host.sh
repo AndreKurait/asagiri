@@ -114,8 +114,14 @@ pkgfile() { if [ "$fmt" = deb ]; then ls "$out"/"${1}"_*.deb 2>/dev/null; else l
 host_test() { # name full(0|1)
   local name=$1 full=$2 deb cli='' slot_free=1 install remove
   deb=$(pkgfile "$name")
-  # dnf, not rpm -i: it brings what the package requires (update-alternatives).
-  if [ "$fmt" = deb ]; then install="dpkg -i '$deb'" remove="dpkg -r $name"; else install="dnf install -y -q '$deb'" remove="rpm -e $name"; fi
+  # Use the host package manager to resolve dependencies on first install.
+  if [ "$fmt" = deb ]; then
+    install="DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends '$deb'"
+    remove="dpkg -r $name"
+  else
+    install="dnf install -y -q '$deb'"
+    remove="rpm -e $name"
+  fi
   # postinst offers Asagiri's docker through update-alternatives only when
   # /usr/bin/docker is absent or already an alternatives link; one that
   # belongs to something else (Docker Desktop's symlink in WSL, a docker-ce
