@@ -33,8 +33,6 @@ fn grype_url(v: &str) -> String {
     if cfg!(target_os = "macos") { cli_pins::MacArch::HOST.grype_url(v) } else { cli_pins::linux_grype_url(v, if cfg!(target_arch = "aarch64") { "arm64" } else { "amd64" }) }
 }
 
-/// Images being scanned now, so a second click doesn't start another.
-static RUNNING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// Advisory pages from the scans shown so far: the only addresses `open_advisory` opens.
 static LINKS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
@@ -78,7 +76,8 @@ fn command(args: &[&str]) -> io::Result<Command> {
     let mut c = Command::new(grype()?);
     c.args(args)
         .env("GRYPE_DB_CACHE_DIR", root()?.join("scanner/db"))
-        .env("GRYPE_CHECK_FOR_APP_UPDATE", "false");
+        .env("GRYPE_CHECK_FOR_APP_UPDATE", "false")
+        .env("NO_COLOR", "1");
     let p = crate::daemon::proxy::effective();
     if let Some(u) = &p.https {
         c.env("HTTPS_PROXY", u);
@@ -98,9 +97,9 @@ fn run(mut c: Command, what: &str) -> io::Result<()> {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&out.stderr);
-    // Grype's log lines carry colour codes; keep the last plain line.
-    let line = err.lines().rev().map(|l| l.replace('\u{1b}', "")).map(|l| l.trim_start_matches(|c: char| c == '[' || c.is_ascii_digit() || c == ';' || c == 'm').to_string()).find(|l| !l.trim().is_empty()).unwrap_or_default();
-    Err(io::Error::other(format!("{what}: {}", line.trim())))
+    let detail = err.lines().rev().map(str::trim).find(|line| !line.is_empty())
+        .map(str::to_owned).unwrap_or_else(|| out.status.to_string());
+    Err(io::Error::other(format!("{what}: {detail}")))
 }
 
 /// Downloads Grype if it isn't there yet, checked against its pinned SHA-256.
@@ -170,27 +169,35 @@ fn layout(store: &asagiri_image::Store, i: &asagiri_image::Image, to: &Path) -> 
 pub fn scan(name: &str, progress: &mut dyn FnMut(&str, u8)) -> io::Result<Value> {
     let store = asagiri_image::Store::open(root()?)?;
     let (i, ..) = crate::builds::stored(&store, name)?;
-    {
-        let mut r = RUNNING.lock().unwrap();
-        if !r.get_or_insert_with(HashSet::new).insert(i.config_digest.clone()) {
-            return Err(io::Error::other("this image is being scanned already"));
-        }
+    let history = scan_dir(&i.config_digest)?;
+    std::fs::create_dir_all(&history)?;
+    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(history.join("scan.lock"))?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => return Err(io::Error::other("this image is being scanned already")),
+        Err(std::fs::TryLockError::Error(e)) => return Err(e),
     }
-    let result = (|| {
+    {
         ensure_grype(&mut |pct| progress("scanner", pct))?;
         progress("database", 0);
         let has_db = root()?.join("scanner/db").read_dir().is_ok_and(|mut d| d.next().is_some());
         // Offline with a database already here: scan with what's here, and
         // Grype says so itself if it's too old.
-        if let Err(e) = run(command(&["db", "update", "-q"])?, "Could not update the vulnerability database") {
+        if let Err(e) = run(command(&["db", "update"])?, "Could not update the vulnerability database") {
             if !has_db {
                 return Err(e);
             }
         }
         progress("scanning", 0);
-        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let dir = scan_dir(&i.config_digest)?.join(at.to_string());
-        std::fs::create_dir_all(&dir)?;
+        let mut at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let dir = loop {
+            let dir = history.join(at.to_string());
+            match std::fs::create_dir(&dir) {
+                Ok(()) => break dir,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => at += 1,
+                Err(e) => return Err(e),
+            }
+        };
         let tmp = store.root().join("tmp").join(format!("scan-{}-{}", std::process::id(), asagiri_image::store::digest_hex(&i.config_digest)?));
         let _ = std::fs::remove_dir_all(&tmp);
         layout(&store, &i, &tmp)?;
@@ -198,7 +205,7 @@ pub fn scan(name: &str, progress: &mut dyn FnMut(&str, u8)) -> io::Result<Value>
         let sbom = dir.join("sbom.cdx.json.part");
         let target = format!("oci-dir:{}", tmp.display());
         let out = (|| {
-            let mut c = command(&["-q", &target, "-o", &format!("json={}", report.display()), "-o", &format!("cyclonedx-json={}", sbom.display())])?;
+            let mut c = command(&[&target, "-o", &format!("json={}", report.display()), "-o", &format!("cyclonedx-json={}", sbom.display())])?;
             c.env("GRYPE_DB_AUTO_UPDATE", "false");
             run(c, "The scan failed")
         })();
@@ -207,17 +214,15 @@ pub fn scan(name: &str, progress: &mut dyn FnMut(&str, u8)) -> io::Result<Value>
             let _ = std::fs::remove_dir_all(&dir);
             return Err(e);
         }
-        std::fs::rename(&report, dir.join("grype.json"))?;
         std::fs::rename(&sbom, dir.join("sbom.cdx.json"))?;
+        std::fs::rename(&report, dir.join("grype.json"))?;
         // Only the newest KEEP.
         let all = scan_dir(&i.config_digest)?;
         for old in scan_times(&all).into_iter().skip(KEEP) {
             let _ = std::fs::remove_dir_all(all.join(old.to_string()));
         }
-        open(name, Some(at))?.ok_or_else(|| io::Error::other("the scan wrote no report"))
-    })();
-    RUNNING.lock().unwrap().as_mut().map(|r| r.remove(&i.config_digest));
-    result
+        open(&i.config_digest, Some(at))?.ok_or_else(|| io::Error::other("the scan wrote no report"))
+    }
 }
 
 /// The image's scans for the history list, newest first: when, the count
