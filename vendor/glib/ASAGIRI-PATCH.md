@@ -2,8 +2,9 @@
 
 This directory contains the unmodified files from the crates.io `glib` 0.18.5
 archive, except for the two-line `VariantStrIter::impl_get` fix in
-`src/variant_iter.rs`, this provenance file, and the added test dependency
-lockfile.
+`src/variant_iter.rs`, explicit lifetime annotations, redundant-parenthesis cleanup, and integer
+maximum constants in tests. The directory also includes this provenance file
+and the test dependency lockfile.
 
 The original archive SHA-256 is
 `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5`.

@@ -253,12 +253,12 @@ fn current_ca_trusted() -> bool {
 }
 
 /// Trusting Asagiri's authority is the Mac keychain's; Linux's stores aren't wired yet.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(target_os = "linux", feature = "window"))]
 pub fn trust() -> io::Result<()> {
     Err(io::Error::other("HTTPS for containers isn't on Linux yet"))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(target_os = "linux", feature = "window"))]
 pub fn untrust() -> io::Result<()> {
     Ok(())
 }
