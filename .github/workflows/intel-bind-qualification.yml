@@ -40,6 +40,12 @@ jobs:
           jq -n --arg dir "$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin/cli-plugins" '{cliPluginsExtraDirs:[$dir]}' > "$HOME/.docker/config.json"
           docker buildx version
           docker compose version
+          probe_host_dns() {
+            echo "Host resolver check $1"
+            scutil --dns | grep -E 'resolver #|nameserver\[|if_index|reach ' || true
+            curl --silent --show-error --max-time 5 --output /dev/null --write-out 'registry HTTP %{http_code} DNS %{time_namelookup}s\n' https://registry-1.docker.io/v2/ || true
+          }
+          probe_host_dns before-daemon
           Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -100 "$scratch/daemon.log"' EXIT
@@ -64,6 +70,7 @@ jobs:
             echo 'Registry-independent build failed before DDEV startup.'
             docker version
           fi
+          probe_host_dns after-build
           asset=ddev_macos-amd64.v1.25.2.tar.gz
           gh release download v1.25.2 -R ddev/ddev -p "$asset"
           echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
@@ -79,8 +86,11 @@ jobs:
           cp "$GITHUB_WORKSPACE/tests/ddev/index.php" "$HOME/project/public/index.php"
           cd "$HOME/project"
           ddev config global --instrumentation-opt-in=false --omit-containers=ddev-ssh-agent --use-docker-compose-from-path=true
+          probe_host_dns before-ca-install
           mkcert -install
+          probe_host_dns after-ca-install
           ddev config --project-name=asagiri-ddev --project-type=php --docroot=public --php-version=8.4 --database=mariadb:11.8 --router-http-port=8080 --router-https-port=8443 --performance-mode=none
+          probe_host_dns after-project-config
           for action in start restart; do
             if ! ddev "$action"; then
               for registry_host in registry-1.docker.io auth.docker.io; do
