@@ -315,8 +315,7 @@ def main():
                 assert desktop.returncode == 0 and "image|volume|container NAME" in desktop.stdout, desktop
                 case("linux-image-import-and-desktop-fixture-dispatch")
 
-                # Reuse the CI runner's existing seed bytes. The helper alias is
-                # fixture-local; it does not change any tag on the runner.
+                # Keep the disposable source free of recognized helper tags.
                 seed = command("docker", "image", "inspect", "alpine:3.21").stdout
                 seed_info = json.loads(seed)[0]
                 record["seed"] = seed_info["Id"]
@@ -328,8 +327,7 @@ def main():
                 record["image_archives"] = {"seed": archive_identity(archive)}
                 docker("source", "load", input=archive)
                 image = "asagiri-import-fixture:" + nonce
-                for tag in ("alpine:latest", image):
-                    docker("source", "tag", "alpine:3.21", tag)
+                docker("source", "tag", "alpine:3.21", image)
                 record["seed_archive_sha256"] = hashlib.sha256(archive).hexdigest()
                 del archive
                 volume = "asagiri-import-volume-" + nonce
@@ -427,11 +425,15 @@ def main():
                      config_sha256=expected["config_sha256"],
                      api_image_ids={key: value["Id"] for key, value in record["image_inspections"].items()})
                 del archive
+                source_tags = {tag for entry in get("source", "/images/json?all=1")
+                               for tag in (entry.get("RepoTags") or [])}
+                helper_tags = {"alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"}
+                assert source_tags.isdisjoint(helper_tags), source_tags
                 imported("volume", volume)
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
                 assert get("destination", "/containers/json?all=1") == []
-                case("idle-volume-copy", bytes=len(payload), sha256=digest,
+                case("idle-volume-copy", source_helper_tags_absent=True, bytes=len(payload), sha256=digest,
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
