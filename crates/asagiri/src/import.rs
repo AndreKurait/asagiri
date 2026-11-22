@@ -247,6 +247,37 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
         "volume {name} was copied, but the source is no longer confirmed idle: {e}; stop the source users and inspect the destination before retrying")))
 }
 
+/// Docker Desktop inspect may express macOS paths relative to its VM's /host_mnt.
+#[cfg(target_os = "macos")]
+fn desktop_bind_source(source: &str) -> io::Result<&str> {
+    let path = source.strip_prefix("/host_mnt").filter(|p| p.starts_with('/')).unwrap_or(source);
+    if path.starts_with('/') {
+        std::fs::metadata(path).map_err(|e| io::Error::new(e.kind(), format!("cannot import bind source {path}: {e}")))?;
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_binds(host: &mut Value) -> io::Result<()> {
+    if let Some(binds) = host["Binds"].as_array_mut() {
+        for bind in binds {
+            if let Some((source, rest)) = bind.as_str().and_then(|s| s.split_once(':')) {
+                *bind = json!(format!("{}:{rest}", desktop_bind_source(source)?));
+            }
+        }
+    }
+    if let Some(mounts) = host["Mounts"].as_array_mut() {
+        for mount in mounts {
+            if mount["Type"] == "bind" {
+                if let Some(source) = mount["Source"].as_str() {
+                    mount["Source"] = json!(desktop_bind_source(source)?);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The container, made again in Asagiri from the source's `inspect`, stopped:
 /// command, environment, labels, ports, mounts, restart policy and its
 /// networks (made in Asagiri first if missing). Its image must be in Asagiri.
@@ -257,6 +288,21 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
 fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
+    let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
+    let hc = &info["HostConfig"];
+    let mut host = json!({
+        "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
+        "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
+        "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
+        "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
+    });
+    #[cfg(target_os = "macos")]
+    if ctx == "desktop-linux" {
+        desktop_binds(&mut host)?;
+    }
+    if let Some(o) = host.as_object_mut() {
+        o.retain(|_, v| !v.is_null());
+    }
     // Docker creates missing named volumes as empty volumes during container
     // creation. Refuse that implicit creation when moving a source container.
     for mount in info["Mounts"].as_array().into_iter().flatten().filter(|m| m["Type"] == "volume") {
@@ -284,7 +330,6 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
         }
     }
     let mut networks = serde_json::Map::new();
-    let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
     for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
         if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
             let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -293,16 +338,6 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
         let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
         let aliases: Vec<&Value> = ep["Aliases"].as_array().into_iter().flatten().filter(|a| a.as_str() != Some(short.as_str())).collect();
         networks.insert(net.clone(), json!({"Aliases": aliases}));
-    }
-    let hc = &info["HostConfig"];
-    let mut host = json!({
-        "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
-        "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
-        "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
-        "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
-    });
-    if let Some(o) = host.as_object_mut() {
-        o.retain(|_, v| !v.is_null());
     }
     let body = json!({
         "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
@@ -466,6 +501,20 @@ pub fn run(args: &[String]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_mixed_bind_sources() {
+        let mut host = serde_json::json!({
+            "Binds": ["/host_mnt/tmp:/project:ro", "cache:/cache"],
+            "Mounts": [{"Type":"bind", "Source":"/etc/hosts", "Target":"/hosts"}]
+        });
+        super::desktop_binds(&mut host).unwrap();
+        assert_eq!(host["Binds"], serde_json::json!(["/tmp:/project:ro", "cache:/cache"]));
+        assert_eq!(host["Mounts"][0]["Source"], "/etc/hosts");
+        host["Mounts"][0]["Source"] = serde_json::json!("/host_mnt/dev/null/missing");
+        assert!(super::desktop_binds(&mut host).unwrap_err().to_string().contains("/dev/null/missing"));
+    }
+
     #[test]
     fn inventory_names_tagged_and_digest_only_images() {
         let digest = format!("sha256:{}", "a".repeat(64));
