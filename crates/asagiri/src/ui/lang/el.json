@@ -1077,6 +1077,7 @@
   "Stop on {host}": "Διακοπή στο {host}",
   "Stop sharing": "Διακοπή κοινής χρήσης",
   "Stop signal": "Σήμα διακοπής",
+  "Stop the engine when Asagiri quits": "Διακοπή της μηχανής κατά την έξοδο από το Asagiri",
   "Stop {name}": "Διακοπή {name}",
   "Stop {name} on {host}?": "Διακοπή του {name} στο {host};",
   "Stopped": "Σταματημένο",

@@ -1077,6 +1077,7 @@
   "Stop on {host}": "Stabdyti {host}",
   "Stop sharing": "Nebendrinti",
   "Stop signal": "Stabdymo signalas",
+  "Stop the engine when Asagiri quits": "Sustabdyti variklį išėjus iš „Asagiri“",
   "Stop {name}": "Stabdyti {name}",
   "Stop {name} on {host}?": "Stabdyti {name} kompiuteryje {host}?",
   "Stopped": "Sustabdyta",

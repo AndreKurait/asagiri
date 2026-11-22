@@ -1077,6 +1077,7 @@
   "Stop on {host}": "ຢຸດເທິງ {host}",
   "Stop sharing": "ຢຸດແບ່ງປັນ",
   "Stop signal": "ສັນຍານຢຸດ",
+  "Stop the engine when Asagiri quits": "ຢຸດເຄື່ອງຈັກເມື່ອອອກຈາກ Asagiri",
   "Stop {name}": "ຢຸດ {name}",
   "Stop {name} on {host}?": "ຢຸດ {name} ເທິງ {host} ບໍ?",
   "Stopped": "ຢຸດແລ້ວ",
