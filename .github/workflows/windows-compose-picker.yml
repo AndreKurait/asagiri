@@ -59,7 +59,7 @@ jobs:
                                   return control
                           time.sleep(1)
                       raise RuntimeError(f"Missing {pattern}: {[(c.element_info.control_type, c.window_text()[:80]) for c in controls][:120]}")
-                  visible("Compose").click_input()
+                  visible(r"Compose(?:\s+Beta)?(?:\s+\d+)?").click_input()
                   if attempt == 0:
                       visible(r"Open a compose file.*").click_input()
                       dialog = Desktop(backend="win32").window(process=app.pid, class_name="#32770", title="Open a compose file")
