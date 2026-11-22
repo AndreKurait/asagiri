@@ -192,6 +192,32 @@ def main():
         step("restart DDEV and recopy router configuration", user("ddev", "restart"), timeout=600)
         step("verify HTTP, HTTPS and SQL after restart", user("bash", "-ec", request))
         inspect_images()
+        step("start a second project on the shared DDEV network", user("bash", "-ec", """
+            mkdir -p ../peer/public
+            cd ../peer
+            ddev config --project-name=asagiri-peer --project-type=php --docroot=public \
+                --php-version=8.4 --database=mariadb:11.8 --router-http-port=8080 --router-https-port=8443
+            ddev start
+        """), timeout=900)
+        # Seed each database directly so a wrong DNS answer cannot also seed the wrong marker.
+        for project in ("asagiri-ddev", "asagiri-peer"):
+            step("seed database marker for " + project, dock(
+                "exec", "ddev-" + project + "-db", "mariadb", "-udb", "-pdb", "db", "-e",
+                "CREATE TABLE dns_marker (project VARCHAR(32)); "
+                + f"INSERT INTO dns_marker VALUES ('{project}')",
+            ))
+        def check_project_databases():
+            for project in ("asagiri-ddev", "asagiri-peer"):
+                step("check web-to-database routing for " + project, dock(
+                    "exec", "ddev-" + project + "-web", "php", "-r",
+                    '$pdo = new PDO("mysql:host=db;dbname=db", "db", "db"); '
+                    '$marker = $pdo->query("SELECT project FROM dns_marker")->fetchColumn(); '
+                    'echo $marker, PHP_EOL; exit($marker === $argv[1] ? 0 : 1);', project,
+                ))
+
+        check_project_databases()
+        step("restart the first project while its peer stays up", user("ddev", "restart"), timeout=600)
+        check_project_databases()
         step("stop the project and router", user("ddev", "poweroff"))
         record["status"] = "passed"
     except BaseException as error:
