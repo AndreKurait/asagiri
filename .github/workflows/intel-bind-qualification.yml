@@ -141,6 +141,17 @@ jobs:
                 if [[ -n "$worker_ip" ]]; then
                   authority=${endpoint#https://}
                   host=${authority%%/*}
+                  # Linux tcp tables encode IPv4 octets in reverse order and ports in hex.
+                  peer_hex=$(printf '%s\n' "$worker_ip" | awk -F. '{printf "%02X%02X%02X%02X:01BB", $4,$3,$2,$1}')
+                  docker exec "$builder" sh -c '
+                    wget -T 8 -S --spider "https://$1/" >/dev/null 2>&1 &
+                    probe=$!
+                    for delay in 1 1 2; do
+                      sleep "$delay"
+                      awk -v peer="$2" '\''$3 == peer {print "worker TCP peer", $3, "state", $4, "queues", $5, "retransmits", $7}'\'' /proc/net/tcp
+                    done
+                    wait "$probe" || true
+                  ' sh "$worker_ip" "$peer_hex"
                   curl --noproxy '*' --head --resolve "$host:443:$worker_ip" --max-time 8 --silent --show-error --output /dev/null --write-out 'Host peer=%{remote_ip} HTTP=%{http_code} TLS verify=%{ssl_verify_result}\n' "$endpoint" || true
                 fi
               done
