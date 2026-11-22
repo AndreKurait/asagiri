@@ -460,6 +460,22 @@ jobs:
         with:
           cache-bin: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install the Compose plugin shipped with the Windows app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
+          read -r version digest <<< "$pin"
+          test -n "$digest"
+          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
+          mkdir -p "$config/cli-plugins"
+          plugin="$config/cli-plugins/docker-compose.exe"
+          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
+          echo "$digest  $plugin" | sha256sum --check
+          chmod +x "$plugin"
+          export DOCKER_CONFIG="$(cygpath -w "$config")"
+          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --locked -p asagiri-image -p asagiri-win -p xtask
       - name: Exercise large documents in native WebView2
