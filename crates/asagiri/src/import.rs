@@ -475,6 +475,22 @@ mod tests {
         assert!(super::desktop_binds(&mut host, &serde_json::Value::Null).unwrap_err().to_string().contains("/dev/null/missing"));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_recreates_resolved_read_only_bind() {
+        use serde_json::json;
+        let resolved = json!([
+            {"Type":"bind", "Source":"/host_mnt/etc/hosts", "Destination":"/marker", "RW":false, "Propagation":"rprivate"},
+            {"Type":"volume", "Name":"cache", "Destination":"/cache"}
+        ]);
+        let mut host = json!({"Binds":null, "Mounts":null});
+        super::desktop_binds(&mut host, &resolved).unwrap();
+        assert_eq!(host["Binds"], json!(["/etc/hosts:/marker:ro,rprivate"]));
+        let mut incomplete = resolved.clone();
+        incomplete[0].as_object_mut().unwrap().remove("RW");
+        assert!(super::desktop_binds(&mut json!({}), &incomplete).is_err());
+    }
+
     #[test]
     fn inventory_names_tagged_and_digest_only_images() {
         let digest = format!("sha256:{}", "a".repeat(64));
