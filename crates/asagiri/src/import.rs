@@ -121,10 +121,13 @@ fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Comm
     if !load.status.success() {
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&load.stderr).trim())));
     }
-    let output = String::from_utf8_lossy(&load.stdout);
+    Ok(single_loaded_image_id(&String::from_utf8_lossy(&load.stdout)).map(str::to_owned))
+}
+
+fn single_loaded_image_id(output: &str) -> Option<&str> {
     let mut lines = output.lines().filter(|line| line.starts_with("Loaded image ID: ") || line.starts_with("Loaded image: "));
     let loaded_id = lines.next().and_then(|line| line.strip_prefix("Loaded image ID: "));
-    Ok(loaded_id.filter(|id| lines.next().is_none() && id.strip_prefix("sha256:").is_some_and(anonymous)).map(str::to_owned))
+    loaded_id.filter(|id| lines.next().is_none() && id.strip_prefix("sha256:").is_some_and(anonymous))
 }
 
 /// An image with `tar` that both engines have, for the volume helpers.
@@ -399,6 +402,16 @@ pub fn run(args: &[String]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn load_progress_and_multiple_image_results() {
+        let id = "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee";
+        let single = format!("Preparing filesystem layers for {id}\nLoaded image ID: {id}\n");
+        assert_eq!(super::single_loaded_image_id(&single), Some(id));
+        assert_eq!(super::single_loaded_image_id(&format!("{single}Loaded image: alpine:latest\n")), None);
+        assert_eq!(super::single_loaded_image_id(&format!("{single}{single}")), None);
+        assert_eq!(super::single_loaded_image_id("Loaded image ID: sha256:abcd"), None);
+    }
+
     #[cfg(unix)]
     struct VolumeFixture(std::path::PathBuf);
 
