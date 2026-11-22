@@ -4648,6 +4648,12 @@ mod live {
         );
         let up = cli().unwrap().args(["compose", "-p", name, "-f"]).arg(&file).args(["up", "-d", "--build", "--remove-orphans"]).status().unwrap();
         assert!(up.success(), "compose up");
+        let started = ids(name);
+        assert_eq!(started.keys().map(String::as_str).collect::<Vec<_>>(), ["api", "cache", "db", "web"]);
+        for (service, id) in &started {
+            let container = client::get(&format!("/containers/{id}/json")).unwrap();
+            assert_eq!(container["State"]["Running"], true, "{service}: {}", container["State"]);
+        }
         // Every volume this run's containers use (named and unnamed), at each
         // step: removed at the end by name.
         let mut made: BTreeSet<String> = BTreeSet::new();
