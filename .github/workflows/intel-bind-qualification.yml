@@ -53,6 +53,17 @@ jobs:
             if docker run --rm alpine:3.21 true; then break; fi
             test "$attempt" != 3
           done
+          # Isolate builder admission from registry downloads and DDEV startup.
+          mkdir "$scratch/build-probe"
+          printf 'intel-ddev-builder\n' > "$scratch/build-probe/marker"
+          printf 'FROM scratch\nCOPY marker /marker\n' > "$scratch/build-probe/Dockerfile"
+          docker buildx ls
+          if docker buildx build --progress=plain --no-cache --load -t intel-ddev-probe "$scratch/build-probe"; then
+            docker image inspect intel-ddev-probe --format 'Registry-independent build succeeded: {{.Id}}'
+          else
+            echo 'Registry-independent build failed before DDEV startup.'
+            docker version
+          fi
           asset=ddev_macos-amd64.v1.25.2.tar.gz
           gh release download v1.25.2 -R ddev/ddev -p "$asset"
           echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
