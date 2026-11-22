@@ -1,7 +1,7 @@
-name: Native macOS edit shortcuts
+name: Published Azerbaijani macOS UI
 on:
   push:
-    branches: [qualification/mac-history-language]
+    branches: [qualification/mac-az-release-181]
     paths: [.github/workflows/mac-edit-qualification.yml, tests/mac-native-edit.swift]
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
           export HOME="$scratch/home"
           export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
           mkdir -p "$HOME/.asagiri/run"
-          echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          echo '{"lang":"az","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           ./asagiri ui >"$scratch/ui.log" 2>&1 &

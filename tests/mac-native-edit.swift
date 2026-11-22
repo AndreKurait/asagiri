@@ -41,20 +41,20 @@ func menuTitles(_ element: AXUIElement, _ depth: Int = 0) -> [String] {
     return [title] + children.flatMap { menuTitles($0, depth + 1) }
 }
 var editMenu: AXUIElement?
-expect("German Edit menu is present in the native menu bar") {
+expect("Azerbaijani Edit menu is present in the native menu bar") {
     guard let bar = attr(app, "AXMenuBar") else { return false }
     let entries = attr(bar as! AXUIElement, "AXChildren") as? [AXUIElement] ?? []
-    editMenu = entries.first { attr($0, "AXTitle") as? String == "Bearbeiten" }
+    editMenu = entries.first { attr($0, "AXTitle") as? String == "Redaktə et" }
     if editMenu == nil { print("Menu titles: \(entries.map { attr($0, "AXTitle") as? String ?? "" })") }
     return editMenu != nil
 }
 let menu = editMenu!
 _ = AXUIElementPerformAction(menu, kAXPressAction as CFString)
 var lastTitles: [String] = []
-expect("German native Edit menu exposes localized clipboard and history commands") {
+expect("Azerbaijani native Edit menu exposes localized clipboard and history commands") {
     let titles = menuTitles(menu).filter { !$0.isEmpty }
     if titles != lastTitles { print("Observed native Edit titles: \(titles)"); lastTitles = titles }
-    return ["Rückgängig", "Wiederholen", "Ausschneiden", "Kopieren", "Einfügen", "Alle auswählen"].allSatisfy { titles.contains($0) }
+    return ["Geri al", "Yenidən cəhd et", "Kəs", "Kopyala", "Yapışdır", "Hamısını seç"].allSatisfy { titles.contains($0) }
 }
 key(53, []) // Dismiss the menu before editing the focused search field.
 let board = NSPasteboard.general
