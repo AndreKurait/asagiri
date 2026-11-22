@@ -45,6 +45,17 @@ jobs:
             scutil --dns | grep -E 'resolver #|nameserver\[|if_index|reach ' || true
             curl --silent --show-error --max-time 5 --output /dev/null --write-out 'registry HTTP %{http_code} DNS %{time_namelookup}s\n' https://registry-1.docker.io/v2/ || true
           }
+          asset=ddev_macos-amd64.v1.25.2.tar.gz
+          gh release download v1.25.2 -R ddev/ddev -p "$asset"
+          echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
+          mkdir ddev-bin && tar xzf "$asset" -C ddev-bin
+          ddev_exe=$(find "$PWD/ddev-bin" -type f -name ddev -print -quit)
+          export PATH="$(dirname "$ddev_exe"):$PATH" DDEV_NONINTERACTIVE=true
+          compose_asset=docker-compose-darwin-x86_64
+          gh release download v5.1.3 -R docker/compose -p "$compose_asset" -D "$RUNNER_TEMP"
+          echo "f11139d9822ce1f3843e16ed6c2e44ba5525423396c82fa22b08874b26abd102  $RUNNER_TEMP/$compose_asset" | shasum -a 256 -c -
+          install -m 755 "$RUNNER_TEMP/$compose_asset" "$(dirname "$ddev_exe")/docker-compose"
+          docker-compose version
           probe_host_dns before-daemon
           Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
@@ -71,17 +82,6 @@ jobs:
             docker version
           fi
           probe_host_dns after-build
-          asset=ddev_macos-amd64.v1.25.2.tar.gz
-          gh release download v1.25.2 -R ddev/ddev -p "$asset"
-          echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
-          mkdir ddev-bin && tar xzf "$asset" -C ddev-bin
-          ddev_exe=$(find "$PWD/ddev-bin" -type f -name ddev -print -quit)
-          export PATH="$(dirname "$ddev_exe"):$PATH" DDEV_NONINTERACTIVE=true
-          compose_asset=docker-compose-darwin-x86_64
-          gh release download v5.1.3 -R docker/compose -p "$compose_asset" -D "$RUNNER_TEMP"
-          echo "f11139d9822ce1f3843e16ed6c2e44ba5525423396c82fa22b08874b26abd102  $RUNNER_TEMP/$compose_asset" | shasum -a 256 -c -
-          install -m 755 "$RUNNER_TEMP/$compose_asset" "$(dirname "$ddev_exe")/docker-compose"
-          docker-compose version
           mkdir -p "$HOME/project/public"
           cp "$GITHUB_WORKSPACE/tests/ddev/index.php" "$HOME/project/public/index.php"
           cd "$HOME/project"
