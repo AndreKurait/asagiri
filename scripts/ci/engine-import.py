@@ -431,12 +431,18 @@ def main():
                      api_image_ids={key: value["Id"] for key, value in record["image_inspections"].items()})
                 del archive
                 imported("volume", volume)
+                # An unrelated project makes a silently ignored filter observable.
+                other_volume = volume + "-other"
+                docker("destination", "volume", "create", "--label", OWNER + "=" + nonce,
+                       "--label", "com.supabase.cli.project=other", "--label", "com.docker.compose.project=other",
+                       other_volume)
                 labels = get("destination", "/volumes/" + volume)["Labels"]
                 for key, value in project_labels.items():
                     assert labels.get(key) == value, (key, labels)
                     matches = docker("destination", "volume", "ls", "-q", "--filter",
                                      "label=" + key + "=" + value, text=True).stdout.splitlines()
                     assert matches == [volume], (key, matches)
+                docker("destination", "volume", "rm", other_volume)
                 case("imported-volume-discoverable-by-project-labels", labels=project_labels)
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
