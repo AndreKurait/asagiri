@@ -26,7 +26,7 @@ jobs:
           Copy-Item candidate/asagiri-win.exe $env:PICKER_APP -Force
           wsl.exe --import Asagiri-picker246 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
-          python -m pip install playwright pywinauto
+          python -m pip install pywinauto
           $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
           if (!$runtime) {
             $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
@@ -36,10 +36,9 @@ jobs:
             $install = Start-Process $installer -ArgumentList '/silent','/install' -Wait -PassThru
             if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
           }
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1"
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--force-renderer-accessibility"
           @'
           import json, os, pathlib, subprocess, time
-          from playwright.sync_api import sync_playwright
           from pywinauto import Desktop
           project = pathlib.Path(os.environ["RUNNER_TEMP"]) / "picker fixture" / "compose.yaml"
           project.parent.mkdir()
@@ -48,28 +47,29 @@ jobs:
           for attempt in range(2):
               app = subprocess.Popen([os.environ["PICKER_APP"], "--distro", "Asagiri-picker246"])
               try:
-                  with sync_playwright() as pw:
-                      deadline = time.monotonic() + 120
-                      while True:
-                          try:
-                              browser = pw.chromium.connect_over_cdp("http://127.0.0.1:9222", timeout=3000)
-                              page = browser.contexts[0].pages[0]
-                              page.wait_for_function("typeof cmpOpenBtn === `function`", timeout=5000)
-                              break
-                          except Exception:
-                              if app.poll() is not None or time.monotonic() >= deadline: raise
-                              time.sleep(1)
-                      page.evaluate("show(`compose`)")
-                      if attempt == 0:
-                          page.locator("[data-cmpopenfile]:visible").first.click()
-                          dialog = Desktop(backend="win32").window(process=app.pid, class_name="#32770", title="Open a compose file")
-                          dialog.wait("visible", timeout=30)
-                          dialog.child_window(class_name="Edit", found_index=0).set_edit_text(str(project))
-                          dialog.child_window(control_id=1).click()
-                      page.get_by_text("picker246", exact=True).first.wait_for(timeout=60000)
-                      entries = json.loads(store.read_text(encoding="utf-8"))["opened"]
-                      assert any(x["name"] == "picker246" and pathlib.Path(x["file"]) == project for x in entries), entries
-                      print("PASS", "restart" if attempt else "picker", entries, flush=True)
+                  window = Desktop(backend="uia").window(process=app.pid, title="Asagiri")
+                  window.wait("visible", timeout=120)
+                  def visible(pattern):
+                      import re
+                      deadline = time.monotonic() + 90
+                      while time.monotonic() < deadline:
+                          controls = window.descendants()
+                          for control in controls:
+                              if re.fullmatch(pattern, control.window_text(), re.I) and control.is_visible():
+                                  return control
+                          time.sleep(1)
+                      raise RuntimeError(f"Missing {pattern}: {[(c.element_info.control_type, c.window_text()[:80]) for c in controls][:120]}")
+                  visible("Compose").click_input()
+                  if attempt == 0:
+                      visible(r"Open a compose file.*").click_input()
+                      dialog = Desktop(backend="win32").window(process=app.pid, class_name="#32770", title="Open a compose file")
+                      dialog.wait("visible", timeout=30)
+                      dialog.child_window(class_name="Edit", found_index=0).set_edit_text(str(project))
+                      dialog.child_window(control_id=1).click()
+                  visible("picker246")
+                  entries = json.loads(store.read_text(encoding="utf-8"))["opened"]
+                  assert any(x["name"] == "picker246" and pathlib.Path(x["file"]) == project for x in entries), entries
+                  print("PASS", "restart" if attempt else "picker", entries, flush=True)
               except Exception:
                   print("App PID and exit code", app.pid, app.poll(), flush=True)
                   log = store.with_name("asagiri-win.log")
