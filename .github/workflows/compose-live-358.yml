@@ -53,7 +53,15 @@ jobs:
           docker buildx create --name asagiri-build --driver docker-container \
             --driver-opt default-load=true compose-qualification
           export BUILDX_BUILDER=asagiri-build
-          docker buildx inspect "$BUILDX_BUILDER" --bootstrap
+          if ! docker buildx inspect "$BUILDX_BUILDER" --bootstrap; then
+            # Compare the runner's resolver and registry connection with the daemon's pull.
+            scutil --dns
+            for endpoint in registry-1.docker.io auth.docker.io; do
+              dscacheutil -q host -a name "$endpoint"
+              curl --connect-timeout 5 --max-time 10 -sS -o /dev/null -w '%{remote_ip} %{http_code}\n' "https://$endpoint/v2/" || true
+            done
+            exit 1
+          fi
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
           "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"
