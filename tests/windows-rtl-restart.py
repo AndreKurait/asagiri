@@ -76,7 +76,7 @@ for expected, select in [('en','ar'),('ar','fa'),('fa',None)]:
         print(f'PASS native {expected} Settings after launch in PID {proc.pid}',flush=True)
         subprocess.run([os.environ['RTL_DOCKER'],'--host','npipe:////./pipe/asagiri-rtl-140','version'],check=True,timeout=90)
         if select:
-            control(window, lambda i: i.automation_id == 'pref-lang-btn', 'language picker').invoke()
+            control(window, lambda i: i.automation_id == 'pref-lang-btn', 'language picker').click_input()
             search = control(window, lambda i: i.automation_id == 'lp-q', 'language search')
             search.type_keys({'ar': 'Arabic', 'fa': 'Persian'}[select], set_foreground=True)
             control(window, lambda i: i.automation_id == 'lp-' + select, select)
