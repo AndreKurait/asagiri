@@ -30,7 +30,7 @@ def process(pid):
     try:
         fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
         return {"pid": pid, "state": fields[0], "parent": int(fields[1]), "start": int(fields[19])}
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return None
 
 
