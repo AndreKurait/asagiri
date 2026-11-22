@@ -61,32 +61,36 @@ fn anonymous(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn listed_image_name(row: &Value) -> Option<String> {
+    let repository = row["Repository"].as_str()?;
+    if repository == "<none>" { return None; }
+    match row["Tag"].as_str()? {
+        "<none>" => {
+            let digest = row["Digest"].as_str()?.strip_prefix("sha256:")?;
+            anonymous(digest).then(|| format!("{repository}@sha256:{digest}"))
+        }
+        tag => Some(format!("{repository}:{tag}")),
+    }
+}
+
 /// What the source has, and which of it Asagiri already has.
 pub fn inventory(source: &str) -> io::Result<Value> {
     let ctx = known(source)?;
     let mine = |args: &[&str], key: &str| -> Vec<String> {
         json_lines(crate::flavor::CONTEXT.get(), args).unwrap_or_default().iter().filter_map(|v| v[key].as_str().map(str::to_owned)).collect()
     };
-    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &["image", "ls", "--format", "{{json .}}"])
+    let image_list = ["image", "ls", "-a", "--digests", "--format", "{{json .}}"];
+    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &image_list)
         .unwrap_or_default()
         .iter()
-        .map(|v| format!("{}:{}", v["Repository"].as_str().unwrap_or(""), v["Tag"].as_str().unwrap_or("")))
+        .filter_map(listed_image_name)
         .collect();
     let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name");
     let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names");
-    let images: Vec<Value> = json_lines(ctx, &["image", "ls", "-a", "--digests", "--format", "{{json .}}"])?
+    let images: Vec<Value> = json_lines(ctx, &image_list)?
         .into_iter()
         .filter_map(|v| {
-            let repository = v["Repository"].as_str()?;
-            if repository == "<none>" { return None; }
-            let name = match v["Tag"].as_str()? {
-                "<none>" => {
-                    let digest = v["Digest"].as_str()?.strip_prefix("sha256:")?;
-                    if !anonymous(digest) { return None; }
-                    format!("{repository}@sha256:{digest}")
-                }
-                tag => format!("{repository}:{tag}"),
-            };
+            let name = listed_image_name(&v)?;
             Some(json!({"name": name, "size": v["Size"], "have": asagiri_images.contains(&name)}))
         })
         .collect();
