@@ -40,7 +40,13 @@ case "$1 $2" in
     esac
     ;;
   "image inspect")
-    # Both contexts already have the same harmless helper image.
+    case "$scenario" in helper-*) exit 1 ;; esac
+    ;;
+  "pull alpine@sha256:"*)
+    if [ "$scenario" = helper-pull-error ] && [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
+      echo "registry unavailable" >&2
+      exit 42
+    fi
     ;;
   "volume create")
     [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91

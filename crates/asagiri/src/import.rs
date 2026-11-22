@@ -127,7 +127,18 @@ fn helper_image(ctx: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::R
             return Ok(img);
         }
     }
-    Err(io::Error::other(format!("{ctx} has no alpine or busybox image to read volumes with; pull alpine there, or import the volume by hand")))
+    // Pull by digest on each engine: a save/load round trip can drop the
+    // repository digest, leaving the destination unable to start the helper.
+    let fallback = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab";
+    for engine in [ctx, crate::flavor::CONTEXT.get()] {
+        if has(engine, fallback) != Some(true) {
+            let pull = make_cli()?.args(["--context", engine, "pull", fallback]).output()?;
+            if !pull.status.success() {
+                return Err(io::Error::other(format!("{engine}: could not pull the volume import helper: {}", String::from_utf8_lossy(&pull.stderr).trim())));
+            }
+        }
+    }
+    Ok(fallback)
 }
 
 /// A volume's files, owners kept: tar in a read-only helper on the source,
@@ -416,6 +427,19 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_pulls_missing_helpers_before_creating_the_volume() {
+        let fixture = VolumeFixture::new("helper-missing");
+        fixture.run().unwrap();
+        assert_eq!(fixture.trace().matches(" pull alpine@sha256:").count(), 2);
+        assert_eq!(std::fs::read(fixture.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
+
+        let fixture = VolumeFixture::new("helper-pull-error");
+        assert!(fixture.run().unwrap_err().to_string().contains("registry unavailable"));
+        assert!(!fixture.trace().contains(" volume create "));
     }
 
     #[cfg(unix)]
