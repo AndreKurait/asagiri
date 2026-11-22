@@ -82,7 +82,21 @@ test_package() { # name full(0|1)
       # preserves AsagiriVersion even when the CLI drops unknown root fields.
       step "$c" "packaged engine reports release version $ASAGIRI_EXPECTED_VERSION" "$cli version --format '{{index (index .Server.Components 0).Details \"AsagiriVersion\"}}' | grep -Fx '$ASAGIRI_EXPECTED_VERSION'"
     fi
-    step "$c" "docker run alpine on the packaged engine" "timeout -s KILL 120 $cli run --rm alpine:3.21 cat /etc/alpine-release | grep -q '^3\.'"
+    local alpine=alpine:3.21
+    if [ -n "${ASAGIRI_CI_PERF_IMAGE:-}" ]; then
+      # CI already verified this platform's pinned Alpine image in the outer engine.
+      alpine=$ASAGIRI_CI_PERF_IMAGE
+      if [[ ! $alpine =~ ^sha256:[a-f0-9]{64}$ ]]; then bad "invalid Alpine image ID"; return; fi
+      if [ ! -f "$tmp/alpine.tar" ]; then
+        if ! $docker image save -o "$tmp/alpine.part" "$alpine" || ! mv "$tmp/alpine.part" "$tmp/alpine.tar"; then
+          bad "save cached Alpine image"
+          return
+        fi
+      fi
+      $docker cp "$tmp/alpine.tar" "$c:/asagiri-package-alpine.tar" || { bad "copy cached Alpine image"; return; }
+      step "$c" "load cached Alpine into the packaged engine" "$cli load -i /asagiri-package-alpine.tar"
+    fi
+    step "$c" "docker run alpine on the packaged engine" "timeout -s KILL 120 $cli run --rm $alpine cat /etc/alpine-release | grep -q '^3\.'"
     # The Linux guest starts lazily; /version alone does not create its data.
     step "$c" "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
   else
