@@ -32,7 +32,13 @@ jobs:
           if ((Get-Item $app).VersionInfo.ProductVersion -ne $version) { throw 'Unexpected installed launcher version' }
           Write-Host "Installed $asset SHA256 $digest"
           $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
           wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
           python -m pip install pywinauto
           if ($LASTEXITCODE) { throw 'Unable to install UI automation' }
           $chooseScript = Join-Path $env:GITHUB_WORKSPACE 'tests/windows-choose-linux-109.py'
