@@ -11,6 +11,10 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 899b3166b6a25c4864ddfdb50a17515370bdd3f4
+          persist-credentials: false
       - name: Exercise outbound traffic from host, default and Compose networks
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,11 +43,16 @@ jobs:
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
             # Exercise the chooser fix with the published distro and CLI assets.
-            $candidate = Join-Path $env:RUNNER_TEMP 'chooser-352'
-            gh run download 45061218423 --repo AndreKurait/asagiri --name windows-X64 --dir $candidate
+            $files = @('asagiri', 'asagiri-init', 'asagiri-linux.tar.gz', 'install.sh', 'asagiri.ps1', 'setup-tools.ps1', 'asagiri-admin.ps1', 'bin/docker.exe', 'bin/asagiri.exe', 'bin/cli-plugins/docker-compose.exe', 'bin/cli-plugins/docker-buildx.exe')
+            $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object {
+              $digest = (Get-FileHash (Join-Path $bundle $_) -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$_=$digest"
+            }) -join ';'
+            Push-Location $env:GITHUB_WORKSPACE
+            cargo build --locked --release -p asagiri-win --bin asagiri-win
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            $launcher = Join-Path $candidate 'asagiri-win.exe'
-            if ((Get-FileHash $launcher).Hash.ToLower() -ne '0aef504ba9e8d26bccbfbd60e3307ef6741bdf04d5bdb421b2e80a8b1f6199a0') { throw 'Chooser candidate checksum mismatch' }
+            Pop-Location
+            $launcher = Join-Path $env:GITHUB_WORKSPACE 'target/release/asagiri-win.exe'
             $original = Join-Path $env:RUNNER_TEMP 'dev158-launcher.exe'
             Copy-Item $app $original
             Copy-Item $launcher $app -Force
