@@ -122,7 +122,7 @@ fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Comm
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&load.stderr).trim())));
     }
     let output = String::from_utf8_lossy(&load.stdout);
-    let mut lines = output.lines();
+    let mut lines = output.lines().filter(|line| line.starts_with("Loaded image ID: ") || line.starts_with("Loaded image: "));
     let loaded_id = lines.next().and_then(|line| line.strip_prefix("Loaded image ID: "));
     Ok(loaded_id.filter(|id| lines.next().is_none() && id.strip_prefix("sha256:").is_some_and(anonymous)).map(str::to_owned))
 }
