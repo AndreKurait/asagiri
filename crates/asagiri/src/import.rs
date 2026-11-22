@@ -76,17 +76,16 @@ fn listed_image_name(row: &Value) -> Option<String> {
 /// What the source has, and which of it Asagiri already has.
 pub fn inventory(source: &str) -> io::Result<Value> {
     let ctx = known(source)?;
-    let mine = |args: &[&str], key: &str| -> Vec<String> {
-        json_lines(crate::flavor::CONTEXT.get(), args).unwrap_or_default().iter().filter_map(|v| v[key].as_str().map(str::to_owned)).collect()
+    let mine = |args: &[&str], key: &str| -> io::Result<Vec<String>> {
+        Ok(json_lines(crate::flavor::CONTEXT.get(), args)?.iter().filter_map(|v| v[key].as_str().map(str::to_owned)).collect())
     };
     let image_list = ["image", "ls", "-a", "--digests", "--format", "{{json .}}"];
-    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &image_list)
-        .unwrap_or_default()
+    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &image_list)?
         .iter()
         .filter_map(listed_image_name)
         .collect();
-    let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name");
-    let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names");
+    let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name")?;
+    let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names")?;
     let images: Vec<Value> = json_lines(ctx, &image_list)?
         .into_iter()
         .filter_map(|v| {
