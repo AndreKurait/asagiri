@@ -5576,13 +5576,25 @@ mod tests {
 
     /// The docker CLI with no engine to reach (`config --environment` needs
     /// none) and an environment of its own, so a test sees only its `.env`.
-    fn dcli() -> io::Result<Command> {
-        let mut c = Command::new(client::docker_cli().expect("a docker CLI"));
-        c.env_clear().env("PATH", std::env::var_os("PATH").unwrap_or_default()).env("HOME", std::env::var_os("HOME").unwrap_or_default()).env("DOCKER_HOST", "unix:///nonexistent/asagiri-test.sock");
-        if let Some(d) = std::env::var_os("DOCKER_CONFIG") {
-            c.env("DOCKER_CONFIG", d);
+    fn test_cli(program: impl AsRef<std::ffi::OsStr>) -> Command {
+        let mut cmd = Command::new(program);
+        cmd.env_clear().env("DOCKER_HOST", "unix:///nonexistent/asagiri-test.sock");
+        for key in ["PATH", "HOME", "DOCKER_CONFIG"] {
+            if let Some(value) = std::env::var_os(key) {
+                cmd.env(key, value);
+            }
         }
-        Ok(c)
+        #[cfg(windows)]
+        for key in ["SystemRoot", "USERPROFILE", "ProgramFiles", "ProgramData", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(key) {
+                cmd.env(key, value);
+            }
+        }
+        cmd
+    }
+
+    fn dcli() -> io::Result<Command> {
+        Ok(test_cli(client::docker_cli().expect("a docker CLI")))
     }
 
     fn dproj(d: &Path) -> Project {
@@ -8055,11 +8067,8 @@ mod tests {
         fn hangs() -> io::Result<Command> {
             let docker = client::docker_cli().expect("a docker CLI");
             let script = format!("case \"$*\" in *'config --quiet'*) sleep 5; exit 1;; esac; exec '{}' \"$@\"", std::path::Path::new(&docker).display());
-            let mut c = Command::new("sh");
-            c.env_clear().env("PATH", std::env::var_os("PATH").unwrap_or_default()).env("HOME", std::env::var_os("HOME").unwrap_or_default()).env("DOCKER_HOST", "unix:///nonexistent/asagiri-test.sock").args(["-c", &script, "sh"]);
-            if let Some(config) = std::env::var_os("DOCKER_CONFIG") {
-                c.env("DOCKER_CONFIG", config);
-            }
+            let mut c = test_cli("sh");
+            c.args(["-c", &script, "sh"]);
             Ok(c)
         }
         let d = tdir("realslow");
@@ -8314,8 +8323,8 @@ mod tests {
         let docker = client::docker_cli().expect("a docker CLI");
         let log = std::env::temp_dir().join(format!("asagiri-compose-count-{}", std::process::id()));
         let script = format!("echo \"$*\" >> '{}'; exec '{}' \"$@\"", log.display(), std::path::Path::new(&docker).display());
-        let mut c = Command::new("sh");
-        c.env_clear().env("PATH", std::env::var_os("PATH").unwrap_or_default()).env("HOME", std::env::var_os("HOME").unwrap_or_default()).env("DOCKER_HOST", "unix:///nonexistent/asagiri-test.sock").args(["-c", &script, "sh"]);
+        let mut c = test_cli("sh");
+        c.args(["-c", &script, "sh"]);
         Ok(c)
     }
 
