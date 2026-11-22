@@ -43,7 +43,9 @@ fn json_lines(ctx: &str, args: &[&str]) -> io::Result<Vec<Value>> {
     if !out.status.success() {
         return Err(io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_owned()));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+    out.stdout.split(|&byte| byte == b'\n').filter(|line| !line.iter().all(u8::is_ascii_whitespace)).map(|line| {
+        serde_json::from_slice(line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid JSON from docker: {e}")))
+    }).collect()
 }
 
 /// Which sources are installed and answering.
