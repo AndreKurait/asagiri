@@ -31,8 +31,15 @@ jobs:
           persist-credentials: false
       - name: Install GLib development files and the release compiler
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libglib2.0-dev
+          # Some hosted runners expose only the Microsoft package index. Use the
+          # signed Noble archives for this job's GLib headers and dependencies.
+          sources="$RUNNER_TEMP/glib-ubuntu.list"
+          archive_key=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+          printf 'deb [signed-by=%s] https://archive.ubuntu.com/ubuntu %s main\n' "$archive_key" noble "$archive_key" noble-updates > "$sources"
+          printf 'deb [signed-by=%s] https://security.ubuntu.com/ubuntu noble-security main\n' "$archive_key" >> "$sources"
+          apt_sources=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y --no-install-recommends libglib2.0-dev
           rustup toolchain install 1.99.1 --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
