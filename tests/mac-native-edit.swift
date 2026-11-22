@@ -54,7 +54,7 @@ var lastTitles: [String] = []
 expect("Azerbaijani native Edit menu exposes localized clipboard and history commands") {
     let titles = menuTitles(menu).filter { !$0.isEmpty }
     if titles != lastTitles { print("Observed native Edit titles: \(titles)"); lastTitles = titles }
-    return ["Geri al", "Yenidən cəhd et", "Kəs", "Kopyala", "Yapışdır", "Hamısını seç"].allSatisfy { titles.contains($0) }
+    return ["Geri al", "Təkrarla", "Kəs", "Kopyala", "Yapışdır", "Hamısını seç"].allSatisfy { titles.contains($0) }
 }
 key(53, []) // Dismiss the menu before editing the focused search field.
 let board = NSPasteboard.general
