@@ -78,7 +78,10 @@ jobs:
             Write-Host 'PASS recovered the saved setup and ran alpine through the Windows pipe'
           } finally {
             if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force }
-            $log = Join-Path $profileDir 'asagiri-win.log'
-            if (Test-Path $log) { Get-Content $log -Tail 35 }
             wsl.exe --terminate asagiri
           }
+      - name: Show the desktop setup log on failure
+        if: failure()
+        run: |
+          $log = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.log'
+          if (Test-Path $log) { Get-Content $log -Tail 35 }
