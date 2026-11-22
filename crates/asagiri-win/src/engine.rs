@@ -1099,7 +1099,7 @@ pub fn on_message(msg: &str) {
         "k8s" => crate::k8s::handle(&c.action, &c.value),
         // Share: public links for a port or container, and the Share account.
         "shares" => sharing::list(),
-        "share" => sharing::open(c.name, c.value.as_str().unwrap_or_default().to_owned()),
+        "share" => sharing::open(c.name, c.value.as_str().unwrap_or_default().to_owned(), c.action == "reserve"),
         // A Kubernetes service or pod: value {ip, port, label}.
         "k8sshare" => {
             let v = &c.value;
