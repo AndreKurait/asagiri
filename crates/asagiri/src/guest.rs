@@ -102,6 +102,9 @@ pub struct RunResult {
     pub guest_run: Duration,
 }
 
+#[cfg(target_os = "macos")]
+mod disk;
+
 #[derive(Debug)]
 pub struct Guest {
     vm: Vm,
@@ -153,6 +156,13 @@ impl Guest {
     /// The VM: kernel, initramfs, data disk, NAT, the Mac's files, Rosetta.
     #[cfg(target_os = "macos")]
     fn vm_config(opts: &BootOptions) -> io::Result<Config> {
+        let disk_lock = if opts.data_disk {
+            let vm = asagiri_image::Store::default_root()?.join("vm");
+            std::fs::create_dir_all(&vm)?;
+            let lock = File::open(vm)?;
+            lock.try_lock().map_err(|e| io::Error::other(format!("lock VM data directory: {e}")))?;
+            Some(lock)
+        } else { None };
         let dir = guest_dir();
         // swiotlb=noforce: the VM's virtio devices address all of memory, so
         // the kernel's 64 MB bounce buffer would sit there unused.
@@ -171,6 +181,7 @@ impl Guest {
             cmdline,
             console: console_output(opts)?,
             agent_port: asagiri_proto::HOST_PORT,
+            disk_lock,
             disk: if opts.data_disk { Some(data_disk(&dir)?) } else { None },
             nat_mac: if opts.data_disk { Some(mac_address()?) } else { None },
             // The Mac's filesystem, for bind mounts: /mnt/mac in the guest.
@@ -384,6 +395,7 @@ fn agent_binary() -> PathBuf {
 /// The guest's data disk, copied from the empty template on first use. On
 /// APFS the copy is a clone: instant, and it takes no space until written.
 fn data_disk(guest_dir: &std::path::Path) -> io::Result<PathBuf> {
+    let requested = disk::requested_size()?;
     let vm = asagiri_image::Store::default_root()?.join("vm");
     std::fs::create_dir_all(&vm)?;
     let disk = vm.join("data.img");
@@ -411,6 +423,7 @@ fn data_disk(guest_dir: &std::path::Path) -> io::Result<PathBuf> {
         }
         std::fs::rename(tmp, &disk)?;
     }
+    disk::grow(&disk, requested)?;
     Ok(disk)
 }
 
