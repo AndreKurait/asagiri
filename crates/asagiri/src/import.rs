@@ -75,6 +75,33 @@ fn listed_image_name(row: &Value) -> Option<String> {
     }
 }
 
+/// Serialize importer writes and container attachment across CLI and desktop processes.
+struct ImportJournal {
+    root: PathBuf,
+    _lock: std::fs::File,
+}
+
+impl ImportJournal {
+    fn open() -> io::Result<Self> {
+        let info = json_lines(crate::flavor::CONTEXT.get(), &["info", "--format", "{{json .ID}}"])?;
+        let id = info.first().and_then(Value::as_str).filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+            .ok_or_else(|| io::Error::other("invalid destination engine ID"))?;
+        let home = std::env::var_os(if cfg!(windows) { "LOCALAPPDATA" } else { "HOME" }).ok_or_else(|| io::Error::other("missing user state directory"))?;
+        let root = PathBuf::from(home).join(crate::flavor::STATE.get()).join("volume-imports").join(id);
+        std::fs::create_dir_all(&root)?;
+        let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(root.join(".lock"))?;
+        lock.lock()?;
+        Ok(Self { root, _lock: lock })
+    }
+
+    fn marker(&self, name: &str) -> io::Result<PathBuf> {
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+            return Err(io::Error::other("invalid volume name"));
+        }
+        Ok(self.root.join(format!("pending-{name}")))
+    }
+}
+
 /// What the source has, and which of it Asagiri already has.
 pub fn inventory(source: &str) -> io::Result<Value> {
     let ctx = known(source)?;
@@ -86,6 +113,7 @@ pub fn inventory(source: &str) -> io::Result<Value> {
         .iter()
         .filter_map(listed_image_name)
         .collect();
+    let journal = ImportJournal::open()?;
     let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name")?;
     let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names")?;
     let images: Vec<Value> = json_lines(ctx, &image_list)?
@@ -98,8 +126,11 @@ pub fn inventory(source: &str) -> io::Result<Value> {
     let volumes: Vec<Value> = json_lines(ctx, &["volume", "ls", "--format", "{{json .}}"])?
         .into_iter()
         .filter_map(|v| v["Name"].as_str().map(str::to_owned))
-        .map(|name| json!({"name": name, "anonymous": anonymous(&name), "have": asagiri_volumes.contains(&name)}))
-        .collect();
+        .map(|name| {
+            let have = asagiri_volumes.contains(&name) && !journal.marker(&name)?.try_exists()?;
+            Ok(json!({"name": name, "anonymous": anonymous(&name), "have": have}))
+        })
+        .collect::<io::Result<_>>()?;
     let containers: Vec<Value> = json_lines(ctx, &["ps", "-a", "--format", "{{json .}}"])?
         .into_iter()
         .map(|v| {
@@ -156,7 +187,11 @@ fn helper_image(ctx: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::R
 /// untar in a helper on Asagiri. Both helpers remove themselves. The source's
 /// users must stay stopped throughout: these checks are not an atomic snapshot.
 pub fn volume(source: &str, name: &str) -> io::Result<()> {
-    volume_with_cli(known(source)?, name, &cli)
+    let ctx = known(source)?;
+    let journal = ImportJournal::open()?;
+    let marker = journal.marker(name)?;
+    volume_with_cli(ctx, name, &cli, || std::fs::File::create(&marker)?.sync_all())?;
+    std::fs::remove_file(marker)
 }
 
 fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<Value> {
@@ -195,7 +230,7 @@ fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result
     Ok(volume)
 }
 
-fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>, mark_pending: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     inspect_idle_volume(ctx, name, make_cli)?;
     let img = helper_image(ctx, make_cli)?;
     let users = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "ps", "--all", "--filter", &format!("volume={name}"), "--format", "{{.Names}}"]).output()?;
@@ -215,6 +250,7 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     for (key, value) in labels.into_iter().flatten() {
         create.arg("--label").arg(format!("{key}={value}"));
     }
+    mark_pending()?;
     let created = create.args(["--", name]).output()?;
     if !created.status.success() {
         return Err(io::Error::other(format!("asagiri: could not create volume {name}: {}", String::from_utf8_lossy(&created.stderr).trim())));
@@ -330,6 +366,7 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
 fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
+    let journal = ImportJournal::open()?;
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
     let hc = &info["HostConfig"];
     let mut host = json!({
@@ -349,7 +386,7 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
     // creation. Refuse that implicit creation when moving a source container.
     for mount in info["Mounts"].as_array().into_iter().flatten().filter(|m| m["Type"] == "volume") {
         let Some(volume) = mount["Name"].as_str().filter(|v| !v.is_empty() && !anonymous(v)) else { continue };
-        if failed_volumes.iter().any(|failed| failed == volume) {
+        if failed_volumes.iter().any(|failed| failed == volume) || journal.marker(volume)?.try_exists()? {
             return Err(io::Error::other(format!("{name}: volume {volume} failed to import; retry the volume first")));
         }
         let found = json_lines(crate::flavor::CONTEXT.get(), &["volume", "inspect", "--format", "{{json .Name}}", "--", volume])
@@ -624,7 +661,7 @@ mod tests {
                 command.arg(self.0.join("docker.sh")).env("ASAGIRI_IMPORT_FIXTURE", &self.0)
                     .env("ASAGIRI_IMPORT_DESTINATION", crate::flavor::CONTEXT.get());
                 Ok(command)
-            })
+            }, || Ok(()))
         }
 
         fn trace(&self) -> String {
