@@ -1,0 +1,45 @@
+name: Verify directory timestamp extraction in Windows WSL2
+on:
+  push:
+    branches: [qualification/wsl-layer-times]
+    paths: [.github/workflows/windows-layer-times.yml]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build the candidate guest regression binary
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target x86_64-unknown-linux-musl
+          cargo +1.99.1 test --locked --target x86_64-unknown-linux-musl -p asagiri-init --bin asagiri-init --no-run --message-format=json > build.jsonl
+          cp "$(jq -rs 'map(select(.executable and .target.name == "asagiri-init")) | last.executable' build.jsonl)" layer-test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: layer-test
+          path: layer-test
+  wsl:
+    needs: build
+    runs-on: windows-2025
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: layer-test
+      - name: Run the timestamp regression on the guest filesystem
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.158-windows-x86_64.zip'
+          gh release download v0.1.14-dev.158 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath bundle
+          $rootfs = (Get-ChildItem bundle -Filter asagiri-linux.tar.gz -Recurse -File).FullName
+          wsl.exe --import LayerTimes "$env:RUNNER_TEMP\layer-distro" $rootfs --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          try {
+            $output = wsl.exe -d LayerTimes -u root -- sh -ec 'cp ./layer-test /tmp/layer-test && chmod 755 /tmp/layer-test && cd /tmp && ./layer-test directory_times_in_any_order_depth_and_kind'
+            $output
+            if ($LASTEXITCODE -or ($output -join "`n") -notmatch '1 passed; 0 failed') { throw 'Named regression did not pass' }
+          } finally { wsl.exe --unregister LayerTimes }
