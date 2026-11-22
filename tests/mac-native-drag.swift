@@ -75,7 +75,7 @@ for _ in 0..<80 {
         mouse(.mouseMoved, CGPoint(x: start.x + 50, y: start.y + 30))
         Thread.sleep(forTimeInterval: 0.3)
         guard position(window) == before else {
-            print("FAIL window followed the pointer after mouse-up"); exit(1)
+            print("FAIL window followed the pointer after mouse-up: before \(before), after \(String(describing: position(window)))"); exit(1)
         }
         print("PASS fast click followed by pointer motion leaves the window stationary")
         Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
