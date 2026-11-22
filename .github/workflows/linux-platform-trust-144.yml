@@ -58,4 +58,5 @@ jobs:
           export SSL_CERT_FILE="$PWD/ca.pem"
           "$app" share login --dev probe144 | grep -F 'probe144'
           if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
-          grep -F 'NotValidForName' wrong-name.log
+          cat wrong-name.log
+          grep -Ei 'NotValidForName|not valid for (name|ip)|hostname mismatch' wrong-name.log
