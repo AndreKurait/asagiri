@@ -642,8 +642,7 @@ define_class!(
 
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _note: &NSNotification) {
-            // The daemon keeps running (and sleeps when idle); only the
-            // engine thread stops.
+            let stop_on_quit = super::prefs()["stopEngineOnQuit"] == true;
             let _ = self.ivars().tx.send(Cmd::Quit);
             if let Some(engine) = self.ivars().engine.borrow_mut().take() {
                 let _ = engine.join();
@@ -652,12 +651,18 @@ define_class!(
             // the engine moves to it now, not at the next login.
             if crate::update::staged().is_some() {
                 match crate::update::install_staged() {
+                    Ok(_) if stop_on_quit => {}
                     Ok(version) => {
                         if let Err(e) = crate::update::restart_engine(&version) {
                             diag::error!("the engine did not restart on the update", version = version, error = e);
                         }
                     }
                     Err(e) => diag::error!("the update did not install", error = e),
+                }
+            }
+            if stop_on_quit {
+                if let Err(e) = crate::update::stop_engine() {
+                    diag::error!("the engine did not stop on quit", error = e);
                 }
             }
         }
