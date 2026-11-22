@@ -26,7 +26,7 @@ jobs:
           docker run --rm -i --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor=unconfined \
             -v "$PWD/$asset:/fixture/$asset:ro" -e asset="$asset" "$image" bash -euo pipefail <<'TUMBLEWEED'
           cat /etc/os-release
-          zypper --non-interactive install --no-recommends libfuse2 fuse libgtk-3-0 libwebkit2gtk-4_1-0 xorg-x11-server-Xvfb xvfb-run xauth xdotool dbus-1 dbus-1-daemon dbus-1-tools util-linux coreutils
+          zypper --non-interactive install --no-recommends libfuse2 fuse libgtk-3-0 libwebkit2gtk-4_1-0 xorg-x11-server-Xvfb xvfb-run xauth xdotool dbus-1 dbus-1-daemon dbus-1-tools util-linux coreutils gawk
           mkdir /tmp/qa
           cd /tmp/qa
           cp "/fixture/$asset" .
@@ -50,7 +50,13 @@ jobs:
           xdotool getwindowname "$window"
           owner=$(xdotool getwindowpid "$window")
           exe=$(readlink -f "/proc/$owner/exe")
-          fs=$(findmnt -T "$exe" -no FSTYPE)
+          fs=$(awk -v exe="$exe" '
+            ($5 == "/" || index(exe, $5 "/") == 1) && length($5) > longest {
+              longest = length($5)
+              for (i = 7; i <= NF; i++) if ($i == "-") { fs = $(i + 1); break }
+            }
+            END { print fs }
+          ' "/proc/$owner/mountinfo")
           echo "Visible window PID $owner executable $exe filesystem $fs"
           test "${exe##*/}" = asagiri-window
           case "$fs" in fuse*) ;; *) exit 1 ;; esac
