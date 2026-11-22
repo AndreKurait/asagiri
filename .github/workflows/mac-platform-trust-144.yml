@@ -80,8 +80,9 @@ jobs:
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=registry-144-root -keyout registry.key -out registry.pem
           printf 'subjectAltName=IP:%s\nextendedKeyUsage=serverAuth\n' "$FIXTURE_IP" > registry.ext
           openssl x509 -req -in leaf.csr -CA registry.pem -CAkey registry.key -CAcreateserial -days 1 -extfile registry.ext -out registry-leaf.pem
-          python3 - <<'PY' &
+          python3 -u - >registry-server.log 2>&1 <<'PY' &
           import os, pathlib, runpy, signal, ssl
+          print('Starting OCI fixture on', os.environ['FIXTURE_IP'], flush=True)
           tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
           tls.load_cert_chain('registry-leaf.pem', 'leaf.key')
           fixture = runpy.run_path(os.environ['GITHUB_WORKSPACE'] + '/tests/registry-ca.py')['Registry']
@@ -94,11 +95,18 @@ jobs:
           PY
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
-          for attempt in {1..50}; do [[ -s registry-digest ]] && break; sleep 0.1; done
+          for attempt in {1..120}; do
+            [[ -s registry-digest ]] && break
+            if ! kill -0 "$server" 2>/dev/null; then cat registry-server.log; wait "$server"; exit 1; fi
+            sleep 1
+          done
+          cat registry-server.log
+          test -s registry-digest
           ref=$(cat registry-ref)
           export ASAGIRI_DATA_DIR="$RUNNER_TEMP/oci-store"
           unset SSL_CERT_FILE SSL_CERT_DIR
           if candidate/asagiri raw pull "$ref" >registry-before.log 2>&1; then exit 1; fi
+          cat registry-before.log
           grep -Ei 'UnknownIssuer|not trusted|unknown issuer' registry-before.log
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain registry.pem
           candidate/asagiri raw pull "$ref" 2>&1 | tee registry-after.log
