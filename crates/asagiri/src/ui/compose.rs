@@ -2336,7 +2336,12 @@ fn yaml_at(e: &str, p: &Project, full: bool) -> Option<YamlAt> {
 
 /// `path` relative to `dir` (`../x/compose.yaml` outside it).
 fn relative(dir: &Path, path: &Path) -> String {
-    let (d, f) = (std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_owned()), std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned()));
+    // Compare paths in the same namespace. Windows canonicalization adds a
+    // verbatim prefix, which a missing include cannot acquire.
+    let (d, f) = match (std::fs::canonicalize(dir), std::fs::canonicalize(path)) {
+        (Ok(d), Ok(f)) => (d, f),
+        _ => (dir.to_owned(), path.to_owned()),
+    };
     let (a, b): (Vec<_>, Vec<_>) = (d.components().collect(), f.components().collect());
     let same = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
     let mut out = PathBuf::new();
@@ -6634,7 +6639,8 @@ mod tests {
         };
         assert!(says(&svc("    ports: [\"${COLON_TOKEN}:80\"]\n")).contains("${COLON_TOKEN}"));
         assert!(says(&svc("    ports: [\"80:${SL_ACCESS_KEY}\"]\n")).contains("${SL_ACCESS_KEY}"));
-        assert!(says(&svc("    pull_policy: ${BS_PASSWORD}\n")).contains("${BS_PASSWORD}"));
+        let policy_error = says(&svc("    pull_policy: ${BS_PASSWORD}\n"));
+        assert!(policy_error.contains("${BS_PASSWORD}"), "{policy_error}");
         assert!(says(&svc("    mem_limit: ${DATABASE_URL}\n")).contains("${DATABASE_URL password}"));
         // The image tag, as the plan and the cards show it.
         let m = config(dcli, &p, Some("services:\n  x:\n    image: alpine:${CMT_PASSWORD}\n"), &[]).unwrap();
