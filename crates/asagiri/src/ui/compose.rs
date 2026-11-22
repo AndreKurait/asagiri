@@ -1205,7 +1205,7 @@ pub fn stand_ins_named(vars: &[(String, String)], names: &BTreeSet<String>, own:
 /// those the first file's own text names, and whether Compose said them
 /// ([`compose_names`]): a reading made without them is never shown.
 fn stands_full(cli: Cli, p: &Project, draft: Option<&str>) -> (Vec<Stand>, bool) {
-    let (stands, full, _) = stands_unset(cli, p, draft);
+    let (stands, full, _) = stands_unset(cli, p, draft, compose_names(cli, p, draft));
     (stands, full)
 }
 
@@ -1215,10 +1215,9 @@ fn stands_full(cli: Cli, p: &Project, draft: Option<&str>) -> (Vec<Stand>, bool)
 /// holds its value: a value Asagiri's own reader misses (an include it can't
 /// follow) is never read into the window. Also whether a stand-in has no
 /// value Asagiri holds, so the real reading may differ ([`config`]).
-fn stands_unset(cli: Cli, p: &Project, draft: Option<&str>) -> (Vec<Stand>, bool, Vec<String>) {
+fn stands_unset(cli: Cli, p: &Project, draft: Option<&str>, compose: Option<Vec<Var>>) -> (Vec<Stand>, bool, Vec<String>) {
     let vars = vars_for(cli, p, draft);
     let text = draft.map_or_else(|| p.files.first().and_then(|f| read_text(Path::new(f))).unwrap_or_default(), str::to_owned);
-    let compose = compose_names(cli, p, draft);
     let full = compose.is_some();
     let required: Vec<String> = compose.iter().flatten().filter(|v| v.required && secret_name(&v.name)).map(|v| format!("${{{}}}", v.name)).collect();
     let names: BTreeSet<String> = compose.unwrap_or_default().into_iter().map(|v| v.name).chain(text_names(&text)).collect();
@@ -2172,10 +2171,10 @@ fn config(cli: Cli, p: &Project, draft: Option<&str>, profiles: &[String]) -> Re
 fn config_state(cli: Cli, p: &Project, draft: Option<&str>, profiles: &[String]) -> (Result<Value, CfgErr>, bool) {
     // Only the YAML error's shape leaves [`unlisted`]: it needs no stand-in,
     // so nothing else (not the env files) is read by Compose first.
-    if compose_names(cli, p, draft).is_none() {
+    let Some(names) = compose_names(cli, p, draft) else {
         return (Err(unlisted(cli, p, draft, &[]).into()), true);
-    }
-    let (stands, _, required) = stands_unset(cli, p, draft);
+    };
+    let (stands, _, required) = stands_unset(cli, p, draft, Some(names));
     let r = config_of(cli, p, draft, profiles, &stands).map_err(|e| match e.key {
         // Asagiri's own words, keyed by Asagiri: as they are.
         Some(_) => e,
