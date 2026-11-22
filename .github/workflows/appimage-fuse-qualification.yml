@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   launch:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Run the published portable CLI and desktop with FUSE
@@ -15,18 +15,25 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          test "$(uname -m)" = aarch64
-          asset=Asagiri-0.1.14-dev.159-aarch64.AppImage
-          gh release download v0.1.14-dev.159 -R AndreKurait/asagiri -p "$asset"
-          echo "f7b978519666c9ef96b5e2e6c70acca1ed84a754e3ed9e729e329f6aa499de28  $asset" | sha256sum -c -
-          sudo apt-get update -qq
-          sudo apt-get install -y libfuse2t64 fuse3 libgtk-3-0t64 libwebkit2gtk-4.1-0 xvfb xauth xdotool dbus-x11
+          test "$(uname -m)" = x86_64
+          asset=Asagiri-0.1.14-dev.161-x86_64.AppImage
+          gh release download v0.1.14-dev.161 -R AndreKurait/asagiri -p "$asset"
+          echo "82a7e2a16fa278ed53f0447b3a2972e5d5761eadb2adac6d1ba58a7e099dc197  $asset" | sha256sum -c -
           sudo modprobe fuse
-          ls -l /dev/fuse
+          image=registry.opensuse.org/opensuse/tumbleweed:latest
+          docker pull "$image"
+          docker image inspect "$image" --format '{{index .RepoDigests 0}}'
+          docker run --rm -i --device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor=unconfined \
+            -v "$PWD/$asset:/fixture/$asset:ro" -e asset="$asset" "$image" bash -euo pipefail <<'TUMBLEWEED'
+          cat /etc/os-release
+          zypper --non-interactive install --no-recommends libfuse2 fuse libgtk-3-0 libwebkit2gtk-4_1-0 xorg-x11-server-Xvfb xauth xdotool dbus-1 util-linux coreutils
+          mkdir /tmp/qa
+          cd /tmp/qa
+          cp "/fixture/$asset" .
           chmod +x "$asset"
           unset APPIMAGE_EXTRACT_AND_RUN APPDIR
           "./$asset" --version | tee cli-version
-          grep -F '0.1.14-dev.159' cli-version
+          grep -F '0.1.14-dev.161' cli-version
           export APPIMAGE_TEST_BINARY="$PWD/$asset"
           dbus-run-session -- xvfb-run -a bash -euo pipefail <<'DESKTOP'
           export GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1
@@ -48,3 +55,4 @@ jobs:
           test "${exe##*/}" = asagiri-window
           case "$fs" in fuse*) ;; *) exit 1 ;; esac
           DESKTOP
+          TUMBLEWEED
