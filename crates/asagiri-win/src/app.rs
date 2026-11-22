@@ -1099,6 +1099,29 @@ mod tests {
         let desktop = crate::assemble::page(PAGE, Some("en"));
         assert_eq!(completed(&wv, 15, || load(&wv, desktop)), Some(true));
         assert_eq!(eval(&wv, "!!document.querySelector('#strip') && !document.querySelector('#steps')"), "true");
+        // Dispatch the same list messages that the desktop host sends on refresh.
+        assert_eq!(eval(&wv, r#"(() => {
+            const container = {Id: 'focus-probe', Names: ['/focus-probe'], Image: 'redis:alpine', State: 'running', Ports: []};
+            const refresh = image => asagiri.on({type: 'lists', containers: [{...container, Image: image}], images: [], volumes: [], networks: []});
+            refresh(container.Image);
+            show('containers');
+            openDetail(container.Id);
+            setTab('terminal');
+            const input = document.getElementById('term-in');
+            input.focus();
+            input.value = 'echo pending';
+            input.setSelectionRange(5, 5);
+            let blurred = false;
+            input.addEventListener('blur', () => { blurred = true; });
+            for (let i = 0; i < 4; i++) {
+                const image = 'redis:refresh-' + i;
+                refresh(image);
+                if (!document.querySelector('.dfacts').textContent.includes(image) || blurred ||
+                    document.activeElement !== input || input.value !== 'echo pending' ||
+                    input.selectionStart !== 5 || input.selectionEnd !== 5) return false;
+            }
+            return true;
+        })()"#), "true", "native terminal lost focus, caret, or draft during a list refresh");
         println!("Reloaded setup and opened desktop; ignored cancelled navigation {cancelled}");
         let previous = SERVED.with(|page| Rc::downgrade(&page.borrow()));
         assert_eq!(completed(&wv, 15, || load(&wv, "<html>Replacement</html>".into())), Some(true));
