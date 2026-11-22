@@ -4654,6 +4654,14 @@ mod live {
             let container = client::get(&format!("/containers/{id}/json")).unwrap();
             assert_eq!(container["State"]["Running"], true, "{service}: {}", container["State"]);
         }
+        // Exercise database restart before the draft changes PostgreSQL's major version.
+        let db = &started["db"];
+        client::request("POST", &format!("/containers/{db}/stop"), None).unwrap();
+        client::request("POST", &format!("/containers/{db}/start"), None).unwrap();
+        let ready = cli().unwrap().args(["exec", db, "sh", "-c",
+            "for i in $(seq 1 30); do pg_isready -U postgres && exit 0; sleep 1; done; exit 1",
+        ]).status().unwrap();
+        assert!(ready.success(), "PostgreSQL must accept connections after restart");
         // Every volume this run's containers use (named and unnamed), at each
         // step: removed at the end by name.
         let mut made: BTreeSet<String> = BTreeSet::new();
