@@ -39,8 +39,10 @@ jobs:
           $env:RTL_DOCKER = $docker
           $launchTime = Get-Date
           try {
+            python "$env:GITHUB_WORKSPACE/tests/windows-rtl-restart.py" --saved-locales
+            $savedExit = $LASTEXITCODE
             python "$env:GITHUB_WORKSPACE/tests/windows-rtl-restart.py"
-            if ($LASTEXITCODE) { throw 'RTL restart qualification failed' }
+            if ($LASTEXITCODE -or $savedExit) { throw "RTL qualification failed: picker=$LASTEXITCODE saved-locales=$savedExit" }
           } finally {
             Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000,1001; StartTime=$launchTime} -ErrorAction SilentlyContinue |
               Where-Object { $_.Message -match 'asagiri-win\.exe' } |

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 import win32api
@@ -63,7 +64,11 @@ prefs = Path(os.environ['LOCALAPPDATA']) / 'Asagiri/ui.json'
 prefs.parent.mkdir(exist_ok=True)
 prefs.write_text(json.dumps({'lang':'en','langAsked':True,'domainsAsked':True}), encoding='utf-8')
 quit_codes = []
-for expected, select in [('en','ar'),('ar','fa'),('fa',None)]:
+saved_locales = '--saved-locales' in sys.argv
+cases = [('ar', None), ('fa', None)] if saved_locales else [('en','ar'),('ar','fa'),('fa',None)]
+for expected, select in cases:
+    if saved_locales:
+        prefs.write_text(json.dumps({'lang':expected,'langAsked':True,'domainsAsked':True}), encoding='utf-8')
     translations = {} if expected == 'en' else json.loads((Path(__file__).resolve().parents[1] / f'crates/asagiri/src/ui/lang/{expected}.json').read_text(encoding='utf-8'))
     proc = subprocess.Popen([os.environ['RTL_APP'], '--distro', 'Asagiri-rtl-140', '--pipe', r'\\.\pipe\asagiri-rtl-140'])
     try:
