@@ -159,6 +159,7 @@ pub fn connection_config() -> io::Result<Value> {
 }
 
 /// Shared native UI command. The web/MCP tools cannot change permissions.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn report(save: Option<Value>) -> Value {
     let result = (|| -> io::Result<Value> {
         let settings = Settings::current()?;
