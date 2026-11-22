@@ -18,6 +18,8 @@ case "$1 $2" in
     fi
     if [ "$scenario" = wrong-volume ]; then
       echo '{"Name":"another-volume"}'
+    elif [ "$scenario" = labels ]; then
+      echo '{"Name":"fixture-volume","Labels":{"com.supabase.cli.project":"demo","example":"space and = equals"}}'
     else
       echo '{"Name":"fixture-volume"}'
     fi
@@ -42,6 +44,11 @@ case "$1 $2" in
     ;;
   "volume create")
     [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
+    if [ "$scenario" = labels ]; then
+      [ "$#" = 8 ] && [ "$3" = --label ] && [ "$4" = 'com.supabase.cli.project=demo' ] &&
+        [ "$5" = --label ] && [ "$6" = 'example=space and = equals' ] &&
+        [ "$7" = -- ] && [ "$8" = fixture-volume ] || exit 93
+    fi
     if [ "$scenario" = create-error ]; then echo "destination volume unavailable" >&2; exit 42; fi
     ;;
   "run --rm")
