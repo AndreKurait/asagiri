@@ -258,7 +258,27 @@ fn desktop_bind_source(source: &str) -> io::Result<&str> {
 }
 
 #[cfg(target_os = "macos")]
-fn desktop_binds(host: &mut Value) -> io::Result<()> {
+fn desktop_binds(host: &mut Value, resolved: &Value) -> io::Result<()> {
+    // Some engines retain resolved mounts only, without the original create options.
+    if ["Binds", "Mounts"].iter().all(|key| host[*key].is_null() || host[*key].as_array().is_some_and(Vec::is_empty)) {
+        let mut binds = Vec::new();
+        for mount in resolved.as_array().into_iter().flatten().filter(|m| m["Type"] == "bind") {
+            let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved bind mount in source inspection");
+            let source = mount["Source"].as_str().filter(|s| !s.is_empty()).ok_or_else(invalid)?;
+            let target = mount["Destination"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?;
+            let writable = mount["RW"].as_bool().ok_or_else(invalid)?;
+            let mut options: Vec<_> = mount["Mode"].as_str().unwrap_or("").split(',').filter(|m| !matches!(*m, "" | "ro" | "rw")).collect();
+            options.push(if writable { "rw" } else { "ro" });
+            if let Some(propagation) = mount["Propagation"].as_str().filter(|p| !p.is_empty() && !options.contains(p)) {
+                options.push(propagation);
+            }
+            if source.contains(':') || target.contains(':') {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous colon in resolved bind mount path"));
+            }
+            binds.push(format!("{source}:{target}:{}", options.join(",")));
+        }
+        if !binds.is_empty() { host["Binds"] = json!(binds); }
+    }
     if let Some(binds) = host["Binds"].as_array_mut() {
         for bind in binds {
             if let Some((source, rest)) = bind.as_str().and_then(|s| s.split_once(':')) {
@@ -298,7 +318,7 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
     });
     #[cfg(target_os = "macos")]
     if ctx == "desktop-linux" {
-        desktop_binds(&mut host)?;
+        desktop_binds(&mut host, &info["Mounts"])?;
     }
     if let Some(o) = host.as_object_mut() {
         o.retain(|_, v| !v.is_null());
@@ -508,11 +528,11 @@ mod tests {
             "Binds": ["/host_mnt/tmp:/project:ro", "cache:/cache"],
             "Mounts": [{"Type":"bind", "Source":"/etc/hosts", "Target":"/hosts"}]
         });
-        super::desktop_binds(&mut host).unwrap();
+        super::desktop_binds(&mut host, &serde_json::Value::Null).unwrap();
         assert_eq!(host["Binds"], serde_json::json!(["/tmp:/project:ro", "cache:/cache"]));
         assert_eq!(host["Mounts"][0]["Source"], "/etc/hosts");
         host["Mounts"][0]["Source"] = serde_json::json!("/host_mnt/dev/null/missing");
-        assert!(super::desktop_binds(&mut host).unwrap_err().to_string().contains("/dev/null/missing"));
+        assert!(super::desktop_binds(&mut host, &serde_json::Value::Null).unwrap_err().to_string().contains("/dev/null/missing"));
     }
 
     #[test]
