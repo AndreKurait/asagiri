@@ -137,7 +137,7 @@ pub fn volume(source: &str, name: &str) -> io::Result<()> {
     volume_with_cli(known(source)?, name, &cli)
 }
 
-fn source_volume_idle(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<Value> {
     let inspect = |args: &[&str]| -> io::Result<Vec<u8>> {
         let output = make_cli()?.args(["--context", ctx]).args(args).output()?;
         if !output.status.success() {
@@ -170,13 +170,20 @@ fn source_volume_idle(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<
         users.dedup();
         return Err(io::Error::other(format!("{ctx}: volume {name} is used by active containers {}; stop them before importing and keep them stopped until the import finishes", users.join(", "))));
     }
-    Ok(())
+    Ok(volume)
 }
 
 fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
-    source_volume_idle(ctx, name, make_cli)?;
+    let source = inspect_idle_volume(ctx, name, make_cli)?;
+    let labels: Option<std::collections::BTreeMap<String, String>> = serde_json::from_value(source["Labels"].clone())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume labels: {e}")))?;
     let img = helper_image(ctx, make_cli)?;
-    let created = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create", name]).output()?;
+    let mut create = make_cli()?;
+    create.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create"]);
+    for (key, value) in labels.into_iter().flatten() {
+        create.arg("--label").arg(format!("{key}={value}"));
+    }
+    let created = create.args(["--", name]).output()?;
     if !created.status.success() {
         return Err(io::Error::other(format!("asagiri: could not create volume {name}: {}", String::from_utf8_lossy(&created.stderr).trim())));
     }
@@ -201,7 +208,7 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     if !write.status.success() {
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&write.stderr).trim())));
     }
-    source_volume_idle(ctx, name, make_cli).map_err(|e| io::Error::other(format!(
+    inspect_idle_volume(ctx, name, make_cli).map(drop).map_err(|e| io::Error::other(format!(
         "volume {name} was copied, but the source is no longer confirmed idle: {e}; stop the source users and inspect the destination before retrying")))
 }
 
@@ -409,6 +416,12 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_preserves_labels_on_creation() {
+        VolumeFixture::new("labels").run().unwrap();
     }
 
     #[cfg(unix)]
