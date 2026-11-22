@@ -163,7 +163,16 @@ jobs:
           from pywinauto import Desktop
           window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
           window.wait('visible', timeout=90)
-          for label in ['Settings', 'About', 'Check now', 'Restart engine']:
+          # Deliver the tray's context-menu notification, then select the visible menu item.
+          import win32api, win32con
+          win32api.PostMessage(window.handle, win32con.WM_APP + 2, 1, win32con.WM_CONTEXTMENU)
+          menu = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='#32768')
+          menu.wait('visible', timeout=30)
+          update = menu.child_window(title='Check for Updates…', control_type='MenuItem')
+          update.wait('enabled', timeout=30)
+          update.invoke()
+          print('Invoked tray menu Check for Updates', flush=True)
+          for label in ['Restart engine']:
               deadline = time.monotonic() + 90
               while time.monotonic() < deadline:
                   try:
