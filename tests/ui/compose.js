@@ -24,6 +24,20 @@ t("Compose is in the sidebar under Docker, and asks the engine for its projects"
   sent.length = 0; click(b);
   eq([ui.view, sent.some((m) => m.type === "composeprojects")], ["compose", true], "it asks");
 });
+t("Create validates the project name and submits it once", () => {
+  click(document.querySelector("#hright [data-cmpcreate]"));
+  const input = document.querySelector('.scrim input[name="project"]');
+  input.value = "../outside";
+  eq(input.checkValidity(), false, "invalid name");
+  sent.length = 0;
+  input.value = "demo-159";
+  input.form.elements.location.value = "/work/projects";
+  input.form.elements.saveDefault.checked = true;
+  input.form.requestSubmit();
+  eq(sent.filter((m) => m.type === "composecreate").map((m) => [m.name, m.value.location, m.value.saveDefault]), [["demo-159", "/work/projects", true]], "creation command");
+  eq(input.isConnected, false, "dialog closed");
+});
+
 t("a project's row folds its containers open under it, as on Containers; logos go into the page once", () => {
   asagiri.on(PROJECTS); asagiri.on(PROJECTS);
   eq([document.querySelectorAll("#cmp-logos symbol").length, [...document.querySelectorAll("#content tr.member")].map((r) => r.dataset.key).sort()], [2, ["d1", "w1"]], "two symbols, two container rows");
