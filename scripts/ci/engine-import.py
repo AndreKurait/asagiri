@@ -21,6 +21,25 @@ ROOT = Path(__file__).resolve().parents[2]
 OWNER = "dev.asagiri.import-test"
 
 
+def verify_volume_xattr(docker, imported, helper, volume):
+    filename = "metadata Δ file"
+    key = "SCHILY.xattr.user.supabase.storage.metadata"
+    value = "supabase-metadata-" * 128
+    seed = io.BytesIO()
+    with tarfile.open(fileobj=seed, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        member = tarfile.TarInfo(filename)
+        member.pax_headers[key] = value
+        archive.addfile(member)
+    docker("source", "run", "--rm", "-i", "--network", "none", "-v", volume + ":/data",
+           helper, "tar", "--xattrs", "-C", "/data", "-xf", "-", input=seed.getvalue())
+    imported("volume", volume)
+    for engine in ("source", "destination"):
+        result = docker(engine, "run", "--rm", "--network", "none", "-v", volume + ":/data:ro",
+                        helper, "tar", "--xattrs", "-C", "/data", "-cf", "-", filename)
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            assert archive.getmember(filename).pax_headers.get(key) == value, engine
+
+
 def archive_identity(data):
     """Hash the saved configuration and actual uncompressed layer contents."""
     maximum = 256 * 1024 * 1024
@@ -466,6 +485,9 @@ def main():
                      bytes=len(payload), sha256=digest,
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
+
+                verify_volume_xattr(docker, imported, helper, volume)
+                case("volume-reimport-preserves-user-xattr-on-unicode-path")
 
                 imported("container", definition)
                 copied = get("destination", "/containers/" + definition + "/json")
