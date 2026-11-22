@@ -138,26 +138,18 @@ fn single_loaded_image_id(output: &str) -> Option<&str> {
 /// An image with `tar` that both engines have, for the volume helpers.
 fn helper_image(ctx: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<&'static str> {
     let has = |c: &str, img: &str| make_cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
-    for img in ["alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"] {
-        if has(ctx, img) == Some(true) {
-            if has(crate::flavor::CONTEXT.get(), img) != Some(true) {
-                image_with_cli(ctx, img, make_cli)?;
-            }
-            return Ok(img);
-        }
-    }
     // Pull by digest on each engine: a save/load round trip can drop the
     // repository digest, leaving the destination unable to start the helper.
-    let fallback = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab";
+    let helper = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab";
     for engine in [ctx, crate::flavor::CONTEXT.get()] {
-        if has(engine, fallback) != Some(true) {
-            let pull = make_cli()?.args(["--context", engine, "pull", fallback]).output()?;
+        if has(engine, helper) != Some(true) {
+            let pull = make_cli()?.args(["--context", engine, "pull", helper]).output()?;
             if !pull.status.success() {
                 return Err(io::Error::other(format!("{engine}: could not pull the volume import helper: {}", String::from_utf8_lossy(&pull.stderr).trim())));
             }
         }
     }
-    Ok(fallback)
+    Ok(helper)
 }
 
 /// A volume's files, owners kept: tar in a read-only helper on the source,
@@ -538,6 +530,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn volume_import_pulls_missing_helpers_before_creating_the_volume() {
+        let cached = VolumeFixture::new("idle");
+        cached.run().unwrap();
+        for line in cached.trace().lines().filter(|line| line.contains(" image inspect ") || line.contains(" run --rm ")) {
+            assert!(line.contains("alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"), "{line}");
+        }
         let fixture = VolumeFixture::new("helper-missing");
         fixture.run().unwrap();
         assert_eq!(fixture.trace().matches(" pull alpine@sha256:").count(), 2);
