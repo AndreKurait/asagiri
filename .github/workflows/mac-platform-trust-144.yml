@@ -64,7 +64,7 @@ jobs:
           "$app" share login --dev probe144 | grep -F 'probe144'
           if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
           grep -Ei 'NotValidForName|host(name)? mismatch|did not match|does not match|hostname.*incorrect' wrong-name.log
-      - name: Pull a TLS OCI image using the ARM64 platform-build artifact
+      - name: Pull a TLS OCI image using the published dev.188 ARM64 application
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,8 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          gh run download 45041101891 -R AndreKurait/asagiri -n macos-ARM64 -D candidate
-          (cd candidate && shasum -a 256 -c SHA256SUMS)
+          dmg=Asagiri-0.1.14-dev.188-arm64.dmg
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$dmg"
+          echo "185a0c2c17655a7e305d8a56778dac24ee45eaa5fc34de53fb499ff827f28180  $dmg" | shasum -a 256 -c -
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/release-volume" "$dmg"
+          app="$RUNNER_TEMP/release-volume/Asagiri.app/Contents/MacOS/asagiri"
+          "$app" --version
           # Use the runner NIC because loopback registries can use plain HTTP.
           export FIXTURE_IP=$(ipconfig getifaddr en0)
           test -n "$FIXTURE_IP"
@@ -105,10 +109,10 @@ jobs:
           ref=$(cat registry-ref)
           export ASAGIRI_DATA_DIR="$RUNNER_TEMP/oci-store"
           unset SSL_CERT_FILE SSL_CERT_DIR
-          if candidate/asagiri raw pull "$ref" >registry-before.log 2>&1; then exit 1; fi
+          if "$app" raw pull "$ref" >registry-before.log 2>&1; then exit 1; fi
           cat registry-before.log
           grep -Ei 'UnknownIssuer|not trusted|unknown issuer' registry-before.log
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain registry.pem
-          candidate/asagiri raw pull "$ref" 2>&1 | tee registry-after.log
+          "$app" raw pull "$ref" 2>&1 | tee registry-after.log
           grep -F "$(cat registry-digest)" registry-after.log
           grep -F '0 already here' registry-after.log
