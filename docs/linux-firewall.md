@@ -35,6 +35,34 @@ docker run --rm alpine:3.21 nslookup -type=A example.com
 The rule expires after 90 seconds. A successful lookup verifies gateway DNS.
 Test the intended VPN destination separately to check forwarding and NAT.
 
+## Forward to one Tailscale service with firewalld
+
+On Fedora 44 kernel 7.2.15, a container reached a Tailscale peer through a
+firewalld policy with a dedicated bridge ingress zone and VPN egress zone.
+The policy accepted IPv4 TCP traffic to `100.64.0.2/32` on port `9010`. An
+HTTP listener on port `9011` remained reachable from the host and was blocked
+from the bridge container.
+
+For an existing deployment, inspect `firewall-cmd --get-active-zones` and
+use the zones assigned to the intended interfaces. A zone shared with other
+interfaces expands the policy's scope. The following example assumes the
+administrator has dedicated zones named `asagiri-bridge` for `asagiri0` and
+`tailnet` for `tailscale0`. Configure the peer address and port for the service
+you intend to expose to containers.
+
+```sh
+sudo firewall-cmd --permanent --new-policy=asagiri-to-peer
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-ingress-zone=asagiri-bridge
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-egress-zone=tailnet
+sudo firewall-cmd --permanent --policy=asagiri-to-peer --add-rich-rule='rule family="ipv4" destination address="100.64.0.2/32" port port="9010" protocol="tcp" accept'
+sudo firewall-cmd --check-config
+sudo firewall-cmd --reload
+```
+
+To remove this policy, run `sudo firewall-cmd --permanent --delete-policy=asagiri-to-peer`
+and reload firewalld. A reload also discards runtime-only changes, including
+interface assignments made only for a temporary test.
+
 ## Find the failing boundary
 
 With a bridged container running, inspect the engine's NAT table and the
