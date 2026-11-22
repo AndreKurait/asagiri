@@ -68,7 +68,8 @@ jobs:
             if ([IO.Path]::GetPathRoot($directory) -ne 'C:\') { throw "Expected C drive: $directory" }
             New-Item -ItemType Directory $directory | Out-Null
             $marker = 'ak99-marker'
-            Set-Content -NoNewline (Join-Path $directory 'existing') $marker
+            [IO.File]::WriteAllText((Join-Path $directory 'existing'), $marker)
+            if ([IO.File]::ReadAllText((Join-Path $directory 'existing')) -ne $marker) { throw 'Host marker write failed before mount' }
             Invoke-Docker @('run','-d','--name','watch99','--mount',"type=bind,source=$directory,target=/watched",'alpine:3.21','inotifyd','-','/watched:wcnd')
             Get-Item (Join-Path $directory 'existing') | Select-Object FullName,Length
             $linuxPath = (wsl.exe -d asagiri -u root -- wslpath -a ($directory.Replace('\','/'))).Trim()
@@ -82,7 +83,7 @@ jobs:
             $observed = $false
             for ($i = 0; $i -lt 40; $i++) {
               $leaf = "host-write-$i"
-              Set-Content -NoNewline (Join-Path $directory $leaf) $marker
+              [IO.File]::WriteAllText((Join-Path $directory $leaf), $marker)
               Start-Sleep -Milliseconds 250
               $events = Invoke-Docker @('logs','watch99')
               if (($events -join "`n") -match '/watched\s+host-write-\d+') { $observed = $true; break }
