@@ -2821,6 +2821,19 @@ static READ: LazyLock<Mutex<Readings>> = LazyLock::new(|| Mutex::new(HashMap::ne
 /// can't cover a file Asagiri can't find (`include: - ${SUBDIR:-sub}/compose.yaml`).
 const BY_NAME_FOR: std::time::Duration = std::time::Duration::from_secs(30);
 
+#[cfg(test)]
+thread_local! {
+    static READING_TIME: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+fn reading_time() -> std::time::Instant {
+    #[cfg(test)]
+    if let Some(now) = READING_TIME.get() {
+        return now;
+    }
+    std::time::Instant::now()
+}
+
 /// Every reading of project `name` read again on the next ask (after an Apply).
 pub fn forget_readings(name: &str) {
     let pre = format!("{name}\0");
@@ -2847,10 +2860,10 @@ fn saved_reading(cli: Cli, p: &Project, profiles: &[String], name: bool) -> Read
     let lock = READING.lock().unwrap_or_else(|e| e.into_inner()).entry(PathBuf::from(&key)).or_default().clone();
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
     let stamp = stamp(p);
-    let kept = READ.lock().unwrap_or_else(|e| e.into_inner()).get(&key).filter(|r| if r.loose { r.stamp.first() == stamp.first() && r.at.elapsed() < BY_NAME_FOR } else { r.stamp == stamp }).cloned();
+    let kept = READ.lock().unwrap_or_else(|e| e.into_inner()).get(&key).filter(|r| if r.loose { r.stamp.first() == stamp.first() && reading_time().saturating_duration_since(r.at) < BY_NAME_FOR } else { r.stamp == stamp }).cloned();
     let mut r = kept.unwrap_or_else(|| {
         let (read, loose) = config_state(cli, p, None, profiles);
-        Reading { stamp, at: std::time::Instant::now(), loose, read, name: None }
+        Reading { stamp, at: reading_time(), loose, read, name: None }
     });
     if name && r.name.is_none() {
         let text = || p.files.first().and_then(|f| read_text(Path::new(f))).map(|t| name_text_vars(&t)).unwrap_or_default();
@@ -8381,6 +8394,9 @@ mod tests {
     #[test]
     fn twenty_by_name_projects_cost_no_compose_run_on_an_unchanged_poll() {
         let _one = LOOSE_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        // Exercise polls inside one cache interval regardless of Docker CLI startup time.
+        let now = std::time::Instant::now();
+        READING_TIME.set(Some(now));
         let ps: Vec<(PathBuf, Project)> = (0..20).map(|i| loose_project(&format!("loose-poll{i}"), "services:\n  db:\n    image: postgres:16\n")).collect();
         let log = std::env::temp_dir().join(format!("asagiri-compose-count-{}", std::process::id()));
         let _ = std::fs::remove_file(&log);
@@ -8407,6 +8423,11 @@ mod tests {
         }
         let again = count_all() - first;
         assert!(again > 0 && again <= 4, "{again}");
+        READING_TIME.set(Some(now + BY_NAME_FOR));
+        let before_expiry_check = count_all();
+        row(counted, &ps[0].1);
+        assert!(count_all() > before_expiry_check, "refresh when the cache interval expires");
+        READING_TIME.set(None);
         let _ = std::fs::remove_file(&log);
         for (d, _) in ps {
             let _ = std::fs::remove_dir_all(&d);
