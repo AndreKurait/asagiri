@@ -58,6 +58,11 @@ jobs:
               if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
               Start-Sleep -Seconds 2
             }
+            Write-Host "Installed launcher $((Get-Item $app).VersionInfo.ProductVersion), expected $version"
+            Get-FileHash $app,(Join-Path $bundle 'asagiri') | Format-Table -AutoSize
+            wsl.exe -d asagiri -u root -- sha256sum /usr/local/bin/asagiri
+            wsl.exe -d asagiri -u root -- /usr/local/bin/asagiri --version
+            Get-ChildItem $env:LOCALAPPDATA\Asagiri -Recurse -Filter asagiri-win.log | ForEach-Object { Get-Content $_.FullName -Tail 100 }
             if ($running -ne $version) { throw "Expected serving daemon $version, got $running" }
             Write-Host "Confirmed serving daemon $running through the Windows pipe"
             $installed = wsl.exe -d asagiri -u root -- asagiri --version
