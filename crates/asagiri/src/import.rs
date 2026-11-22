@@ -407,6 +407,19 @@ pub fn run(args: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn inventory_names_tagged_and_digest_only_images() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let mut row = serde_json::json!({"Repository": "example/app", "Tag": "<none>", "Digest": digest});
+        assert_eq!(super::listed_image_name(&row), Some(format!("example/app@{digest}")));
+        row["Digest"] = "<none>".into();
+        assert_eq!(super::listed_image_name(&row), None);
+        row["Tag"] = "stable".into();
+        assert_eq!(super::listed_image_name(&row).as_deref(), Some("example/app:stable"));
+        row["Repository"] = "<none>".into();
+        assert_eq!(super::listed_image_name(&row), None);
+    }
+
+    #[test]
     fn load_progress_and_multiple_image_results() {
         let id = "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee";
         let single = format!("Preparing filesystem layers for {id}\nLoaded image ID: {id}\n");
