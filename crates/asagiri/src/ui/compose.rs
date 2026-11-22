@@ -4629,6 +4629,7 @@ mod live {
         p.members.iter().map(|m| (m.service.clone(), m.id.clone())).collect()
     }
 
+    /// Set ASAGIRI_LIVE_DIR to a disposable copy of tests/fixtures/compose-dashboard.
     #[test]
     #[ignore = "needs a running engine and ASAGIRI_LIVE_DIR"]
     fn live_compose() {

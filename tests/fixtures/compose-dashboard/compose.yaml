@@ -1,0 +1,17 @@
+services:
+  cache:
+    image: redis:7-alpine
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: fixture-password
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+  api:
+    build: ./api
+    depends_on: [cache, db]
+  web:
+    build: ./web
+    depends_on: [api]
+volumes:
+  dbdata:
