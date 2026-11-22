@@ -634,6 +634,7 @@ fn parse_ipam6(c: &serde_json::Value, subnet: &str) -> Result<Ipam6, String> {
 
 /// The `IPAM` object of a network create request: the default driver, at
 /// most one IPv4 and one IPv6 pool.
+#[cfg(test)]
 pub fn parse_ipam(v: &serde_json::Value) -> Result<Option<Ipam>, String> {
     parse_ipam_both(v).map(|(v4, _)| v4)
 }
