@@ -166,11 +166,32 @@ jobs:
           # Deliver the tray's context-menu notification, then select the visible menu item.
           import win32api, win32con
           win32api.PostMessage(window.handle, win32con.WM_APP + 2, 1, win32con.WM_CONTEXTMENU)
-          menu = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='#32768')
-          menu.wait('visible', timeout=30)
-          update = menu.child_window(title='Check for Updates…', control_type='MenuItem')
-          update.wait('enabled', timeout=30)
-          update.invoke()
+          import win32gui, win32process
+          from pywinauto.keyboard import send_keys
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              menus = []
+              def collect(hwnd, _):
+                  if win32gui.GetClassName(hwnd) == '#32768' and win32process.GetWindowThreadProcessId(hwnd)[1] == int(sys.argv[1]):
+                      menus.append(hwnd)
+              win32gui.EnumWindows(collect, None)
+              if menus:
+                  break
+              time.sleep(0.2)
+          else:
+              raise RuntimeError('Native tray popup did not appear')
+          import ctypes
+          native_menu = win32gui.SendMessage(menus[0], 0x01E1, 0, 0)  # MN_GETHMENU
+          count = ctypes.windll.user32.GetMenuItemCount(ctypes.c_void_p(native_menu))
+          labels = []
+          for pos in range(count):
+              label = ctypes.create_unicode_buffer(256)
+              ctypes.windll.user32.GetMenuStringW(ctypes.c_void_p(native_menu), pos, label, len(label), 0x400)
+              labels.append(label.value)
+          print('Native tray entries:', labels, flush=True)
+          if labels[-2:] != ['Check for Updates…', 'Quit Asagiri']:
+              raise RuntimeError('Unexpected tray menu layout')
+          send_keys('{END}{UP}{ENTER}')
           print('Invoked tray menu Check for Updates', flush=True)
           for label in ['Restart engine']:
               deadline = time.monotonic() + 90
