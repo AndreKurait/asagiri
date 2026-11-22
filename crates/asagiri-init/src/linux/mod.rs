@@ -4,6 +4,7 @@ mod cgroup_kill;
 mod container;
 mod devices;
 mod copy;
+mod disk;
 mod dns;
 mod fsnotify;
 mod fsview;
@@ -435,6 +436,8 @@ fn data_dirs() -> io::Result<container::Paths> {
     if let Err(ref e) = disk {
         eprintln!("asagiri-init: no data disk ({e}); keeping images in memory");
         mount(c"asagiri", c"/var/lib/asagiri", c"tmpfs", libc::MS_NOATIME, Some(c"mode=0755"))?;
+    } else {
+        disk::grow()?;
     }
     // The Mac's filesystem over virtiofs, for bind mounts.
     sys::mkdir(c"/mnt", 0o755);

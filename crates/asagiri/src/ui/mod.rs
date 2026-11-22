@@ -1103,6 +1103,7 @@ fn vm_panel(connected: &mut bool) {
                 "running": info["ContainersRunning"],
                 "cpus": info["NCPU"],
                 "cpu_pct": info["AsagiriCpuPercent"],
+                "warnings": info["Warnings"],
                 "daemon_kib": info["AsagiriAgentMemory"].as_u64().unwrap_or(0) >> 10,
             }).to_string());
             emit(state(if awake { "running" } else if stopped { "stopped" } else { "asleep" }, None));

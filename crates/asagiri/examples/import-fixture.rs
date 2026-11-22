@@ -11,12 +11,14 @@ mod client;
 mod flavor;
 #[cfg(target_os = "linux")]
 #[path = "../src/import.rs"]
+#[allow(dead_code)] // The fixture exercises the migration CLI entry point.
 mod import;
 
 // Image and volume copies use the Docker CLI. Container creation uses the
 // production HTTP client, including its real operation-context header.
 #[cfg(target_os = "linux")]
 #[path = "../src/diag/ops.rs"]
+#[allow(dead_code)] // The fixture only consumes the HTTP operation header.
 mod diag;
 
 #[cfg(target_os = "linux")]
