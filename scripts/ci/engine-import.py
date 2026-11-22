@@ -473,6 +473,12 @@ def main():
                 case("container-definition-arrives-stopped-and-runs-with-copied-volume",
                      retried_source_container=source_id)
 
+                assert get("destination", "/containers/" + definition + "/json")["State"]["Status"] == "exited"
+                error = imported("volume", volume, success=False)
+                assert "attached to" in error and definition in error, error
+                assert contents("destination") == before
+                case("volume-reimport-refuses-exited-destination-container", container=definition)
+
                 # A repository digest can be lost on save/load even when the config survives.
                 digest_ref = "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
                 digest_container = "digest-only-" + nonce
