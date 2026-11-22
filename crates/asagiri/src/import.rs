@@ -265,33 +265,41 @@ fn desktop_bind_source(source: &str) -> io::Result<&str> {
 
 #[cfg(target_os = "macos")]
 fn desktop_binds(host: &mut Value, resolved: &Value) -> io::Result<()> {
-    // Some engines retain resolved mounts only, without the original create options.
-    if ["Binds", "Mounts"].iter().all(|key| host[*key].is_null() || host[*key].as_array().is_some_and(Vec::is_empty)) {
-        let mut binds = Vec::new();
-        for mount in resolved.as_array().into_iter().flatten() {
-            let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved mount in source inspection");
-            let source = match mount["Type"].as_str() {
-                Some("bind") => mount["Source"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?,
-                Some("volume") => {
-                    let name = mount["Name"].as_str().filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))).ok_or_else(invalid)?;
-                    if anonymous(name) { continue; }
-                    name
-                }
-                _ => continue,
-            };
-            let target = mount["Destination"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?;
-            let writable = mount["RW"].as_bool().ok_or_else(invalid)?;
-            let mut options: Vec<_> = mount["Mode"].as_str().unwrap_or("").split(',').filter(|m| !matches!(*m, "" | "ro" | "rw")).collect();
-            options.push(if writable { "rw" } else { "ro" });
-            if let Some(propagation) = mount["Propagation"].as_str().filter(|p| !p.is_empty() && !options.contains(p)) {
-                options.push(propagation);
+    // Inspect may retain the original create options for only some targets.
+    let mut binds = Vec::new();
+    for mount in resolved.as_array().into_iter().flatten() {
+        if !matches!(mount["Type"].as_str(), Some("volume" | "bind")) { continue; }
+        let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved bind mount in source inspection");
+        let target = mount["Destination"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?;
+        let covered = host["Binds"].as_array().into_iter().flatten().filter_map(Value::as_str).any(|bind| {
+            let mut parts = bind.split(':');
+            let source = parts.next().unwrap_or("");
+            parts.next().unwrap_or(source) == target
+        }) || host["Mounts"].as_array().into_iter().flatten().any(|m| m["Target"] == target);
+        if covered { continue; }
+        let source = match mount["Type"].as_str() {
+            Some("bind") => mount["Source"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?,
+            Some("volume") => {
+                let name = mount["Name"].as_str().filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))).ok_or_else(invalid)?;
+                if anonymous(name) { continue; }
+                name
             }
-            if source.contains(':') || target.contains(':') {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous colon in resolved bind mount path"));
-            }
-            binds.push(format!("{source}:{target}:{}", options.join(",")));
+            _ => continue,
+        };
+        let writable = mount["RW"].as_bool().ok_or_else(invalid)?;
+        let mut options: Vec<_> = mount["Mode"].as_str().unwrap_or("").split(',').filter(|m| !matches!(*m, "" | "ro" | "rw")).collect();
+        options.push(if writable { "rw" } else { "ro" });
+        if let Some(propagation) = mount["Propagation"].as_str().filter(|p| !p.is_empty() && !options.contains(p)) {
+            options.push(propagation);
         }
-        if !binds.is_empty() { host["Binds"] = json!(binds); }
+        if source.contains(':') || target.contains(':') {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous colon in resolved bind mount path"));
+        }
+        binds.push(format!("{source}:{target}:{}", options.join(",")));
+    }
+    if !binds.is_empty() {
+        if host["Binds"].is_null() { host["Binds"] = json!([]); }
+        host["Binds"].as_array_mut().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid source Binds array"))?.extend(binds.into_iter().map(Value::String));
     }
     if let Some(binds) = host["Binds"].as_array_mut() {
         for bind in binds {
@@ -560,6 +568,11 @@ mod tests {
         let mut host = json!({"Binds":null, "Mounts":null});
         super::desktop_binds(&mut host, &resolved).unwrap();
         assert_eq!(host["Binds"], json!(["/etc/hosts:/marker:ro,rprivate", "cache:/cache:rw"]));
+        let mut mixed = json!({"Binds":["cache:/cache"], "Mounts":[{"Type":"bind", "Source":"/etc/hosts", "Target":"/existing"}]});
+        let mut mounts = resolved.clone();
+        mounts.as_array_mut().unwrap().push(json!({"Type":"bind", "Source":"/etc/hosts", "Destination":"/existing", "RW":true}));
+        super::desktop_binds(&mut mixed, &mounts).unwrap();
+        assert_eq!(mixed["Binds"], json!(["cache:/cache", "/etc/hosts:/marker:ro,rprivate"]));
         let mut incomplete = resolved.clone();
         incomplete[0].as_object_mut().unwrap().remove("RW");
         assert!(super::desktop_binds(&mut json!({}), &incomplete).is_err());
