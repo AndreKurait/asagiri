@@ -36,6 +36,8 @@ pub struct Config {
     pub agent_port: u32,
     /// Raw disk image for the guest's data (layers and containers): `/dev/vda`.
     pub disk: Option<PathBuf>,
+    /// Exclusive ownership of the data directory through VM teardown.
+    pub disk_lock: Option<std::fs::File>,
     /// Share a host directory with the guest over virtiofs: (directory, tag).
     pub share: Option<(PathBuf, String)>,
     /// Share arm64 emulator binaries with the guest over virtiofs: (directory,
@@ -60,6 +62,7 @@ pub enum Event {
 
 #[derive(Debug)]
 pub struct Vm {
+    _disk_lock: Option<std::fs::File>,
     queue: DispatchRetained<DispatchQueue>,
     inner: Option<OnQueue<Inner>>,
     events: Receiver<Event>,
@@ -149,7 +152,8 @@ impl Vm {
 
     /// Builds, validates and starts the VM. Returns once Virtualization.framework
     /// reports the VM running; the guest connects later as an [`Event`].
-    pub fn start(cfg: Config) -> io::Result<Vm> {
+    pub fn start(mut cfg: Config) -> io::Result<Vm> {
+        let disk_lock = cfg.disk_lock.take();
         let queue = DispatchQueue::new("dev.asagiri.vm", DispatchQueueAttr::SERIAL);
         let (tx, events) = mpsc::channel();
         let (started_tx, started_rx) = mpsc::sync_channel::<Result<(), String>>(1);
@@ -173,7 +177,7 @@ impl Vm {
         });
         let inner = built.expect("build ran synchronously")?;
         let connection = Arc::new(ConnectionOwner { queue: queue.clone(), vm: RwLock::new(Some(OnQueue(inner.0.vm.clone()))) });
-        let vm = Vm { queue, inner: Some(inner), events, closing: Arc::new(AtomicBool::new(false)), connection: Some(connection) };
+        let vm = Vm { _disk_lock: disk_lock, queue, inner: Some(inner), events, closing: Arc::new(AtomicBool::new(false)), connection: Some(connection) };
         match started_rx.recv_timeout(Duration::from_secs(30)) {
             Ok(Ok(())) => Ok(vm),
             Ok(Err(e)) => Err(io::Error::other(format!("VM failed to start: {e}"))),
