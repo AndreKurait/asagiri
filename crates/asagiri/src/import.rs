@@ -262,9 +262,17 @@ fn desktop_binds(host: &mut Value, resolved: &Value) -> io::Result<()> {
     // Some engines retain resolved mounts only, without the original create options.
     if ["Binds", "Mounts"].iter().all(|key| host[*key].is_null() || host[*key].as_array().is_some_and(Vec::is_empty)) {
         let mut binds = Vec::new();
-        for mount in resolved.as_array().into_iter().flatten().filter(|m| m["Type"] == "bind") {
-            let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved bind mount in source inspection");
-            let source = mount["Source"].as_str().filter(|s| !s.is_empty()).ok_or_else(invalid)?;
+        for mount in resolved.as_array().into_iter().flatten() {
+            let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved mount in source inspection");
+            let source = match mount["Type"].as_str() {
+                Some("bind") => mount["Source"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?,
+                Some("volume") => {
+                    let name = mount["Name"].as_str().filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))).ok_or_else(invalid)?;
+                    if anonymous(name) { continue; }
+                    name
+                }
+                _ => continue,
+            };
             let target = mount["Destination"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?;
             let writable = mount["RW"].as_bool().ok_or_else(invalid)?;
             let mut options: Vec<_> = mount["Mode"].as_str().unwrap_or("").split(',').filter(|m| !matches!(*m, "" | "ro" | "rw")).collect();
@@ -541,11 +549,11 @@ mod tests {
         use serde_json::json;
         let resolved = json!([
             {"Type":"bind", "Source":"/host_mnt/etc/hosts", "Destination":"/marker", "RW":false, "Propagation":"rprivate"},
-            {"Type":"volume", "Name":"cache", "Destination":"/cache"}
+            {"Type":"volume", "Name":"cache", "Destination":"/cache", "RW":true}
         ]);
         let mut host = json!({"Binds":null, "Mounts":null});
         super::desktop_binds(&mut host, &resolved).unwrap();
-        assert_eq!(host["Binds"], json!(["/etc/hosts:/marker:ro,rprivate"]));
+        assert_eq!(host["Binds"], json!(["/etc/hosts:/marker:ro,rprivate", "cache:/cache:rw"]));
         let mut incomplete = resolved.clone();
         incomplete[0].as_object_mut().unwrap().remove("RW");
         assert!(super::desktop_binds(&mut json!({}), &incomplete).is_err());
