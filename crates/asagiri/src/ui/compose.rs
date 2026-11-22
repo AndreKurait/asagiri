@@ -4668,7 +4668,9 @@ mod live {
         println!("web tech {}  api tech {}  db tech {}", svc("web")["tech"], svc("api")["tech"], svc("db")["tech"]);
         assert_eq!(svc("web")["tech"]["lang"], "Node.js");
         assert_eq!(svc("api")["tech"]["lang"], "Go");
-        assert!(!ev.to_string().contains("secret"), "no environment values");
+        let fixture_password = "fixture-password";
+        assert!(std::fs::read_to_string(&file).unwrap().contains(fixture_password), "fixture must exercise environment-value redaction");
+        assert!(!p.to_string().contains(fixture_password), "project event exposed the fixture password");
 
         let f: Value = serde_json::from_str(&file_event(name, store)).unwrap();
         keep("file", &f.to_string());
