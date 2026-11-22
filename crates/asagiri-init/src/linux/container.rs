@@ -110,6 +110,7 @@ impl Process {
         Self { id: id.to_owned(), pid, ..Self::default() }
     }
 
+    #[allow(dead_code)] // Used by the separate shared-root-process integration binary.
     pub(super) fn test_container(id: &str, pid: libc::pid_t, paths: &Paths, remove: bool) -> Self {
         Self { id: id.to_owned(), pid,
             teardown: Some(Teardown { base: paths.containers.join(id), cgroup: paths.cgroup.join(id), remove }),
