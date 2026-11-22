@@ -146,6 +146,7 @@ impl Tray for AsagiriTray {
     /// again. The service keeps running and comes back with the watcher.
     fn watcher_offline(&self, _reason: ksni::OfflineReason) -> bool {
         UP.store(false, Ordering::SeqCst);
+        super::window::tray_disconnected();
         true
     }
 

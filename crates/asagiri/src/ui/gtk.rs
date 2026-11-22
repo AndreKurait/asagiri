@@ -211,6 +211,20 @@ pub(super) fn show() {
     });
 }
 
+/// Restore a hidden dashboard when its tray icon disappears.
+pub(super) fn tray_disconnected() {
+    glib::idle_add_once(|| {
+        WINDOW.with(|v| {
+            if let Some(window) = v.borrow().as_ref() {
+                if !window.is_visible() && !super::tray::active() {
+                    window.show();
+                    window.present();
+                }
+            }
+        });
+    });
+}
+
 /// Closes the window, from any thread.
 pub(super) fn quit() {
     glib::MainContext::default().invoke(|| {
