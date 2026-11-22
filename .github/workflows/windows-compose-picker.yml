@@ -1,0 +1,68 @@
+name: Native Windows Compose picker
+on:
+  push:
+    branches: [qualification/windows-compose-picker-246]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  picker:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Launch the candidate, select a Compose file and verify restart persistence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $asset = "Asagiri-0.1.14-dev.161-windows-x86_64.zip"
+          gh release download v0.1.14-dev.161 -R AndreKurait/asagiri -p $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne "9e6802f5040fcc6e24827bbfaf996f96ce00648707b2077a2fad6a6f315a119b") { throw "bundle hash" }
+          Expand-Archive $asset bundle
+          gh run download 44994860833 -R AndreKurait/asagiri -n windows-X64 -D candidate
+          if ((Get-FileHash candidate/asagiri-win.exe).Hash.ToLower() -ne "43582b034820a1bd9d0baad1d753c64c23359b1ac44e63ab94cca10ee4f52f4c") { throw "candidate hash" }
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          Copy-Item candidate/asagiri-win.exe $env:PICKER_APP -Force
+          wsl.exe --import Asagiri-picker246 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          python -m pip install playwright pywinauto
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1"
+          @'
+          import json, os, pathlib, subprocess, time
+          from playwright.sync_api import sync_playwright
+          from pywinauto import Desktop
+          project = pathlib.Path(os.environ["RUNNER_TEMP"]) / "picker fixture" / "compose.yaml"
+          project.parent.mkdir()
+          project.write_text("name: picker246\nservices:\n  web:\n    image: alpine:3.21\n")
+          store = pathlib.Path(os.environ["LOCALAPPDATA"]) / "Asagiri" / "compose.json"
+          for attempt in range(2):
+              app = subprocess.Popen([os.environ["PICKER_APP"], "--distro", "Asagiri-picker246"])
+              try:
+                  with sync_playwright() as pw:
+                      deadline = time.monotonic() + 120
+                      while True:
+                          try:
+                              browser = pw.chromium.connect_over_cdp("http://127.0.0.1:9222", timeout=3000)
+                              page = browser.contexts[0].pages[0]
+                              page.wait_for_function("typeof cmpOpenBtn === `function`", timeout=5000)
+                              break
+                          except Exception:
+                              if app.poll() is not None or time.monotonic() >= deadline: raise
+                              time.sleep(1)
+                      page.evaluate("show(`compose`)")
+                      if attempt == 0:
+                          page.locator("[data-cmpopenfile]:visible").first.click()
+                          dialog = Desktop(backend="win32").window(process=app.pid, class_name="#32770", title="Open a compose file")
+                          dialog.wait("visible", timeout=30)
+                          dialog.child_window(class_name="Edit", found_index=0).set_edit_text(str(project))
+                          dialog.child_window(control_id=1).click()
+                      page.get_by_text("picker246", exact=True).first.wait_for(timeout=60000)
+                      entries = json.loads(store.read_text(encoding="utf-8"))["opened"]
+                      assert any(x["name"] == "picker246" and pathlib.Path(x["file"]) == project for x in entries), entries
+                      print("PASS", "restart" if attempt else "picker", entries, flush=True)
+              finally:
+                  subprocess.run(["taskkill", "/PID", str(app.pid), "/T", "/F"], check=False)
+                  app.wait(timeout=30)
+          '@ | python -
+          if ($LASTEXITCODE) { throw "Compose picker qualification failed" }
