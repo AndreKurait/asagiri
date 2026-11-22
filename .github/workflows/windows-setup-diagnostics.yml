@@ -12,8 +12,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Build the candidate Windows desktop
-        run: cargo build --release --locked -p asagiri-win
       - name: Verify first-run diagnostics when the configured HTTP proxy refuses connections
         env:
           GH_TOKEN: ${{ github.token }}
@@ -25,8 +23,15 @@ jobs:
           if ((Get-FileHash $asset).Hash.ToLower() -ne '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6') { throw 'Published bundle hash mismatch' }
           Expand-Archive $asset -DestinationPath load-test
           $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "target/release/asagiri-win.exe") $app -Force
           $bundle = Split-Path $app
+          $files = @('asagiri','asagiri-init','asagiri-linux.tar.gz','install.sh','asagiri.ps1','setup-tools.ps1','asagiri-admin.ps1','bin/docker.exe','bin/asagiri.exe','bin/cli-plugins/docker-compose.exe','bin/cli-plugins/docker-buildx.exe')
+          $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object { "$_=$((Get-FileHash (Join-Path $bundle $_)).Hash.ToLowerInvariant())" }) -join ';'
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            cargo build --release --locked -p asagiri-win
+            if ($LASTEXITCODE) { throw 'Candidate desktop build failed' }
+            Copy-Item target/release/asagiri-win.exe $app -Force
+          } finally { Pop-Location }
           $docker = Join-Path $bundle 'bin/docker.exe'
           wsl.exe --version
           python -m pip install pywinauto
