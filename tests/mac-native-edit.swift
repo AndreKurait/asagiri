@@ -78,3 +78,20 @@ key(36, [])
 expect("host shell executes command pasted through Command-V") {
     (try? String(contentsOfFile: path, encoding: .utf8)) == "host-terminal-paste"
 }
+
+// The literal output marker is absent from the command echoed by the shell.
+let copyID = UUID().uuidString
+let output = "terminal-copy-" + copyID
+board.clearContents()
+board.setString("printf '%s%s\\n' 'terminal-' 'copy-" + copyID + "'", forType: .string)
+key(9)
+Thread.sleep(forTimeInterval: 0.5)
+key(36, [])
+Thread.sleep(forTimeInterval: 1)
+board.clearContents()
+key(0)
+Thread.sleep(forTimeInterval: 0.3)
+key(8)
+expect("Command-A and Command-C copy rendered host shell output") {
+    board.string(forType: .string)?.contains(output) == true
+}
