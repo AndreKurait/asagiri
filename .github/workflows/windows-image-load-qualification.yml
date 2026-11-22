@@ -37,6 +37,15 @@ jobs:
           if (!$imported) {
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            # Exercise the chooser fix with the published distro and CLI assets.
+            $candidate = Join-Path $env:RUNNER_TEMP 'chooser-352'
+            gh run download 45061218423 --repo AndreKurait/asagiri --name windows-X64 --dir $candidate
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $launcher = Join-Path $candidate 'asagiri-win.exe'
+            if ((Get-FileHash $launcher).Hash.ToLower() -ne '0aef504ba9e8d26bccbfbd60e3307ef6741bdf04d5bdb421b2e80a8b1f6199a0') { throw 'Chooser candidate checksum mismatch' }
+            $original = Join-Path $env:RUNNER_TEMP 'dev158-launcher.exe'
+            Copy-Item $app $original
+            Copy-Item $launcher $app -Force
             $wizard = Start-Process $app -PassThru
             @'
           import sys
@@ -72,6 +81,7 @@ jobs:
             $saved = Get-Content (Join-Path $bundle 'setup.json') -Raw | ConvertFrom-Json
             if (!$saved.done -or $saved.distro -ne 'asagiri') { throw 'Windows setup did not complete' }
             Stop-Process -Id $wizard.Id -Force
+            Copy-Item $original $app -Force
             $imported = $true
           }
           $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
