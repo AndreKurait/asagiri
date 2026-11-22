@@ -7701,8 +7701,18 @@ mod tests {
         assert_eq!(error_key(BY_NAME).unwrap().0, "byName");
         // A file that isn't YAML: Compose's words, read before any variable, with the line.
         let top = "include:\n  - ${SUBDIR:-sub}/compose.yaml\nservices:\n  x:\n    image: alpine\n   bad: [\n";
-        let (shown, _) = inc_window("il-rej-yaml", top, &inc_sub);
-        assert!(!shown.contains(BY_NAME) && !shown.contains("did not find expected key") && shown.contains("yamlLine") && shown.contains("\"line\":6"), "{shown}");
+        let dir = tdir("il-rej-yaml");
+        let file = dir.join("compose.yaml");
+        std::fs::write(&file, top).unwrap();
+        inc_sub(&dir);
+        let reported = compose_reported_yaml_line(&file);
+        let project = Project { name: "il-rej-yaml".into(), dir: dir.to_string_lossy().into(), files: vec![file.to_string_lossy().into()], ..Project::default() };
+        let (shown, _) = window_json(dcli, &project, top);
+        let window: Value = serde_json::from_str(&shown).unwrap();
+        assert_eq!(window[2]["errkey"], "yamlLine");
+        assert_eq!(window[2]["line"], reported);
+        assert!(!shown.contains(BY_NAME) && !shown.contains("did not find expected key"), "{shown}");
+        std::fs::remove_dir_all(dir).unwrap();
         no_inc_secret("yaml", &shown, &[INC_PW]);
     }
 
