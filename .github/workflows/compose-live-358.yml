@@ -41,6 +41,11 @@ jobs:
           trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -80 "$scratch/daemon.log"' EXIT
           for _ in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
           docker version
+          # The daemon answers version requests before the guest can run containers.
+          for attempt in 1 2 3; do
+            if docker run --rm --network none alpine:3.21 true; then break; fi
+            test "$attempt" != 3
+          done
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
           "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"
