@@ -426,6 +426,7 @@ tr.prow .btn svg { width: 12px; height: 12px; fill: currentColor; flex: none; }
 .toast.removed.undo .life { animation-duration: var(--life, 6s); }
 .toast.removed .linkish { font-weight: 600; }
 
+.engine-warnings { margin: 0 20px 8px; padding: 8px 12px; max-height: 25%; overflow: auto; overflow-wrap: anywhere; white-space: pre-line; border-inline-start: 3px solid var(--sun); -webkit-user-select: text; user-select: text; }
 .content { flex: 1; overflow: auto; overflow-x: hidden; padding-block: 4px 20px; padding-inline: 20px 24px; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
 th { white-space: nowrap; text-align: var(--start); font-size: var(--fs-small); font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: .05em;
@@ -2351,6 +2352,7 @@ tr.usb-more > td { padding: 0; background: var(--panel); }
     <div class="ltabs" id="ltabs" role="group" aria-label="Show" data-i18n-label="Show" hidden></div>
     <div class="hright" id="hright"></div>
   </div>
+  <div class="engine-warnings" id="engine-warnings" role="status" hidden></div>
   <div class="content" id="content"></div>
   <div class="impstrip" id="impstrip" hidden></div>
 </main>
@@ -4829,6 +4831,13 @@ function removeImage(name) {
   scrim.querySelector("[data-go], [data-close]")?.focus();
 }
 
+function renderEngineWarnings() {
+  const box = $("engine-warnings");
+  const text = ui.view === "images" ? ui.engineWarnings || "" : "";
+  setText(box, text);
+  box.hidden = !text;
+}
+
 function renderImages() {
   // A finished pull's row stays until the list has its image.
   for (const [n, p] of ui.pulls) if (p.phase === "done" && (ui.images.some((i) => i.RepoTags?.includes(n)) || Date.now() - p.end > 5000)) ui.pulls.delete(n);
@@ -5674,6 +5683,7 @@ function render() {
   themeBtn();
   renderStatus();
   renderImportStrip();
+  renderEngineWarnings();
   navNote();
   const v = ui.view;
   document.querySelectorAll("nav button").forEach((b) => (b.dataset.view === v ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
@@ -6798,6 +6808,8 @@ window.asagiri = {
     switch (e.type) {
       case "state": setVm(e.state, e.error); break;
       case "vm":
+        ui.engineWarnings = (e.warnings || []).join("\n");
+        renderEngineWarnings();
         setText($("vm-running"), String(e.running ?? "—"));
         // The CPUs, and how busy they are together (an engine from before that reading sends none).
         // How busy, then how many: "4% · 1".
