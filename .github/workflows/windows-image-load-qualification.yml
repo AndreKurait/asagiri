@@ -17,20 +17,22 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Set-Location $env:RUNNER_TEMP
           $hashes = @{
-            '158' = '62299f7f19506e2fc01d91b2f55f8a56347eb9c0a754afd75796d6fd6bfb5db6'
-            '181' = 'f0c9529a44bb11deb83fe47c7b3489c8354e400f5157efaaa4b7e831d8377354'
+            '158' = '93b24ba6cc0ce849b8f27f9bb7966e1d4bc972f87e40a9ce938f46d431a33303'
+            '181' = 'a5faf137d7d8697e475a7356b2f5971c1aede770482b5bb39c8b2415c30f7a44'
           }
           $imported = $false
           foreach ($build in '158','181','158') {
           $version = "0.1.14-dev.$build"
-          $asset = "Asagiri-$version-windows-x86_64.zip"
-          if (!(Test-Path "bundle-$build")) {
+          $asset = "Asagiri-$version-x86_64.msi"
+          if (!(Test-Path $asset)) {
             gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
             if ((Get-FileHash $asset).Hash.ToLower() -ne $hashes[$build]) { throw "Hash mismatch for $asset" }
-            Expand-Archive $asset -DestinationPath "bundle-$build"
+
           }
-          $app = (Get-ChildItem "bundle-$build" -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
-          $bundle = Split-Path $app
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
           if (!$imported) {
             wsl.exe --import asagiri "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
