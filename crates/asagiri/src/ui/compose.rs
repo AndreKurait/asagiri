@@ -1957,12 +1957,15 @@ fn all_projects(containers: &Value, store: Store) -> Vec<Project> {
 /// Saves the opened list: `keep` decides what stays of what was there.
 fn save_opened(store: Store, keep: impl Fn(&str, &str) -> bool, add: Option<(&str, &str)>) -> io::Result<()> {
     let path = store().ok_or_else(|| io::Error::other("Asagiri has no state folder"))?;
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    // Lock a separate file: renaming the registry replaces its file identity.
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path.with_extension("lock"))?;
+    lock.lock()?;
     let mut list: Vec<Value> = opened(store).into_iter().filter(|p| keep(&p.name, &p.files[0])).map(|p| json!({"name": p.name, "file": p.files[0]})).collect();
     if let Some((name, file)) = add {
         list.push(json!({"name": name, "file": file}));
-    }
-    if let Some(d) = path.parent() {
-        std::fs::create_dir_all(d)?;
     }
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json!({"opened": list}).to_string())?;
@@ -5795,6 +5798,30 @@ mod tests {
         save_opened(tstore, |n, _| n != "shop", None).unwrap();
         assert_eq!(opened(tstore).iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["blog"]);
         let _ = std::fs::remove_dir_all(tstore().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn concurrent_project_selections_survive_reopening() {
+        fn store() -> Option<PathBuf> {
+            Some(std::env::temp_dir().join(format!("asagiri-open-concurrent-{}", std::process::id())).join("compose.json"))
+        }
+        let start = std::sync::Barrier::new(12);
+        std::thread::scope(|scope| {
+            for index in 0..12 {
+                let start = &start;
+                scope.spawn(move || {
+                    let name = format!("project-{index}");
+                    let file = format!("/projects/{name}/compose.yaml");
+                    start.wait();
+                    save_opened(store, |_, _| true, Some((&name, &file))).unwrap();
+                });
+            }
+        });
+        let mut names: Vec<_> = opened(store).into_iter().map(|p| p.name).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 12);
+        std::fs::remove_dir_all(store().unwrap().parent().unwrap()).unwrap();
     }
 
     #[test]
