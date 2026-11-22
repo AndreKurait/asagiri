@@ -2749,7 +2749,12 @@ const prefs = { font: "System", mono: "System Mono", scale: 1, tab: "appearance"
 const ACCENTS = [["blue", "Coral", "#C64A32"], ["purple", "Purple", "#8C6EF5"], ["orange", "Orange", "#F58228"], ["teal", "Teal", "#14B4A5"], ["pink", "Pink", "#EC408C"], ["green", "Green", "#28AA5A"]];
 /* i18n */ void [tr("Coral"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green")];
 const darkNow = () => prefs.theme === "dark" || (prefs.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { applyPrefs(); themeBtn(); if (ui.view === "settings") render(); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  applyPrefs();
+  themeBtn();
+  if (ui.view === "settings") render();
+  if (OS === "macOS" && prefs.theme === "system") send("systemappearance");
+});
 // The strip's theme button shows what a click switches to.
 function themeBtn() {
   const b = $("theme-toggle"), dark = darkNow();
