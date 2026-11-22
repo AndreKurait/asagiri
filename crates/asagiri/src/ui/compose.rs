@@ -6920,7 +6920,9 @@ mod tests {
         let m = config(dcli, &p, Some(draft), &[]).unwrap();
         let v = service_view("x", &m["services"]["x"]);
         assert_eq!(v["ports"], json!(["8080:80"]));
-        assert!(v["volumes"][0].as_str().unwrap().ends_with("certs/server.key:/k"), "{v}");
+        let mount = v["volumes"][0].as_str().unwrap();
+        let source = mount.strip_suffix(":/k").expect("container mount target /k");
+        assert_eq!(Path::new(source), d.join("certs").join("server.key"));
         let _ = std::fs::remove_dir_all(&d);
     }
 
