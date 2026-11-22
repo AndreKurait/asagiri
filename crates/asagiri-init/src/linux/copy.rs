@@ -141,7 +141,7 @@ struct DirectoryTime {
     path: std::path::PathBuf,
     dev: u64,
     ino: u64,
-    mtime: libc::time_t,
+    mtime: i64,
 }
 
 impl DirectoryTime {
