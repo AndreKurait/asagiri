@@ -1856,5 +1856,6 @@
   "Show in compose file": "Compose faylında göstər",
   "Open project": "Layihəni aç",
   "Hide {name}'s pods": "{name} layihəsinin podlarını gizlət",
-  "Show {name}'s pods": "{name} layihəsinin podlarını göstər"
+  "Show {name}'s pods": "{name} layihəsinin podlarını göstər",
+  "Use this location for new projects": "Yeni layihələr üçün bu məkandan istifadə et"
 }

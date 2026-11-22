@@ -32,6 +32,13 @@ The screenshot and browser demo use sample data in the real app UI.
 
 ## Performance and validation
 
+On Apple Silicon, Asagiri `0.1.14-dev.161` and Colima `0.10.3` ran the same
+five API workloads for 400 measured rounds each. Median container lifecycle
+time was 6.25 ms on Asagiri and 73.12 ms on Colima. Asagiri reported eight
+vCPUs and 16 GiB, and the Colima profile was configured with two vCPUs and
+2 GiB. These timings describe that configuration. The [raw measurements](docs/verification/native-colima-dev161.json)
+include all five workloads, p95s, engine details and cleanup checks.
+
 Each complete Linux comparison records **6,000 measurements**: 400 samples
 for each of five operations across Asagiri, Docker and Podman, after warmup.
 It uses the same Alpine image and checks the returned data and test cleanup.

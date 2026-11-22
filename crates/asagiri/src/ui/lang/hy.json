@@ -1856,5 +1856,6 @@
   "Show in compose file": "Ցուցադրել Compose ֆայլում",
   "Open project": "Բացել նախագիծը",
   "Hide {name}'s pods": "Թաքցնել {name} նախագծի պոդերը",
-  "Show {name}'s pods": "Ցուցադրել {name} նախագծի պոդերը"
+  "Show {name}'s pods": "Ցուցադրել {name} նախագծի պոդերը",
+  "Use this location for new projects": "Օգտագործել այս տեղադրությունը նոր նախագծերի համար"
 }

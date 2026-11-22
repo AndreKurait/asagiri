@@ -2930,7 +2930,12 @@ const prefs = { font: "System", mono: "System Mono", scale: 1, tab: "appearance"
 const ACCENTS = [["blue", "Coral", "#C64A32"], ["purple", "Purple", "#8C6EF5"], ["orange", "Orange", "#F58228"], ["teal", "Teal", "#14B4A5"], ["pink", "Pink", "#EC408C"], ["green", "Green", "#28AA5A"]];
 /* i18n */ void [tr("Coral"), tr("Purple"), tr("Orange"), tr("Teal"), tr("Pink"), tr("Green")];
 const darkNow = () => prefs.theme === "dark" || (prefs.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { applyPrefs(); themeBtn(); if (ui.view === "settings") render(); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  applyPrefs();
+  themeBtn();
+  if (ui.view === "settings") render();
+  if (OS === "macOS" && prefs.theme === "system") send("systemappearance");
+});
 // The strip's theme button shows what a click switches to.
 function themeBtn() {
   const b = $("theme-toggle"), dark = darkNow();
@@ -4804,7 +4809,30 @@ function cmpCount() {
   return new Set([...ran, ...(cmp.list?.projects || []).filter((p) => p.fresh).map((p) => p.name)]).size;
 }
 // Open a compose file…: the system's own file dialog; the engine keeps the path and answers with the project.
-const cmpOpenBtn = () => `<button class="btn primary" data-cmpopenfile title="${tr("Open a compose file…")}">${svgOf("folder")}<span class="hlbl">${tr("Open a compose file…")}</span></button>`;
+function createComposeProject() {
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.innerHTML = `<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="cmp-create-title">
+    <h3 id="cmp-create-title">${tr("Create")}</h3>
+    <label>${tr("Name")} <input name="project" required autocomplete="off" pattern="[a-z0-9][a-z0-9_\\-]*"></label>
+    <label>${tr("Location")} <input name="location" placeholder="${tr("Optional")}"></label>
+    <label><input type="checkbox" name="saveDefault">${tr("Use this location for new projects")}</label>
+    <div class="row-end"><button type="button" class="btn" data-close>${tr("Cancel")}</button>
+    <button type="submit" class="btn primary">${tr("Create")}</button></div></form>`;
+  document.body.append(scrim);
+  const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (ev) => { if (ev.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  scrim.addEventListener("click", (ev) => { if (ev.target === scrim || ev.target.closest("[data-close]")) close(); });
+  scrim.querySelector("form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const fields = new FormData(ev.target);
+    send("composecreate", { name: fields.get("project"), value: { location: fields.get("location"), saveDefault: fields.has("saveDefault") } });
+    close();
+  });
+  scrim.querySelector("input").focus();
+}
+const cmpOpenBtn = () => `<button class="btn" data-cmpcreate>${tr("Create")}</button> <button class="btn primary" data-cmpopenfile title="${tr("Open a compose file…")}">${svgOf("folder")}<span class="hlbl">${tr("Open a compose file…")}</span></button>`;
 // A project opened from its file that has never run: Apply brings it up.
 const cmpFresh = () => !!cmpProject(cmp.open)?.fresh;
 // Compose can't list the file's variables: managed by name, its file read-only, no plan or Apply.
@@ -10059,6 +10087,7 @@ $("hright").addEventListener("click", (ev) => {
   const t = (q) => ev.target.closest(q), v = ui.view, L = LISTS[v];
   let el;
   if (t("[data-ppopen]")) pp.open ? closePull() : openPull();
+  else if (t("[data-cmpcreate]")) createComposeProject();
   else if (t("[data-cmpopenfile]")) send("composeopen");
   else if (t("[data-unpick]")) unpick();
   else if (t("[data-pickall]")) { for (const x of pickables(v)) ui.pick.keys.add(L.key(x)); render(); }

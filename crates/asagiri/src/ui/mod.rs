@@ -2002,7 +2002,7 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             Ok(())
         }
         // Compose: projects, a project's file, what Apply would do, Apply, logs.
-        "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => {
+        "composecreate" | "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => {
             compose::handle(&msg.cmd, msg.name, &msg.value, compose_cli, compose_store, emit);
             Ok(())
         }
@@ -2073,6 +2073,11 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             if local || docs || msg.name == "https://github.com/AndreKurait/asagiri/releases" || msg.name == "https://andrekurait.github.io/asagiri" || msg.name == "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md" || msg.name == "https://github.com/AndreKurait" || msg.name == "https://github.com/AndreKurait/asagiri/issues/new" || msg.name == "https://github.com/AndreKurait/asagiri" || msg.name == "https://github.com/anchore/grype" || msg.name == "https://login.docker.com/activate" || msg.name == "https://github.com/login/device" {
                 open(&msg.name);
             }
+            Ok(())
+        }
+        #[cfg(target_os = "macos")]
+        "systemappearance" => {
+            window::layout_window_buttons();
             Ok(())
         }
         // The page covers the title bar, and WebKit ignores CSS drag

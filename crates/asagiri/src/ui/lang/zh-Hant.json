@@ -1856,5 +1856,6 @@
   "{n} more in a <a>Compose project</a>": "另有 {n} 個在 <a>Compose 專案</a>中",
   "{n} more in <a>Compose projects</a>": "另有 {n} 個在 <a>Compose 專案</a>中",
   "Your only container is in a <a>Compose project</a>": "您唯一的容器在 <a>Compose 專案</a>中",
-  "All {n} containers are in <a>Compose projects</a>": "全部 {n} 個容器都在 <a>Compose 專案</a>中"
+  "All {n} containers are in <a>Compose projects</a>": "全部 {n} 個容器都在 <a>Compose 專案</a>中",
+  "Use this location for new projects": "將此位置用於新專案"
 }
