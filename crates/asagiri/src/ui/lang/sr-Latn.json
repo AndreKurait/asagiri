@@ -1856,5 +1856,6 @@
   "Show in compose file": "Prikaži u Compose datoteci",
   "Open project": "Otvori projekat",
   "Hide {name}'s pods": "Sakrij podove za {name}",
-  "Show {name}'s pods": "Prikaži podove za {name}"
+  "Show {name}'s pods": "Prikaži podove za {name}",
+  "Use this location for new projects": "Koristi ovu lokaciju za nove projekte"
 }

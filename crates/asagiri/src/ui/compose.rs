@@ -1955,6 +1955,28 @@ fn all_projects(containers: &Value, store: Store) -> Vec<Project> {
 
 /// Saves the opened list: `keep` decides what stays of what was there.
 fn save_opened(store: Store, keep: impl Fn(&str, &str) -> bool, add: Option<(&str, &str)>) -> io::Result<()> {
+    save_opened_with_default(store, keep, add, None)
+}
+
+fn save_opened_with_default(store: Store, keep: impl Fn(&str, &str) -> bool, add: Option<(&str, &str)>, default_location: Option<&str>) -> io::Result<()> {
+    update_registry(store, |registry| {
+        let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid saved Compose project list");
+        let list = registry.get_mut("opened").and_then(Value::as_array_mut).ok_or_else(invalid)?;
+        if list.iter().any(|entry| !entry["name"].is_string() || !entry["file"].is_string()) {
+            return Err(invalid());
+        }
+        list.retain(|entry| keep(entry["name"].as_str().unwrap(), entry["file"].as_str().unwrap()));
+        if let Some((name, file)) = add {
+            list.push(json!({"name": name, "file": file}));
+        }
+        if let Some(location) = default_location {
+            registry["defaultLocation"] = json!(location);
+        }
+        Ok(())
+    })
+}
+
+fn update_registry(store: Store, edit: impl FnOnce(&mut Value) -> io::Result<()>) -> io::Result<()> {
     let path = store().ok_or_else(|| io::Error::other("Asagiri has no state folder"))?;
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
@@ -1967,15 +1989,7 @@ fn save_opened(store: Store, keep: impl Fn(&str, &str) -> bool, add: Option<(&st
         Err(error) if error.kind() == io::ErrorKind::NotFound => json!({"opened": []}),
         Err(error) => return Err(error),
     };
-    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid saved Compose project list");
-    let list = registry.get_mut("opened").and_then(Value::as_array_mut).ok_or_else(invalid)?;
-    if list.iter().any(|entry| !entry["name"].is_string() || !entry["file"].is_string()) {
-        return Err(invalid());
-    }
-    list.retain(|entry| keep(entry["name"].as_str().unwrap(), entry["file"].as_str().unwrap()));
-    if let Some((name, file)) = add {
-        list.push(json!({"name": name, "file": file}));
-    }
+    edit(&mut registry)?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, registry.to_string())?;
     std::fs::rename(&tmp, &path)
@@ -2001,34 +2015,67 @@ pub fn folder_name(dir: &Path) -> String {
     if s.is_empty() { "project".into() } else { s }
 }
 
+/// Create an editable Compose file beneath the selected storage directory.
+/// An existing project directory is left intact, including an empty one.
+fn create_project_file(root: &Path, name: &str) -> io::Result<PathBuf> {
+    let valid = name.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && name.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_');
+    if !valid {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid Compose project name"));
+    }
+    let dir = root.join(name);
+    std::fs::create_dir(&dir)?;
+    let path = dir.join("compose.yaml");
+    let result = std::fs::OpenOptions::new().write(true).create_new(true).open(&path);
+    let mut file = match result {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = std::fs::remove_dir(&dir);
+            return Err(error);
+        }
+    };
+    if let Err(error) = writeln!(file, "services: {{}}") {
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+        return Err(error);
+    }
+    Ok(path)
+}
+
 /// A file picked in the system's dialog: its project (the name Compose
 /// gives it) is remembered and listed. `{type: "composeopened", name}`, or
 /// `{…, error}`. The path never goes to the page.
 pub fn open_file(cli: Cli, store: Store, path: &Path) -> String {
-    let r = (|| {
-        if !compose_like(path) || !path.is_file() {
-            return Err("pick a .yaml or .yml compose file".to_owned());
-        }
-        if !compose_text(&std::fs::read_to_string(path).map_err(|e| e.to_string())?) {
-            return Err(NOT_COMPOSE.to_owned());
-        }
-        let path = real_path(path).map_err(|e| e.to_string())?;
-        let dir = path.parent().unwrap_or(Path::new("/"));
-        let file = path.to_string_lossy().into_owned();
-        let mut p = Project { name: folder_name(dir), dir: dir.to_string_lossy().into_owned(), files: vec![file.clone()], members: Vec::new(), env_files: Vec::new() };
-        p.name = opened_name(cli, &p);
-        // The name is another folder's project: never shown as this file's.
-        let containers = client::get_background("/containers/json?all=1").unwrap_or_default();
-        if let Some(dir) = clash(&p, &all_projects(&containers, store)) {
-            return Err(format!("A project named {} already runs from {dir}", p.name));
-        }
-        save_opened(store, |n, f| n != p.name && f != file, Some((&p.name, &file))).map_err(|e| e.to_string())?;
-        Ok(p.name)
-    })();
-    match r {
+    opened_event(register_file(cli, store, path, None))
+}
+
+fn opened_event(result: Result<String, String>) -> String {
+    match result {
         Ok(name) => json!({"type": "composeopened", "name": name}).to_string(),
         Err(e) => own_event(json!({"type": "composeopened"}), e),
     }
+}
+
+fn register_file(cli: Cli, store: Store, path: &Path, default_location: Option<&str>) -> Result<String, String> {
+    if !compose_like(path) || !path.is_file() {
+        return Err("pick a .yaml or .yml compose file".to_owned());
+    }
+    if !compose_text(&std::fs::read_to_string(path).map_err(|e| e.to_string())?) {
+        return Err(NOT_COMPOSE.to_owned());
+    }
+    let path = real_path(path).map_err(|e| e.to_string())?;
+    let dir = path.parent().unwrap_or(Path::new("/"));
+    let file = path.to_string_lossy().into_owned();
+    let mut p = Project { name: folder_name(dir), dir: dir.to_string_lossy().into_owned(), files: vec![file.clone()], members: Vec::new(), env_files: Vec::new() };
+    p.name = opened_name(cli, &p);
+    // The name is another folder's project: never shown as this file's.
+    let containers = client::get_background("/containers/json?all=1").unwrap_or_default();
+    if let Some(dir) = clash(&p, &all_projects(&containers, store)) {
+        return Err(format!("A project named {} already runs from {dir}", p.name));
+    }
+    save_opened_with_default(store, |n, f| n != p.name && f != file, Some((&p.name, &file)), default_location).map_err(|e| e.to_string())?;
+    Ok(p.name)
 }
 
 /// The name Compose gives a file just opened: its own `name:` wins, as with
@@ -4446,6 +4493,43 @@ pub fn handle(cmd: &str, name: String, value: &Value, cli: Cli, store: Store, em
     let emit_file = move |s: String| emit(s);
     std::thread::spawn(move || match cmd.as_str() {
         // The page's own ask comes back with it: a list no one asked for (after an action) is told apart.
+        "composecreate" => {
+            let result = (|| {
+                let state = store().ok_or_else(|| io::Error::other("Compose storage is unavailable"))?;
+                let parent = state.parent().ok_or_else(|| io::Error::other("Compose storage has no parent directory"))?;
+                let location = value["location"].as_str().unwrap_or_default();
+                let root = if location.is_empty() {
+                    let registry: Value = match std::fs::read(&state) {
+                        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => Value::Null,
+                        Err(error) => return Err(error),
+                    };
+                    let root = registry["defaultLocation"].as_str().map(PathBuf::from).unwrap_or_else(|| parent.join("projects"));
+                    std::fs::create_dir_all(&root)?;
+                    root
+                } else {
+                    let root = Path::new(location);
+                    if !root.is_absolute() || !root.is_dir() {
+                        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Choose an existing absolute directory"));
+                    }
+                    root.to_path_buf()
+                };
+                create_project_file(&root, &name)
+            })();
+            match result {
+                Ok(path) => {
+                    let default_location = value["location"].as_str().filter(|s| !s.is_empty() && value["saveDefault"] == true);
+                    let registered = register_file(cli, store, &path, default_location);
+                    if registered.is_err() && std::fs::read(&path).is_ok_and(|bytes| bytes == b"services: {}\n") {
+                        let _ = std::fs::remove_file(&path);
+                        if let Some(dir) = path.parent() { let _ = std::fs::remove_dir(dir); }
+                    }
+                    send(opened_event(registered));
+                    send(projects_event(cli, store));
+                }
+                Err(error) => send(own_event(json!({"type": "composeopened"}), error.to_string())),
+            }
+        }
         "composeprojects" => send(asked(projects_event(cli, store), &value["ask"])),
         "composefile" => emit_file(file_event(&name, store)),
         "composeplan" => send(plan_event(cli, store, &name, value["text"].as_str().unwrap_or_default(), &value["seq"])),
@@ -5860,6 +5944,56 @@ mod tests {
         save_opened(tstore, |n, _| n != "shop", None).unwrap();
         assert_eq!(opened(tstore).iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["blog"]);
         let _ = std::fs::remove_dir_all(tstore().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn create_command_remembers_default_and_preserves_overrides() {
+        use std::sync::{OnceLock, mpsc};
+        static EVENTS: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+        fn store() -> Option<PathBuf> {
+            Some(std::env::temp_dir().join(format!("asagiri-create-project-{}", std::process::id())).join("compose.json"))
+        }
+        fn emit(event: String) { EVENTS.get().unwrap().send(event).unwrap(); }
+        let (sender, receiver) = mpsc::channel();
+        EVENTS.set(sender).unwrap();
+        let state = store().unwrap();
+        let root = state.parent().unwrap();
+        let default = root.join("default");
+        let other = root.join("other");
+        std::fs::create_dir_all(&default).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let create = |name: &str, options: Value| {
+            handle("composecreate", name.to_owned(), &options, || Err(io::Error::other("no CLI")), store, emit);
+            loop {
+                let event = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+                let value: Value = serde_json::from_str(&event).unwrap();
+                if value["type"] == "composeopened" { break value; }
+            }
+        };
+        for (name, options, folder) in [
+            ("first", json!({"location": default, "saveDefault": true}), &default),
+            ("second", json!({"location": other}), &other),
+            ("third", json!({}), &default),
+        ] {
+            let event = create(name, options);
+            assert_eq!(event["name"], name, "{event}");
+            let refreshed = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&refreshed).unwrap()["type"], "composeprojects");
+            assert_eq!(std::fs::read_to_string(folder.join(name).join("compose.yaml")).unwrap(), "services: {}\n");
+        }
+        let before = std::fs::read(&state).unwrap();
+        assert!(create("second", json!({"location": other, "saveDefault": true}))["error"].is_string());
+        assert_eq!(std::fs::read(&state).unwrap(), before);
+        assert_eq!(opened(store).len(), 3);
+        std::fs::write(&state, b"{").unwrap();
+        assert!(create("retry", json!({"location": other}))["error"].is_string());
+        let _ = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+        assert!(!other.join("retry").exists());
+        assert_eq!(std::fs::read(&state).unwrap(), b"{");
+        std::fs::write(&state, before).unwrap();
+        assert_eq!(create("retry", json!({"location": other}))["name"], "retry");
+        let _ = receiver.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

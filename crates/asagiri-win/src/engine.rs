@@ -1189,7 +1189,7 @@ pub fn on_message(msg: &str) {
         "logins" | "login" | "logout" => logins::handle(&c.cmd, c.name, &c.value, emit, || Ok(())),
         "weblogin" | "webloginopen" | "webloginmfa" | "webloginsso" | "weblogincancel" | "awsprofiles" => weblogin::handle(&c.cmd, c.name, &c.value, emit, || Ok(()), crate::term::captured),
         // Compose: projects, a project's file, what Apply would do, Apply, logs.
-        "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => compose::handle(&c.cmd, c.name, &c.value, compose_cli, compose_store, emit),
+        "composecreate" | "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => compose::handle(&c.cmd, c.name, &c.value, compose_cli, compose_store, emit),
         // Open a compose file…: Windows' own dialog, on the window's thread;
         // the path it gives stays here, the page gets the project.
         "composeopen" => crate::app::pick_file(&tr("Open a compose file"), &[(tr("Compose files"), compose::FILE_NAMES.join(";")), (tr("YAML files"), "*.yaml;*.yml".to_owned())], |path| compose::picked(path, compose_cli, compose_store, emit)),

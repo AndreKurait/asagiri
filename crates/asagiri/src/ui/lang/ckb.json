@@ -1856,5 +1856,6 @@
   "{n} more in a <a>Compose project</a>": "{n} ی تر لە <a>پڕۆژەیەکی Compose</a>دا",
   "{n} more in <a>Compose projects</a>": "{n} ی تر لە <a>پڕۆژەکانی Compose</a>دا",
   "Your only container is in a <a>Compose project</a>": "تاکە کۆنتەینەرەکەت لە <a>پڕۆژەیەکی Compose</a>دایە",
-  "All {n} containers are in <a>Compose projects</a>": "هەموو {n} کۆنتەینەرەکە لە <a>پڕۆژەکانی Compose</a>دان"
+  "All {n} containers are in <a>Compose projects</a>": "هەموو {n} کۆنتەینەرەکە لە <a>پڕۆژەکانی Compose</a>دان",
+  "Use this location for new projects": "ئەم شوێنە بۆ پڕۆژە نوێکان بەکاربهێنە"
 }

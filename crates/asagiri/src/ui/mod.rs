@@ -2002,7 +2002,7 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             Ok(())
         }
         // Compose: projects, a project's file, what Apply would do, Apply, logs.
-        "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => {
+        "composecreate" | "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => {
             compose::handle(&msg.cmd, msg.name, &msg.value, compose_cli, compose_store, emit);
             Ok(())
         }

@@ -1856,5 +1856,6 @@
   "{n} more in a <a>Compose project</a>": "Jeszcze {n} w <a>projekcie Compose</a>",
   "{n} more in <a>Compose projects</a>": "Jeszcze {n} w <a>projektach Compose</a>",
   "Your only container is in a <a>Compose project</a>": "Twój jedyny kontener jest w <a>projekcie Compose</a>",
-  "All {n} containers are in <a>Compose projects</a>": "Wszystkie kontenery ({n}) są w <a>projektach Compose</a>"
+  "All {n} containers are in <a>Compose projects</a>": "Wszystkie kontenery ({n}) są w <a>projektach Compose</a>",
+  "Use this location for new projects": "Używaj tej lokalizacji dla nowych projektów"
 }
