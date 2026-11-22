@@ -59,6 +59,7 @@ jobs:
             $original = Join-Path $env:RUNNER_TEMP 'dev158-launcher.exe'
             Copy-Item $app $original
             Copy-Item $launcher $app -Force
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
             $wizard = Start-Process $app -PassThru
             @'
           import sys
