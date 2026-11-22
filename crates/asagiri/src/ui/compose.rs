@@ -917,6 +917,8 @@ pub struct Stand {
     pub label: String,
 }
 
+const TOKEN_PREFIX: &str = "asagirisec";
+
 /// Each variable's token: lowercase letters and digits (an image tag, a
 /// host, a user and a path all take it; Compose lower-cases some errors),
 /// with a part no file has (random per run), the same for a name all run.
@@ -929,7 +931,7 @@ fn token(key: &str) -> String {
     });
     let mut t = TOKENS.lock().unwrap_or_else(|e| e.into_inner());
     let n = t.len();
-    t.entry(key.to_owned()).or_insert_with(|| format!("asagirisec{:08x}{n:06}", *SALT)).clone()
+    t.entry(key.to_owned()).or_insert_with(|| format!("{TOKEN_PREFIX}{:08x}{n:06}", *SALT)).clone()
 }
 
 /// Each variable's token ([`token`]), by its name.
@@ -940,22 +942,22 @@ static TOKENS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| Mutex
 /// window gets, so no token is ever shown, whatever said it back.
 pub fn untoken(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
-    if !lower.contains("asagirisec") {
+    if !lower.contains(TOKEN_PREFIX) {
         return text.to_owned();
     }
     let names: HashMap<String, String> = TOKENS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, t)| (t.clone(), k.clone())).collect();
     let (mut out, mut at) = (String::new(), 0);
-    for (i, _) in lower.match_indices("asagirisec") {
+    for (i, prefix) in lower.match_indices(TOKEN_PREFIX) {
         if i < at {
             continue;
         }
         // A token's shape only (eight hex digits, six digits): a name such
         // as `asagirisecure` is the person's own and stays.
-        let tail = lower.as_bytes()[i + 7..].iter().take(14).copied().collect::<Vec<u8>>();
-        if tail.len() < 14 || !tail[..8].iter().all(u8::is_ascii_hexdigit) || !tail[8..].iter().all(u8::is_ascii_digit) {
+        let tail = &lower.as_bytes()[i + prefix.len()..];
+        if tail.len() < 14 || !tail[..8].iter().all(u8::is_ascii_hexdigit) || !tail[8..14].iter().all(u8::is_ascii_digit) {
             continue;
         }
-        let j = i + 21;
+        let j = i + prefix.len() + 14;
         out.push_str(&text[at..i]);
         match names.get(&lower[i..j]) {
             Some(k) => out.push_str(&format!("${{{k}}}")),
@@ -981,7 +983,7 @@ pub fn untoken_json(v: Value) -> Value {
 /// variable named with a `"` or `\` still makes JSON the page reads.
 /// Text that isn't JSON is untokened as it is.
 pub fn untoken_event(ev: &str) -> String {
-    if !ev.to_ascii_lowercase().contains("asagirisec") {
+    if !ev.to_ascii_lowercase().contains(TOKEN_PREFIX) {
         return ev.to_owned();
     }
     match serde_json::from_str::<Value>(ev) {
