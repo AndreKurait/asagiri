@@ -136,7 +136,13 @@ jobs:
               docker exec "$builder" cat /etc/buildkit/buildkitd.toml || true
               for endpoint in https://registry-1.docker.io/v2/ https://auth.docker.io/; do
                 echo "BuildKit worker connectivity to $endpoint"
-                docker exec "$builder" sh -c 'cat /etc/resolv.conf; ip route; wget -T 8 -S --spider "$1"' sh "$endpoint" || true
+                docker exec "$builder" sh -c 'cat /etc/resolv.conf; ip route; wget -T 8 -S --spider "$1"' sh "$endpoint" 2>&1 | tee "$RUNNER_TEMP/worker-probe.log" || true
+                worker_ip=$(sed -nE 's/.*Connecting to [^ ]+ \(([0-9.]+):443\).*/\1/p' "$RUNNER_TEMP/worker-probe.log" | head -1)
+                if [[ -n "$worker_ip" ]]; then
+                  authority=${endpoint#https://}
+                  host=${authority%%/*}
+                  curl --noproxy '*' --head --resolve "$host:443:$worker_ip" --max-time 8 --silent --show-error --output /dev/null --write-out 'Host peer=%{remote_ip} HTTP=%{http_code} TLS verify=%{ssl_verify_result}\n' "$endpoint" || true
+                fi
               done
               docker logs --tail 150 "$builder" 2>&1 | grep -Ei 'mirror|trying next host|failed to resolve|not found|response.status' || true
               for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
