@@ -70,6 +70,13 @@ jobs:
             $marker = 'ak99-marker'
             Set-Content -NoNewline (Join-Path $directory 'existing') $marker
             Invoke-Docker @('run','-d','--name','watch99','--mount',"type=bind,source=$directory,target=/watched",'alpine:3.21','inotifyd','-','/watched:wcnd')
+            Get-Item (Join-Path $directory 'existing') | Select-Object FullName,Length
+            $linuxPath = (wsl.exe -d asagiri -u root -- wslpath -a ($directory.Replace('\','/'))).Trim()
+            if ($LASTEXITCODE) { throw 'Could not resolve Windows path in WSL' }
+            wsl.exe -d asagiri -u root -- cat "$linuxPath/existing"
+            if ($LASTEXITCODE) { throw 'WSL could not see the host marker' }
+            Invoke-Docker @('inspect','watch99','--format','{{json .Mounts}}')
+            Invoke-Docker @('exec','watch99','ls','-la','/watched')
             $contents = Invoke-Docker @('exec','watch99','cat','/watched/existing')
             if ($contents -ne $marker) { throw 'Windows source marker did not reach the container' }
             $observed = $false
