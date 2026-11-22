@@ -224,13 +224,16 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
         .stderr(Stdio::piped())
         .spawn()?;
     let out = read.stdout.take().ok_or_else(|| io::Error::other("no output from the source helper"))?;
-    let write = make_cli()?
-        .args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"])
-        .stdin(out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()?;
-    let r = read.wait_with_output()?;
+    let mut destination = make_cli()?;
+    destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"]);
+    // Drain source diagnostics while tar is streaming. A full stderr pipe
+    // otherwise stops the source before the destination can see EOF.
+    let (r, write) = std::thread::scope(|scope| -> io::Result<_> {
+        let source = scope.spawn(move || read.wait_with_output());
+        let write = destination.stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output();
+        drop(destination);
+        Ok((source.join().map_err(|_| io::Error::other("source helper wait failed"))??, write?))
+    })?;
     if !r.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&r.stderr).trim())));
     }
@@ -532,6 +535,14 @@ mod tests {
         let fixture = VolumeFixture::new("helper-pull-error");
         assert!(fixture.run().unwrap_err().to_string().contains("registry unavailable"));
         assert!(!fixture.trace().contains(" volume create "));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn volume_import_drains_source_diagnostics_during_copy() {
+        let fixture = VolumeFixture::new("verbose-source");
+        fixture.run().unwrap();
+        assert_eq!(std::fs::read(fixture.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
     }
 
     #[cfg(unix)]

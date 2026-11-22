@@ -60,6 +60,7 @@ case "$1 $2" in
   "run --rm")
     if [ "$context" = orbstack ]; then
       if [ "$scenario" = source-error ]; then echo "source tar failed" >&2; exit 42; fi
+      if [ "$scenario" = verbose-source ]; then dd if=/dev/zero bs=65536 count=8 1>&2 2>/dev/null; fi
       printf '\000volume fixture\377\n'
     else
       [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
