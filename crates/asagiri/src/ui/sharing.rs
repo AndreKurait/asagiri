@@ -23,7 +23,7 @@ struct Link {
     source: String,
     target: String,
     name: Option<String>,
-    checking_name: bool,
+    starting_named_share: bool,
     name_pending: Option<bool>,
     url: Option<String>,
     state: &'static str,
@@ -193,7 +193,7 @@ fn start(
         let shown = resolved.display.clone();
         with_links(|m| m.insert(id, Link {
             source: source.clone(), target: shown.clone(), name: name.clone(),
-            checking_name: reserve && name.is_some(), name_pending: None, url: None,
+            starting_named_share: reserve && name.is_some(), name_pending: None, url: None,
             state: "connecting", requests: 0, bytes_in: 0, bytes_out: 0, handle: None, forward,
         }));
         emit(json!({"type": "share", "id": id, "source": source, "target": shown, "name": name, "state": "connecting"}).to_string());
@@ -201,7 +201,6 @@ fn start(
             let pending = matches!(share::auto_reserve(name), Ok(share::AutoReserve::Requested(_) | share::AutoReserve::Waiting));
             let still_open = with_links(|m| {
                 let Some(link) = m.get_mut(&id) else { return false };
-                link.checking_name = false;
                 link.name_pending = Some(pending);
                 true
             });
@@ -249,6 +248,7 @@ fn start(
             Ok(h) => {
                 let leftover = with_links(|m| match m.get_mut(&id) {
                     Some(l) => {
+                        l.starting_named_share = false;
                         l.handle = Some(h);
                         None
                     }
@@ -274,7 +274,7 @@ fn end_name_check(id: u64, link: Link) {
 /// Closes a link; its last event is `ended`.
 pub fn close(id: u64) {
     let (checking, handle) = with_links(|m| {
-        if m.get(&id).is_some_and(|l| l.checking_name) {
+        if m.get(&id).is_some_and(|l| l.starting_named_share) {
             (m.remove(&id), None)
         } else {
             (None, m.get_mut(&id).and_then(|l| l.handle.take()))
@@ -293,7 +293,7 @@ pub fn close(id: u64) {
 /// id), so nothing stays public while Asagiri is off.
 pub fn close_all() {
     let (checking, handles) = with_links(|m| {
-        let checking: Vec<_> = m.extract_if(|_, l| l.checking_name).collect();
+        let checking: Vec<_> = m.extract_if(|_, l| l.starting_named_share).collect();
         let handles: Vec<_> = m.values_mut().filter_map(|l| l.handle.take()).collect();
         (checking, handles)
     });
