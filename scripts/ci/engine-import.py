@@ -451,10 +451,19 @@ def main():
                 helper_tags = {"alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"}
                 assert source_tags.isdisjoint(helper_tags), source_tags
                 imported("volume", volume)
+                helper = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"
+                helper_digests = {}
+                for engine in ("source", "destination"):
+                    info, = json.loads(docker(engine, "image", "inspect", helper).stdout)
+                    refs = info.get("RepoDigests") or []
+                    assert any(ref in (helper, "library/" + helper, "docker.io/library/" + helper)
+                               for ref in refs), (engine, refs)
+                    helper_digests[engine] = refs
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
                 assert get("destination", "/containers/json?all=1") == []
-                case("idle-volume-copy", source_helper_tags_absent=True, bytes=len(payload), sha256=digest,
+                case("idle-volume-copy", source_helper_tags_absent=True, helper_digests=helper_digests,
+                     bytes=len(payload), sha256=digest,
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
