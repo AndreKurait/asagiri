@@ -249,22 +249,7 @@ fn desktop_binds(host: &mut Value) -> io::Result<()> {
 pub fn container(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
-    let cfg = &info["Config"];
-    let image = cfg["Image"].as_str().unwrap_or("").to_owned();
-    if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
-        self::image(source, &image)?;
-    }
-    let mut networks = serde_json::Map::new();
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
-    for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
-        if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
-            let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
-        }
-        // The source's own short ID is no name in Asagiri.
-        let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
-        let aliases: Vec<&Value> = ep["Aliases"].as_array().into_iter().flatten().filter(|a| a.as_str() != Some(short.as_str())).collect();
-        networks.insert(net.clone(), json!({"Aliases": aliases}));
-    }
     let hc = &info["HostConfig"];
     let mut host = json!({
         "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
@@ -278,6 +263,21 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     }
     if let Some(o) = host.as_object_mut() {
         o.retain(|_, v| !v.is_null());
+    }
+    let cfg = &info["Config"];
+    let image = cfg["Image"].as_str().unwrap_or("").to_owned();
+    if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
+        self::image(source, &image)?;
+    }
+    let mut networks = serde_json::Map::new();
+    for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
+        if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
+            let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        }
+        // The source's own short ID is no name in Asagiri.
+        let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
+        let aliases: Vec<&Value> = ep["Aliases"].as_array().into_iter().flatten().filter(|a| a.as_str() != Some(short.as_str())).collect();
+        networks.insert(net.clone(), json!({"Aliases": aliases}));
     }
     let body = json!({
         "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
