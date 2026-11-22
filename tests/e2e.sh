@@ -788,7 +788,13 @@ code build-no-public-resolver 1 bash -c "cd $BD && BUILDX_BUILDER=$BX perl -e 'a
 t build-dns "Address" bash -c "cd $BD && printf 'FROM alpine\nRUN nslookup example.com\n' > Dockerfile.lookup && BUILDX_BUILDER=$BX perl -e 'alarm 300; exec @ARGV' $D build --no-cache --progress plain -f Dockerfile.lookup . 2>&1"
 t build-fails "exit code: 3" bash -c "cd $BD && printf 'FROM alpine\nRUN exit 3\n' > Dockerfile.bad && BUILDX_BUILDER=$BX $D build -f Dockerfile.bad . 2>&1"
 printf 'FROM scratch\nLABEL empty=1\nCMD ["/nothing"]\n' > "$BD/Dockerfile.empty"
-t build-zero-layer-root "stat /nothing: no such file" bash -c 'cd "$1" && BUILDX_BUILDER="$2" perl -e "alarm 60; exec @ARGV" docker build -q -f Dockerfile.empty -t asagiri-test/nolayers . && docker run --rm asagiri-test/nolayers' _ "$BD" "$BX"
+code build-zero-layer-image 0 env BUILDX_BUILDER="$BX" "$D" build -q -f "$BD/Dockerfile.empty" -t asagiri-test/nolayers "$BD"
+code inspect-zero-layer-image 0 bash -c 'layers=$(docker image inspect --format "{{len .RootFS.Layers}}" asagiri-test/nolayers) && [[ $layers == 0 ]]'
+code run-zero-layer-root 0 bash -c '
+  output=$(docker run --rm asagiri-test/nolayers 2>&1)
+  status=$?
+  [[ $status == 127 && $output == *"stat /nothing: no such file"* ]]
+'
 $D rmi asagiri-test/built asagiri-test/net asagiri-test/nolayers >/dev/null 2>&1; rm -rf "$BD"
 
 section "registry: login, push, pull"
