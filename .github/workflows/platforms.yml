@@ -21,10 +21,9 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 concurrency:
-  # Retired main commits must not hold runners while the current source
-  # waits for its release checks. Explicit manual checks remain independent.
+  # Publication checks the release commit, so finish its active main build.
   group: platforms-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'current' }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
