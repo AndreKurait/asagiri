@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Boot a real kind cluster and check node/pod DNS in a disposable Linux engine."""
+from contextlib import ExitStack
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -29,7 +31,17 @@ def check(path, _image):
     env = {**os.environ, "DOCKER_HOST": "unix://" + path, "KIND_EXPERIMENTAL_PROVIDER": "docker"}
     env.pop("DOCKER_CONTEXT", None)
     peer = None
-    with tempfile.TemporaryDirectory(prefix="asagiri-kind-") as directory:
+    with tempfile.TemporaryDirectory(prefix="asagiri-kind-") as directory, ExitStack() as routes:
+        # Reproduce a VPN split default in the private engine's namespace.
+        # Keep the existing gateway and interface so the node can pull images.
+        default = subprocess.check_output(["ip", "-4", "route", "show", "default"], text=True).splitlines()[0].split()
+        gateway = default[default.index("via") + 1]
+        interface = default[default.index("dev") + 1]
+        for prefix in ("0.0.0.0/1", "128.0.0.0/1"):
+            route = [prefix, "via", gateway, "dev", interface]
+            subprocess.run(["ip", "route", "add", *route], check=True)
+            routes.callback(subprocess.run, ["ip", "route", "del", *route], check=True)
+        print(subprocess.check_output(["ip", "-4", "route", "show"], text=True), flush=True)
         root = Path(directory)
         architecture, expected = BINARIES[platform.machine()]
         # Exact official v0.27.0 release binaries and the release's default
@@ -57,11 +69,17 @@ def check(path, _image):
             return command([*docker, "exec", node, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf", *args],
                            timeout=timeout)
 
+        # A reused kind network would bypass the automatic allocation under test.
+        network_names = command([*docker, "network", "ls", "--format", "{{.Name}}"]).splitlines()
+        assert "kind" not in network_names, network_names
         try:
             result = command([str(kind), "create", "cluster", "--name", name, "--image", NODE,
                               "--config", str(config), "--kubeconfig", str(root / "kubeconfig"),
                               "--retain", "--wait", "120s"], timeout=360)
             print(result[-4000:], flush=True)
+            network = json.loads(command([*docker, "network", "inspect", "kind"]))[0]
+            subnets = [entry["Subnet"] for entry in network["IPAM"]["Config"]]
+            assert any(ipaddress.ip_network(subnet).version == 4 for subnet in subnets), subnets
             kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=120s", timeout=130)
             kubectl("-n", "kube-system", "rollout", "status", "deployment/coredns",
                     "--timeout=120s", timeout=130)
@@ -86,7 +104,7 @@ def check(path, _image):
             assert "kind-dns-ok" in output and address in output, output
             nodes = json.loads(kubectl("get", "nodes", "-o", "json"))
             print(json.dumps({"probe": "kind-cluster", "kind": VERSION, "nodeImage": NODE,
-                              "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
+                              "kindNetworkSubnets": subnets, "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
                               "nodeContainerdPull": "passed", "nodeAndPodExternalDNS": "passed",
                               "nodeBareContainerAliasDNS": "passed",
                               "podAbsoluteContainerAliasDNS": "passed"}), flush=True)
