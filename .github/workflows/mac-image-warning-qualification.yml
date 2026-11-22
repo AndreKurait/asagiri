@@ -1,7 +1,7 @@
 name: Native macOS image recovery warning
 on:
   push:
-    branches: [qualification/image-warning-215]
+    branches: [qualification/release-image-warning-215]
     paths: [.github/workflows/mac-image-warning-qualification.yml, tests/mac-image-warning.swift]
 permissions:
   actions: read
@@ -19,10 +19,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download 44936772832 -n macos-ARM64 -D "$RUNNER_TEMP/build"
-          cd "$RUNNER_TEMP/build"
-          shasum -a 256 -c SHA256SUMS
-          chmod +x asagiri
+          cd "$RUNNER_TEMP"
+          archive=Asagiri-0.1.14-dev.181-arm64.tar.gz
+          gh release download v0.1.14-dev.181 -R AndreKurait/asagiri -p "$archive"
+          echo "942f38505f144d30a6698a9ea9ad39a74752b47fa0dc01c8490ba243c47e80d7  $archive" | shasum -a 256 -c -
+          tar -xzf "$archive"
+          cd Asagiri.app/Contents/MacOS
           export HOME="$RUNNER_TEMP/images-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/images-store"
           scratch=$(mktemp -d /tmp/images215.XXXXXX)
           export HOME="$scratch/home"
