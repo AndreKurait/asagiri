@@ -193,18 +193,18 @@ def main():
         return command("docker", "exec", "-i", ids[engine], "docker", "-H", "unix://" + path,
                        *args, **kwargs)
 
-    def imported(kind, name, success=True):
+    def imported(*items, success=True):
         result = command(
             "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
-            "/opt/asagiri-fixtures/asagiri-import-fixture", "desktop-linux", kind, name, check=False,
+            "/opt/asagiri-fixtures/asagiri-import-fixture", "desktop-linux", *items, check=False,
         )
         record["import_commands"].append({
-            "arguments": ["desktop-linux", kind, name], "returncode": result.returncode,
+            "arguments": ["desktop-linux", *items], "returncode": result.returncode,
             "stdout": result.stdout.decode(errors="replace"), "stderr": result.stderr.decode(errors="replace"),
         })
         save()
         text = (result.stdout + result.stderr).decode(errors="replace")
-        assert (result.returncode == 0) == success, (kind, name, result.returncode, text)
+        assert (result.returncode == 0) == success, (items, result.returncode, text)
         return text
 
     def case(name, **details):
@@ -386,8 +386,17 @@ def main():
                 assert request("destination", "GET", "/volumes/" + volume)[0] == 404
                 assert get("destination", "/images/json?all=1") == []
                 case("reject-restarting-before-helper-or-destination")
+                # Freeze the writer in an active state so batch preflight is deterministic.
                 docker("source", "update", "--restart", "no", cid)
                 docker("source", "stop", "-t", "1", cid)
+                blocker = docker("source", "run", "-d", "--network", "none", "-v", volume + ":/data:ro",
+                                 image, "sleep", "600", text=True).stdout.strip()
+                batch_error = imported(success=False)
+                assert "volume " + volume + " failed to import; retry the volume first" in batch_error, batch_error
+                assert request("destination", "GET", "/volumes/" + volume)[0] == 404
+                assert get("destination", "/containers/json?all=1") == []
+                docker("source", "rm", "-f", blocker)
+                case("batch-rejects-dependent-containers-after-volume-failure")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
 
                 payload = bytes(range(256)) * 257
