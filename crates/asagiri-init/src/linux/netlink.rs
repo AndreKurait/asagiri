@@ -914,18 +914,22 @@ fn dnat_rules(chain: &str, d: &Dnat, local: Option<&[[u8; 4]]>) -> Vec<Msg> {
 /// address, as Docker's MASQUERADE rule per network does (NAT66). Matched by
 /// source, as Docker does: an input interface is not known in postrouting.
 fn masq6_rule(subnet: [u8; 16], prefix: u8) -> Msg {
-    let mut rule = nft_in(libc::NFPROTO_IPV6 as u8, NFT_MSG_NEWRULE, NLM_F_ACK | NLM_F_CREATE | 0x800);
+    subnet_masquerade(libc::NFPROTO_IPV6 as u8, 8, subnet, prefix)
+}
+
+fn subnet_masquerade<const N: usize>(family: u8, source_offset: u32, subnet: [u8; N], prefix: u8) -> Msg {
+    let mut rule = nft_in(family, NFT_MSG_NEWRULE, NLM_F_ACK | NLM_F_CREATE | 0x800);
     rule.attr_str(1, "asagiri").attr_str(2, "postrouting");
     rule.nest(4);
-    let mut mask = [0u8; 16];
+    let mut mask = [0u8; N];
     for (i, b) in mask.iter_mut().enumerate() {
         let bits = (prefix as usize).saturating_sub(i * 8).min(8);
         *b = if bits == 0 { 0 } else { 0xffu8 << (8 - bits) };
     }
-    // payload network header + 8 (saddr), 16 bytes => reg 1; reg 1 &= mask; cmp eq subnet
-    rule.nest(1).attr_str(1, "payload").nest(2).attr_be32(1, 1).attr_be32(2, 1).attr_be32(3, 8).attr_be32(4, 16).end().end();
-    rule.nest(1).attr_str(1, "bitwise").nest(2).attr_be32(1, 1).attr_be32(2, 1).attr_be32(3, 16);
-    rule.nest(4).attr(1, &mask).end().nest(5).attr(1, &[0; 16]).end().end().end();
+    // Match the network portion of the packet source address.
+    rule.nest(1).attr_str(1, "payload").nest(2).attr_be32(1, 1).attr_be32(2, 1).attr_be32(3, source_offset).attr_be32(4, N as u32).end().end();
+    rule.nest(1).attr_str(1, "bitwise").nest(2).attr_be32(1, 1).attr_be32(2, 1).attr_be32(3, N as u32);
+    rule.nest(4).attr(1, &mask).end().nest(5).attr(1, &[0; N]).end().end().end();
     rule.nest(1).attr_str(1, "cmp").nest(2).attr_be32(1, 1).attr_be32(2, 0).nest(3).attr(1, &subnet).end().end().end();
     // meta oifname => reg 1; cmp neq the "asagiri" prefix
     rule.nest(1).attr_str(1, "meta").nest(2).attr_be32(1, 1).attr_be32(2, 7).end().end();
@@ -991,7 +995,7 @@ pub fn remove_nat() -> io::Result<()> {
 /// network, or the LAN routed through the Mac, never reach a container.
 /// `apart` are the bridges of `bridges` whose network has `enable_icc` off.
 #[allow(clippy::too_many_arguments)]
-pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, redirect: bool, dnat: &[Dnat], gateway: [u8; 4], bridges: &[String], apart: &[String], local: Option<&[[u8; 4]]>) -> io::Result<()> {
+pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, redirect: bool, dnat: &[Dnat], gateway: [u8; 4], bridges: &[String], apart: &[String], subnets: &[([u8; 4], u8)], local: Option<&[[u8; 4]]>) -> io::Result<()> {
     // The table is replaced, not appended to (on a Linux host it outlives
     // the agent and changes with every published port): see `replace_table`.
     let mut table = nft(NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE);
@@ -1018,7 +1022,10 @@ pub fn install_nat_from(uplink_index: i32, host_addr: [u8; 4], host_port: u16, r
         // A Linux host: no host.docker.internal redirect, but its published
         // ports are DNATed here (prerouting for the LAN, output for the host
         // itself), the whole table rebuilt on every change.
-        let mut msgs = vec![table, chain, rule];
+        let mut msgs = vec![table, chain];
+        for &(subnet, prefix) in subnets {
+            msgs.push(subnet_masquerade(libc::NFPROTO_IPV4 as u8, 12, subnet, prefix));
+        }
         msgs.extend(forward_filter(bridges, apart));
         msgs.extend(localnet_guard());
         msgs.push(nat_chain("prerouting", 0, -100));
@@ -1240,6 +1247,20 @@ mod tests {
         }
         // A bridge that is not among the ones made gets no rule.
         assert_eq!(forward_filter(&["asagiri1".to_owned()], &["asagiri9".to_owned()]).len(), 6);
+    }
+
+    #[test]
+    fn ipv4_masquerade_matches_bridge_subnet_on_external_routes() {
+        let subnet = [10, 219, 128, 0];
+        let rule = subnet_masquerade(libc::NFPROTO_IPV4 as u8, 12, subnet, 17);
+        assert_eq!(names(&rule), ["payload", "bitwise", "cmp", "meta", "cmp", "masq"]);
+        let e = exprs(&rule);
+        assert_eq!((be32(get(&e[0].1, 3)), be32(get(&e[0].1, 4))), (12, 4));
+        assert_eq!(get(&attrs(get(&e[1].1, 4)), 1), &[255, 255, 128, 0]);
+        assert_eq!(get(&attrs(get(&e[2].1, 3)), 1), &subnet);
+        assert_eq!(be32(get(&e[3].1, 2)), 7);
+        assert_eq!(be32(get(&e[4].1, 2)), 1);
+        assert_eq!(get(&attrs(get(&e[4].1, 3)), 1), BRIDGE_PREFIX);
     }
 
     #[test]
