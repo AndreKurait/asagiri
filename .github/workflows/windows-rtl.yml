@@ -37,10 +37,14 @@ jobs:
           if (Test-Path $profileDir) { throw 'Expected a fresh hosted Windows user profile' }
           $env:RTL_APP = $app
           $env:RTL_DOCKER = $docker
+          $launchTime = Get-Date
           try {
             python "$env:GITHUB_WORKSPACE/tests/windows-rtl-restart.py"
             if ($LASTEXITCODE) { throw 'RTL restart qualification failed' }
           } finally {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000,1001; StartTime=$launchTime} -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'asagiri-win\.exe' } |
+              Select-Object TimeCreated,Id,Message | Format-List
             Get-Process asagiri-win,msedgewebview2 -ErrorAction SilentlyContinue | Select-Object ProcessName,Id,SessionId
             $appLog = Join-Path $profileDir 'asagiri-win.log'
             if (Test-Path $appLog) { Get-Content $appLog -Tail 50 }
