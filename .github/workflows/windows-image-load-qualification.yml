@@ -35,8 +35,34 @@ jobs:
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
           if (!$imported) {
-            wsl.exe --import asagiri "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+            python -m pip install playwright
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
+            $wizard = Start-Process $app -PassThru
+            @'
+          import time
+          from playwright.sync_api import sync_playwright, Error
+          with sync_playwright() as pw:
+              for attempt in range(60):
+                  try:
+                      browser = pw.chromium.connect_over_cdp('http://127.0.0.1:9222')
+                      break
+                  except Error:
+                      if attempt == 59:
+                          raise
+                      time.sleep(1)
+              page = browser.contexts[0].pages[0]
+              page.locator('#lang-go, #chooseBtn').first.wait_for(timeout=120000)
+              if page.locator('#lang-go').is_visible():
+                  page.locator('#lang-go').click()
+              page.locator('#chooseBtn').click()
+              page.locator('[data-cmd="setup-open"]').click(timeout=600000)
+          '@ | python -
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $saved = Get-Content (Join-Path $bundle 'setup.json') -Raw | ConvertFrom-Json
+            if (!$saved.done -or $saved.distro -ne 'asagiri') { throw 'Windows setup did not complete' }
+            Stop-Process -Id $wizard.Id -Force
+            Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
             $imported = $true
           }
           $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
