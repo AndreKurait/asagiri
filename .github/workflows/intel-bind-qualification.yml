@@ -80,11 +80,13 @@ jobs:
           docker version
           probe_host_dns after-daemon-ready
           for attempt in 1 2 3; do
-            if docker run --rm alpine:3.21 true; then break; fi
-            echo "Guest console after failed container attempt $attempt"
+            if docker pull alpine:3.21; then break; fi
+            echo "Guest console after failed image pull attempt $attempt"
             find "$HOME" -type f -name guest-console.log -exec tail -n 160 {} \;
             test "$attempt" != 3
           done
+          probe_host_dns after-alpine-pull
+          docker run --rm --pull=never alpine:3.21 true
           probe_host_dns after-first-container
           # Isolate builder admission from registry downloads and DDEV startup.
           mkdir "$scratch/build-probe"
