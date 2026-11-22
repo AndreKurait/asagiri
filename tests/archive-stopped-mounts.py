@@ -51,13 +51,23 @@ def check(path, image):
             # container before its process has ever started.
             call('run', '--rm', '--network', 'none', '-v', volume + ':/data', image,
                  'sh', '-c', 'printf "17\\n" > /data/PG_VERSION')
-            cid = call('create', '--network', 'none', '-v', volume + ':/data', image, 'true').decode().strip()
+            cid = call('create', '--read-only', '--network', 'none', '-v', volume + ':/data', image, 'true').decode().strip()
             containers.append(cid)
             for phase in ('created', 'exited'):
                 if phase == 'exited':
                     call('start', '-a', cid)
                 row = json.loads(call('inspect', cid))[0]
                 assert row['State']['Status'] == phase and not row['State']['Running'], row['State']
+                marker = 'probe-' + phase
+                root_file = cid + ':/etc/' + marker
+                denied = subprocess.run(docker + ['cp', str(local), root_file], capture_output=True, timeout=30)
+                assert denied.returncode != 0, 'copy unexpectedly wrote to the read-only root'
+                missing = subprocess.run(docker + ['cp', root_file, '-'], capture_output=True, timeout=30)
+                assert missing.returncode != 0, 'failed upload left a file on the read-only root'
+                volume_file = cid + ':/data/' + marker
+                call('cp', str(local), volume_file)
+                with tarfile.open(fileobj=io.BytesIO(call('cp', volume_file, '-'))) as tar:
+                    assert tar.extractfile(tar.getmembers()[0]).read() == payload
                 archive = call('cp', cid + ':/data/PG_VERSION', '-')
                 with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                     assert tar.extractfile(tar.getmembers()[0]).read() == b'17\n'
