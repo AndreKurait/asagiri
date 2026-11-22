@@ -167,7 +167,8 @@ jobs:
           import win32api, win32con
           win32api.PostMessage(window.handle, win32con.WM_APP + 2, 1, win32con.WM_CONTEXTMENU)
           import win32gui, win32process
-          from pywinauto.keyboard import send_keys
+          from pywinauto import mouse
+          from ctypes.wintypes import RECT
           deadline = time.monotonic() + 30
           while time.monotonic() < deadline:
               menus = []
@@ -191,7 +192,10 @@ jobs:
           print('Native tray entries:', labels, flush=True)
           if labels[-2:] != ['Check for Updates…', 'Quit Asagiri']:
               raise RuntimeError('Unexpected tray menu layout')
-          send_keys('{END}{UP}{ENTER}')
+          rect = RECT()
+          if not ctypes.windll.user32.GetMenuItemRect(None, ctypes.c_void_p(native_menu), count - 2, ctypes.byref(rect)):
+              raise RuntimeError('Cannot locate the update menu item on screen')
+          mouse.click(coords=((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2))
           print('Invoked tray menu Check for Updates', flush=True)
           for label in ['Restart engine']:
               deadline = time.monotonic() + 90
