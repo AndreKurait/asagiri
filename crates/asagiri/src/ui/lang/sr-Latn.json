@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ga ponovo povezuje kada se vrati. Prestanite da čekate da biste ga ostavili na ovom računaru.",
   "Waiting to come back": "Čeka da se vrati",
   "No languages match": "Nijedan jezik se ne poklapa",
-  "Cut": "Iseci"
+  "Cut": "Iseci",
+  "Close the window to the tray": "Skloni prozor u sistemsku kasetu pri zatvaranju",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Kada zatvorite prozor, Asagiri ostaje u sistemskoj kaseti i pogon nastavlja da radi. Ako isključite ovu opciju, zatvaranje prozora završava rad aplikacije kao i ranije."
 }

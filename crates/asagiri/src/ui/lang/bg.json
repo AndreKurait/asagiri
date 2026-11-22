@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ще го закачи отново, когато се върне. Спрете чакането, за да остане на този компютър.",
   "Waiting to come back": "Чака да се върне",
   "No languages match": "Няма съвпадащи езици",
-  "Cut": "Изрежи"
+  "Cut": "Изрежи",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

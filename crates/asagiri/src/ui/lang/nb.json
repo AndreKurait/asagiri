@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri kobler den til igjen når den er tilbake. Slutt å vente for å la den bli på denne datamaskinen.",
   "Waiting to come back": "Venter på at den kommer tilbake",
   "No languages match": "Ingen språk samsvarer",
-  "Cut": "Klipp ut"
+  "Cut": "Klipp ut",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

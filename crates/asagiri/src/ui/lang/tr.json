@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri geri geldiğinde onu yeniden bağlar. Bu bilgisayarda kalması için beklemeyi bırakın.",
   "Waiting to come back": "Geri gelmesi bekleniyor",
   "No languages match": "Eşleşen dil yok",
-  "Cut": "Kes"
+  "Cut": "Kes",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

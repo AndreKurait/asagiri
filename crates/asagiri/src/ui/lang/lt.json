@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri vėl jį prijungs, kai jis grįš. Nustokite laukti, kad jis liktų šiame kompiuteryje.",
   "Waiting to come back": "Laukia, kol grįš",
   "No languages match": "Atitinkančių kalbų nėra",
-  "Cut": "Iškirpti"
+  "Cut": "Iškirpti",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri îl atașează din nou când revine. Nu mai așteptați ca să rămână pe acest computer.",
   "Waiting to come back": "Așteaptă să revină",
   "No languages match": "Nicio limbă nu se potrivește",
-  "Cut": "Decupează"
+  "Cut": "Decupează",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

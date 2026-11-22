@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Το Asagiri τη συνδέει ξανά μόλις επιστρέψει. Σταματήστε την αναμονή για να μείνει σε αυτόν τον υπολογιστή.",
   "Waiting to come back": "Αναμονή επιστροφής",
   "No languages match": "Δεν βρέθηκαν γλώσσες",
-  "Cut": "Αποκοπή"
+  "Cut": "Αποκοπή",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

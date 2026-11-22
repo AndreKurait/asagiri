@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "裝置回來後 Asagiri 會再次接上。停止等待即可把它留在這台電腦上。",
   "Waiting to come back": "等待重新接上",
   "No languages match": "沒有符合的語言",
-  "Cut": "剪下"
+  "Cut": "剪下",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

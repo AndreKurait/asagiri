@@ -21,6 +21,8 @@ use mac as window;
 #[cfg(target_os = "linux")]
 mod gtk;
 #[cfg(target_os = "linux")]
+mod tray;
+#[cfg(target_os = "linux")]
 use gtk as window;
 pub use window::run;
 #[cfg(target_os = "macos")]
@@ -506,7 +508,7 @@ fn trf(en: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 }
 
 fn set_pref(name: &str, value: serde_json::Value) {
-    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked") {
+    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked" | "closeToTray") {
         return;
     }
     let Some(path) = prefs_path() else { return };
@@ -514,6 +516,9 @@ fn set_pref(name: &str, value: serde_json::Value) {
     if !all.is_object() {
         all = serde_json::json!({});
     }
+    // Whether the tray setting just turned on: read before `value` moves
+    // into the saved prefs below.
+    let close_to_tray = name == "closeToTray" && value == true;
     // Crash reports go from when they're turned on: crashes from before that
     // wait for the person to pick them.
     if name == "crashReports" {
@@ -532,6 +537,13 @@ fn set_pref(name: &str, value: serde_json::Value) {
     }
     if name == "lang" {
         window::relang();
+    }
+    // Linux only, and only with the window: Windows and macOS always have
+    // their tray, so they have no such setting. Read before `value` moved
+    // into the saved prefs above.
+    #[cfg(target_os = "linux")]
+    if name == "closeToTray" {
+        window::set_close_to_tray(close_to_tray);
     }
 }
 

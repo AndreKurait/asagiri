@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri จะเชื่อมต่ออีกครั้งเมื่อกลับมา หยุดรอเพื่อให้อยู่กับคอมพิวเตอร์นี้",
   "Waiting to come back": "กำลังรอให้กลับมา",
   "No languages match": "ไม่มีภาษาที่ตรงกัน",
-  "Cut": "ตัด"
+  "Cut": "ตัด",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

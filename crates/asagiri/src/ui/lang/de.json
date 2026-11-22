@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri verbindet es wieder, sobald es zurück ist. Nicht mehr warten, damit es an diesem Computer bleibt.",
   "Waiting to come back": "Wartet auf Rückkehr",
   "No languages match": "Keine passenden Sprachen",
-  "Cut": "Ausschneiden"
+  "Cut": "Ausschneiden",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

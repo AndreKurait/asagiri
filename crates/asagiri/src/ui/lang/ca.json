@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri el tornarà a connectar quan torni. Deixa d'esperar per deixar-lo en aquest ordinador.",
   "Waiting to come back": "Esperant que torni",
   "No languages match": "Cap idioma no coincideix",
-  "Cut": "Retalla"
+  "Cut": "Retalla",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

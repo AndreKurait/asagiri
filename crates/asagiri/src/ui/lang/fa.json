@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri وقتی برگردد دوباره وصلش می‌کند. انتظار را متوقف کنید تا روی این رایانه بماند.",
   "Waiting to come back": "در انتظار بازگشت",
   "No languages match": "هیچ زبانی پیدا نشد",
-  "Cut": "برش"
+  "Cut": "برش",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

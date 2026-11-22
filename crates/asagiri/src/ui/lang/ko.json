@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "돌아오면 Asagiri가 다시 연결합니다. 이 컴퓨터에 두려면 기다리기를 멈추세요.",
   "Waiting to come back": "돌아오기를 기다리는 중",
   "No languages match": "일치하는 언어가 없습니다",
-  "Cut": "잘라내기"
+  "Cut": "잘라내기",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

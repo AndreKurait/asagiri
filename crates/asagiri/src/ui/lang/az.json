@@ -1701,5 +1701,7 @@
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "Girişi söndürəndə qoşulmuş müştərilərin yeni sorğuları bloklanır. Mühərrikə artıq göndərilmiş əməliyyatlar tamamlana bilər.",
   "Enable MCP access": "MCP girişini aktivləşdir",
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Mühərrikin vəziyyətini, konteynerləri, son jurnalları, obrazları, cildləri və şəbəkələri oxuyun. Tətbiq jurnallarında məxfi məlumat ola bilər.",
-  "Cut": "Kəs"
+  "Cut": "Kəs",
+  "Close the window to the tray": "Pəncərəni sistem panelinə yığ",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Pəncərə bağlandıqda Asagiri sistem panelində qalır və mühərrik işləməyə davam edir. Bu seçim söndürüldükdə pəncərənin bağlanması əvvəlki kimi tətbiqdən çıxır."
 }

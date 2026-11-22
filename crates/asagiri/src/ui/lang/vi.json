@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri sẽ gắn lại khi thiết bị quay lại. Ngừng chờ để để nó lại trên máy tính này.",
   "Waiting to come back": "Đang chờ quay lại",
   "No languages match": "Không có ngôn ngữ nào khớp",
-  "Cut": "Cắt"
+  "Cut": "Cắt",
+  "Close the window to the tray": "Close the window to the tray",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before."
 }

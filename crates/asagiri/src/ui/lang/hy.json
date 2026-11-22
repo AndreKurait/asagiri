@@ -1701,5 +1701,7 @@
   "— the log stream ended —": "— մատյանի հոսքն ավարտվեց —",
   "‹ Back": "‹ Հետ",
   "★ Star on GitHub": "★ Աստղ տալ GitHub-ում",
-  "✓ Installed": "✓ Տեղադրված է"
+  "✓ Installed": "✓ Տեղադրված է",
+  "Close the window to the tray": "Պատուհանը փակելիս թաքցնել համակարգային սկուտեղում",
+  "Closing the window leaves Asagiri in the tray; the engine keeps running. Off quits when the window closes, as before.": "Պատուհանը փակելիս Asagiri-ն մնում է համակարգային սկուտեղում, իսկ շարժիչը շարունակում է աշխատել։ Եթե այս կարգավորումն անջատված է, պատուհանը փակելիս հավելվածը նախկինի պես ավարտում է աշխատանքը։"
 }
