@@ -51,23 +51,29 @@ jobs:
             @'
           import sys
           import time
+          from comtypes import COMError
           from pywinauto import Desktop
           window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
           window.wait('visible', timeout=90)
           for target, timeout in [('chooseBtn', 120), ('Open Asagiri', 600)]:
               deadline = time.monotonic() + timeout
               while time.monotonic() < deadline:
-                  controls = window.descendants()
-                  button = next((c for c in controls if c.is_enabled() and
-                                 (c.element_info.automation_id == target or
-                                  (c.element_info.control_type == 'Button' and c.window_text() == target))), None)
-                  if button:
-                      button.invoke()
-                      break
-                  language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
-                  if language:
-                      print('Invoking language Continue via UI Automation', flush=True)
-                      language.invoke()
+                  try:
+                      controls = window.descendants()
+                      button = next((c for c in controls if c.is_enabled() and
+                                     (c.element_info.automation_id == target or
+                                      (c.element_info.control_type == 'Button' and c.window_text() == target))), None)
+                      if button:
+                          button.invoke()
+                          break
+                      language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
+                      if language:
+                          print('Invoking language Continue via UI Automation', flush=True)
+                          language.invoke()
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                      print('UI element disappeared during refresh; querying again', flush=True)
                   time.sleep(1)
               else:
                   raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
