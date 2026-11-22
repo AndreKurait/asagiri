@@ -1104,6 +1104,7 @@ mod tests {
             try {
                 const container = {Id: 'focus-probe', Names: ['/focus-probe'], Image: 'redis:alpine', State: 'running', Ports: []};
                 const refresh = image => asagiri.on({type: 'lists', containers: [{...container, Image: image}], images: [], volumes: [], networks: []});
+                asagiri.on({type: 'state', state: 'running'});
                 refresh(container.Image);
                 show('containers');
                 openDetail(container.Id);
