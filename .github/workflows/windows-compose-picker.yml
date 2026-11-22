@@ -51,14 +51,17 @@ jobs:
                   window.wait("visible", timeout=120)
                   def visible(pattern):
                       import re
+                      from pywinauto.controls.uiawrapper import UIAWrapper
                       deadline = time.monotonic() + 90
                       while time.monotonic() < deadline:
-                          controls = window.descendants()
+                          controls = window.element_info.descendants()
                           for control in controls:
-                              if re.fullmatch(pattern, control.window_text(), re.I) and control.is_visible():
-                                  return control
+                              if control.control_type and re.fullmatch(pattern, control.name or "", re.I):
+                                  wrapped = UIAWrapper(control)
+                                  if wrapped.is_visible():
+                                      return wrapped
                           time.sleep(1)
-                      raise RuntimeError(f"Missing {pattern}: {[(c.element_info.control_type, c.window_text()[:80]) for c in controls][:120]}")
+                      raise RuntimeError(f"Missing {pattern}: {[(c.control_type, (c.name or "")[:80]) for c in controls][:120]}")
                   visible(r"Compose(?:\s+Beta)?(?:\s+\d+)?").click_input()
                   if attempt == 0:
                       visible(r"Open a compose file.*").click_input()
