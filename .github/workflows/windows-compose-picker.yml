@@ -64,6 +64,8 @@ jobs:
                       raise RuntimeError(f"Missing {pattern}: {[(c.control_type, (c.name or "")[:80]) for c in controls][:120]}")
                   if attempt == 0:
                       visible("Continue").click_input()
+                      visible(r"localhost By port\..*").click_input()
+                      visible("Continue").click_input()
                   visible(r"Compose(?:\s+Beta)?(?:\s+\d+)?").click_input()
                   if attempt == 0:
                       visible(r"Open a compose file.*").click_input()
