@@ -1,0 +1,38 @@
+name: macOS tool installation through a trusted proxy
+on:
+  push:
+    branches: [qualification/mac-tool-proxy-144]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo test --locked -p asagiri --bin asagiri --no-run
+      - run: brew install mitmproxy
+      - name: Install the pinned Docker CLI, Compose and buildx through the proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ca_dir="$RUNNER_TEMP/tool-proxy-ca"
+          mitmdump --listen-host 127.0.0.1 --listen-port 18144 --set "confdir=$ca_dir" > "$RUNNER_TEMP/tool-proxy.log" 2>&1 &
+          proxy_pid=$!
+          trap 'kill "$proxy_pid" || true' EXIT
+          ca="$ca_dir/mitmproxy-ca-cert.pem"
+          for attempt in {1..100}; do [[ -s "$ca" ]] && break; sleep 0.2; done
+          test -s "$ca"
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca"
+          export HTTPS_PROXY=http://127.0.0.1:18144
+          export ASAGIRI_DATA_DIR="$RUNNER_TEMP/tool-install" ASAGIRI_LIVE_TOOLS=1
+          cargo test --locked -p asagiri --bin asagiri tools::tests::tools_download -- --exact --nocapture
+          "$ASAGIRI_DATA_DIR/cli/docker" --version
+          "$ASAGIRI_DATA_DIR/cli/cli-plugins/docker-compose" version
+          "$ASAGIRI_DATA_DIR/cli/cli-plugins/docker-buildx" version
+          kill -INT "$proxy_pid"
+          wait "$proxy_pid" || true
+          grep -F 'download.docker.com' "$RUNNER_TEMP/tool-proxy.log"
+          grep -F 'github.com' "$RUNNER_TEMP/tool-proxy.log"
