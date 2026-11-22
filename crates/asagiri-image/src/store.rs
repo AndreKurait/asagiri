@@ -184,6 +184,19 @@ impl Store {
         &self.root
     }
 
+    /// Retained originals from index repairs, including repairs before a daemon restart.
+    pub fn image_index_backups(&self) -> io::Result<Vec<PathBuf>> {
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if entry.file_name().to_string_lossy().starts_with("images.json.corrupt.") && entry.file_type()?.is_file() {
+                paths.push(entry.path());
+            }
+        }
+        paths.sort();
+        Ok(paths)
+    }
+
     /// An archive's unverified and unselected blobs stay outside the live store.
     pub(crate) fn stage_archive(&self) -> io::Result<ArchiveStage> {
         loop {
@@ -860,6 +873,7 @@ mod tests {
         let backups: Vec<_> = fs::read_dir(&root).unwrap().map(Result::unwrap)
             .filter(|e| e.file_name().to_string_lossy().starts_with("images.json.corrupt.")).collect();
         assert_eq!(backups.len(), 1);
+        assert_eq!(Store::open(&root).unwrap().image_index_backups().unwrap(), [backups[0].path()]);
         assert_eq!(fs::read(backups[0].path()).unwrap(), corrupt);
         store.put_image(index_image("new:latest".into())).unwrap();
         assert_eq!(store.images().unwrap().len(), 2);
