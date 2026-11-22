@@ -24,6 +24,8 @@ PACKAGE_JOBS = {
     "Windows packages (arm64)", "Windows packages (x86_64)",
     "Windows Arm installer check",
 }
+JAMMY_JOB = "Build and launch the amd64 desktop deb on Ubuntu 22.04"
+JAMMY_SCRIPT = "scripts/ci/jammy-desktop.sh"
 QEMU_JOB = "Intel emulator and corresponding source"
 QEMU_RELEASE = "packaging/qemu/release.json"
 QEMU_SOURCE = "asagiri-qemu-source.tar.xz"
@@ -217,10 +219,11 @@ def recover_packages(repo, run_id):
         raise SystemExit("Only a failed official main or version-tag release can supply packages")
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     jobs = pages(repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
-    source_marker = run("git", "ls-tree", "--name-only", commit, QEMU_RELEASE).stdout.strip()
-    if source_marker not in ("", QEMU_RELEASE):
-        raise SystemExit("Unexpected QEMU release declaration")
-    expected_jobs = PACKAGE_JOBS | ({QEMU_JOB} if source_marker else set())
+    marker_jobs = {QEMU_RELEASE: QEMU_JOB, JAMMY_SCRIPT: JAMMY_JOB}
+    markers = run("git", "ls-tree", "--name-only", commit, *marker_jobs).stdout.splitlines()
+    if set(markers) - marker_jobs.keys():
+        raise SystemExit("Unexpected release packaging declaration")
+    expected_jobs = PACKAGE_JOBS | {marker_jobs[path] for path in markers}
     if len(jobs) != len(expected_jobs) + 1 or {job["name"] for job in jobs} != expected_jobs | {PUBLISH_JOB}:
         raise SystemExit("Recovery requires every native packaging and installer job")
     for job in jobs:
