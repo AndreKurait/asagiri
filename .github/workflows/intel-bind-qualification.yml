@@ -102,6 +102,7 @@ jobs:
           probe_host_dns after-project-config
           for action in start restart; do
             if ! ddev "$action"; then
+              probe_host_dns "after-failed-$action"
               for registry_host in registry-1.docker.io auth.docker.io; do
                 dscacheutil -q host -a name "$registry_host"
                 curl --max-time 10 -sS -o /dev/null -w '%{http_code}\n' "https://$registry_host/" || true
