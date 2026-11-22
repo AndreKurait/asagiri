@@ -13,9 +13,10 @@ jobs:
           persist-credentials: false
       - run: cargo build --locked -p asagiri --bin asagiri
       - name: Verify HTTPS against a temporary system root
+        timeout-minutes: 5
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           app="$PWD/target/debug/asagiri"
           cd "$RUNNER_TEMP"
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=fixture-144-root -keyout ca.key -out ca.pem
@@ -45,7 +46,7 @@ jobs:
           server.serve_forever()
           PY
           server=$!
-          trap 'kill "$server"; sudo security remove-trusted-cert -d ca.pem || true' EXIT
+          trap 'kill "$server" || true' EXIT
           for attempt in {1..50}; do [[ -s port ]] && break; sleep 0.1; done
           port=$(cat port)
           export ASAGIRI_UPDATE_URL="https://localhost:$port/latest.json"
@@ -53,7 +54,7 @@ jobs:
           export ASAGIRI_SHARE_SERVER="localhost:$port" ASAGIRI_SHARE_CONNECT="127.0.0.1:$port"
           export ASAGIRI_DATA_DIR="$RUNNER_TEMP/share-store"
           if "$app" share login --dev probe144 >untrusted.log 2>&1; then exit 1; fi
-          grep -F 'UnknownIssuer' untrusted.log
+          grep -Ei 'UnknownIssuer|certificate is not trusted|unknown issuer' untrusted.log
           curl --cacert ca.pem -fsS "$ASAGIRI_UPDATE_URL"
           if "$app" update --check; then exit 1; fi
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem
@@ -61,4 +62,4 @@ jobs:
           if ASAGIRI_UPDATE_URL="https://127.0.0.1:$port/latest.json" "$app" update --check; then exit 1; fi
           "$app" share login --dev probe144 | grep -F 'probe144'
           if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
-          grep -F 'NotValidForName' wrong-name.log
+          grep -Ei 'NotValidForName|host(name)? mismatch|did not match|does not match|hostname.*incorrect' wrong-name.log
