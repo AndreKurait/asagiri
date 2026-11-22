@@ -260,7 +260,7 @@ fn unpack(blob: &mut impl Read, media_type: &str, dest: &Path, compressed: u64) 
 /// reads: `.wh.name` becomes a 0:0 character device `name`, and
 /// `.wh..wh..opq` marks its directory opaque.
 fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
-    let mut archive = tar::Archive::new(reader);
+    let mut archive = tar::Archive::new(super::tarnum::GoNumbers::new(reader));
     archive.set_preserve_permissions(true);
     archive.set_preserve_ownerships(true);
     archive.set_preserve_mtime(true);
@@ -491,7 +491,7 @@ fn pax_node_time(value: &[u8]) -> io::Result<libc::timespec> {
     let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid PAX layer timestamp");
     let value = std::str::from_utf8(value).map_err(|_| invalid())?;
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
-    let mut seconds: libc::time_t = whole.parse().map_err(|_| invalid())?;
+    let mut seconds: i64 = whole.parse().map_err(|_| invalid())?;
     let mut nanos: libc::c_long = 0;
     for (index, digit) in fraction.bytes().enumerate() {
         if !digit.is_ascii_digit() { return Err(invalid()); }
