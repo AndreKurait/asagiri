@@ -37,7 +37,10 @@ if [ -n "$ASAGIRI_EXPECTED_VERSION" ] && [ "$version" != "$ASAGIRI_EXPECTED_VERS
   echo "Expected Asagiri $ASAGIRI_EXPECTED_VERSION; installed engine reports $version" >&2
   exit 1
 fi
-runuser -u ec2-user -- timeout -s KILL 120 "$cli" --context asagiri run --rm alpine:3.21 echo AL2023-OK
+if [ -n "${ASAGIRI_CI_PERF_IMAGE:-}" ]; then
+  "$cli" -H unix:///run/asagiri/docker.sock load -i /alpine.tar
+fi
+runuser -u ec2-user -- timeout -s KILL 120 "$cli" --context asagiri run --rm "${ASAGIRI_CI_PERF_IMAGE:-alpine:3.21}" echo AL2023-OK
 kill "$engine"
 wait "$engine" || true
 trap - EXIT
