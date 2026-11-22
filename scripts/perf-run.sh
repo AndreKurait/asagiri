@@ -26,6 +26,8 @@ stop() {
   docker volume rm "$PREFIX-base-lib" "$PREFIX-base-store" "$PREFIX-head-lib" "$PREFIX-head-store" >/dev/null 2>&1 || true
 }
 trap stop EXIT
+# Both isolated engines use the same Docker Hub mirror for the pinned Alpine pull.
+printf '%s\n' '{"registry-mirrors":["https://mirror.gcr.io"]}' > "$WORK/$PREFIX-daemon.json"
 for e in base head; do
   bin=$BASE_BIN; [ $e = head ] && bin=$HEAD_BIN
   set -- "$bin/"*-init
@@ -38,6 +40,7 @@ for e in base head; do
   # when the two builds differ in where they would put it.
   docker run -d --name "$PREFIX-$e" --privileged --tmpfs /run \
     -v "$PREFIX-$e-lib:/var/lib/$engine" -v "$PREFIX-$e-store:/root/.local/share/$engine" \
+    -v "$WORK/$PREFIX-daemon.json:/root/.$engine/daemon.json:ro" \
     -v "$bin:/opt/engine:ro" -v "$WORK/$PREFIX-$e-run:/bench" \
     -e "$socket_var=/bench/docker.sock" \
     "${ASAGIRI_CI_PERF_IMAGE:-alpine:3.21}" "/opt/engine/$engine" daemon >/dev/null
