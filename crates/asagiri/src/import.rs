@@ -227,12 +227,19 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
 /// command, environment, labels, ports, mounts, restart policy and its
 /// networks (made in Asagiri first if missing). Its image must be in Asagiri.
 pub fn container(source: &str, name: &str) -> io::Result<()> {
+    container_after_volumes(source, name, &[])
+}
+
+fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
     // Docker creates missing named volumes as empty volumes during container
     // creation. Refuse that implicit creation when moving a source container.
     for mount in info["Mounts"].as_array().into_iter().flatten().filter(|m| m["Type"] == "volume") {
         let Some(volume) = mount["Name"].as_str().filter(|v| !v.is_empty() && !anonymous(v)) else { continue };
+        if failed_volumes.iter().any(|failed| failed == volume) {
+            return Err(io::Error::other(format!("{name}: volume {volume} failed to import; retry the volume first")));
+        }
         let found = json_lines(crate::flavor::CONTEXT.get(), &["volume", "inspect", "--format", "{{json .Name}}", "--", volume])
             .map_err(|e| io::Error::other(format!("{name}: import volume {volume} first: {e}")))?;
         if !found.iter().any(|v| v.as_str() == Some(volume)) {
@@ -276,6 +283,31 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
         return Err(io::Error::other(r.error()));
     }
     Ok(())
+}
+
+/// Retain dependency failures across the selected items in a CLI or desktop import.
+#[derive(Default)]
+pub struct ImportBatch {
+    failed_volumes: Vec<String>,
+}
+
+impl ImportBatch {
+    pub fn item(&mut self, source: &str, kind: &str, name: &str) -> io::Result<()> {
+        match kind {
+            "images" => image(source, name),
+            "volumes" => {
+                let result = volume(source, name);
+                if result.is_err() {
+                    self.failed_volumes.push(name.to_owned());
+                } else {
+                    self.failed_volumes.retain(|failed| failed != name);
+                }
+                result
+            }
+            "containers" => container_after_volumes(source, name, &self.failed_volumes),
+            _ => Err(io::Error::other(format!("unknown import kind {kind}"))),
+        }
+    }
 }
 
 /// Whether `ctx`'s engine answers.
@@ -376,6 +408,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
         }
         return Ok(());
     }
+    let mut batch = ImportBatch::default();
     let mut failed = 0;
     let mut step = |what: &str, name: &str, r: io::Result<()>| match r {
         Ok(()) => println!("{what} {name}: done"),
@@ -386,15 +419,15 @@ pub fn run(args: &[String]) -> io::Result<()> {
     };
     for v in list("images").iter().filter(|v| v["have"] != true) {
         let n = v["name"].as_str().unwrap_or("");
-        step("image", n, image(source, n));
+        step("image", n, batch.item(source, "images", n));
     }
     for v in list("volumes").iter().filter(|v| v["have"] != true && v["anonymous"] != true) {
         let n = v["name"].as_str().unwrap_or("");
-        step("volume", n, volume(source, n));
+        step("volume", n, batch.item(source, "volumes", n));
     }
     for v in list("containers").iter().filter(|v| v["have"] != true) {
         let n = v["name"].as_str().unwrap_or("");
-        step("container", n, container(source, n));
+        step("container", n, batch.item(source, "containers", n));
     }
     if failed > 0 { Err(io::Error::other(format!("{failed} items could not be imported"))) } else { Ok(()) }
 }

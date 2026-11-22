@@ -1871,10 +1871,11 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             let (source, picked, tx) = (msg.name, msg.value, tx.clone());
             std::thread::spawn(move || {
                 let (mut done, mut failed) = (0, 0);
-                for (kind, f) in [("images", import::image as fn(&str, &str) -> io::Result<()>), ("volumes", import::volume), ("containers", import::container)] {
+                let mut batch = import::ImportBatch::default();
+                for kind in ["images", "volumes", "containers"] {
                     for name in picked[kind].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
                         emit(serde_json::json!({"type": "importstep", "kind": kind, "name": name, "state": "running"}).to_string());
-                        match f(&source, name) {
+                        match batch.item(&source, kind, name) {
                             Ok(()) => {
                                 done += 1;
                                 emit(serde_json::json!({"type": "importstep", "kind": kind, "name": name, "state": "done"}).to_string());
