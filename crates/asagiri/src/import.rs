@@ -107,13 +107,13 @@ pub fn inventory(source: &str) -> io::Result<Value> {
 
 /// `docker --context src save IMAGE | docker --context asagiri load`.
 pub fn image(source: &str, name: &str) -> io::Result<()> {
-    image_with_cli(known(source)?, name, &cli)
+    image_with_cli(known(source)?, name, &cli).map(|_| ())
 }
 
-fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<Option<String>> {
     let mut save = make_cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let out = save.stdout.take().ok_or_else(|| io::Error::other("no output from docker save"))?;
-    let load = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let load = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::piped()).stderr(Stdio::piped()).output()?;
     let saved = save.wait_with_output()?;
     if !saved.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&saved.stderr).trim())));
@@ -121,7 +121,10 @@ fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Comm
     if !load.status.success() {
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&load.stderr).trim())));
     }
-    Ok(())
+    let output = String::from_utf8_lossy(&load.stdout);
+    let mut lines = output.lines();
+    let loaded_id = lines.next().and_then(|line| line.strip_prefix("Loaded image ID: "));
+    Ok(loaded_id.filter(|id| lines.next().is_none() && id.strip_prefix("sha256:").is_some_and(anonymous)).map(str::to_owned))
 }
 
 /// An image with `tar` that both engines have, for the volume helpers.
@@ -229,15 +232,13 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     let cfg = &info["Config"];
     let mut image = cfg["Image"].as_str().unwrap_or("").to_owned();
     if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
-        self::image(source, &image)?;
-        // Classic Docker archives omit repository digests. A full source image
-        // ID can identify the loaded content when the registry name is lost.
+        let loaded_id = image_with_cli(ctx, &image, &cli)?;
+        // An untagged archive can lose the registry digest during load. Use the
+        // content ID returned for this transfer, including on containerd sources
+        // whose inspect ID identifies a manifest list instead of its config.
         if image.contains("@sha256:") {
-            if let Some(id) = info["Image"].as_str().filter(|id| id.strip_prefix("sha256:").is_some_and(anonymous)) {
-                let inspected = json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", id]);
-                if inspected.is_ok_and(|rows| rows.first().and_then(Value::as_str) == Some(id)) {
-                    image = id.to_owned();
-                }
+            if let Some(id) = loaded_id {
+                image = id;
             }
         }
     }
