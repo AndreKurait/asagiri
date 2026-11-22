@@ -80,6 +80,15 @@ jobs:
             Invoke-Docker @('exec','watch99','ls','-la','/watched')
             $contents = Invoke-Docker @('exec','watch99','cat','/watched/existing')
             if ($contents -ne $marker) { throw 'Windows source marker did not reach the container' }
+            $controlObserved = $false
+            for ($attempt = 0; $attempt -lt 10; $attempt++) {
+              Invoke-Docker @('exec','watch99','touch',"/watched/container-control-$attempt")
+              Start-Sleep -Milliseconds 200
+              $events = Invoke-Docker @('logs','watch99')
+              if (($events -join "`n") -match '/watched\s+container-control-\d+') { $controlObserved = $true; break }
+            }
+            Write-Host "Container-originated control events: $events"
+            if (!$controlObserved) { throw 'Watcher did not report a container-originated write on the C-drive mount' }
             $observed = $false
             for ($i = 0; $i -lt 40; $i++) {
               $leaf = "host-write-$i"
