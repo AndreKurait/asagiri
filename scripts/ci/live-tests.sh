@@ -104,6 +104,23 @@ run api-version --cold
 for img in busybox:stable alpine:3.21; do
   dock pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
 done
+# Build the settings-only image with the reference engine, then exercise
+# the candidate's load, inspect and root mount through the Docker CLI.
+check_zero_layer_root() (
+  archive=$(mktemp) || exit 1
+  tag="asagiri-live-zero-layer-$$:test"
+  trap 'rm -f "$archive"; docker image rm "$tag" >/dev/null 2>&1 || true' EXIT
+  printf 'FROM scratch\nLABEL empty=1\nCMD ["/nothing"]\n' | docker build -q -t "$tag" - || exit 1
+  docker save -o "$archive" "$tag" || exit 1
+  docker exec -i "$name" docker -H "unix://$sock" load < "$archive" || exit 1
+  layers=$(dock image inspect --format '{{len .RootFS.Layers}}' "$tag") || exit 1
+  [ "$layers" = 0 ] || { echo "Expected zero layers, found $layers"; exit 1; }
+  output=$(dock run --rm --network none "$tag" 2>&1)
+  status=$?
+  echo "zero-layer start exited $status: $output"
+  [ "$status" = 127 ] && printf '%s\n' "$output" | grep -F 'stat /nothing: no such file'
+)
+check_zero_layer_root || failed=$((failed + 1))
 run engine-identity
 run engine-power alpine:3.21
 run exec-errors alpine:3.21
