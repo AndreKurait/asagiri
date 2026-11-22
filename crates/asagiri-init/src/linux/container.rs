@@ -583,8 +583,9 @@ pub fn mount_rootfs(paths: &Paths, id: &str, image_layers: StrList<'_>) -> io::R
         lower.push(layers::hex(digest)?);
     }
     // A settings-only image still needs a lower directory for overlayfs.
-    let empty = base.join("empty");
+    let empty;
     if lower.is_empty() {
+        empty = base.join("empty");
         fs::create_dir_all(&empty)?;
         lower.push(empty.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "container directory is not UTF-8"))?);
     }
