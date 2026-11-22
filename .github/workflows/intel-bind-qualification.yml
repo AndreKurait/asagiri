@@ -154,6 +154,8 @@ jobs:
                   ' sh "$worker_ip" "$peer_hex"
                   echo "Guest bridge control to $host using the same IPv4 peer"
                   docker run --rm --pull=never alpine:3.21 sh -c 'ip route; wget -T 8 -S --spider "https://$1/"' sh "$worker_ip" || true
+                  echo "Guest host-network control to $host using the same IPv4 peer"
+                  docker run --rm --pull=never --network host alpine:3.21 sh -c 'ip route; wget -T 8 -S --spider "https://$1/"' sh "$worker_ip" || true
                   curl --noproxy '*' --head --resolve "$host:443:$worker_ip" --max-time 8 --silent --show-error --output /dev/null --write-out 'Host peer=%{remote_ip} HTTP=%{http_code} TLS verify=%{ssl_verify_result}\n' "$endpoint" || true
                 fi
               done
