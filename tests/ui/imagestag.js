@@ -36,4 +36,16 @@ t("the long tag is clipped with its full value in the title", () => {
   const cell = pill.closest("td");
   if (!cell.classList.contains("clip")) throw new Error("tag cell not clip");
 });
+t("image index warnings show the literal backup path and clear after removal", () => {
+  const warning = "Image index recovery backup: /store/<backup>&/images.json.corrupt.1.0";
+  asagiri.on({ type: "vm", warnings: [warning] });
+  const box = document.getElementById("engine-warnings");
+  if (!box || box.hidden || box.textContent !== warning) throw new Error("missing recovery path");
+  show("containers");
+  if (!box.hidden) throw new Error("image warning remained on Containers");
+  show("images");
+  if (box.hidden || box.textContent !== warning) throw new Error("warning lost on navigation");
+  asagiri.on({ type: "vm", warnings: [] });
+  if (!box.hidden || box.textContent) throw new Error("stale recovery warning");
+});
 report(R);
