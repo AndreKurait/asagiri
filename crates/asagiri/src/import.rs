@@ -227,14 +227,14 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     }
     let src_mount = format!("{name}:/from:ro");
     let dst_mount = format!("{name}:/to");
+    let mut destination = make_cli()?;
+    destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"]);
     let mut read = make_cli()?
         .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
     let out = read.stdout.take().ok_or_else(|| io::Error::other("no output from the source helper"))?;
-    let mut destination = make_cli()?;
-    destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"]);
     // Drain source diagnostics while tar is streaming. A full stderr pipe
     // otherwise stops the source before the destination can see EOF.
     let (r, write) = std::thread::scope(|scope| -> io::Result<_> {
