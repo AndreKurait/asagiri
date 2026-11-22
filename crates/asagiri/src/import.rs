@@ -61,25 +61,37 @@ fn anonymous(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn listed_image_name(row: &Value) -> Option<String> {
+    let repository = row["Repository"].as_str()?;
+    if repository == "<none>" { return None; }
+    match row["Tag"].as_str()? {
+        "<none>" => {
+            let digest = row["Digest"].as_str()?.strip_prefix("sha256:")?;
+            anonymous(digest).then(|| format!("{repository}@sha256:{digest}"))
+        }
+        tag => Some(format!("{repository}:{tag}")),
+    }
+}
+
 /// What the source has, and which of it Asagiri already has.
 pub fn inventory(source: &str) -> io::Result<Value> {
     let ctx = known(source)?;
     let mine = |args: &[&str], key: &str| -> Vec<String> {
         json_lines(crate::flavor::CONTEXT.get(), args).unwrap_or_default().iter().filter_map(|v| v[key].as_str().map(str::to_owned)).collect()
     };
-    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &["image", "ls", "--format", "{{json .}}"])
+    let image_list = ["image", "ls", "-a", "--digests", "--format", "{{json .}}"];
+    let asagiri_images: Vec<String> = json_lines(crate::flavor::CONTEXT.get(), &image_list)
         .unwrap_or_default()
         .iter()
-        .map(|v| format!("{}:{}", v["Repository"].as_str().unwrap_or(""), v["Tag"].as_str().unwrap_or("")))
+        .filter_map(listed_image_name)
         .collect();
     let asagiri_volumes = mine(&["volume", "ls", "--format", "{{json .}}"], "Name");
     let asagiri_containers = mine(&["ps", "-a", "--format", "{{json .}}"], "Names");
-    let images: Vec<Value> = json_lines(ctx, &["image", "ls", "--format", "{{json .}}"])?
+    let images: Vec<Value> = json_lines(ctx, &image_list)?
         .into_iter()
-        .filter(|v| v["Repository"] != "<none>" && v["Tag"] != "<none>")
-        .map(|v| {
-            let name = format!("{}:{}", v["Repository"].as_str().unwrap_or(""), v["Tag"].as_str().unwrap_or(""));
-            json!({"name": name, "size": v["Size"], "have": asagiri_images.contains(&name)})
+        .filter_map(|v| {
+            let name = listed_image_name(&v)?;
+            Some(json!({"name": name, "size": v["Size"], "have": asagiri_images.contains(&name)}))
         })
         .collect();
     let volumes: Vec<Value> = json_lines(ctx, &["volume", "ls", "--format", "{{json .}}"])?
@@ -99,13 +111,13 @@ pub fn inventory(source: &str) -> io::Result<Value> {
 
 /// `docker --context src save IMAGE | docker --context asagiri load`.
 pub fn image(source: &str, name: &str) -> io::Result<()> {
-    image_with_cli(known(source)?, name, &cli)
+    image_with_cli(known(source)?, name, &cli).map(|_| ())
 }
 
-fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
+fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<Option<String>> {
     let mut save = make_cli()?.args(["--context", ctx, "save", name]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let out = save.stdout.take().ok_or_else(|| io::Error::other("no output from docker save"))?;
-    let load = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let load = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "load", "-q"]).stdin(out).stdout(Stdio::piped()).stderr(Stdio::piped()).output()?;
     let saved = save.wait_with_output()?;
     if !saved.status.success() {
         return Err(io::Error::other(format!("{ctx}: {}", String::from_utf8_lossy(&saved.stderr).trim())));
@@ -113,7 +125,13 @@ fn image_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Comm
     if !load.status.success() {
         return Err(io::Error::other(format!("asagiri: {}", String::from_utf8_lossy(&load.stderr).trim())));
     }
-    Ok(())
+    Ok(single_loaded_image_id(&String::from_utf8_lossy(&load.stdout)).map(str::to_owned))
+}
+
+fn single_loaded_image_id(output: &str) -> Option<&str> {
+    let mut lines = output.lines().filter(|line| line.starts_with("Loaded image ID: ") || line.starts_with("Loaded image: "));
+    let loaded_id = lines.next().and_then(|line| line.strip_prefix("Loaded image ID: "));
+    loaded_id.filter(|id| lines.next().is_none() && id.strip_prefix("sha256:").is_some_and(anonymous))
 }
 
 /// An image with `tar` that both engines have, for the volume helpers.
@@ -219,9 +237,17 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
     let cfg = &info["Config"];
-    let image = cfg["Image"].as_str().unwrap_or("").to_owned();
+    let mut image = cfg["Image"].as_str().unwrap_or("").to_owned();
     if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
-        self::image(source, &image)?;
+        let loaded_id = image_with_cli(ctx, &image, &cli)?;
+        // An untagged archive can lose the registry digest during load. Use the
+        // content ID returned for this transfer, including on containerd sources
+        // whose inspect ID identifies a manifest list instead of its config.
+        if image.contains("@sha256:") {
+            if let Some(id) = loaded_id {
+                image = id;
+            }
+        }
     }
     let mut networks = serde_json::Map::new();
     let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
@@ -380,6 +406,29 @@ pub fn run(args: &[String]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inventory_names_tagged_and_digest_only_images() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let mut row = serde_json::json!({"Repository": "example/app", "Tag": "<none>", "Digest": digest});
+        assert_eq!(super::listed_image_name(&row), Some(format!("example/app@{digest}")));
+        row["Digest"] = "<none>".into();
+        assert_eq!(super::listed_image_name(&row), None);
+        row["Tag"] = "stable".into();
+        assert_eq!(super::listed_image_name(&row).as_deref(), Some("example/app:stable"));
+        row["Repository"] = "<none>".into();
+        assert_eq!(super::listed_image_name(&row), None);
+    }
+
+    #[test]
+    fn load_progress_and_multiple_image_results() {
+        let id = "sha256:ed2dcc5679354d1c17b64f71343e311652c575a6551bbce979eab00644a14eee";
+        let single = format!("Preparing filesystem layers for {id}\nLoaded image ID: {id}\n");
+        assert_eq!(super::single_loaded_image_id(&single), Some(id));
+        assert_eq!(super::single_loaded_image_id(&format!("{single}Loaded image: alpine:latest\n")), None);
+        assert_eq!(super::single_loaded_image_id(&format!("{single}{single}")), None);
+        assert_eq!(super::single_loaded_image_id("Loaded image ID: sha256:abcd"), None);
+    }
+
     #[cfg(unix)]
     struct VolumeFixture(std::path::PathBuf);
 
