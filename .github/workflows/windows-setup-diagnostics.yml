@@ -48,7 +48,7 @@ jobs:
             Set-ItemProperty $settings ProxyServer '127.0.0.1:17892'
             Set-ItemProperty $settings ProxyEnable 1
             $process = Start-Process $app -PassThru
-            python $chooseScript $process.Id
+            python $chooseScript $process.Id $docker
             if ($LASTEXITCODE) { throw "Could not select Asagiri Linux" }
             $deadline = [DateTime]::UtcNow.AddMinutes(5)
             do {
