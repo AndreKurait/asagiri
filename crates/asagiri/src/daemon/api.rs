@@ -434,7 +434,18 @@ fn version() -> Value {
 fn info(engine: &Engine) -> Value {
     let states = engine.each(|c| (!c.spec.engine_service).then_some(c.status));
     let running = states.iter().filter(|s| **s == Status::Running).count();
-    let images = engine.store.images().map(|v| v.len()).unwrap_or(0);
+    let mut warnings = Vec::new();
+    let images = match engine.store.images() {
+        Ok(images) => images.len(),
+        Err(error) => {
+            warnings.push(format!("Cannot read the image index: {error}"));
+            0
+        }
+    };
+    match engine.store.image_index_backups() {
+        Ok(paths) => warnings.extend(paths.iter().map(|path| format!("Image index recovery backup: {}", path.display()))),
+        Err(error) => warnings.push(format!("Cannot check image index recovery backups: {error}")),
+    }
     let (memory_ceiling, memory_target) = engine.memory();
     // SDKs query capacity before starting their first container. Reporting
     // zero while the guest sleeps makes a healthy engine look unusable.
@@ -478,7 +489,7 @@ fn info(engine: &Engine) -> Value {
         "AsagiriMemoryStall": engine.memory_trouble().0,
         "AsagiriOomKills": engine.memory_trouble().1,
         "AsagiriCpuPercent": engine.cpu_percent(),
-        "Warnings": [],
+        "Warnings": warnings,
     })
 }
 
@@ -847,6 +858,12 @@ fn image_save(engine: &Engine, names: &[String], w: &mut UnixStream) -> io::Resu
             Err(e) => return reply(w, Err(Error::Io(e)), 200),
         }
     }
+    // Held from here to the end of the stream; a blob already gone is an
+    // error reply, not an archive cut short.
+    let archive = match asagiri_image::archive::prepare_save(&engine.store, &images) {
+        Ok(p) => p,
+        Err(e) => return reply(w, Err(Error::Io(e)), 200),
+    };
     http::begin_stream(w, 200, "application/x-tar")?;
     struct Chunked<'a>(&'a mut UnixStream);
     impl io::Write for Chunked<'_> {
@@ -859,7 +876,7 @@ fn image_save(engine: &Engine, names: &[String], w: &mut UnixStream) -> io::Resu
         }
     }
     let out = io::BufWriter::with_capacity(256 * 1024, Chunked(w));
-    asagiri_image::archive::save(&engine.store, &images, out)?;
+    archive.write(out)?;
     http::end(w)?;
     Ok(Next::KeepAlive)
 }

@@ -76,11 +76,13 @@ mod run;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod scan;
+#[cfg(unix)]
+mod cliscan;
 #[cfg(target_os = "macos")]
 mod setup;
 #[cfg(unix)]
 mod usb;
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "window")))]
 mod stale;
 #[cfg(windows)]
 mod wsl;
@@ -102,6 +104,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri ui [--start] [--view containers|images|volumes|networks]
        asagiri setup [--use] [--no-agent] | asagiri setup --uninstall
        asagiri build-with [docker|asagiri]   which builder docker build uses
+       asagiri scan [--json] [--history] IMAGE   Scan a local image or list its saved reports
        asagiri registry-mirror list | add ADDRESS | remove ADDRESS   Docker Hub mirrors
        asagiri config [show] | set JSON | set -   Registry and transfer settings
        asagiri mcp [enable|disable|allow-changes on|off|status|config]   local AI integration
@@ -197,6 +200,8 @@ fn main() -> ExitCode {
         Some(a) if share::is_shorthand(a) => share::run(&args),
         #[cfg(unix)]
         Some("build-with") => buildwith::cli(&args[1..]),
+        #[cfg(unix)]
+        Some("scan") => cliscan::run(&args[1..]),
         #[cfg(unix)]
         Some("registry-mirror") => registry_mirror::run(&args[1..]),
         #[cfg(unix)]

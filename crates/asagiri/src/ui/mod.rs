@@ -1101,6 +1101,7 @@ fn vm_panel(connected: &mut bool) {
                 "running": info["ContainersRunning"],
                 "cpus": info["NCPU"],
                 "cpu_pct": info["AsagiriCpuPercent"],
+                "warnings": info["Warnings"],
                 "daemon_kib": info["AsagiriAgentMemory"].as_u64().unwrap_or(0) >> 10,
             }).to_string());
             emit(state(if awake { "running" } else if stopped { "stopped" } else { "asleep" }, None));
@@ -2045,6 +2046,11 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             if local || docs || msg.name == "https://github.com/AndreKurait/asagiri/releases" || msg.name == "https://andrekurait.github.io/asagiri" || msg.name == "https://github.com/AndreKurait/asagiri/blob/main/docs/sharing.md" || msg.name == "https://github.com/AndreKurait" || msg.name == "https://github.com/AndreKurait/asagiri/issues/new" || msg.name == "https://github.com/AndreKurait/asagiri" || msg.name == "https://github.com/anchore/grype" || msg.name == "https://login.docker.com/activate" || msg.name == "https://github.com/login/device" {
                 open(&msg.name);
             }
+            Ok(())
+        }
+        #[cfg(target_os = "macos")]
+        "systemappearance" => {
+            window::layout_window_buttons();
             Ok(())
         }
         // The page covers the title bar, and WebKit ignores CSS drag

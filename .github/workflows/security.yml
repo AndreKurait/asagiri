@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   glib-variant:
+    needs: shellcheck
+    if: needs.shellcheck.outputs.translation_only != 'true'
     name: GLib optimized iterator regressions
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -29,8 +31,15 @@ jobs:
           persist-credentials: false
       - name: Install GLib development files and the release compiler
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libglib2.0-dev
+          # Some hosted runners expose only the Microsoft package index. Use the
+          # signed Noble archives for this job's GLib headers and dependencies.
+          sources="$RUNNER_TEMP/glib-ubuntu.list"
+          archive_key=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+          printf 'deb [signed-by=%s] https://archive.ubuntu.com/ubuntu %s main\n' "$archive_key" noble "$archive_key" noble-updates > "$sources"
+          printf 'deb [signed-by=%s] https://security.ubuntu.com/ubuntu noble-security main\n' "$archive_key" >> "$sources"
+          apt_sources=(-o "Dir::Etc::sourcelist=$sources" -o 'Dir::Etc::sourceparts=-')
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y --no-install-recommends libglib2.0-dev
           rustup toolchain install 1.99.1 --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -64,12 +73,25 @@ jobs:
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
+    outputs:
+      translation_only: ${{ steps.scope.outputs.translation_only }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Identify PRs changing only translation dictionaries
+        id: scope
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- . ':(exclude,glob)crates/asagiri/src/ui/lang/*.json'; then
+            echo 'translation_only=true' >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            [ "$status" -eq 1 ] || exit "$status"
+          fi
       - name: Check shell scripts
         run: |
           git ls-files -z '*.sh' \
@@ -89,16 +111,20 @@ jobs:
           python3 tests/ci-macos-package.py
           python3 tests/ci-performance.py
           python3 tests/ci-pages.py
-
-  zizmor:
-    name: zizmor (workflow audit)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+      - name: Audit workflows with zizmor
+        if: ${{ !cancelled() }}
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           advanced-security: false
+
+  # Older open branches and the main ruleset still require this context.
+  # The required ShellCheck job above now enforces both audits.
+  zizmor:
+    name: zizmor (workflow audit)
+    needs: shellcheck
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo 'Inspect ShellCheck for the failed audit.'
+          exit 1

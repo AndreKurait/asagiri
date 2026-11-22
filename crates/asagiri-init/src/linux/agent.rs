@@ -747,27 +747,34 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 }
                 Ok(Msg::NetDetach { id, ifname, bridge, ip }) => match running_pid(&procs, id) {
                     Some(pid) => {
-                        let num: u32 = ifname.strip_prefix("eth").and_then(|v| v.parse().ok()).unwrap_or(1);
-                        dns.unregister(bridge, ip);
-                        dns.leave(pid, bridge);
-                        let host_if = net::extra_veth(id, num);
-                        let mut macvlan = None;
-                        if let Some(p) = procs.get_mut(id) {
-                            p.run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
-                            p.run.veths.retain(|v| *v != host_if);
-                            p.run.ways_out.retain(|w| w.ifname != ifname);
-                            macvlan = p.run.macvlans.iter().position(|m| m.ifname == ifname).map(|i| p.run.macvlans.remove(i));
-                        }
-                        let detached = macvlan.map_or_else(|| net::detach(&host_if), |m| net::unplug(&m));
-                        // Whatever the answer, the daemon takes the network as
-                        // left. A default route that is still there stays, and a
-                        // route that cannot be given back is not the disconnect's
-                        // failure.
-                        if let Some(p) = procs.get(id) {
-                            let _ = net::restore_default_routes(pid, &p.run.ways_out);
-                        }
+                        let run = &mut procs.get_mut(id).expect("running process").run;
+                        // The initial veth has a per-start name (kv...), while
+                        // interfaces added after launch use kx<id><number>.
+                        let host_if = if ifname == "eth0" {
+                            run.veths.iter().find(|name| name.starts_with("kv")).cloned()
+                        } else {
+                            ifname.strip_prefix("eth").and_then(|n| n.parse().ok()).map(|n| net::extra_veth(id, n))
+                        };
+                        let macvlan = run.macvlans.iter().position(|m| m.ifname == ifname);
+                        let detached = match (macvlan, host_if.as_deref()) {
+                            (Some(i), _) => net::unplug(&run.macvlans[i]),
+                            (_, Some(name)) => net::detach(name),
+                            _ => Err(std::io::Error::other(format!("unknown interface {ifname}"))),
+                        };
                         match detached {
-                            Ok(()) => Msg::Ack.encode(&mut out),
+                            Ok(()) => {
+                                dns.unregister(bridge, ip);
+                                dns.leave(pid, bridge);
+                                run.dns_entries.retain(|(b, a)| !(b == bridge && *a == ip));
+                                if let Some(i) = macvlan {
+                                    run.macvlans.remove(i);
+                                } else if let Some(name) = host_if {
+                                    run.veths.retain(|v| *v != name);
+                                }
+                                run.ways_out.retain(|w| w.ifname != ifname);
+                                let _ = net::restore_default_routes(pid, &run.ways_out);
+                                Msg::Ack.encode(&mut out)
+                            }
                             Err(e) => Msg::Error(&format!("disconnect: {e}")).encode(&mut out),
                         }
                     }

@@ -184,6 +184,19 @@ impl Store {
         &self.root
     }
 
+    /// Retained originals from index repairs, including repairs before a daemon restart.
+    pub fn image_index_backups(&self) -> io::Result<Vec<PathBuf>> {
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if entry.file_name().to_string_lossy().starts_with("images.json.corrupt.") && entry.file_type()?.is_file() {
+                paths.push(entry.path());
+            }
+        }
+        paths.sort();
+        Ok(paths)
+    }
+
     /// An archive's unverified and unselected blobs stay outside the live store.
     pub(crate) fn stage_archive(&self) -> io::Result<ArchiveStage> {
         loop {
@@ -201,6 +214,22 @@ impl Store {
                 Err(e) => return Err(e),
             }
         }
+    }
+
+    /// Keep immutable blob data available to an export, even after a different
+    /// process unlinks the image. Hold the index lock only while making links.
+    pub(crate) fn snapshot_blobs(&self, images: &[Image]) -> io::Result<ArchiveStage> {
+        let stage = self.stage_archive()?;
+        let _index = self.lock_index()?;
+        let mut linked = std::collections::HashSet::new();
+        for image in images {
+            for digest in std::iter::once(&image.config_digest).chain(image.layers.iter().map(|layer| &layer.digest)) {
+                if linked.insert(digest) {
+                    fs::hard_link(self.blob_path(digest)?, stage.0.blob_path(digest)?)?;
+                }
+            }
+        }
+        Ok(stage)
     }
 
     /// An image config, read whole for parsing. Configs are small JSON; a
@@ -457,6 +486,7 @@ impl Store {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ArchiveStage(pub(crate) Store);
 
 impl Drop for ArchiveStage {
@@ -860,6 +890,7 @@ mod tests {
         let backups: Vec<_> = fs::read_dir(&root).unwrap().map(Result::unwrap)
             .filter(|e| e.file_name().to_string_lossy().starts_with("images.json.corrupt.")).collect();
         assert_eq!(backups.len(), 1);
+        assert_eq!(Store::open(&root).unwrap().image_index_backups().unwrap(), [backups[0].path()]);
         assert_eq!(fs::read(backups[0].path()).unwrap(), corrupt);
         store.put_image(index_image("new:latest".into())).unwrap();
         assert_eq!(store.images().unwrap().len(), 2);

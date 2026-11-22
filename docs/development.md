@@ -190,3 +190,7 @@ file descriptors or memory. Keep a bounded value appropriate to the host and
 leave room for control requests. At the limit new connections are closed.
 Disconnected waits and quiet log followers release their connection promptly;
 a client that only closes its write half can still receive the response.
+
+### macOS VM disk capacity
+
+Set `ASAGIRI_DISK_GB` in the daemon environment to a positive whole number of GiB, for example `128`. On the next VM start, Asagiri extends the sparse data image and grows its mounted ext4 filesystem before starting containers. A new disk starts at the larger of the template size and the requested size. Lowering or removing the setting preserves the existing capacity.
