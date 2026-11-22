@@ -29,6 +29,30 @@ static void finish(int success, const char *operation) {
 
 #define CHECK(test, operation) do { if (!(test)) finish(0, operation); } while (0)
 
+static void verify_copy_up_birth_time(void) {
+    const char *dirs[] = {"/mnt/lower", "/mnt/upper", "/mnt/work", "/mnt/merged"};
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
+        CHECK(mkdir(dirs[i], 0700) == 0, "create overlay test directory");
+    int fd = open("/mnt/lower/node.lock", O_CREAT | O_EXCL | O_RDWR, 0600);
+    CHECK(fd >= 0 && close(fd) == 0, "create lower lock file");
+    CHECK(mount("overlay", "/mnt/merged", "overlay", 0,
+                "lowerdir=/mnt/lower,upperdir=/mnt/upper,workdir=/mnt/work,metacopy=off,redirect_dir=off") == 0,
+          "mount test overlay");
+    const char *lock = "/mnt/merged/node.lock";
+    struct statx before, after;
+    CHECK(statx(AT_FDCWD, lock, 0, STATX_BTIME | STATX_INO, &before) == 0, "stat image lock");
+    fd = open(lock, O_RDWR);
+    CHECK(fd >= 0, "open image lock for writing");
+    struct flock exclusive = {.l_type = F_WRLCK, .l_whence = SEEK_SET};
+    CHECK(fcntl(fd, F_SETLK, &exclusive) == 0, "lock copied file");
+    CHECK(access("/mnt/upper/node.lock", F_OK) == 0, "confirm copy-up occurred");
+    CHECK(statx(AT_FDCWD, lock, 0, STATX_BTIME | STATX_INO, &after) == 0, "stat copied lock");
+    CHECK((before.stx_mask & after.stx_mask & STATX_BTIME) && before.stx_ino == after.stx_ino &&
+          before.stx_btime.tv_sec == after.stx_btime.tv_sec && before.stx_btime.tv_nsec == after.stx_btime.tv_nsec,
+          "lock identity and birth time must survive writable open");
+    CHECK(close(fd) == 0 && umount("/mnt/merged") == 0, "release test overlay");
+}
+
 int main(void) {
     /* Refuse accidental execution on the runner or a normal workstation. */
     if (getpid() != 1)
@@ -71,6 +95,7 @@ int main(void) {
         CHECK(close(loop) == 0, "close loop configuration handle");
         CHECK(mount(device, "/mnt", "ext4", 0, NULL) == 0, "mount ext4 loop image");
         if (pass == 0) {
+            verify_copy_up_birth_time();
             int file = open("/mnt/proof", O_WRONLY | O_CREAT | O_EXCL, 0600);
             CHECK(file >= 0, "create persistent proof");
             CHECK(write(file, contents, sizeof(contents)) == (ssize_t)sizeof(contents), "write proof");
