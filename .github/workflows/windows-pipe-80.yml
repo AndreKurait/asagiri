@@ -1,0 +1,64 @@
+name: Native Windows Docker API connection reuse
+on:
+  push:
+    branches: [qualification/windows-pipe-80]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  transport:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Verify two Docker API responses on one native pipe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $asset = "Asagiri-0.1.14-dev.161-windows-x86_64.zip"
+          gh release download v0.1.14-dev.161 -R AndreKurait/asagiri -p $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne "9e6802f5040fcc6e24827bbfaf996f96ce00648707b2077a2fad6a6f315a119b") { throw "bundle hash" }
+          Expand-Archive $asset bundle
+          gh run download 45010054727 -R AndreKurait/asagiri -n windows-X64 -D candidate
+          if ((Get-FileHash candidate/asagiri-win.exe).Hash.ToLower() -ne "acddd4b265ec4558199bea2dbf75d40f5ea5cd57cd0ae631a6f67cb9f8c5e4a8") { throw "candidate hash" }
+          $env:PIPE_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          Copy-Item candidate/asagiri-win.exe $env:PIPE_APP -Force
+          wsl.exe --import Asagiri-pipe80 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PIPE_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          @'
+          import http.client, io, json, os, subprocess, time
+          class Connection:
+              def __init__(self, pipe):
+                  self.pipe = pipe
+              def makefile(self, mode):
+                  return io.BufferedReader(io.FileIO(self.pipe.fileno(), "rb", closefd=False))
+          name = r"\\.\pipe\asagiri-qualification80"
+          app = subprocess.Popen([os.environ["PIPE_APP"], "--background", "--distro", "Asagiri-pipe80", "--pipe", name])
+          try:
+              deadline = time.monotonic() + 120
+              while True:
+                  try:
+                      pipe = open(name, "r+b", buffering=0)
+                      break
+                  except OSError:
+                      if app.poll() is not None or time.monotonic() >= deadline:
+                          raise
+                      time.sleep(1)
+              with pipe:
+                  for path in ("/_ping", "/version"):
+                      pipe.write(f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode("ascii"))
+                      response = http.client.HTTPResponse(Connection(pipe))
+                      response.begin()
+                      body = response.read()
+                      assert response.status == 200, (path, response.status, body)
+                      if path == "/_ping":
+                          assert body.strip() == b"OK", body
+                      else:
+                          print("Engine version", json.loads(body)["Version"])
+                      print("PASS", path, "on the same named pipe", flush=True)
+          finally:
+              app.terminate()
+              app.wait(timeout=30)
+          '@ | python -
+          if ($LASTEXITCODE) { throw "Named pipe qualification failed" }
