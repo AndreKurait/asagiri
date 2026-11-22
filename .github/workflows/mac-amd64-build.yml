@@ -1,0 +1,59 @@
+name: Published Apple Silicon amd64 build
+on:
+  push:
+    branches: [qualification/mac-amd64-build-212]
+    paths: [.github/workflows/mac-amd64-build.yml]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Build remote Alpine for amd64 and inspect the OCI payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download v0.1.14-dev.181 -R "$GITHUB_REPOSITORY" -p 'Asagiri-0.1.14-dev.181-arm64.tar.gz'
+          echo '942f38505f144d30a6698a9ea9ad39a74752b47fa0dc01c8490ba243c47e80d7  Asagiri-0.1.14-dev.181-arm64.tar.gz' | shasum -a 256 -c -
+          tar xzf Asagiri-0.1.14-dev.181-arm64.tar.gz
+          codesign --verify --deep --strict Asagiri.app
+          app="$PWD/Asagiri.app/Contents"
+          scratch=$(mktemp -d /tmp/asagiri212.XXXXXX)
+          cd "$scratch"
+          export HOME="$scratch/home" ASAGIRI_DATA_DIR="$scratch/store" ASAGIRI_SOCKET="$scratch/engine.sock"
+          export DOCKER_HOST="unix://$ASAGIRI_SOCKET" DOCKER_CONFIG="$scratch/config"
+          mkdir -p "$HOME" "$DOCKER_CONFIG" context
+          ln -s "$app/Resources/bin/cli-plugins" "$DOCKER_CONFIG/cli-plugins"
+          "$app/MacOS/asagiri" daemon > daemon.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; tail -40 daemon.log' EXIT
+          cli="$app/Resources/bin/docker"
+          for i in {1..45}; do [ -S "$ASAGIRI_SOCKET" ] && break; sleep 1; done
+          "$cli" version --format '{{json .Server.Components}}'
+          "$cli" buildx create --name asagiri-build --driver docker-container "$DOCKER_HOST"
+          printf 'FROM alpine:3.20\nRUN uname -m > /arch.txt\n' > context/Dockerfile
+          "$cli" buildx build --builder asagiri-build --platform linux/amd64 --pull --provenance=false --progress plain --output type=oci,dest=image.tar context
+          python3 - <<'PY'
+          import io, json, tarfile
+          with tarfile.open('image.tar') as image:
+              def blob(digest):
+                  return image.extractfile('blobs/' + digest.replace(':', '/')).read()
+              descriptor, = json.load(image.extractfile('index.json'))['manifests']
+              manifest = json.loads(blob(descriptor['digest']))
+              config = json.loads(blob(manifest['config']['digest']))
+              files = {}
+              for layer in manifest['layers']:
+                  with tarfile.open(fileobj=io.BytesIO(blob(layer['digest']))) as archive:
+                      for member in archive:
+                          name = member.name.removeprefix('./')
+                          if name in {'bin/busybox', 'arch.txt'}:
+                              files[name] = archive.extractfile(member).read()
+              binary = files['bin/busybox']
+              assert binary[:6] == b'\x7fELF\x02\x01'
+              observed = config['os'], config['architecture'], int.from_bytes(binary[18:20], 'little'), files['arch.txt'].strip()
+              print(descriptor['digest'], observed)
+              assert observed == ('linux', 'amd64', 62, b'x86_64')
+          PY
