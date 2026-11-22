@@ -47,9 +47,15 @@ static void verify_copy_up_birth_time(void) {
     CHECK(fcntl(fd, F_SETLK, &exclusive) == 0, "lock copied file");
     CHECK(access("/mnt/upper/node.lock", F_OK) == 0, "confirm copy-up occurred");
     CHECK(statx(AT_FDCWD, lock, 0, STATX_BTIME | STATX_INO, &after) == 0, "stat copied lock");
-    CHECK((before.stx_mask & after.stx_mask & STATX_BTIME) && before.stx_ino == after.stx_ino &&
-          before.stx_btime.tv_sec == after.stx_btime.tv_sec && before.stx_btime.tv_nsec == after.stx_btime.tv_nsec,
-          "lock identity and birth time must survive writable open");
+    if (!(before.stx_mask & after.stx_mask & STATX_BTIME) || before.stx_ino != after.stx_ino ||
+        before.stx_btime.tv_sec != after.stx_btime.tv_sec || before.stx_btime.tv_nsec != after.stx_btime.tv_nsec) {
+        printf("node.lock inode %llu -> %llu, birth time %lld.%09u -> %lld.%09u\n",
+               (unsigned long long)before.stx_ino, (unsigned long long)after.stx_ino,
+               (long long)before.stx_btime.tv_sec, before.stx_btime.tv_nsec,
+               (long long)after.stx_btime.tv_sec, after.stx_btime.tv_nsec);
+        errno = ESTALE;
+        finish(0, "lock identity and birth time must survive writable open");
+    }
     CHECK(close(fd) == 0 && umount("/mnt/merged") == 0, "release test overlay");
 }
 
