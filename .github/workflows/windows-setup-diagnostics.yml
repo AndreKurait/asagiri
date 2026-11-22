@@ -24,6 +24,7 @@ jobs:
           Expand-Archive $asset -DestinationPath load-test
           $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
           $bundle = Split-Path $app
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE contrib/windows/setup-tools.ps1) (Join-Path $bundle setup-tools.ps1) -Force
           $files = @('asagiri','asagiri-init','asagiri-linux.tar.gz','install.sh','asagiri.ps1','setup-tools.ps1','asagiri-admin.ps1','bin/docker.exe','bin/asagiri.exe','bin/cli-plugins/docker-compose.exe','bin/cli-plugins/docker-buildx.exe')
           $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object { "$_=$((Get-FileHash (Join-Path $bundle $_)).Hash.ToLowerInvariant())" }) -join ';'
           Push-Location $env:GITHUB_WORKSPACE
