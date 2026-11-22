@@ -66,7 +66,9 @@ jobs:
             Invoke-Docker @('pull','alpine:3.21')
             $context = New-Item -ItemType Directory 'build-context'
             Set-Content -NoNewline "$context/marker" 'windows-wsl-buildx'
-            Set-Content -NoNewline 'proof.txt' 'session-secret-100'
+            $proof = Join-Path $env:RUNNER_TEMP 'proof.txt'
+            $iid = Join-Path $env:RUNNER_TEMP 'iid'
+            Set-Content -LiteralPath $proof -Value 'session-secret-100' -NoNewline
             @'
           FROM alpine:3.21
           COPY marker /marker
@@ -75,11 +77,11 @@ jobs:
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
             & $buildx inspect default
             if ($LASTEXITCODE) { throw 'Buildx inspection failed' }
-            & $buildx build --builder default --progress plain --load --secret id=proof,src=proof.txt --iidfile iid -t ak100:test $context.FullName
+            & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
             if ($LASTEXITCODE) { throw 'Buildx build failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
-            if ($actual -ne (Get-Content iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
-            $digest = (Get-FileHash proof.txt).Hash.ToLower()
+            if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
+            $digest = (Get-FileHash $proof).Hash.ToLower()
             $result = Invoke-Docker @('run','--rm','--network','none','ak100:test','sh','-ec','test "$(cat /marker)" = windows-wsl-buildx && test ! -e /run/secrets/proof && cat /proof.digest')
             if ($result -ne $digest) { throw 'Session secret digest mismatch' }
             Write-Host "PASS context, build secret, direct image load and runtime for $actual"
