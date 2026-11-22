@@ -62,7 +62,8 @@ jobs:
           echo "663cff23dcff2f02a45937245cef885be4a9457bdb89c9956bb2f4500108e945  $asset" | shasum -a 256 -c -
           mkdir ddev-bin && tar xzf "$asset" -C ddev-bin
           ddev_exe=$(find "$PWD/ddev-bin" -type f -name ddev -print -quit)
-          export PATH="$(dirname "$ddev_exe"):$PATH" DDEV_NONINTERACTIVE=true
+          PATH="$(dirname "$ddev_exe"):$PATH"
+          export PATH DDEV_NONINTERACTIVE=true
           compose_asset=docker-compose-darwin-x86_64
           gh release download v5.1.3 -R docker/compose -p "$compose_asset" -D "$RUNNER_TEMP"
           echo "f11139d9822ce1f3843e16ed6c2e44ba5525423396c82fa22b08874b26abd102  $RUNNER_TEMP/$compose_asset" | shasum -a 256 -c -
@@ -129,6 +130,11 @@ jobs:
           for action in start restart; do
             if ! ddev "$action"; then
               probe_host_dns "after-failed-$action"
+              for builder in $(docker ps --filter name=buildx_buildkit --format '{{.Names}}'); do
+                echo "Registry configuration and resolver errors from $builder"
+                docker exec "$builder" cat /etc/buildkit/buildkitd.toml || true
+                docker logs --tail 150 "$builder" 2>&1 | grep -Ei 'mirror|trying next host|failed to resolve|not found|response.status' || true
+              done
               for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
                 echo "Host registry manifest check for $image"
                 docker buildx imagetools inspect "$image" || echo "Host manifest lookup failed for $image"
