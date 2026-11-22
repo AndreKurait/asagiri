@@ -84,6 +84,11 @@ jobs:
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
           if ! "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"; then
+            scutil --dns || true
+            dscacheutil -q host -a name registry-1.docker.io || true
+            curl --connect-timeout 5 --max-time 10 -sS -o /dev/null -w 'registry host %{remote_ip} %{http_code}\n' https://registry-1.docker.io/v2/ || true
+            docker exec buildx_buildkit_asagiri-build0 cat /etc/resolv.conf || true
+            docker exec buildx_buildkit_asagiri-build0 nslookup registry-1.docker.io || true
             for image in node:22-alpine golang:1.25-alpine alpine:3.20; do
               docker buildx imagetools inspect "$image" || true
             done
