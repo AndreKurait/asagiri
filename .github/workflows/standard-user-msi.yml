@@ -1,0 +1,36 @@
+name: Standard-user Windows MSI lifecycle
+on:
+  push:
+    branches: [qualification/standard-user-msi-98]
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install and uninstall the published package under a fresh standard user
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $root = 'C:\asagiri-msi-test'
+          $asset = 'Asagiri-0.1.14-dev.161-x86_64.msi'
+          New-Item -ItemType Directory "$root\installer\windows", "$root\target" | Out-Null
+          Copy-Item installer/windows/verify.ps1 "$root\installer\windows"
+          gh release download v0.1.14-dev.161 --repo AndreKurait/asagiri --pattern $asset --dir $root
+          if ((Get-FileHash "$root\$asset").Hash -ne 'e3d115b1e28b4721a14505361e05d83ae7441e8cf030cb931f761ef5fb8c6504') { throw 'Published MSI hash mismatch' }
+          Remove-Item Env:GH_TOKEN
+          $name = 'AsagiriMsiTest'
+          $password = ConvertTo-SecureString ([guid]::NewGuid().ToString() + 'aZ!') -AsPlainText -Force
+          $user = New-LocalUser $name -Password $password
+          try {
+            icacls "$root\target" /grant "${name}:(OI)(CI)M"
+            if ($LASTEXITCODE) { throw 'Unable to grant write access to installer logs' }
+            $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $password)
+            $proc = Start-Process powershell.exe -Credential $credential -LoadUserProfile -WorkingDirectory $root -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $root\installer\windows\verify.ps1 -Msi $root\$asset" -RedirectStandardOutput "$root\stdout.txt" -RedirectStandardError "$root\stderr.txt" -PassThru -Wait
+            Get-Content "$root\stdout.txt", "$root\stderr.txt"
+            if ($proc.ExitCode -ne 0 -or !(Select-String -Path "$root\stdout.txt" -SimpleMatch 'shell elevated: False' -Quiet)) { throw 'Standard-user lifecycle failed' }
+          } finally { Remove-LocalUser -SID $user.SID }
