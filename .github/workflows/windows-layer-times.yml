@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Build the candidate guest regression binary
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y musl-tools
           rustup toolchain install 1.99.1 --profile minimal --target x86_64-unknown-linux-musl
           cargo +1.99.1 test --locked --target x86_64-unknown-linux-musl -p asagiri-init --bin asagiri-init --no-run --message-format=json > build.jsonl
           cp "$(jq -rs 'map(select(.executable and .target.name == "asagiri-init")) | last.executable' build.jsonl)" layer-test
