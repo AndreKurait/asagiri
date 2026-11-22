@@ -205,7 +205,9 @@ def check(path, binary):
     token = uuid.uuid4().hex
     owned_images, servers = [], []
     credentials = {"username": "registry-test", "password": token}
-    auth_header = base64.urlsafe_b64encode(json.dumps(credentials).encode()).decode()
+    # docker-java includes explicit nulls for unused authentication fields.
+    header_credentials = {**credentials, "auth": None, "identitytoken": None, "registrytoken": None}
+    auth_header = base64.urlsafe_b64encode(json.dumps(header_credentials).encode()).decode()
     basic = "Basic " + base64.b64encode(("registry-test:" + token).encode()).decode()
 
     def api(method, target, body=None, auth=False, expected=200):
