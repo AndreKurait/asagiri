@@ -134,6 +134,10 @@ jobs:
               docker buildx inspect || true
               docker inspect "$builder" --format '{{.State.Status}}' || true
               docker exec "$builder" cat /etc/buildkit/buildkitd.toml || true
+              for endpoint in https://registry-1.docker.io/v2/ https://auth.docker.io/; do
+                echo "BuildKit worker connectivity to $endpoint"
+                docker exec "$builder" sh -c 'cat /etc/resolv.conf; ip route; wget -T 8 -S --spider "$1"' sh "$endpoint" || true
+              done
               docker logs --tail 150 "$builder" 2>&1 | grep -Ei 'mirror|trying next host|failed to resolve|not found|response.status' || true
               for image in ddev/ddev-webserver:v1.25.2 ddev/ddev-dbserver-mariadb-11.8:v1.25.2; do
                 echo "Host registry manifest check for $image"
