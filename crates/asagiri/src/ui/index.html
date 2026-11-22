@@ -1485,9 +1485,9 @@ td.actions .acts-row { margin-inline-start: auto; width: max-content; padding-in
 @keyframes wn-line { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .wn-dialog, .wn-dialog * { animation: none !important; } .wn-spark { display: none; } }
 /* The import strip, a thin bar across the bottom of the lists, and its review window. */
-.impstrip { display: flex; align-items: center; gap: 10px; flex: none; height: 24px; padding-block: 0; padding-inline: 20px 6px;
+.impstrip { display: flex; align-items: center; gap: 10px; flex: none; min-height: 24px; padding-block: 0; padding-inline: 20px 6px;
             border-top: 1px solid color-mix(in srgb, var(--sun) 30%, var(--line)); background: color-mix(in srgb, var(--sun) 6%, var(--panel)); animation: rise .2s ease-out; }
-.impstrip .is-text { flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.impstrip .is-text { flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-small); overflow-wrap: anywhere; }
 .impstrip .is-text b { color: var(--text); font-weight: 600; }
 .impstrip .btn.sm { height: 18px; padding: 0 8px; font-size: var(--fs-small); border-radius: 4px; }
 .impstrip .is-x { border: 0; background: none; color: var(--faint); font-size: var(--fs); line-height: 1; width: 18px; height: 18px; border-radius: 4px; cursor: pointer; }
