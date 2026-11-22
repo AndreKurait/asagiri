@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e1e1373793d336c176769e2a8b3cbb14722f1bcc
+          ref: 3c858f06719cb328428977ce36b47aaff5e245a0
           persist-credentials: false
       - name: Prepare WSL for the engine rollback test
         run: |
