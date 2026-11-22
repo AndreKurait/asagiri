@@ -434,6 +434,7 @@ fn vm_panel() {
                 // Missing from an engine older than the field: 0, not NaN on the page.
                 "used_mib": mib("AsagiriMemoryUsed"),
                 "running": info["ContainersRunning"], "cpus": info["NCPU"],
+                "warnings": info["Warnings"],
                 "daemon_kib": info["AsagiriAgentMemory"].as_u64().unwrap_or(0) >> 10,
             })
             .to_string());
