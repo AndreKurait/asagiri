@@ -16,7 +16,7 @@ jobs:
         run: |
           rustup toolchain install 1.99.1 --profile minimal --no-self-update
           cargo +1.99.1 test --locked -p asagiri --bin asagiri --no-run --message-format=json > "$RUNNER_TEMP/build.jsonl"
-          jq -er 'select(.reason == "compiler-artifact" and .target.name == "asagiri" and .profile.test and .executable != null) | .executable' "$RUNNER_TEMP/build.jsonl" > "$RUNNER_TEMP/test-path"
+          jq -ser 'map(select(.reason == "compiler-artifact" and .target.name == "asagiri" and .profile.test and .executable != null) | .executable) | if length == 1 then .[0] else error("expected one test binary") end' "$RUNNER_TEMP/build.jsonl" > "$RUNNER_TEMP/test-path"
       - name: Exercise the dashboard against the published engine
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,7 +39,7 @@ jobs:
           Asagiri.app/Contents/MacOS/asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
           trap 'kill "$daemon" 2>/dev/null || true; wait "$daemon" || true; tail -80 "$scratch/daemon.log"' EXIT
-          for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
+          for _ in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
           docker version
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
