@@ -53,7 +53,7 @@ case "$1 $2" in
   "image inspect")
     case "$scenario" in helper-*|writer-during-pull) exit 1 ;; esac
     ;;
-  "pull alpine@sha256:"*)
+  "pull debian@sha256:"*)
     touch "$fixture/pulled"
     if [ "$scenario" = helper-pull-error ] && [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
       echo "registry unavailable" >&2

@@ -451,7 +451,7 @@ def main():
                 helper_tags = {"alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"}
                 assert source_tags.isdisjoint(helper_tags), source_tags
                 imported("volume", volume)
-                helper = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"
+                helper = "debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
                 helper_digests = {}
                 for engine in ("source", "destination"):
                     info, = json.loads(docker(engine, "image", "inspect", helper).stdout)

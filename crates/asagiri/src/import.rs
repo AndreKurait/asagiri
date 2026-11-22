@@ -140,7 +140,7 @@ fn helper_image(ctx: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::R
     let has = |c: &str, img: &str| make_cli().ok()?.args(["--context", c, "image", "inspect", img]).stdout(Stdio::null()).stderr(Stdio::null()).status().ok().map(|s| s.success());
     // Pull by digest on each engine: a save/load round trip can drop the
     // repository digest, leaving the destination unable to start the helper.
-    let helper = "alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab";
+    let helper = "debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc";
     for engine in [ctx, crate::flavor::CONTEXT.get()] {
         if has(engine, helper) != Some(true) {
             let pull = make_cli()?.args(["--context", engine, "pull", helper]).output()?;
@@ -222,9 +222,9 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     let src_mount = format!("{name}:/from:ro");
     let dst_mount = format!("{name}:/to");
     let mut destination = make_cli()?;
-    destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "-C", "/to", "-xpf", "-"]);
+    destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "--xattrs", "--xattrs-include=user.*", "--acls", "--numeric-owner", "-C", "/to", "-xpf", "-"]);
     let mut read = make_cli()?
-        .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "-C", "/from", "-cf", "-", "."])
+        .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "--xattrs", "--xattrs-include=user.*", "--acls", "--numeric-owner", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -533,11 +533,11 @@ mod tests {
         let cached = VolumeFixture::new("idle");
         cached.run().unwrap();
         for line in cached.trace().lines().filter(|line| line.contains(" image inspect ") || line.contains(" run --rm ")) {
-            assert!(line.contains("alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab"), "{line}");
+            assert!(line.contains("debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"), "{line}");
         }
         let fixture = VolumeFixture::new("helper-missing");
         fixture.run().unwrap();
-        assert_eq!(fixture.trace().matches(" pull alpine@sha256:").count(), 2);
+        assert_eq!(fixture.trace().matches(" pull debian@sha256:").count(), 2);
         assert_eq!(std::fs::read(fixture.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
 
         let fixture = VolumeFixture::new("helper-pull-error");
