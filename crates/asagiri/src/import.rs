@@ -98,7 +98,10 @@ impl ImportJournal {
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
             return Err(io::Error::other("invalid volume name"));
         }
-        Ok(self.root.join(format!("pending-{name}")))
+        // Docker names are case-sensitive even when the journal filesystem is not.
+        use sha2::{Digest, Sha256};
+        let key: String = Sha256::digest(name.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+        Ok(self.root.join(format!("pending-{key}")))
     }
 }
 
