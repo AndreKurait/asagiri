@@ -45,12 +45,19 @@ jobs:
             if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
           }
           try {
+            $running = $null
             for ($i = 0; $i -lt 45; $i++) {
-              & $docker version --format '{{.Server.Version}}' 2>$null
-              if ($LASTEXITCODE -eq 0) { break }
+              $server = & $docker version --format '{{json .Server.Components}}' 2>$null
+              if ($LASTEXITCODE -eq 0 -and $server) {
+                $engine = ($server | ConvertFrom-Json) | Where-Object Name -eq 'Engine'
+                $running = $engine.Details.AsagiriVersion
+                if ($running -eq $version) { break }
+              }
               if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
               Start-Sleep -Seconds 2
             }
+            if ($running -ne $version) { throw "Expected serving daemon $version, got $running" }
+            Write-Host "Confirmed serving daemon $running through the Windows pipe"
             $installed = wsl.exe -d asagiri -u root -- asagiri --version
             if ($LASTEXITCODE -or ($installed -join ' ') -notmatch [regex]::Escape($version)) { throw "Expected $version, found $installed" }
             Write-Host "Engine binary in persistent WSL installation: $installed"
