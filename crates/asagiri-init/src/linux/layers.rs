@@ -260,7 +260,7 @@ fn unpack(blob: &mut impl Read, media_type: &str, dest: &Path, compressed: u64) 
 /// reads: `.wh.name` becomes a 0:0 character device `name`, and
 /// `.wh..wh..opq` marks its directory opaque.
 fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
-    let mut archive = tar::Archive::new(reader);
+    let mut archive = tar::Archive::new(super::tarnum::GoNumbers::new(reader));
     archive.set_preserve_permissions(true);
     archive.set_preserve_ownerships(true);
     archive.set_preserve_mtime(true);
