@@ -41,7 +41,9 @@ def quit_from_tray(process):
     win32api.SetCursorPos(((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2))
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0)
-    assert process.wait(timeout=45) == 0
+    code = process.wait(timeout=45)
+    print(f"Native Quit returned {code:#x} in PID {process.pid}", flush=True)
+    return code
 
 
 def control(window, predicate, label):
@@ -60,6 +62,7 @@ def control(window, predicate, label):
 prefs = Path(os.environ['LOCALAPPDATA']) / 'Asagiri/ui.json'
 prefs.parent.mkdir(exist_ok=True)
 prefs.write_text(json.dumps({'lang':'en','langAsked':True,'domainsAsked':True}), encoding='utf-8')
+quit_codes = []
 for expected, select in [('en','ar'),('ar','fa'),('fa',None)]:
     translations = {} if expected == 'en' else json.loads((Path(__file__).resolve().parents[1] / f'crates/asagiri/src/ui/lang/{expected}.json').read_text(encoding='utf-8'))
     proc = subprocess.Popen([os.environ['RTL_APP'], '--distro', 'Asagiri-rtl-140', '--pipe', r'\\.\pipe\asagiri-rtl-140'])
@@ -83,8 +86,10 @@ for expected, select in [('en','ar'),('ar','fa'),('fa',None)]:
                 if json.loads(prefs.read_text(encoding='utf-8')).get('lang')==select: break
                 time.sleep(0.1)
             else: raise AssertionError(f'{select} selection did not persist')
-        quit_from_tray(proc)
+        quit_codes.append(quit_from_tray(proc))
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+assert all(code == 0 for code in quit_codes), f"Unexpected Quit exit codes: {quit_codes}"
