@@ -148,16 +148,13 @@ pub mod import {
         Err(none())
     }
 
-    pub fn image(_: &str, _: &str) -> io::Result<()> {
-        Err(none())
-    }
+    #[derive(Default)]
+    pub struct ImportBatch;
 
-    pub fn volume(_: &str, _: &str) -> io::Result<()> {
-        Err(none())
-    }
-
-    pub fn container(_: &str, _: &str) -> io::Result<()> {
-        Err(none())
+    impl ImportBatch {
+        pub fn item(&mut self, _: &str, _: &str, _: &str) -> io::Result<()> {
+            Err(none())
+        }
     }
 }
 
