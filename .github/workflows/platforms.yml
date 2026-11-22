@@ -424,6 +424,13 @@ jobs:
         with:
           cache-bin: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install Docker CLI and Compose for configuration tests
+        run: |
+          brew install docker docker-compose
+          mkdir -p "$RUNNER_TEMP/docker-config/cli-plugins"
+          ln -s "$(brew --prefix docker-compose)/bin/docker-compose" "$RUNNER_TEMP/docker-config/cli-plugins/docker-compose"
+          DOCKER_CONFIG="$RUNNER_TEMP/docker-config" docker compose version
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --locked
       - name: Build
