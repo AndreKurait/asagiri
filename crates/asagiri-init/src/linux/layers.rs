@@ -611,7 +611,7 @@ fn pax_node_time(value: &[u8]) -> io::Result<libc::timespec> {
     let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid PAX layer timestamp");
     let value = std::str::from_utf8(value).map_err(|_| invalid())?;
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
-    let mut seconds: libc::time_t = whole.parse().map_err(|_| invalid())?;
+    let mut seconds: i64 = whole.parse().map_err(|_| invalid())?;
     let mut nanos: libc::c_long = 0;
     for (index, digit) in fraction.bytes().enumerate() {
         if !digit.is_ascii_digit() { return Err(invalid()); }

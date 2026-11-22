@@ -187,10 +187,12 @@ fn traffic_dir() -> io::Result<PathBuf> {
 }
 
 /// Every `asagiri share` traffic file on this computer, by link: `url → [requests, in, out]`.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn traffic() -> HashMap<String, [u64; 3]> {
     traffic_dir().map(|d| traffic_in(&d)).unwrap_or_default()
 }
 
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 fn traffic_in(dir: &std::path::Path) -> HashMap<String, [u64; 3]> {
     let mut out = HashMap::new();
     let Ok(rd) = std::fs::read_dir(dir) else { return out };
@@ -684,6 +686,7 @@ pub fn release(name: &str) -> io::Result<()> {
 
 /// A live tunnel on the account, from any of its computers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 pub struct LiveTunnel {
     pub name: String,
     /// The name without the suffix the edge added: `flower-demo`.
@@ -704,11 +707,13 @@ pub struct LiveTunnel {
 
 /// The account's live tunnels and how many its plan allows at once.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub struct LiveTunnels {
     pub items: Vec<LiveTunnel>,
     pub limit: Option<u64>,
 }
 
+#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
 fn live_tunnel(v: &Value) -> LiveTunnel {
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
     LiveTunnel {
@@ -726,6 +731,7 @@ fn live_tunnel(v: &Value) -> LiveTunnel {
 }
 
 /// Every live tunnel on the account, whichever computer opened it.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn tunnels() -> io::Result<LiveTunnels> {
     let (status, v) = signed_in("GET", "/v1/tunnels/live", None)?;
     match status {
@@ -737,6 +743,7 @@ pub fn tunnels() -> io::Result<LiveTunnels> {
 
 /// Closes one of the account's tunnels, wherever it runs. The edge tells
 /// the computer running it that it was stopped from this one.
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn close_tunnel(name: &str) -> io::Result<()> {
     let (status, v) = signed_in("DELETE", &format!("/v1/tunnels/{name}"), Some(&json!({ "host": host_name() })))?;
     match status {
@@ -868,6 +875,7 @@ pub fn resolve(arg: &str) -> io::Result<Target> {
 /// container. The windows (Mac and Windows) look containers up through
 /// their own clients.
 #[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(target_os = "linux", cfg(feature = "window"))]
 pub fn resolve_via(arg: &str, inspect: impl FnOnce(&str) -> io::Result<Option<Value>>) -> io::Result<Target> {
     if let Some(t) = port_or_addr(arg) {
         return Ok(t);
@@ -1870,7 +1878,7 @@ fn limits_line(rate: u32, remaining: u64, warning: bool) -> String {
 }
 
 fn clock(t: SystemTime) -> String {
-    let secs = t.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as libc::time_t;
+    let secs = t.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as _;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: both variants write only into `tm`, which outlives the call.
     #[cfg(unix)]
