@@ -25,10 +25,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          asset=Asagiri-0.1.14-dev.159-x86_64.tar.gz
-          gh release download v0.1.14-dev.159 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
+          asset=Asagiri-0.1.14-dev.188-x86_64.tar.gz
+          gh release download v0.1.14-dev.188 -p "$asset" -D "$RUNNER_TEMP" -R AndreKurait/asagiri
           cd "$RUNNER_TEMP"
-          echo "2c82306a3391f23304b5905afc19d70015f3afbdd416c9c839818f72ab2345a3  $asset" | shasum -a 256 -c -
+          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  $asset" | shasum -a 256 -c -
           tar xzf "$asset"
           codesign --verify --deep --strict Asagiri.app
           export PATH="$RUNNER_TEMP/Asagiri.app/Contents/Resources/bin:$PATH"
@@ -62,20 +62,16 @@ jobs:
           test "$(docker image inspect alpine:3.20 --format '{{.Architecture}}')" = amd64
           mkdir "$scratch/project" && cd "$scratch/project"
           printf 'ARG BASE\nFROM ${BASE}\nARG EXPECTED\nRUN uname -m && test "$(uname -m)" = "$EXPECTED"\n' > Dockerfile
+          mkdir "$scratch/registry"
+          (cd "$scratch/registry" && python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-fetch.py")
+          (cd "$scratch/registry" && exec python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-serve.py") >"$scratch/registry.log" 2>&1 &
+          registry_pid=$!
+          trap 'kill "$registry_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/registry.log"' EXIT
+          for attempt in {1..15}; do curl -fsS http://192.168.64.1:49102/v2/ && break; sleep 1; done
+          app="$RUNNER_TEMP/Asagiri.app/Contents/MacOS/asagiri"
+          "$app" config set '{"insecure-registries":["192.168.64.1:49102"]}'
+          "$app" registry-mirror add http://192.168.64.1:49102
           docker buildx create --name asagiri-build --driver docker-container --use
-          # Query the actual registry index independently of the local image store.
-          # This separates unavailable upstream manifests from builder selection.
-          for ref in alpine:3.19 alpine:3.20 alpine:3.21; do
-            for attempt in 1 2 3; do
-              if docker buildx imagetools inspect --raw "$ref" > index.json &&
-                jq -e '([.manifests[].platform | select(.os == "linux") | .architecture] | contains(["amd64", "arm64"]))' index.json; then
-                echo "Registry advertises both architectures for $ref"
-                break
-              fi
-              if [ "$attempt" = 3 ]; then echo "Registry index unavailable for $ref"; fi
-              sleep 2
-            done
-          done
           failed=0
           for scenario in cached forced uncached reverse; do
             platform=arm64
