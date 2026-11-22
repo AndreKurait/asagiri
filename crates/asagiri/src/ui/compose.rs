@@ -8100,6 +8100,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    fn compose_reported_yaml_line(file: &Path) -> u64 {
+        let output = dcli().unwrap().args(["compose", "-f"]).arg(file).arg("config").output().unwrap();
+        assert!(!output.status.success(), "invalid YAML fixture should fail");
+        let error = String::from_utf8_lossy(&output.stderr);
+        yaml_line(&error).unwrap_or_else(|| panic!("expected a YAML diagnostic: {error}"))
+    }
+
     #[test]
     fn a_yaml_error_in_another_file_is_never_put_on_the_open_one() {
         let broken = "services:\n  db:\n    image: postgres:16\n    ports: [\"5432:5432\"\n    environment:\n      A: b\n";
@@ -8135,10 +8142,11 @@ mod tests {
             let drafted = config(dcli, &p, Some(top), &[]).unwrap_err();
             let key = list_key(listed.at.as_ref(), listed.key.clone(), &hider);
             let planned = error_json(&drafted, top, &[], &hider);
+            let reported = compose_reported_yaml_line(&top_file);
             match other {
                 None => {
-                    assert_eq!((listed.at.clone(), drafted.at.clone()), (Some(YamlAt::Top(5)), Some(YamlAt::Top(5))), "{tag}: {listed} / {drafted}");
-                    assert_eq!(planned["line"], 5, "{tag}: {planned}");
+                    assert_eq!((listed.at.clone(), drafted.at.clone()), (Some(YamlAt::Top(reported)), Some(YamlAt::Top(reported))), "{tag}: {listed} / {drafted}");
+                    assert_eq!(planned["line"], reported, "{tag}: {planned}");
                 }
                 Some(f) => {
                     let file = (!f.is_empty()).then(|| f.to_owned());
@@ -8147,7 +8155,7 @@ mod tests {
                         Some(YamlAt::Other { line, .. }) => *line,
                         _ => 0,
                     };
-                    assert!((4..=6).contains(&n), "{tag}: {listed}");
+                    assert_eq!(n, reported, "{tag}: {listed}");
                     for e in [&listed, &drafted] {
                         assert_eq!(e.at, Some(YamlAt::Other { line: n, file: file.clone() }), "{tag}: {e}");
                     }
@@ -8374,7 +8382,8 @@ mod tests {
         let (d, p) = loose_project("loose-yaml", "services:\n  db:\n    image: postgres:16\n    ports: [\"5432:5432\"\n");
         let r = row(dcli, &p);
         assert!(r["errkey"] == "yamlInc" && r["byname"].is_null() && r["warn"].is_null(), "{r}");
-        assert_eq!(r["error"], format!("{YAML_INC}5"), "{r}");
+        let reported = compose_reported_yaml_line(&d.join("compose.yaml"));
+        assert_eq!(r["error"], format!("{YAML_INC}{reported}"), "{r}");
         // Fixed outside Asagiri: seen once the top file changes (or in 30 s).
         std::fs::write(d.join("sub/compose.yaml"), "services:\n  db:\n    image: postgres:16\n").unwrap();
         assert_eq!(row(dcli, &p)["errkey"], "yamlInc", "kept while the top file stays");
