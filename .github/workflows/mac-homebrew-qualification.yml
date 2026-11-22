@@ -33,7 +33,14 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist"
           xattr -p com.apple.quarantine "$app" || true
           spctl --assess --type execute --verbose=4 "$app" || true
-          open -a "$app" > "$RUNNER_TEMP/open.log" 2>&1 &
+          profiles="$RUNNER_TEMP/managed-profiles"
+          mkdir "$profiles"
+          printf '%s\n' '# managed by home-manager' > "$profiles/managed-zshrc"
+          chmod 444 "$profiles/managed-zshrc"
+          ln -s managed-zshrc "$profiles/.zshrc"
+          ln -s absent-zprofile "$profiles/.zprofile"
+          test ! -w "$profiles/.zshrc"
+          open --env "ZDOTDIR=$profiles" -a "$app" > "$RUNNER_TEMP/open.log" 2>&1 &
           trap 'cat "$RUNNER_TEMP/open.log"; tail -20 "$HOME/.asagiri/logs/ui.log" || true' EXIT
           swift - <<'SWIFT'
           import AppKit
@@ -64,3 +71,9 @@ jobs:
           plutil -lint "$agent"
           launchctl print "gui/$(id -u)/dev.asagiri.daemon"
           "$app/Contents/Resources/bin/docker" --host "unix://$HOME/.asagiri/run/docker.sock" version --format '{{.Server.Version}}'
+          test "$(readlink "$profiles/.zprofile")" = absent-zprofile
+          test ! -e "$profiles/absent-zprofile"
+          test "$(readlink "$profiles/.zshrc")" = managed-zshrc
+          cmp "$profiles/managed-zshrc" <(printf '%s\n' '# managed by home-manager')
+          grep -F "$profiles/.zprofile" "$HOME/.asagiri/logs/ui.log"
+          grep -F "$profiles/.zshrc" "$HOME/.asagiri/logs/ui.log"
