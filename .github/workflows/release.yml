@@ -246,7 +246,7 @@ jobs:
           key: ${{ steps.compiler_cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: packages-linux-${{ matrix.arch }}
+          name: ${{ matrix.arch == 'x86_64' && 'linux-jammy-inputs' || 'packages-linux-aarch64' }}
           path: ${{ runner.temp }}/packages/*
           if-no-files-found: error
           retention-days: 7
@@ -254,6 +254,36 @@ jobs:
         with:
           name: linux-inputs-${{ matrix.arch }}
           path: ${{ runner.temp }}/linux-inputs/*
+          if-no-files-found: error
+          retention-days: 7
+
+  jammy-desktop:
+    name: Build and launch the amd64 desktop deb on Ubuntu 22.04
+    needs: [plan, linux]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: linux-jammy-inputs
+          path: ${{ runner.temp }}/packages
+      - name: Package and exercise the release window
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          python3 scripts/ci/release.py stamp "$VERSION"
+          bash scripts/ci/jammy-desktop.sh "$RUNNER_TEMP/packages" "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: packages-linux-x86_64
+          path: ${{ runner.temp }}/packages/*
           if-no-files-found: error
           retention-days: 7
 
@@ -618,11 +648,11 @@ jobs:
 
   publish:
     name: Verify uploads and publish
-    needs: [plan, linux, guest, qemu, macos, windows, windows-arm-install]
+    needs: [plan, linux, jammy-desktop, guest, qemu, macos, windows, windows-arm-install]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.ready == 'true' &&
       (needs.plan.outputs.artifact_run != '' ||
-       (needs.linux.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
+       (needs.linux.result == 'success' && needs.jammy-desktop.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
         needs.macos.result == 'success' && needs.windows.result == 'success' &&
         needs.windows-arm-install.result == 'success'))
     runs-on: ubuntu-24.04
