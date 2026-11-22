@@ -65,7 +65,7 @@ jobs:
             Write-Host "Engine binary in persistent WSL installation: $installed"
             Invoke-Docker @('pull','alpine:3.21')
             $context = New-Item -ItemType Directory 'build-context'
-            Set-Content -NoNewline "$context/marker" 'windows-wsl-buildx'
+            [IO.File]::WriteAllText((Join-Path $context.FullName 'marker'), 'windows-wsl-buildx')
             $proof = Join-Path $env:RUNNER_TEMP 'proof.txt'
             $iid = Join-Path $env:RUNNER_TEMP 'iid'
             Set-Content -LiteralPath $proof -Value 'session-secret-100' -NoNewline
@@ -75,6 +75,20 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
+            $buildxVersion = (& $buildx version) -join ' '
+            if ($buildxVersion -notmatch ' v(\d+\.\d+\.\d+)') { throw "Unknown Buildx version: $buildxVersion" }
+            $tag = "v$($Matches[1])"
+            $linuxAsset = "buildx-$tag.linux-amd64"
+            gh release download $tag --repo docker/buildx --pattern $linuxAsset --pattern checksums.txt
+            if ($LASTEXITCODE) { throw 'Linux Buildx comparison download failed' }
+            $sha = (Get-FileHash $linuxAsset).Hash.ToLower()
+            if (!(Select-String -LiteralPath checksums.txt -Pattern "^$sha\s+\*?$([regex]::Escape($linuxAsset))$")) { throw 'Linux Buildx checksum mismatch' }
+            $wslAsset = (wsl.exe -d asagiri -- wslpath -a ((Join-Path $env:RUNNER_TEMP $linuxAsset).Replace('\','/'))).Trim()
+            wsl.exe -d asagiri -u root -- cp $wslAsset /tmp/buildx
+            if ($LASTEXITCODE) { throw 'Copy into WSL failed' }
+            wsl.exe -d asagiri -u root -- chmod 755 /tmp/buildx
+            wsl.exe -d asagiri -u root -- env DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock /tmp/buildx inspect default
+            Write-Host "Direct WSL worker inspection exit=$LASTEXITCODE, client=$tag"
             & $buildx inspect default
             if ($LASTEXITCODE) { throw 'Buildx inspection failed' }
             & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
