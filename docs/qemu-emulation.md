@@ -11,9 +11,11 @@ files. Bundle checks validate ELF architecture, absence of a dynamic loader
 or shared-library dependencies, checksums, recipe identity and licenses.
 They inspect Mac app contents without starting a VM.
 
-Native Intel Mac VM execution still needs hardware validation. The Linux
-emulator probe does not establish performance or compatibility for every
-application.
+On an Intel Mac running macOS 26.6.1, the published `0.1.14-dev.158` app
+pulled `linux/arm64` Alpine 3.21. Inside the container, `uname -m` reported
+`aarch64`, and a shell pipeline wrote and read a file. Running the same tag
+with `--platform linux/amd64` then reported `x86_64`.
+[Native Intel Mac verification](https://github.com/AndreKurait/asagiri/actions/runs/44943623664).
 
 ## Verified source build
 
