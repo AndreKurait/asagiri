@@ -473,6 +473,22 @@ def main():
                 case("container-definition-arrives-stopped-and-runs-with-copied-volume",
                      retried_source_container=source_id)
 
+                # A repository digest can be lost on save/load even when the config survives.
+                digest_ref = "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
+                digest_container = "digest-only-" + nonce
+                docker("source", "pull", digest_ref)
+                docker("source", "create", "--name", digest_container, "--network", "none",
+                       "--label", OWNER + "=" + nonce, digest_ref, "echo", nonce)
+                original = get("source", "/containers/" + digest_container + "/json")
+                assert original["Config"]["Image"] == digest_ref, original
+                imported("container", digest_container)
+                copied = get("destination", "/containers/" + digest_container + "/json")
+                assert copied["State"]["Status"] == "created", copied
+                assert docker("destination", "start", "-a", digest_container, text=True).stdout.strip() == nonce
+                assert get("destination", "/containers/" + digest_container + "/json")["State"]["ExitCode"] == 0
+                case("digest-only-container-arrives-stopped-and-runs", reference=digest_ref,
+                     source_image=original["Image"], destination_image=copied["Image"])
+
                 # Prove removal through each API before removing its private host.
                 for engine in names:
                     for row in get(engine, "/containers/json?all=1"):
