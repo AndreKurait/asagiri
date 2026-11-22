@@ -44,6 +44,25 @@ def verify_volume_metadata(docker, imported, helper, volume):
             assert any(entry.split(":")[:3] == ["user", "4242", "r--"] for entry in entries), (engine, entries)
 
 
+def verify_failed_reimport(docker, imported, helper, volume, dependent):
+    mount = volume + ":/data"
+    def run(engine, *command):
+        docker(engine, "run", "--rm", "--network", "none", "-v", mount, helper, *command)
+
+    # GNU tar cannot replace a nonempty directory with the source's regular file.
+    run("source", "touch", "/data/retry-conflict")
+    run("destination", "sh", "-ec", "mkdir /data/retry-conflict; touch /data/retry-conflict/keep")
+    failure = imported("volume", volume, success=False)
+    assert "extract helper failed" in failure, failure
+    assert "  " + volume in imported("--list").splitlines()
+    refusal = imported("container", dependent, success=False)
+    assert "retry the volume first" in refusal, refusal
+    run("destination", "sh", "-ec", "unlink /data/retry-conflict/keep; rmdir /data/retry-conflict")
+    imported("volume", volume)
+    assert "  " + volume + "  (already in Asagiri)" in imported("--list").splitlines()
+    run("destination", "test", "-f", "/data/retry-conflict")
+
+
 def archive_identity(data):
     """Hash the saved configuration and actual uncompressed layer contents."""
     maximum = 256 * 1024 * 1024
@@ -506,6 +525,8 @@ def main():
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
+                verify_failed_reimport(docker, imported, helper, volume, definition)
+                case("failed-extraction-blocks-fresh-container-import-until-volume-retry")
                 verify_volume_metadata(docker, imported, helper, volume)
                 case("volume-reimport-preserves-user-xattr-and-access-acl-on-unicode-path")
 
