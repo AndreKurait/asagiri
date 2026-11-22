@@ -3,6 +3,7 @@ on:
   push:
     branches: [qualification/mac-platform-trust-144]
 permissions:
+  actions: read
   contents: read
 jobs:
   keychain:
