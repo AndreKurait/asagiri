@@ -69,7 +69,8 @@ javascriptcore-rs = { version = "1", optional = true }
 # spawn/update/shutdown API; `async-io` instead of the default tokio, so
 # the window pulls in no async runtime it doesn't already use. Unlicense,
 # which deny.toml allows.
-ksni = { version = "0.3", optional = true, default-features = false, features = ["async-io", "blocking"] }
+# ksni PR 48 migrates the tray to zbus 6. Pin until the port is released.
+ksni = { path = "../../vendor/ksni", optional = true, default-features = false, features = ["async-io", "blocking"] }
 
 # The tests read back the tar archives the managed builder writes.
 [dev-dependencies]
