@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// The commands passed to the engine in WSL.
-pub const COMMANDS: &[&str] = &["k8s", "machine", "diag", "usb", "registry-mirror", "config"];
+pub const COMMANDS: &[&str] = &["k8s", "machine", "diag", "usb", "registry-mirror", "config", "scan"];
 
 /// In Asagiri Linux, asagiri-start wakes the engine if it isn't up; in a distro
 /// of the user's own, systemd or wsl.conf runs it.
@@ -27,9 +27,15 @@ pub fn run(args: &[String]) -> io::Result<()> {
     let distro = distro().ok_or_else(|| io::Error::other("Asagiri isn't set up yet. Open Asagiri from the Start menu first"))?;
     // wsl.exe from System32, never one found in the current folder.
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    let status = Command::new(system.join("System32").join("wsl.exe"))
-        .args(["-d", &distro, "-u", "root", "-e", "sh", "-c", SCRIPT, "asagiri"])
-        .args(args)
+    let mut command = Command::new(system.join("System32").join("wsl.exe"));
+    command.args(["-d", &distro, "-u", "root", "-e"]);
+    if args.first().is_some_and(|arg| arg == "scan") {
+        // Scan and history read the distro's image store without starting its engine.
+        command.args(["env", "HOME=/var/lib/asagiri-daemon", "/usr/local/bin/asagiri"]);
+    } else {
+        command.args(["sh", "-c", SCRIPT, "asagiri"]);
+    }
+    let status = command.args(args)
         .status()
         .map_err(|e| io::Error::other(format!("could not run wsl.exe ({e})")))?;
     std::process::exit(status.code().unwrap_or(1))
