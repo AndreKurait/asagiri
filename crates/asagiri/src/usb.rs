@@ -198,6 +198,7 @@ fn detach(_: &str) -> io::Result<()> {
 /// (number, class, subclass, protocol), then its name and vendor.
 /// "mouse", "keyboard", "network", "serial", "radio", "storage", "audio",
 /// "camera" or "" (a USB device).
+#[cfg(any(target_os = "macos", feature = "window", test))]
 pub fn kind_of(device_class: u8, interfaces: &[(u8, u8, u8, u8)], vendor: u16, name: &str) -> &'static str {
     let n = name.to_ascii_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
@@ -342,7 +343,7 @@ pub fn ui_detach(key: &str) -> io::Result<String> {
 }
 
 /// Linux: the host's devices, which containers already see.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "window"))]
 pub fn ui_list() -> serde_json::Value {
     let rows: Vec<serde_json::Value> = sysfs_devices(std::path::Path::new("/sys/bus/usb/devices"))
         .into_iter()
@@ -365,12 +366,12 @@ pub fn host_nodes() -> serde_json::Value {
     )
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "window"))]
 pub fn ui_attach(_: &str) -> io::Result<String> {
     attach("").map(|_| String::new())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "window"))]
 pub fn ui_detach(_: &str) -> io::Result<String> {
     attach("").map(|_| String::new())
 }
@@ -380,12 +381,17 @@ struct SysDevice {
     node: String,
     id: String,
     name: String,
+    #[cfg(any(test, feature = "window"))]
     speed: String,
     tty: Option<String>,
+    #[cfg(feature = "window")]
     kind: &'static str,
+    #[cfg(feature = "window")]
     maker: String,
     serial: String,
+    #[cfg(any(test, feature = "window"))]
     bus: u32,
+    #[cfg(any(test, feature = "window"))]
     dev: u32,
     /// Its name in sysfs (`1-2`).
     busid: String,
@@ -407,6 +413,7 @@ fn sysfs_devices(dir: &std::path::Path) -> Vec<SysDevice> {
         }
         let maker = read("manufacturer");
         let name = [maker.clone(), read("product")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
+        #[cfg(any(test, feature = "window"))]
         let speed = match read("speed").as_str() {
             "1.5" => "low",
             "12" => "full",
@@ -415,28 +422,36 @@ fn sysfs_devices(dir: &std::path::Path) -> Vec<SysDevice> {
             "10000" | "20000" => "super+",
             _ => "",
         };
-        let hex = |v: String| u8::from_str_radix(&v, 16).unwrap_or(0);
-        let mut ifs = Vec::new();
-        for i in std::fs::read_dir(&p).into_iter().flatten().flatten() {
-            let ip = i.path();
-            let r = |f: &str| std::fs::read_to_string(ip.join(f)).map(|s| s.trim().to_owned()).unwrap_or_default();
-            if ip.join("bInterfaceClass").exists() {
-                ifs.push((hex(r("bInterfaceNumber")), hex(r("bInterfaceClass")), hex(r("bInterfaceSubClass")), hex(r("bInterfaceProtocol"))));
+        #[cfg(feature = "window")]
+        let kind = {
+            let hex = |v: String| u8::from_str_radix(&v, 16).unwrap_or(0);
+            let mut ifs = Vec::new();
+            for i in std::fs::read_dir(&p).into_iter().flatten().flatten() {
+                let ip = i.path();
+                let r = |f: &str| std::fs::read_to_string(ip.join(f)).map(|s| s.trim().to_owned()).unwrap_or_default();
+                if ip.join("bInterfaceClass").exists() {
+                    ifs.push((hex(r("bInterfaceNumber")), hex(r("bInterfaceClass")), hex(r("bInterfaceSubClass")), hex(r("bInterfaceProtocol"))));
+                }
             }
-        }
-        let kind = kind_of(hex(read("bDeviceClass")), &ifs, u16::from_str_radix(&vid, 16).unwrap_or(0), &name);
+            kind_of(hex(read("bDeviceClass")), &ifs, u16::from_str_radix(&vid, 16).unwrap_or(0), &name)
+        };
         out.push(SysDevice {
+            #[cfg(feature = "window")]
             kind,
             node: format!("/dev/bus/usb/{:0>3}/{:0>3}", read("busnum"), read("devnum")),
             id: format!("{vid}:{pid}"),
             name: if name.is_empty() { "USB device".into() } else { name },
+            #[cfg(any(test, feature = "window"))]
             speed: speed.into(),
             tty: tty_of(&p),
             serial: read("serial"),
+            #[cfg(any(test, feature = "window"))]
             bus: read("busnum").parse().unwrap_or(0),
+            #[cfg(any(test, feature = "window"))]
             dev: read("devnum").parse().unwrap_or(0),
             busid: e.file_name().to_string_lossy().into_owned(),
             paths: sysfs::nodes(&p).into_iter().map(|n| serde_json::json!({"path": n.path, "what": n.what})).collect(),
+            #[cfg(feature = "window")]
             maker,
         });
     }
