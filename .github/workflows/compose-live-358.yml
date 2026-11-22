@@ -46,6 +46,11 @@ jobs:
             if docker run --rm --network none alpine:3.21 true; then break; fi
             test "$attempt" != 3
           done
+          docker context create compose-qualification --docker "host=$DOCKER_HOST"
+          docker buildx create --name asagiri-build --driver docker-container \
+            --driver-opt default-load=true compose-qualification
+          export BUILDX_BUILDER=asagiri-build
+          docker buildx inspect "$BUILDX_BUILDER" --bootstrap
           export ASAGIRI_LIVE_DIR="$scratch/project" ASAGIRI_LIVE_OUT="$scratch/results"
           cp -R "$GITHUB_WORKSPACE/tests/fixtures/compose-dashboard" "$ASAGIRI_LIVE_DIR"
           "$(cat "$RUNNER_TEMP/test-path")" --ignored --exact ui::compose::live::live_compose --nocapture | tee "$scratch/test.log"
