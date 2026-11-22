@@ -33,7 +33,17 @@ New-Item -ItemType Directory -Force $plugins | Out-Null
 # The MSI installs the bundle straight into %LOCALAPPDATA%\Asagiri: nothing to copy then.
 $inPlace = (Resolve-Path $Bundle).Path.TrimEnd('\') -ieq $dir.TrimEnd('\')
 
-if (-not $inPlace) { Copy-Item (Join-Path $Bundle "bin\docker.exe"), (Join-Path $Bundle "bin\asagiri.exe") $bin -Force }
+function Install-BundledTool([string]$relativePath) {
+  if ($inPlace) { return }
+  $source = Join-Path $Bundle $relativePath
+  $destination = Join-Path $dir $relativePath
+  # A running CLI can be read but cannot be overwritten on Windows.
+  if ((Test-Path -LiteralPath $destination -PathType Leaf) -and
+      (Get-FileHash -LiteralPath $destination).Hash -eq (Get-FileHash -LiteralPath $source).Hash) { return }
+  Copy-Item -LiteralPath $source -Destination $destination -Force
+}
+Install-BundledTool "bin\docker.exe"
+Install-BundledTool "bin\asagiri.exe"
 # Asagiri's bin last on this user's PATH: a docker CLI already installed keeps
 # winning. Through the registry so the value keeps its kind (REG_EXPAND_SZ)
 # and its %USERPROFILE%-style entries; SetEnvironmentVariable would flatten
@@ -55,7 +65,7 @@ $r = [UIntPtr]::Zero
 [Asagiri.Env]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "Environment", 2, 5000, [ref]$r) | Out-Null
 "TASK 0"
 
-if (-not $inPlace) { Copy-Item (Join-Path $Bundle "bin\cli-plugins\docker-compose.exe") $plugins -Force }
+Install-BundledTool "bin\cli-plugins\docker-compose.exe"
 # Plugins through cliPluginsExtraDirs; the config holds registry logins, so
 # it is merged, and backed up once before Asagiri first changes it.
 $cfg = if (Test-Path $dockerConfig) { Get-Content $dockerConfig -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
@@ -73,7 +83,7 @@ $ErrorActionPreference = $prev
 if ($out -match "Error parsing config") { throw "docker cannot read $dockerConfig after Asagiri changed it (the backup is $dockerConfig.before-asagiri): $out" }
 "TASK 1"
 
-if (-not $inPlace) { Copy-Item (Join-Path $Bundle "bin\cli-plugins\docker-buildx.exe") $plugins -Force }
+Install-BundledTool "bin\cli-plugins\docker-buildx.exe"
 "TASK 2"
 
 Docker context rm -f asagiri | Out-Null
