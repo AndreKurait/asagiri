@@ -5885,7 +5885,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("asagiri-compose-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
-        std::fs::canonicalize(&d).unwrap()
+        real_path(&d).unwrap()
     }
 
     #[test]
@@ -6029,7 +6029,7 @@ mod tests {
         fn outside(p: &Path) {
             std::fs::write(p, "services: {}\n# theirs\n").unwrap();
         }
-        *BETWEEN.lock().unwrap() = Some((std::fs::canonicalize(&f).unwrap(), outside));
+        *BETWEEN.lock().unwrap() = Some((real_path(&f).unwrap(), outside));
         let r = save(&f, "services:\n  a: {}\n", &base);
         *BETWEEN.lock().unwrap() = None;
         assert!(r.as_ref().is_err_and(changed), "{r:?}");
