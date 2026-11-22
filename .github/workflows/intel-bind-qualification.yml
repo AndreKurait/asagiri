@@ -45,7 +45,12 @@ jobs:
           probe_host_dns() {
             echo "Host resolver check $1"
             resolver=$(scutil --dns | awk '/nameserver\[0\]/{if (!first) first=$3} END{print first}')
-            if [ -n "$resolver" ]; then route -n get "$resolver" || true; fi
+            if [ -n "$resolver" ]; then
+              route -n get "$resolver" || true
+              arp -n "$resolver" || true
+              dig +time=2 +tries=1 +notcp +ignore "@$resolver" "$registry_host" A || true
+              dig +time=2 +tries=1 +tcp "@$resolver" "$registry_host" A || true
+            fi
             if [ -n "$registry_ip" ]; then
               curl --noproxy "*" --resolve "$registry_host:443:$registry_ip" -sS --max-time 5 -o /dev/null -w "direct registry HTTP %{http_code} remote %{remote_ip}\n" "https://$registry_host/v2/" || true
             fi
