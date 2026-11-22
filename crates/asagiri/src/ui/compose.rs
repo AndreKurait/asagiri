@@ -4757,8 +4757,9 @@ mod live {
         apply(cli, st, "asagiriopen", &text, Some(&hash), em);
         let last: Value = serde_json::from_str(LINES.lock().unwrap().last().unwrap()).unwrap();
         assert_eq!(last["ok"], true, "{last}");
-        let failed: Vec<&str> = last["failed"].as_array().unwrap().iter().filter_map(|f| f["svc"].as_str()).collect();
+        let mut failed: Vec<&str> = last["failed"].as_array().unwrap().iter().filter_map(|f| f["svc"].as_str()).collect();
         // The one that dies at once and the one that dies three seconds later: both named.
+        failed.sort_unstable();
         assert_eq!(failed, ["bad", "late"], "{last}");
         let ev: Value = serde_json::from_str(&projects_event(cli, st)).unwrap();
         let p = ev["projects"].as_array().unwrap().iter().find(|p| p["name"] == "asagiriopen").unwrap().clone();
