@@ -1,0 +1,46 @@
+name: macOS System Keychain update verification
+on:
+  push:
+    branches: [qualification/mac-platform-trust-144]
+permissions:
+  contents: read
+jobs:
+  keychain:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri --bin asagiri
+      - name: Verify HTTPS against a temporary system root
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$PWD/target/debug/asagiri"
+          cd "$RUNNER_TEMP"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=fixture-144-root -keyout ca.key -out ca.pem
+          openssl req -new -newkey rsa:2048 -nodes -subj /CN=localhost -keyout leaf.key -out leaf.csr
+          printf 'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n' > extensions
+          openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 1 -extfile extensions -out leaf.pem
+          mkdir feed
+          echo '{"version":"99.0.0","url":"https://localhost/unused","sha256":"unused"}' >feed/latest.json
+          python3 - <<'PY' &
+          import http.server, ssl, functools
+          server = http.server.HTTPServer(('127.0.0.1', 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory='feed'))
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain('leaf.pem', 'leaf.key')
+          server.socket = tls.wrap_socket(server.socket, server_side=True)
+          with open('port', 'w') as port: print(server.server_port, file=port)
+          server.serve_forever()
+          PY
+          server=$!
+          trap 'kill "$server"; sudo security remove-trusted-cert -d ca.pem || true' EXIT
+          for attempt in {1..50}; do [[ -s port ]] && break; sleep 0.1; done
+          port=$(cat port)
+          export ASAGIRI_UPDATE_URL="https://localhost:$port/latest.json"
+          unset SSL_CERT_FILE SSL_CERT_DIR
+          curl --cacert ca.pem -fsS "$ASAGIRI_UPDATE_URL"
+          if "$app" update --check; then exit 1; fi
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem
+          "$app" update --check | grep -F '99.0.0'
+          if ASAGIRI_UPDATE_URL="https://127.0.0.1:$port/latest.json" "$app" update --check; then exit 1; fi
