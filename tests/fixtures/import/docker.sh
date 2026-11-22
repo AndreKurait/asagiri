@@ -42,15 +42,19 @@ case "$1 $2" in
       running|paused|restarting)
         printf '{"Names":"fixture-writer","State":"%s"}\n' "$scenario"
         ;;
+      writer-during-pull)
+        if [ -f "$fixture/pulled" ]; then echo '{"Names":"fixture-writer","State":"running"}'; fi
+        ;;
       late-writer)
         if [ -f "$fixture/copied" ]; then echo '{"Names":"fixture-writer","State":"running"}'; fi
         ;;
     esac
     ;;
   "image inspect")
-    case "$scenario" in helper-*) exit 1 ;; esac
+    case "$scenario" in helper-*|writer-during-pull) exit 1 ;; esac
     ;;
   "pull alpine@sha256:"*)
+    touch "$fixture/pulled"
     if [ "$scenario" = helper-pull-error ] && [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
       echo "registry unavailable" >&2
       exit 42

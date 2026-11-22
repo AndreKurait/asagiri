@@ -204,9 +204,7 @@ fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result
 }
 
 fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<()> {
-    let source = inspect_idle_volume(ctx, name, make_cli)?;
-    let labels: Option<std::collections::BTreeMap<String, String>> = serde_json::from_value(source["Labels"].clone())
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume labels: {e}")))?;
+    inspect_idle_volume(ctx, name, make_cli)?;
     let img = helper_image(ctx, make_cli)?;
     let users = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "ps", "--all", "--filter", &format!("volume={name}"), "--format", "{{.Names}}"]).output()?;
     if !users.status.success() {
@@ -216,6 +214,10 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     if !users.trim().is_empty() {
         return Err(io::Error::other(format!("destination volume {name} is attached to {}", users.lines().collect::<Vec<_>>().join(", "))));
     }
+    // Pulling a missing helper can take long enough for a source writer to start.
+    let source = inspect_idle_volume(ctx, name, make_cli)?;
+    let labels: Option<std::collections::BTreeMap<String, String>> = serde_json::from_value(source["Labels"].clone())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{ctx}: invalid volume labels: {e}")))?;
     let mut create = make_cli()?;
     create.args(["--context", crate::flavor::CONTEXT.get(), "volume", "create"]);
     for (key, value) in labels.into_iter().flatten() {
@@ -605,8 +607,11 @@ mod tests {
         let idle = VolumeFixture::new("idle");
         idle.run().unwrap();
         assert_eq!(std::fs::read(idle.0.join("copied")).unwrap(), b"\0volume fixture\xff\n");
-        assert_eq!(idle.trace().matches("orbstack ps --all ").count(), 2);
+        assert_eq!(idle.trace().matches("orbstack ps --all ").count(), 3);
         assert!(idle.trace().contains("fixture-volume:/from:ro"));
+        let changed = VolumeFixture::new("writer-during-pull");
+        assert!(changed.run().unwrap_err().to_string().contains("fixture-writer"));
+        assert!(!changed.trace().contains(" volume create "));
         for case in ["create-error", "source-error", "write-error", "late-writer", "late-inspect-error"] {
             let fixture = VolumeFixture::new(case);
             assert!(fixture.run().is_err(), "{case} was reported as a completed import");
