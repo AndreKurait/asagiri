@@ -64,7 +64,7 @@ struct Server {
     /// Internal networks follow routed ones; more gateway families come
     /// first. IPv6 can be disabled for one container on a dual-stack network,
     /// so this belongs to the endpoint, not the bridge's shared name table.
-    priorities: HashMap<String, (bool, Reverse<u8>)>,
+    priorities: HashMap<String, (Reverse<i64>, bool, Reverse<u8>)>,
     sock: OwnedFd,
     /// In a container's namespace: (its PID, the address its `--dns`
     /// servers are kept under). Every query there comes from 127.0.0.1.
@@ -262,6 +262,7 @@ impl Dns {
     }
 
     /// Called after this endpoint's DNS listener is ready. Docker searches
+    /// higher gateway priorities first. Within a priority it searches
     /// non-internal endpoints before internal ones, then prefers more
     /// gateway families, then the network name. An older daemon may omit
     /// the name; its bridge name provides a stable fallback.
@@ -270,6 +271,7 @@ impl Dns {
         if let Some(name) = net_opts::values(net.opts, net_opts::NETWORK).next().filter(|n| !n.is_empty()) {
             self.name_network(net.bridge, name);
         }
+        let priority = net_opts::values(net.opts, net_opts::GW_PRIORITY).next().and_then(|value| value.parse::<i64>().ok()).unwrap_or_default();
         let plug = super::net::Plug::from_opts(net.opts);
         let gateways = if plug.internal || plug.own_link() {
             0
@@ -279,7 +281,7 @@ impl Dns {
         };
         for server in self.servers.iter_mut().filter(|s| s.container.is_some_and(|(p, _)| p == pid)) {
             if server.bridges.iter().any(|b| b == net.bridge) {
-                server.priorities.insert(net.bridge.to_owned(), (plug.internal, Reverse(gateways)));
+                server.priorities.insert(net.bridge.to_owned(), (Reverse(priority), plug.internal, Reverse(gateways)));
             }
         }
     }
@@ -838,6 +840,9 @@ mod tests {
             (&internal_dual, &[], false),
             (&internal_dual, &["internal=1"], true),
             (&["macvlan=bridge"], &[], false),
+            (&[], &["gwpriority=10"], false),
+            (&["gwpriority=-1"], &[], false),
+            (&["gwpriority=2"], &["gwpriority=2"], true),
         ];
         for &(first, second, first_answers) in cases {
             let mut dns = Dns::default();
