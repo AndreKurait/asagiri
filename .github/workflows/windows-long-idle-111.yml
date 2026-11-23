@@ -1,0 +1,57 @@
+name: Published dev.195 Windows first Docker command after three hours idle
+on:
+  push:
+    branches: [qualification/windows-long-idle-111]
+    paths: [.github/workflows/windows-long-idle-111.yml]
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 205
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Exercise shipped Windows host and WSL guest recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.195-windows-x86_64.zip'
+          Set-Location $env:RUNNER_TEMP
+          gh release download v0.1.14-dev.195 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '906a30dfdb13cdbca9625406026181c8e7b38b96b4d6a6394914488731591ccb') { throw 'Published bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath load-test
+          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $bundle = Split-Path $app
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --version
+          wsl.exe --import Asagiri-recover-111 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-recover-111','--pipe','\\.\pipe\asagiri-recover-111' -PassThru
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-recover-111'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              & $docker version --format '{{.Server.Version}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+            Invoke-Docker @('pull','alpine:3.21')
+            $idle = [Diagnostics.Stopwatch]::StartNew()
+            Start-Sleep -Seconds 10800
+            if ($idle.Elapsed.TotalSeconds -lt 10800 -or $bridge.HasExited) { throw 'Background host did not survive the idle interval' }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $reply = Invoke-Docker @('run','--rm','alpine:3.21','echo','awake-111')
+            if ($reply -notcontains 'awake-111') { throw "First command returned $reply" }
+            Write-Host "PASS after $($idle.Elapsed.TotalSeconds) seconds idle, the first container ran in $($watch.Elapsed.TotalSeconds) seconds"
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate Asagiri-recover-111
+          }
