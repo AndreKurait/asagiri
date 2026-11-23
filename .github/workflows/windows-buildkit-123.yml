@@ -61,8 +61,15 @@ jobs:
             # retaining the host-supplied resolver used by the bridge gateway.
             wsl.exe -d dns123 -u root -- apk add --no-cache iptables
             if ($LASTEXITCODE) { throw 'Installing the test firewall tool failed' }
-            wsl.exe -d dns123 -u root -- sh -ec 'for ip in 8.8.8.8 8.8.4.4; do for chain in OUTPUT FORWARD; do for proto in udp tcp; do iptables -I "$chain" -d "$ip" -p "$proto" --dport 53 -j REJECT; done; done; done; cat /etc/resolv.conf'
-            if ($LASTEXITCODE) { throw 'Could not create the restricted DNS environment' }
+            foreach ($server in '8.8.8.8','8.8.4.4') {
+              foreach ($chain in 'OUTPUT','FORWARD') {
+                foreach ($protocol in 'udp','tcp') {
+                  wsl.exe -d dns123 -u root --exec iptables -I $chain -d $server -p $protocol --dport 53 -j REJECT
+                  if ($LASTEXITCODE) { throw "Failed to restrict $protocol DNS to $server in $chain" }
+                }
+              }
+            }
+            wsl.exe -d dns123 --exec cat /etc/resolv.conf
             & $docker run --rm alpine:3.21 sh -ec 'if timeout 6 nslookup dl-cdn.alpinelinux.org 8.8.8.8; then exit 1; fi; nslookup dl-cdn.alpinelinux.org'
             if ($LASTEXITCODE) { throw 'Public DNS restriction or ordinary resolver control failed' }
             & $docker run --rm alpine:3.21 sh -ec 'cat /etc/resolv.conf && wget -q -O /dev/null https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/APKINDEX.tar.gz'
