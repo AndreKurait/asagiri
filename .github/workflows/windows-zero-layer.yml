@@ -1,0 +1,100 @@
+name: WSL zero-layer image mount
+on:
+  push:
+    branches: [qualification/windows-zero-layer-346]
+    paths: [.github/workflows/windows-zero-layer.yml]
+permissions:
+  contents: read
+jobs:
+  guest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: bash scripts/windows-engine.sh "$PWD" "$RUNNER_TEMP/guest"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: candidate-init
+          path: ${{ runner.temp }}/guest/asagiri-init
+  windows-cli:
+    needs: guest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [released, candidate]
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-init
+          path: guest
+      - name: Exercise settings-only image on WSL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'Asagiri-0.1.14-dev.188-windows-x86_64.zip'
+          Set-Location $env:RUNNER_TEMP
+          gh release download v0.1.14-dev.188 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '3ee017d9c8ee94292197badf38f432fc5eeb134892bf6311f1e85aa1ddebc854') { throw 'Published bundle hash mismatch' }
+          Expand-Archive $asset -DestinationPath load-test
+          $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
+          $bundle = Split-Path $app
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --version
+          wsl.exe --import Asagiri-empty-346 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ('${{ matrix.engine }}' -eq 'candidate') {
+            $init = (wsl.exe -d Asagiri-empty-346 -u root -- wslpath -u "$env:GITHUB_WORKSPACE\guest\asagiri-init").Trim()
+            wsl.exe -d Asagiri-empty-346 -u root -- install -m 755 $init /usr/local/bin/asagiri-init
+            if ($LASTEXITCODE) { throw 'Could not install candidate init' }
+          }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-empty-346','--pipe','\\.\pipe\asagiri-load-test' -PassThru
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            for ($i = 0; $i -lt 45; $i++) {
+              & $docker version --format '{{.Server.Version}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+          @'
+          import hashlib
+          import io
+          import json
+          import sys
+          import tarfile
+          
+          archive, tag, arch = sys.argv[1:]
+          config = json.dumps({"architecture": arch, "os": "linux", "config": {"Cmd": ["/nothing"], "Labels": {"empty": "1"}},
+                               "rootfs": {"type": "layers", "diff_ids": []}}).encode()
+          name = hashlib.sha256(config).hexdigest() + ".json"
+          manifest = json.dumps([{"Config": name, "RepoTags": [tag], "Layers": []}]).encode()
+          with tarfile.open(archive, "w") as tar:
+              for path, data in [(name, config), ("manifest.json", manifest)]:
+                  entry = tarfile.TarInfo(path)
+                  entry.size = len(data)
+                  tar.addfile(entry, io.BytesIO(data))
+          '@ | python - empty.tar asagiri-empty:check amd64
+            if ($LASTEXITCODE) { throw 'Archive creation failed' }
+            Invoke-Docker @('load','-i','empty.tar')
+            $layers = Invoke-Docker @('image','inspect','--format','{{len .RootFS.Layers}}','asagiri-empty:check')
+            if ($layers -ne '0') { throw "Unexpected layers $layers" }
+            $output = (& $docker run --rm --network none asagiri-empty:check 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+            Write-Host "docker run returned $code $output"
+            if ('${{ matrix.engine }}' -eq 'candidate') {
+              if ($code -ne 127 -or $output -notmatch 'stat /nothing: no such file') { throw 'Candidate failed exec check' }
+            } elseif ($code -ne 125 -or $output -notmatch 'Invalid argument') { throw 'Released baseline differed' }
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate Asagiri-empty-346
+          }
