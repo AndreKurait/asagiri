@@ -21,9 +21,13 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb dbus-x11 gir1.2-atspi-2.0 at-spi2-core libfuse2t64
-          gh run download 45260712752 -R AndreKurait/asagiri -n packages-linux-aarch64
-          app="$PWD/Asagiri-0.1.14-dev.243-aarch64.AppImage"
-          echo "9c1a3b05e58dbe6828a6b7ff988df1286a0158355e7e718eab3df3be2c59a5a9  $app" | sha256sum -c -
+          tag=v0.1.14-dev.247
+          asset="Asagiri-${tag#v}-aarch64.AppImage"
+          digest=$(gh release view "$tag" -R AndreKurait/asagiri --json assets,isDraft --jq ". | select(.isDraft == false) | .assets[] | select(.name == \"$asset\") | .digest")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh release download "$tag" -R AndreKurait/asagiri --pattern "$asset"
+          app="$PWD/$asset"
+          echo "${digest#sha256:}  $app" | sha256sum -c -
           chmod +x "$app"
           export HOME="$RUNNER_TEMP/profile" GTK_MODULES=gail:atk-bridge
           mkdir -p "$HOME/.asagiri/run"
