@@ -13,6 +13,7 @@ jobs:
       - name: Exercise terminal input across live engine refreshes
         env:
           GH_TOKEN: ${{ github.token }}
+          PYTHONIOENCODING: utf-8:backslashreplace
         run: |
           $ErrorActionPreference = "Stop"
           cd $env:RUNNER_TEMP
