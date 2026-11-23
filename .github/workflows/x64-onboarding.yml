@@ -41,6 +41,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p observations "$RUNNER_TEMP/fuse-home"
+          # The hosted tool cache makes /usr/local/bin writable to the runner.
+          # Model a standard root-owned system install directory on this ephemeral VM.
+          stat -c '%U:%G %a %n' /usr/local/bin | tee observations/install-directory-before.txt
+          sudo chown root:root /usr/local/bin
+          sudo chmod 0755 /usr/local/bin
+          stat -c '%U:%G %a %n' /usr/local/bin | tee observations/install-directory-tested.txt
           ls -l /dev/fuse
           test -r /dev/fuse && test -w /dev/fuse
           # The hosted image also lists packer as a PolicyKit administrator.
