@@ -1,0 +1,34 @@
+name: Published Mac first launch and Docker CLI
+on:
+  push:
+    branches: [qualification/mac-default-cli-98]
+    paths: [.github/workflows/mac-default-cli-98.yml]
+permissions:
+  contents: read
+jobs:
+  first-launch:
+    runs-on: macos-26-intel
+    timeout-minutes: 12
+    steps:
+      - name: Launch published app in a clean runner account
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          asset=Asagiri-0.1.14-dev.205-x86_64.tar.gz
+          gh release download v0.1.14-dev.205 -R AndreKurait/asagiri -p "$asset"
+          echo "ce251930f568a1f302dbf0534015591c7374db549170d22f8fd0402249cdaece  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          test ! -e /Applications/Asagiri.app && test ! -e "$HOME/.asagiri"
+          mv Asagiri.app /Applications/
+          codesign --verify --deep --strict /Applications/Asagiri.app
+          test ! -e /Applications/Docker.app
+          unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
+          open /Applications/Asagiri.app
+          bundled=/Applications/Asagiri.app/Contents/Resources/bin/docker
+          for i in {1..90}; do "$bundled" --context asagiri info >/dev/null 2>&1 && break; sleep 2; done
+          "$bundled" context ls
+          "$bundled" --context asagiri info
+          /bin/zsh -lic 'command -v docker && docker context show && docker info --format "{{.ServerVersion}}" && docker run --rm alpine:3.21 echo mac-first-launch-98' | tee fresh-shell.log
+          grep -Fx mac-first-launch-98 fresh-shell.log
