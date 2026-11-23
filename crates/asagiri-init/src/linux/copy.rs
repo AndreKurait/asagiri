@@ -90,6 +90,19 @@ fn copy_in(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<()> {
         Ok(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("notdir: extraction point is not a directory: {}", spec.path))),
         Err(_) => return Err(io::Error::new(io::ErrorKind::NotFound, format!("notfound: Could not find the file {} in container {}", spec.path, spec.id))),
     }
+    // The kernel resolves symlinks and nested bind mounts in the worker's
+    // actual namespace. Check the extraction directory before reading entries.
+    let mut mount = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    let path = sys::cstr(dest)?;
+    // SAFETY: path is NUL terminated and statvfs initializes mount on success.
+    sys::check(unsafe { libc::statvfs(path.as_ptr(), mount.as_mut_ptr()) } as _, "stat extraction mount")?;
+    if unsafe { mount.assume_init() }.f_flag & libc::ST_RDONLY != 0 {
+        let resolved = fs::canonicalize(dest)?;
+        let on_volume = spec.mounts.iter().filter_map(|m| m.split('\t').nth(1))
+            .filter_map(|target| fs::canonicalize(target).ok()).any(|target| resolved.starts_with(target));
+        let message = if on_volume { "mounted volume is marked read-only" } else { "container rootfs is marked read-only" };
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, message));
+    }
     // Resolve before extracting anything. Like Docker, an empty Config.User
     // leaves archive ownership unchanged even when copyUIDGID is true.
     let owner = if spec.flags & copy_flags::CONTAINER_USER != 0 && !spec.user.is_empty() {
