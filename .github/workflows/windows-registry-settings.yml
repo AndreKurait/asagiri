@@ -49,7 +49,8 @@ jobs:
               window = Desktop(backend='uia').window(process=proc.pid, class_name='AsagiriWindow')
               window.wait('visible', timeout=90)
               def click(title):
-                  control = window.child_window(title=title, control_type='Button')
+                  options = {'found_index': 0} if title == 'Settings' else {}
+                  control = window.child_window(title=title, control_type='Button', **options)
                   control.wait('enabled visible', timeout=30)
                   control.click_input()
               def field():
