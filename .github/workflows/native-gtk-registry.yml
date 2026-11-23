@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 python3-pyatspi at-spi2-core
+          sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 python3-pyatspi xdotool at-spi2-core
           gh run download 45098441101 -R AndreKurait/asagiri -n appimage-X64 -D package
           app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
           echo "e8dc0b86afc72080c0ef8f9cac958a5782ba707bd3619227392ab2a928f94be3  $app" | sha256sum -c -
@@ -50,6 +50,9 @@ jobs:
           press('English Same as Linux Hello')
           press('Continue')
           press('Keep building with Docker')
+          press('Skip')
+          press('Skip')
+          press('Open Asagiri')
           press('Registry mirrors')
           time.sleep(2)
           print([(n.getRoleName(),n.name) for n in controls() if n.name or n.getRoleName()=='text'],flush=True)
@@ -63,11 +66,7 @@ jobs:
               for _ in range(30):
                   for control in controls():
                       if control.name == 'Insecure registries':
-                          try:
-                              control.queryEditableText()
-                              return control
-                          except NotImplementedError:
-                              pass
+                          return control
                   time.sleep(0.5)
               raise RuntimeError('Missing editable Insecure registries field')
 
@@ -80,7 +79,9 @@ jobs:
           assert exceptions() == []
           for value in ['registry.test:5153', '']:
               field = exception_field()
-              field.queryEditableText().setTextContents(value)
+              if not field.queryComponent().grabFocus(): raise RuntimeError('Registry field could not receive focus')
+              subprocess.run(['xdotool','key','ctrl+a','BackSpace'],check=True)
+              if value: subprocess.run(['xdotool','type',value],check=True)
               press('Save')
               expected = [value] if value else []
               for _ in range(30):
