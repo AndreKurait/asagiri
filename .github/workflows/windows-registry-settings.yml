@@ -72,21 +72,12 @@ jobs:
               click('Registry mirrors')
               assert field().get_value() == ''
               for value in ['registry.test:5153', '']:
-                  import tkinter
-                  clipboard = tkinter.Tk()
-                  clipboard.withdraw()
-                  try:
-                      clipboard.clipboard_clear()
-                      if value:
-                          clipboard.clipboard_append(value)
-                      clipboard.update()
-                      field().click_input()
-                      send_keys('^a')
-                      send_keys('^v' if value else '{BACKSPACE}')
-                      observed = field().get_value()
-                      assert observed == value, (value, observed)
-                  finally:
-                      clipboard.destroy()
+                  edit = field()
+                  edit.set_focus()
+                  edit.set_edit_text(value)
+                  send_keys('{TAB}')
+                  observed = field().get_value()
+                  assert observed == value, (value, observed)
                   click('Save')
                   window.child_window(title='Save', control_type='Button').wait_not('enabled', timeout=30)
                   click('Containers')
