@@ -60,6 +60,10 @@ jobs:
                   control = window.child_window(title=title, found_index=0)
                   control.wait('visible enabled', timeout=90)
                   control.click_input()
+              language = window.child_window(auto_id='lang-go', control_type='Button')
+              if language.exists(timeout=5) and language.is_visible():
+                  language.invoke()
+                  language.wait_not('visible', timeout=30)
               click('Containers')
               deadline = time.monotonic() + 90
               while time.monotonic() < deadline:
