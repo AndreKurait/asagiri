@@ -24,42 +24,29 @@ jobs:
           }
           wsl.exe --version
           if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
-      - name: Install dev.195 and use the registered context from a fresh shell
+      - name: Install the published MSI and use the registered context from a fresh shell
         env:
           GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "212"
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:RUNNER_TEMP
-          $build = '195'
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
           $installStep = 1
           $version = "0.1.14-dev.$build"
           $asset = "Asagiri-$version-x86_64.msi"
-          if (!(Test-Path $asset)) {
-            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
-            $digest = gh release view "v$version" --repo AndreKurait/asagiri --json assets | ConvertFrom-Json | ForEach-Object { ($_.assets | Where-Object name -eq $asset).digest }
-            if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw "Missing release digest for $asset" }
-            if ((Get-FileHash $asset).Hash.ToLower() -ne $digest.Substring(7)) { throw "Hash mismatch for $asset" }
-
-          }
+          gh run download 45217003246 -R AndreKurait/asagiri -n packages-windows-x86_64 -D package
+          if ($LASTEXITCODE) { throw 'Release artifact download failed' }
+          Copy-Item (Join-Path package $asset) $asset
+          Write-Host "Tested MSI SHA-256: $((Get-FileHash $asset).Hash)"
           $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
-            $files = @('asagiri', 'asagiri-init', 'asagiri-linux.tar.gz', 'install.sh', 'asagiri.ps1', 'setup-tools.ps1', 'asagiri-admin.ps1', 'bin/docker.exe', 'bin/asagiri.exe', 'bin/cli-plugins/docker-compose.exe', 'bin/cli-plugins/docker-buildx.exe')
-            $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object {
-              $digest = (Get-FileHash (Join-Path $bundle $_) -Algorithm SHA256).Hash.ToLowerInvariant()
-              "$_=$digest"
-            }) -join ';'
-            Push-Location $env:GITHUB_WORKSPACE
-            cargo build --locked --release -p asagiri-win --bin asagiri-win
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            Pop-Location
-            $launcher = Join-Path $env:GITHUB_WORKSPACE 'target/release/asagiri-win.exe'
-            Copy-Item $launcher $app -Force
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
             $wizard = Start-Process $app -PassThru
             @'
           import sys
