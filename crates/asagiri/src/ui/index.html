@@ -3132,9 +3132,12 @@ function setPrompt() {
    last one ended in, and reports back who and where it is, after a marker. */
 const PS1_MARK = "\x1e";
 const shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+// Both native hosts echo the submitted script in their reply. Distinguish
+// repeated commands even after clear or reopening the same container.
+let nextExec = 0;
 function wrapped(t, cmd) {
   const cd = t.cwd ? `cd -- ${shq(t.cwd)} 2>/dev/null\n` : "";
-  return `${cd}${cmd}\n__asagiri=$?; printf '\\n\\036%s\\037%s\\037%s' "$(id -un 2>/dev/null || whoami 2>/dev/null)" "$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null)" "$PWD"; exit $__asagiri`;
+  return `# asagiri exec ${++nextExec}\n${cd}${cmd}\n__asagiri=$?; printf '\\n\\036%s\\037%s\\037%s' "$(id -un 2>/dev/null || whoami 2>/dev/null)" "$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null)" "$PWD"; exit $__asagiri`;
 }
 function probePrompt() {
   const d = ui.detail;
@@ -3148,16 +3151,21 @@ function runCommand(cmd) {
   d.term.history.push(cmd);
   d.term.at = d.term.history.length;
   const block = document.createElement("div");
-  block.dataset.pending = "1";
+  const script = wrapped(d.term, cmd);
+  block.dataset.pending = script;
   block.innerHTML = `<div class="cmd"><span class="ps1"></span><span class="typed"></span></div><div class="body quiet">${tr("running…")}</div>`;
   block.querySelector(".ps1").textContent = ps1(d.term, d.info);
   block.querySelector(".typed").textContent = cmd;
   out.append(block);
   termEl.scrollTop = termEl.scrollHeight;
-  send("exec", { id: d.id, path: wrapped(d.term, cmd) });
+  send("exec", { id: d.id, path: script });
 }
 
 function finishExec(e) {
+  const out = termEl.querySelector("#term-out");
+  const block = out.querySelector("[data-pending]");
+  const probe = e.cmd === ui.detail.term.probed;
+  if (probe ? ui.detail.term.history.length !== 0 : !block || block.dataset.pending !== e.cmd) return;
   // Split off what the shell reported (user, host, directory) and keep it for the prompt.
   let output = e.output.replace(/\r\n/g, "\n");
   const at = output.lastIndexOf(PS1_MARK);
@@ -3167,10 +3175,7 @@ function finishExec(e) {
     output = output.slice(0, at).replace(/\n$/, "");
     setPrompt();
   }
-  const out = $("term-out") ?? termEl.querySelector("#term-out");
-  const block = out.querySelector("[data-pending]");
-  // The opening probe has no block of its own.
-  if (!block || e.cmd === ui.detail.term.probed) return;
+  if (probe) return;
   block.removeAttribute("data-pending");
   const body = block.querySelector(".body");
   body.className = "body";
@@ -3190,6 +3195,7 @@ termEl.querySelector("#term-form").addEventListener("submit", (ev) => {
   const cmd = input.value.trim();
   if (!cmd) return;
   if (cmd === "clear") { termEl.querySelector("#term-out").textContent = ""; input.value = ""; return; }
+  if (termEl.querySelector("#term-out [data-pending]")) return;
   runCommand(cmd);
   input.value = "";
 });
@@ -3219,7 +3225,7 @@ function renderDetail() {
   const facts = [[tr("Image"), `<span title="${esc(c.Image)}">${esc(refLabel(c.Image))}</span>`],
     id && [tr("ID"), `<span class="mono" title="${esc(id)}">sha256:${esc(id.slice(7, 19))}</span>${copyBtn(id, tr("image ID"))}`],
     project && ["Compose", `<span class="cproj"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="${PH.stack}"/></svg>${esc(project)}</span>`]].filter(Boolean);
-  $("content").innerHTML = `<div class="dhead">
+  const heading = `<div class="dhead">
       <div class="tile-wrap">${tile(c.icon, "cube")}${reachable ? `<span class="kbadge" title="${tr("Reachable at {url}", { url: esc(domain) })}">${KDOT}</span>` : ""}</div>
       <div class="who"><b>${esc(d.name)}</b></div>
       ${statusPill(c)}
@@ -3237,9 +3243,18 @@ function renderDetail() {
     </span></div>
     ${c.State === "exited" && c.AsagiriOOMKilled ? oomLine(tr("Stopped: out of memory"), c.AsagiriFinishedAt ? tr("{time} ago, when the VM's {mem} ran out.", { time: since(c.AsagiriFinishedAt), mem: memText(ui.mem?.ceiling || 0) }) : tr("when the VM's {mem} ran out.", { mem: memText(ui.mem?.ceiling || 0) }),
       btn(tr("Start again"), `data-c="start" data-id="${c.Id}"`) + btn(tr("More memory"), "data-memmore")) : ""}
-    ${fixPanel(c)}
-    <div id="dbody"></div>`;
-  const body = $("dbody");
+    ${fixPanel(c)}`;
+  const content = $("content");
+  let body = $("dbody");
+  const keepTerminal = d.tab === "terminal" && running && body?.parentNode === content && termEl.parentNode === body;
+  if (keepTerminal) {
+    // Replacing the detail body disconnects the prompt and drops its focus.
+    while (content.firstChild !== body) content.firstChild.remove();
+    body.insertAdjacentHTML("beforebegin", heading);
+  } else {
+    content.innerHTML = `${heading}<div id="dbody"></div>`;
+    body = $("dbody");
+  }
   watchStats();
   if (d.focusFix && $("fix-val")) { d.focusFix = false; $("fix-val").focus(); }
   if (d.tab === "overview") {
@@ -3260,10 +3275,15 @@ function renderDetail() {
     $("log-follow").addEventListener("change", (ev) => { d.follow = ev.target.checked; if (d.follow) logEl.scrollTop = logEl.scrollHeight; });
     if (d.follow) logEl.scrollTop = logEl.scrollHeight;
   } else if (d.tab === "terminal") {
-    body.innerHTML = running
+    const toolbar = running
       ? `<div class="logbar"><span class="muted">${tr("Runs each command with {sh} in {name}; {cd} carries over. ↑ and ↓ go through earlier commands.", { sh: '<span class="mono">sh -c</span>', name: esc(d.name), cd: '<span class="mono">cd</span>' })}</span><span style="flex:1"></span>${btn(tr("Open in Terminal"), "data-terminal", "primary")}</div>`
       : `<div class="logbar"><span class="muted">${tr("Start the container to run commands in it.")}</span></div>`;
-    if (running) { body.append(termEl); setPrompt(); probePrompt(); }
+    if (keepTerminal) body.firstElementChild.outerHTML = toolbar;
+    else {
+      body.innerHTML = toolbar;
+      if (running) body.append(termEl);
+    }
+    if (running) { setPrompt(); probePrompt(); }
   } else body.innerHTML = filesView(d);
 }
 

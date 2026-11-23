@@ -15,6 +15,8 @@ import socket
 import statistics
 import struct
 import tarfile
+import sys
+
 import time
 import urllib.parse
 import uuid
@@ -129,13 +131,18 @@ class Engine:
     def prepare(self, *, pull=True):
         version = json.loads(self.call("GET", "/version"))
         info = json.loads(self.call("GET", "/info"))
+        pull_seconds = None
         if pull:
+            started = time.monotonic()
             pulled = self.call("POST", "/images/create?" + urllib.parse.urlencode({"fromImage": IMAGE}))
+            pull_seconds = time.monotonic() - started
+            print(f"{self.name} fixture image pull: {pull_seconds:.3f}s", file=sys.stderr, flush=True)
             for line in pulled.splitlines():
                 if line.strip() and json.loads(line).get("error"):
                     raise RuntimeError(self.name + ": image pull failed: " + line.decode()[:512])
         image = json.loads(self.call("GET", "/images/" + urllib.parse.quote(IMAGE, safe="") + "/json"))
         return {
+            "fixture_pull_seconds": pull_seconds,
             "version": {key: version.get(key) for key in (
                 "Version", "ApiVersion", "MinAPIVersion", "Os", "Arch", "AsagiriVersion", "Components")},
             "engine": {key: info.get(key) for key in (
