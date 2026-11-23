@@ -58,7 +58,7 @@ t("the search finds loose containers only, not a project's by its name", () => {
 t("a loose container's buttons and ⋯ keep Remove, said plainly", () => {
   eq(btns(document.querySelector('#content tr[data-key="solo"]')), ["Restart", "Stop", "Remove", "More actions for solo"], "buttons");
   click(document.querySelector('#content tr[data-key="solo"] [data-more]'));
-  eq(menu(), ["Ports…", "Pause", "Remove (danger)"], "⋯");
+  eq(menu(), ["Ports…", "Share with a name…", "Pause", "Remove (danger)"], "⋯");
   closeMenu();
 });
 t("sorting orders the loose ones", () => {
