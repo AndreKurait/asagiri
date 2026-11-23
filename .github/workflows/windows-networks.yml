@@ -50,7 +50,7 @@ jobs:
             wsl.exe -d Asagiri-net-114 -u root -- apk add --no-cache python3 docker-cli ca-certificates
             if ($LASTEXITCODE) { throw 'Cannot install native WSL test clients' }
             $failed = @()
-            foreach ($suite in 'network-bridge-icc','network-bridge-mtu','network-endpoint-metadata','network-ipvlan','network-macvlan') {
+            foreach ($suite in 'network-internal-gateway','inspect-port-bindings') {
               Write-Host "Running $suite"
               wsl.exe -d Asagiri-net-114 -u root -- python3 "$repo/tests/$suite.py" /var/lib/asagiri-daemon/.asagiri/run/docker.sock alpine:3.21
               if ($LASTEXITCODE) { $failed += $suite } else { Write-Host "PASS $suite" }
