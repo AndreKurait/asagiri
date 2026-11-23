@@ -200,8 +200,8 @@ def main():
         "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "binaries": hashes, "fixture_sha256": checksum(Path(__file__)),
         "import_entrypoint": {
-            "kind": "CI example including the production desktop importer, Docker CLI resolver and HTTP client",
-            "binary_sha256": fixture_hashes["asagiri-import-fixture"],
+            "kind": "Native Linux migration CLI",
+            "binary_sha256": hashes["asagiri"],
             "sources_sha256": import_sources,
             "scope": "Real Docker CLI, HTTP client, operation headers and engines; desktop app dispatch and diagnostic logging are not exercised.",
         },
@@ -238,7 +238,7 @@ def main():
     def imported(*items, success=True):
         result = command(
             "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
-            "/opt/asagiri-fixtures/asagiri-import-fixture", "desktop-linux", *items, check=False,
+            "/opt/asagiri/asagiri", "import", "desktop-linux", *items, check=False,
         )
         record["import_commands"].append({
             "arguments": ["desktop-linux", *items], "returncode": result.returncode,
@@ -348,7 +348,7 @@ def main():
                     return result
 
                 bare = import_help("/opt/asagiri/asagiri", "import")
-                assert bare.returncode == 1 and bare.stderr.startswith("usage: asagiri COMMAND"), bare
+                assert bare.returncode == 0 and "image|volume|container NAME" in bare.stdout, bare
                 help_result = import_help("/opt/asagiri/asagiri", "image", "import")
                 assert help_result.returncode == 0, help_result
                 record["linux_rootfs_import_help"] = help_result.stdout
@@ -388,6 +388,14 @@ def main():
                 cid = docker("source", "run", "-d", "--name", writer, "--network", "none",
                              "--label", OWNER + "=" + nonce, "-v", volume + ":/data",
                              image, "sleep", "600", text=True).stdout.strip()
+                inventory = command(
+                    "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
+                    "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
+                ).stdout
+                listed = {line.strip() for line in inventory.splitlines()}
+                assert {image, volume, writer} <= listed, inventory
+                record["linux_migration_inventory"] = inventory
+                case("native-linux-migration-lists-source-image-volume-and-container")
                 for state in ("running", "paused"):
                     if state == "paused":
                         docker("source", "pause", cid)
