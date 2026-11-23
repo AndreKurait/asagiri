@@ -57,6 +57,10 @@ jobs:
           kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444}]'
           kubectl get service loopback-check -o wide
           kubectl get endpointslices -l kubernetes.io/service-name=loopback-check -o wide
-          curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/
+          if ! curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/; then
+            kubectl -n kube-system get daemonsets,pods -o wide
+            kubectl -n kube-system get events --sort-by=.lastTimestamp | tail -60
+            exit 1
+          fi
           grep -F 'Welcome to nginx' "$scratch/response.html"
           lsof -nP -a -p "$daemon" -iTCP:8444 -sTCP:LISTEN | grep -F '127.0.0.1:8444'
