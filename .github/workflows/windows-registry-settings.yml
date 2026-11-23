@@ -60,10 +60,20 @@ jobs:
                           if proc.poll() is not None or i == 89: raise
                           time.sleep(1)
                   page = browser.contexts[0].pages[0]
-                  for i in range(90):
-                      version = subprocess.run([docker,'version','--format','{{.Server.Version}}'], capture_output=True, text=True)
-                      if version.returncode == 0 and 'asagiri' in version.stdout.lower(): break
+                  deadline = time.monotonic() + 90
+                  diagnostic = 'No engine response'
+                  while time.monotonic() < deadline:
+                      try:
+                          version = subprocess.run([docker, 'version', '--format', '{{.Server.Version}}'],
+                                                   capture_output=True, text=True, timeout=5)
+                          if version.returncode == 0 and 'asagiri' in version.stdout.lower():
+                              break
+                          diagnostic = (version.stderr or version.stdout).strip()
+                      except subprocess.TimeoutExpired:
+                          diagnostic = 'docker version timed out after 5 seconds'
                       time.sleep(1)
+                  else:
+                      raise RuntimeError(f'Asagiri engine readiness failed: {diagnostic}')
                   from playwright.sync_api import expect
                   page.evaluate("prefs.tab='mirrors'; show('settings')")
                   field = page.locator('#registry-exceptions')
