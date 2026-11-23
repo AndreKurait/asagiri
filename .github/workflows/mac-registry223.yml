@@ -65,6 +65,11 @@ jobs:
           "$app" share login --dev probe144 | grep -F 'probe144'
           if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
           grep -Ei 'NotValidForName|host(name)? mismatch|did not match|does not match|hostname.*incorrect' wrong-name.log
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 7682ea80ec9f9ce48e043ca87598cfb4c61b46a2
+          path: registry-fixture
+          persist-credentials: false
       - name: Pull a TLS OCI image using the dev.223 release-build ARM64 application
         timeout-minutes: 5
         env:
@@ -91,7 +96,7 @@ jobs:
           print('Starting OCI fixture on', os.environ['FIXTURE_IP'], flush=True)
           tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
           tls.load_cert_chain('registry-leaf.pem', 'leaf.key')
-          fixture = runpy.run_path(os.environ['GITHUB_WORKSPACE'] + '/tests/registry-ca.py')['Registry']
+          fixture = runpy.run_path(os.environ['GITHUB_WORKSPACE'] + '/registry-fixture/tests/registry-ca.py')['Registry']
           registry = fixture(os.environ['FIXTURE_IP'], tls, {tls: 'registry-144'}, 'mac-arm64', 'system')
           repo = 'registryca/keychain'
           pathlib.Path('registry-ref').write_text(registry.authority + '/' + repo + ':latest')
