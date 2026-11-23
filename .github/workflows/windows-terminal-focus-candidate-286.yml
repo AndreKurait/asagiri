@@ -64,14 +64,16 @@ jobs:
               deadline = time.monotonic() + 90
               while time.monotonic() < deadline:
                   visible = [c for c in window.descendants() if c.is_visible() and c.window_text()]
-                  matches = [c for c in visible if 'focus286' in c.window_text().split()]
+                  matches = [c for c in visible if c.element_info.control_type == 'DataItem' and c.window_text() == 'focus286 alpine:3.21']
                   if matches:
                       min(matches, key=lambda c: len(c.window_text())).click_input()
                       break
                   time.sleep(1)
               else:
                   raise RuntimeError(f'Container absent from dashboard. Visible controls: {[c.window_text()[:120] for c in visible][:100]}')
-              click('Terminal')
+              tab = window.child_window(control_type='Tab').child_window(title='Terminal', control_type='Button')
+              tab.wait('visible enabled', timeout=60)
+              tab.click_input()
               prompt = window.child_window(title='Command to run in the container', control_type='Edit')
               try:
                   prompt.wait('visible enabled', timeout=60)
