@@ -351,7 +351,15 @@ pub fn add_address6(nl: &mut Netlink, index: i32, addr: [u8; 16], prefix: u8) ->
 /// The IPv6 default route through `gateway` on `index`. The first network
 /// with IPv6 a container joins keeps it: a second one is EEXIST, left be.
 pub fn add_default_route6(nl: &mut Netlink, index: i32, gateway: [u8; 16]) -> io::Result<()> {
-    let mut m = Msg::new(RTM_NEWROUTE, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    default_route6(nl, index, gateway, NLM_F_EXCL)
+}
+
+pub fn replace_default_route6(nl: &mut Netlink, index: i32, gateway: [u8; 16]) -> io::Result<()> {
+    default_route6(nl, index, gateway, NLM_F_REPLACE)
+}
+
+fn default_route6(nl: &mut Netlink, index: i32, gateway: [u8; 16], flags: u16) -> io::Result<()> {
+    let mut m = Msg::new(RTM_NEWROUTE, NLM_F_ACK | NLM_F_CREATE | flags);
     let mut rt = [0u8; 12];
     rt[0] = libc::AF_INET6 as u8;
     rt[4] = libc::RT_TABLE_MAIN;
@@ -360,7 +368,7 @@ pub fn add_default_route6(nl: &mut Netlink, index: i32, gateway: [u8; 16]) -> io
     rt[7] = libc::RTN_UNICAST;
     m.raw(&rt).attr(RTA_GATEWAY, &gateway).attr_u32(RTA_OIF, index as u32);
     match nl.request(&mut [m]) {
-        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+        Err(e) if flags != NLM_F_REPLACE && e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
         r => r,
     }
 }
@@ -396,6 +404,10 @@ pub fn add_default_route_if_none(nl: &mut Netlink, index: i32, gateway: [u8; 4])
     default_route(nl, index, gateway, NLM_F_EXCL)
 }
 
+pub fn replace_default_route(nl: &mut Netlink, index: i32, gateway: [u8; 4]) -> io::Result<()> {
+    default_route(nl, index, gateway, NLM_F_REPLACE)
+}
+
 fn default_route(nl: &mut Netlink, index: i32, gateway: [u8; 4], flags: u16) -> io::Result<()> {
     let mut m = Msg::new(RTM_NEWROUTE, NLM_F_ACK | NLM_F_CREATE | flags);
     // struct rtmsg: family, dst_len, src_len, tos, table, protocol, scope, type, flags.
@@ -407,7 +419,7 @@ fn default_route(nl: &mut Netlink, index: i32, gateway: [u8; 4], flags: u16) -> 
     rt[7] = libc::RTN_UNICAST;
     m.raw(&rt).attr(RTA_GATEWAY, &gateway).attr_u32(RTA_OIF, index as u32);
     match nl.request(&mut [m]) {
-        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
+        Err(e) if flags != NLM_F_REPLACE && e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
         r => r,
     }
 }

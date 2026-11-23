@@ -400,11 +400,10 @@ mod tests {
     #[test]
     fn an_unreachable_ipv6_hands_over_to_ipv4_at_once() {
         let addrs = [addr("[2001:db8::1]:443"), addr("[2001:db8::2]:443"), addr("192.0.2.1:443")];
-        let start = Instant::now();
-        let won = race(&addrs, ATTEMPT_DELAY, Some(Duration::from_secs(15)), fake(|_| Err(io::ErrorKind::NetworkUnreachable.into()))).unwrap();
+        // The stagger exceeds the entire budget. IPv4 can win only if the
+        // IPv6 failure releases the next attempt before its scheduled turn.
+        let won = race(&addrs, Duration::from_secs(30), Some(Duration::from_secs(5)), fake(|_| Err(io::ErrorKind::NetworkUnreachable.into()))).unwrap();
         assert_eq!(won, addr("192.0.2.1:443"));
-        // No 250 ms wait: the failure started the next attempt.
-        assert!(start.elapsed() < Duration::from_millis(200), "{:?}", start.elapsed());
     }
 
     #[test]

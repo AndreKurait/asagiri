@@ -139,7 +139,7 @@ Homepage: https://andrekurait.github.io/asagiri
 Conflicts: $other
 Replaces: $other
 $([ "$full" = 1 ] || echo "Suggests: docker-cli | docker.io")
-Depends: libc6 (>= $libc_min), libgcc-s1$([ "$full" = 1 ] && [ -n "$window" ] && echo ", libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0")
+Depends: libc6 (>= $libc_min), libgcc-s1, ca-certificates$([ "$full" = 1 ] && [ -n "$window" ] && echo ", libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0")
 $([ "$full" = 1 ] && [ -n "$window" ] && echo "Recommends: pkexec | policykit-1")
 Description: Tiny, fast container runtime (Docker API)$([ "$full" = 1 ] || echo ", engine only")
  Asagiri runs containers on this machine's kernel and speaks the Docker API on

@@ -39,6 +39,7 @@ test_package() { # name full(0|1)
   echo "== packages"
   dpkg-deb -I "$deb" | sed -n '2,9p' | sed 's/^/     /'
   check "deb lists asagiri, asagiri-init, unit, copyright" "dpkg-deb -c '$deb' | grep -q 'usr/bin/asagiri$' && dpkg-deb -c '$deb' | grep -q usr/bin/asagiri-init && dpkg-deb -c '$deb' | grep -q lib/systemd/system/asagiri.service && dpkg-deb -c '$deb' | grep -q usr/share/doc/$name/copyright"
+  check "deb requires the system CA bundle" "dpkg-deb -f '$deb' Depends | tr ',' '\n' | grep -Eq '^[[:space:]]*ca-certificates[[:space:]]*$'"
   check "deb carries LICENSE and NOTICE" "dpkg-deb -c '$deb' | grep -q usr/share/doc/$name/LICENSE && dpkg-deb -c '$deb' | grep -q usr/share/doc/$name/NOTICE"
   if [ "$full" = 1 ]; then
     check "deb carries docker, compose, buildx" "dpkg-deb -c '$deb' | grep -q usr/libexec/asagiri/bin/docker && dpkg-deb -c '$deb' | grep -q usr/libexec/asagiri/cli-plugins/docker-compose && dpkg-deb -c '$deb' | grep -q usr/libexec/asagiri/cli-plugins/docker-buildx && ! dpkg-deb -c '$deb' | grep -q usr/lib/docker/"
@@ -48,7 +49,8 @@ test_package() { # name full(0|1)
   check "deb maintainer scripts" "rm -rf '$tmp/deb-ctl' && dpkg-deb -e '$deb' '$tmp/deb-ctl' && test -x '$tmp/deb-ctl/postinst' -a -x '$tmp/deb-ctl/prerm' -a -x '$tmp/deb-ctl/postrm'"
   rpm -qpi "$rpm" 2>/dev/null | grep -E '^(Name|Version|Release|Architecture|License|Size|Summary)' | sed 's/^/     /'
   check "rpm lists asagiri, asagiri-init, unit, licences" "rpm -qpl '$rpm' | grep -q '^/usr/bin/asagiri$' && rpm -qpl '$rpm' | grep -q /usr/bin/asagiri-init && rpm -qpl '$rpm' | grep -q /usr/lib/systemd/system/asagiri.service && rpm -qpl '$rpm' | grep -q LICENSE && rpm -qpl '$rpm' | grep -q NOTICE"
-  check "rpm declares the bounded GNU engine dependencies" "rpm -qp --requires '$rpm' | grep -q '^glibc.* >= 2.34$' && rpm -qp --requires '$rpm' | grep -q '^libgcc' && ! rpm -qp --requires '$rpm' | grep -v -E '^(rpmlib|shadow-utils|/bin/sh|/usr/sbin/update-alternatives|rtld|glibc|libgcc)'"
+  check "rpm declares the bounded GNU engine dependencies" "rpm -qp --requires '$rpm' | grep -q '^glibc.* >= 2.34$' && rpm -qp --requires '$rpm' | grep -q '^libgcc' && ! rpm -qp --requires '$rpm' | grep -v -E '^(rpmlib|shadow-utils|/bin/sh|/usr/sbin/update-alternatives|rtld|glibc|libgcc|ca-certificates)'"
+  check "rpm requires the system CA bundle" "rpm -qp --requires '$rpm' | grep -Fxq ca-certificates"
   check "rpm scripts: pre, post, preun, postun" "rpm -qp --scripts '$rpm' | grep -q preinstall && rpm -qp --scripts '$rpm' | grep -q postinstall && rpm -qp --scripts '$rpm' | grep -q preuninstall && rpm -qp --scripts '$rpm' | grep -q postuninstall"
 
   echo "== .deb in a privileged Ubuntu container"
@@ -60,7 +62,8 @@ test_package() { # name full(0|1)
   # A fresh volume avoids nesting overlayfs in the container's writable
   # layer. Mount its parent so purge can remove the engine's data directory.
   $docker run -d --name "$c" --privileged --tmpfs /run --tmpfs /tmp -v /var/lib -v "$out:/pkg:ro" "${climount[@]}" "${ASAGIRI_CI_DEB_IMAGE:-ubuntu:24.04}" sleep infinity >/dev/null
-  step "$c" "dpkg -i" "dpkg -i /pkg/$debname"
+  step "$c" "install deb with dependencies" "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /pkg/$debname"
+  step "$c" "system CA bundle installed" "test -s /etc/ssl/certs/ca-certificates.crt"
   step "$c" "/usr/bin/asagiri, asagiri-init, unit, copyright" "test -x /usr/bin/asagiri -a -x /usr/bin/asagiri-init -a -f /lib/systemd/system/asagiri.service -a -f /usr/share/doc/$name/copyright"
   step "$c" "group asagiri made by postinst" "getent group asagiri"
   step "$c" "engine starts as the unit would" "mkdir -p /run/asagiri /var/lib/asagiri-daemon && chmod 755 /run/asagiri && (ASAGIRI_SOCKET=/run/asagiri/docker.sock ASAGIRI_SOCKET_GROUP=asagiri HOME=/var/lib/asagiri-daemon nohup /usr/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &) && for i in \$(seq 30); do [ -S /run/asagiri/docker.sock ] && exit 0; sleep 1; done; cat /var/log/asagiri.log; exit 1"
@@ -110,17 +113,18 @@ test_package() { # name full(0|1)
   echo "== .rpm in a Fedora container"
   local rpmname; rpmname=$(basename "$rpm")
   $docker run --rm -v "$out:/pkg:ro" "${ASAGIRI_CI_RPM_IMAGE:-fedora:41}" bash -c "
-    rpm -ivh /pkg/$rpmname >/tmp/i.log 2>&1 || { cat /tmp/i.log; exit 1; }
+    dnf -y install /pkg/$rpmname >/tmp/i.log 2>&1 || { cat /tmp/i.log; exit 1; }
     test -x /usr/bin/asagiri && test -x /usr/bin/asagiri-init && test -f /usr/lib/systemd/system/asagiri.service && test -f /usr/share/licenses/$name/LICENSE || exit 2
     getent group asagiri >/dev/null || exit 3
     rpm -q $name >/dev/null || exit 4
     rpm -V $name || exit 7
+    test -s /etc/pki/tls/certs/ca-bundle.crt || exit 10
     if [ $full = 1 ]; then readlink -f /usr/bin/docker | grep -q /usr/libexec/asagiri/docker || exit 8; docker --version | grep -q 'version 29' || exit 9; fi
     rpm -e $name >/tmp/e.log 2>&1 || { cat /tmp/e.log; exit 5; }
     test ! -e /usr/bin/asagiri && test ! -e /usr/lib/systemd/system/asagiri.service && test ! -e /usr/bin/docker || exit 6
     echo RPM-OK" >"$tmp/rpm-test.log" 2>&1
   local code=$?
-  check "rpm -ivh lays files, group, verifies$([ "$full" = 1 ] && echo ', docker on PATH'), rpm -e removes cleanly (exit $code)" "test $code -eq 0 && grep -q RPM-OK '$tmp/rpm-test.log'"
+  check "dnf install lays files, group, verifies$([ "$full" = 1 ] && echo ', docker on PATH'), rpm -e removes cleanly (exit $code)" "test $code -eq 0 && grep -q RPM-OK '$tmp/rpm-test.log'"
   [ $code -ne 0 ] && sed 's/^/         /' "$tmp/rpm-test.log" | tail -5
 }
 

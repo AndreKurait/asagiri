@@ -386,19 +386,20 @@ fn server(cfg: &Config) -> io::Result<Server> {
 }
 
 fn tls_config(alpn: &[u8]) -> io::Result<Arc<rustls::ClientConfig>> {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let mut roots = Vec::new();
     if let Some(ca) = std::env::var_os("ASAGIRI_SHARE_CA") {
         let certs = rustls::pki_types::CertificateDer::pem_file_iter(&ca).map_err(|e| io::Error::other(format!("ASAGIRI_SHARE_CA: {e}")))?;
         for c in certs {
-            roots.add(c.map_err(|e| io::Error::other(format!("ASAGIRI_SHARE_CA: {e}")))?).map_err(|e| io::Error::other(format!("ASAGIRI_SHARE_CA: {e}")))?;
+            roots.push(c.map_err(|e| io::Error::other(format!("ASAGIRI_SHARE_CA: {e}")))?);
         }
     }
     let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let verifier = rustls_platform_verifier::Verifier::new_with_extra_roots(roots, provider.clone()).map_err(io::Error::other)?;
     let mut c = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(io::Error::other)?
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
         .with_no_client_auth();
     c.alpn_protocols = vec![alpn.to_vec()];
     Ok(Arc::new(c))

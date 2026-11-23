@@ -58,6 +58,7 @@ pub fn newer(candidate: &str, current: &str) -> bool {
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
         .timeout_connect(Some(std::time::Duration::from_secs(10)))
         .user_agent(concat!("asagiri/", env!("CARGO_PKG_VERSION")))
         .build()
