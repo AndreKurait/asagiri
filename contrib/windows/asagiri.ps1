@@ -198,6 +198,13 @@ if ($Uninstall) {
     }
   } else {
     Step "engine removed from $Distro (systemd unit and /usr/local/bin/asagiri*)" {
+      $cleanup = Join-Path $PSScriptRoot "install.sh"
+      if ((Test-Path $cleanup) -and (Select-String -LiteralPath $cleanup -Pattern '--remove-boot-entry' -SimpleMatch -Quiet)) {
+        $guestScript = (wsl.exe -d $Distro wslpath -a ($cleanup -replace '\\', '/')).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "Could not locate install.sh inside $Distro" }
+        wsl.exe -d $Distro -u root sh "$guestScript" --remove-boot-entry
+        if ($LASTEXITCODE -ne 0) { throw "Boot entry cleanup failed in $Distro" }
+      }
       wsl.exe -d $Distro -u root sh -c "systemctl disable --now asagiri 2>/dev/null; rm -f /etc/systemd/system/asagiri.service /usr/local/bin/asagiri /usr/local/bin/asagiri-init"
       if ($LASTEXITCODE -ne 0) { throw "wsl exited $LASTEXITCODE" }
     }
