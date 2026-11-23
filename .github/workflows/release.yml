@@ -461,6 +461,13 @@ jobs:
         run: |
           python3 packaging/qemu/bundle.py install --products "$RUNNER_TEMP/asagiri-qemu" \
             --destination guest/out/qemu
+      - name: Install Docker CLI and Compose for configuration tests
+        run: |
+          brew install docker docker-compose
+          mkdir -p "$RUNNER_TEMP/docker-config/cli-plugins"
+          ln -s "$(brew --prefix docker-compose)/bin/docker-compose" "$RUNNER_TEMP/docker-config/cli-plugins/docker-compose"
+          DOCKER_CONFIG="$RUNNER_TEMP/docker-config" docker compose version
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - name: Prepare optional Developer ID signing
         env:
           ASAGIRI_APPLE_CERTIFICATE_BASE64: ${{ secrets.ASAGIRI_APPLE_CERTIFICATE_BASE64 }}
@@ -564,6 +571,23 @@ jobs:
         with:
           name: linux-inputs-${{ matrix.linux }}
           path: ${{ runner.temp }}/linux-inputs
+      - name: Install the Compose plugin shipped with the Windows app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
+          read -r version digest <<< "$pin"
+          test -n "$digest"
+          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
+          mkdir -p "$config/cli-plugins"
+          plugin="$config/cli-plugins/docker-compose.exe"
+          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
+          echo "$digest  $plugin" | sha256sum --check
+          chmod +x "$plugin"
+          DOCKER_CONFIG="$(cygpath -w "$config")"
+          export DOCKER_CONFIG
+          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Build the complete Windows bundle and MSI
         env:
           VERSION: ${{ needs.plan.outputs.version }}
