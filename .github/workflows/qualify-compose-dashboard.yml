@@ -1,7 +1,7 @@
 name: Verify ARM64 Compose dashboard rendering
 on:
   push:
-    branches: [qualification/ubuntu-compose-dashboard-246]
+    branches: [qualification/ubuntu-compose-dev247-ci]
 permissions:
   actions: read
   contents: read
@@ -21,9 +21,9 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb dbus-x11 gir1.2-atspi-2.0 at-spi2-core libfuse2t64
-          gh run download 45260712752 -R AndreKurait/asagiri -n packages-linux-aarch64
-          app="$PWD/Asagiri-0.1.14-dev.243-aarch64.AppImage"
-          echo "9c1a3b05e58dbe6828a6b7ff988df1286a0158355e7e718eab3df3be2c59a5a9  $app" | sha256sum -c -
+          gh run download 45265682170 -R AndreKurait/asagiri -n packages-linux-aarch64
+          app="$PWD/Asagiri-0.1.14-dev.247-aarch64.AppImage"
+          echo "b8ea4f90d8179cab443011141f4f4c91f4fa8b3a56eac3ab249940d0eaf25a31  $app" | sha256sum -c -
           chmod +x "$app"
           export HOME="$RUNNER_TEMP/profile" GTK_MODULES=gail:atk-bridge
           mkdir -p "$HOME/.asagiri/run"
