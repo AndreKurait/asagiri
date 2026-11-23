@@ -51,6 +51,18 @@ jobs:
           wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/cgroup
           wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/mountinfo | Select-String ' - cgroup2? '
           if ($LASTEXITCODE) { throw 'Reading mount topology failed' }
+          for ($attempt=0; $attempt -lt 90; $attempt++) {
+            $ready = gh api repos/AndreKurait/asagiri/actions/runs/45239536309/artifacts --jq '.artifacts[]|select(.name=="linux-X64")|.id'
+            if ($ready) { break }
+            Start-Sleep -Seconds 10
+          }
+          gh run download 45239536309 -R AndreKurait/asagiri -n linux-X64 -D candidate
+          if ($LASTEXITCODE) { throw 'Candidate build unavailable' }
+          if ((Get-Content candidate/SOURCE_COMMIT -Raw).Trim() -ne '1676c5a066d88a3aefdd5f62a6d68af0c2002106') { throw 'Candidate revision mismatch' }
+          $candidatePath = (wsl.exe -d Asagiri-cgroup139 -- wslpath -u "$env:RUNNER_TEMP\candidate").Trim()
+          wsl.exe -d Asagiri-cgroup139 -u root -- sh -ec 'cd "$1" && sha256sum -c SHA256SUMS && cp asagiri /usr/local/bin/asagiri.next && chmod 755 /usr/local/bin/asagiri.next && mv /usr/local/bin/asagiri.next /usr/local/bin/asagiri && cp asagiri-init /usr/local/bin/asagiri-init.next && chmod 755 /usr/local/bin/asagiri-init.next && mv /usr/local/bin/asagiri-init.next /usr/local/bin/asagiri-init' sh $candidatePath
+          if ($LASTEXITCODE) { throw 'Candidate install failed' }
+          wsl.exe --terminate Asagiri-cgroup139
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
           $docker = Join-Path (Split-Path $env:PICKER_APP) 'bin/docker.exe'
           $launcher = Start-Process $env:PICKER_APP -ArgumentList '--distro','Asagiri-cgroup139','--pipe','\\.\pipe\asagiri-cgroup139' -PassThru
@@ -61,8 +73,9 @@ jobs:
               Start-Sleep -Seconds 2
             }
             if ($LASTEXITCODE) { throw 'Engine startup failed' }
-            & $docker pull alpine:3.21
-            if ($LASTEXITCODE -eq 0) { throw 'Hybrid baseline unexpectedly passed' }
+            $failure = & $docker pull alpine:3.21 2>&1 | Out-String
+            Write-Host $failure
+            if (!$LASTEXITCODE -or $failure -notlike '*hybrid hierarchy with v2 at /sys/fs/cgroup/unified*') { throw 'Missing actionable hybrid hierarchy diagnostic' }
             $config = Join-Path $env:USERPROFILE '.wslconfig'
             if (Test-Path $config) { throw 'Existing WSL settings require preservation' }
             "[wsl2]`nkernelCommandLine=cgroup_no_v1=all" | Set-Content -Encoding ascii $config
