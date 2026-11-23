@@ -45,10 +45,9 @@ jobs:
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
-            python -m pip install pywinauto playwright
+            python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
             @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
-            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-address=127.0.0.1 --remote-debugging-port=19216'
             $wizard = Start-Process $app -PassThru
             @'
           import sys
@@ -164,30 +163,34 @@ jobs:
               window.child_window(control_type='Document', found_index=0).wait('visible', timeout=10)
               check_navigation()
               print('Reopened', i+1, flush=True)
-          from playwright.sync_api import sync_playwright, expect
-          with sync_playwright() as pw:
-              browser = pw.chromium.connect_over_cdp('http://127.0.0.1:19216')
-              page = next(p for c in browser.contexts for p in c.pages if p.locator('[data-view="containers"]').count())
-              page.locator('[data-view="containers"]').first.click()
-              page.locator('.name[data-detail]').filter(has_text='tray-counter').first.click()
-              page.locator('[data-dtab="terminal"]').first.click()
-              command = page.locator('#term-in')
-              output = page.locator('#term-out')
-              command.fill('echo $((127*39))')
-              command.press('Enter')
-              expect(output).to_contain_text('4953')
-              command.fill('echo pending116')
-              PostMessage(hwnd, WM_CLOSE, 0, 0)
-              window.wait_not('visible', timeout=10)
-              time.sleep(2)
-              subprocess.Popen([sys.argv[2]])
-              window.wait('visible', timeout=10)
-              expect(command).to_have_value('echo pending116')
-              expect(output).to_contain_text('4953')
-              command.press('Enter')
-              command.press('ArrowUp')
-              expect(command).to_have_value('echo pending116')
-              print('PASS container terminal output, pending input and command history survived reopen', flush=True)
+          containers = window.child_window(title_re=r'^Containers(?:\s*\d+)?$', control_type='Button', found_index=0)
+          containers.invoke()
+          row = window.child_window(title='tray-counter', control_type='Text', found_index=0)
+          row.wait('visible', timeout=15)
+          row.click_input()
+          terminal = window.child_window(title='Terminal', control_type='Button', found_index=0)
+          terminal.wait('visible enabled', timeout=15)
+          terminal.invoke()
+          command = window.child_window(title='Command to run in the container', control_type='Edit')
+          command.wait('visible enabled', timeout=15)
+          command.set_edit_text('echo $((127*39))')
+          command.type_keys('{ENTER}')
+          result = window.child_window(title_re='.*4953.*', control_type='Text', found_index=0)
+          result.wait('visible', timeout=20)
+          command.set_edit_text('echo pending116')
+          assert command.get_value() == 'echo pending116'
+          PostMessage(hwnd, WM_CLOSE, 0, 0)
+          window.wait_not('visible', timeout=10)
+          time.sleep(2)
+          subprocess.Popen([sys.argv[2]])
+          window.wait('visible', timeout=10)
+          command.wait('visible enabled', timeout=10)
+          assert command.get_value() == 'echo pending116'
+          result.wait('visible', timeout=10)
+          command.type_keys('{ENTER}')
+          command.type_keys('{UP}')
+          assert command.get_value() == 'echo pending116'
+          print('PASS terminal output, pending input and command history survived reopen', flush=True)
           '@ | Set-Content tray-check.py
             $start = [Diagnostics.ProcessStartInfo]::new('python')
             foreach ($arg in 'tray-check.py',"$($wizard.Id)",$app) { $start.ArgumentList.Add($arg) }
