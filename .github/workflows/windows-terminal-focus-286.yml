@@ -6,7 +6,7 @@ permissions:
   actions: read
   contents: read
 jobs:
-  picker:
+  terminal:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
@@ -34,12 +34,13 @@ jobs:
             if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
           }
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-focus286'
           @'
           import os, pathlib, subprocess, time
           from playwright.sync_api import sync_playwright
           app = pathlib.Path(os.environ['PICKER_APP'])
           docker = str(app.parent / 'bin' / 'docker.exe')
-          proc = subprocess.Popen([str(app), '--distro', 'Asagiri-focus286'])
+          proc = subprocess.Popen([str(app), '--distro', 'Asagiri-focus286', '--pipe', r'\\.\pipe\asagiri-focus286'])
           try:
               with sync_playwright() as pw:
                   for i in range(90):
@@ -51,7 +52,8 @@ jobs:
                           time.sleep(1)
                   page = browser.contexts[0].pages[0]
                   for i in range(90):
-                      if subprocess.run([docker,'version'], capture_output=True).returncode == 0: break
+                      version = subprocess.run([docker,'version','--format','{{.Server.Version}}'], capture_output=True, text=True)
+                      if version.returncode == 0 and 'asagiri' in version.stdout.lower(): break
                       time.sleep(1)
                   cid = subprocess.check_output([docker,'run','-d','--name','focus286','alpine:3.21','sleep','300'], text=True).strip()
                   page.evaluate("show('containers')")
