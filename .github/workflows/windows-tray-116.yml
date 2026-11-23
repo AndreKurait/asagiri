@@ -172,13 +172,18 @@ jobs:
               if rows:
                   row = min(rows, key=lambda c: len(c.window_text()))
                   print('Opening container:', row.element_info.control_type, row.window_text(), flush=True)
-                  row.click_input()
+                  cell = row.rectangle()
+                  print('Container cell bounds:', cell, flush=True)
+                  # The name is on the first line, above the separate image link.
+                  row.click_input(coords=(min(60, cell.width() // 2), max(1, cell.height() // 3)))
                   break
               time.sleep(.5)
           else:
               raise RuntimeError([(c.element_info.control_type, c.window_text()[:180]) for c in controls if 'tray-counter' in c.window_text().lower()])
           logs = window.child_window(title='Logs', control_type='Button', found_index=0)
-          logs.wait('visible enabled', timeout=15)
+          if not logs.exists(timeout=15):
+              raise RuntimeError([(c.element_info.control_type, c.window_text()[:90]) for c in window.descendants() if c.is_visible() and c.element_info.control_type in ('Button', 'TabItem', 'Text')][:150])
+          logs.wait('visible enabled', timeout=5)
           tabs = logs.wrapper_object().parent()
           terminal = next(c for c in tabs.children() if c.window_text() == 'Terminal')
           terminal.click_input()
