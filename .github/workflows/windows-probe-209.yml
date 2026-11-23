@@ -29,9 +29,12 @@ jobs:
           if ($LASTEXITCODE) { throw 'WSL version control failed' }
           $fixture = Join-Path $env:RUNNER_TEMP 'rootfs'
           New-Item -Type Directory $fixture | Out-Null
-          Set-Content (Join-Path $fixture 'marker') 'timing control'
-          $tar = Join-Path $env:RUNNER_TEMP 'rootfs.tar'
-          tar -cf $tar -C $fixture .
+          $archive = 'alpine-minirootfs-3.21.3-x86_64.tar.gz'
+          $uri = "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/$archive"
+          $tar = Join-Path $fixture $archive
+          Invoke-WebRequest $uri -OutFile $tar
+          $sum = (Invoke-RestMethod "$uri.sha256").Trim().Split(' ')[0]
+          if ((Get-FileHash $tar).Hash -ne $sum) { throw 'Alpine rootfs checksum mismatch' }
           wsl.exe --import SlowQueryControl (Join-Path $env:RUNNER_TEMP 'distro') $tar --version 2
           if ($LASTEXITCODE) { throw 'Could not register the timing control distro' }
           $env:WSL_UTF8 = '1'
