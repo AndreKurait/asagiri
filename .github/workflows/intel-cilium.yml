@@ -58,6 +58,7 @@ jobs:
             fi
             skopeo copy --retry-times 3 --all --preserve-digests "docker://$source_ref" "oci-archive:$images/$n.tar:${ref%@*}"
           done < "$images/refs"
+          skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/kindest/node:v1.35.5 "docker-archive:$RUNNER_TEMP/kind-node.tar:kindest/node:v1.35.5"
           echo "images=$images" >> "$GITHUB_ENV"
           df -h "$RUNNER_TEMP"
       - name: Start Cilium in a kind cluster on the bundled guest
@@ -103,6 +104,8 @@ jobs:
             disableDefaultCNI: true
             kubeProxyMode: none
           CONFIG
+          docker load -i "$RUNNER_TEMP/kind-node.tar"
+          docker image inspect kindest/node:v1.35.5 >/dev/null
           kind create cluster --config "$scratch/kind.yaml" --image kindest/node:v1.35.5 --retain
           for archive in "$images"/*.tar; do
             docker exec -i kind-control-plane ctr -n k8s.io images import --all-platforms --digests - < "$archive"
