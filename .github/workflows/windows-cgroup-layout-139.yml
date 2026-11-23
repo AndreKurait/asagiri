@@ -60,8 +60,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Candidate build unavailable' }
           # Platform builds checked out the test merge, whose tree matches PR #401.
           if ((Get-Content candidate/SOURCE_COMMIT -Raw).Trim() -ne '188fefc9ea46203b7646cac53b66b1703ef73a89') { throw 'Candidate revision mismatch' }
-          $candidatePath = (wsl.exe -d Asagiri-cgroup139 -- wslpath -u "$env:RUNNER_TEMP\candidate").Trim()
-          wsl.exe -d Asagiri-cgroup139 -u root -- sh -ec 'cd "$1" && sha256sum -c SHA256SUMS && cp asagiri /usr/local/bin/asagiri.next && chmod 755 /usr/local/bin/asagiri.next && mv /usr/local/bin/asagiri.next /usr/local/bin/asagiri && cp asagiri-init /usr/local/bin/asagiri-init.next && chmod 755 /usr/local/bin/asagiri-init.next && mv /usr/local/bin/asagiri-init.next /usr/local/bin/asagiri-init' sh $candidatePath
+          $candidatePath = (wsl.exe -d Asagiri-cgroup139 --exec wslpath -u "$env:RUNNER_TEMP\candidate").Trim()
+          wsl.exe -d Asagiri-cgroup139 -u root --exec sh -ec 'cd "$1" && sha256sum -c SHA256SUMS && cp asagiri /usr/local/bin/asagiri.next && chmod 755 /usr/local/bin/asagiri.next && mv /usr/local/bin/asagiri.next /usr/local/bin/asagiri && cp asagiri-init /usr/local/bin/asagiri-init.next && chmod 755 /usr/local/bin/asagiri-init.next && mv /usr/local/bin/asagiri-init.next /usr/local/bin/asagiri-init' sh $candidatePath
           if ($LASTEXITCODE) { throw 'Candidate install failed' }
           wsl.exe --terminate Asagiri-cgroup139
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
