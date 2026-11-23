@@ -81,12 +81,9 @@ jobs:
           Guest sh $script.Trim()
           try { Guest /tmp/engineping } catch {
             Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
-            Write-Host 'Installer launch unavailable; starting foreground control'
-            $control = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','root','--','env','HOME=/var/lib/asagiri-daemon','ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock','/usr/local/bin/asagiri','daemon' -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/control.out" -RedirectStandardError "$env:RUNNER_TEMP/control.err"
-            try { Guest /tmp/engineping } finally {
-              Get-Content "$env:RUNNER_TEMP/control.err" -Tail 40
-              Write-Host "Foreground launcher exited=$($control.HasExited)"
-            }
+            Write-Host 'Installer launch unavailable; starting detached-session control'
+            Guest sh -c 'HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock setsid /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 &'
+            try { Guest /tmp/engineping } finally { Guest cat /tmp/detached.log }
           }
           Guest cat /etc/wsl.conf
           Guest rm /tmp/managed241-marker
