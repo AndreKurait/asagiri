@@ -36,6 +36,9 @@ jobs:
           curl --fail --unix-socket "$ASAGIRI_SOCKET" http://localhost/_ping
           fixture="$PWD/tests/fixtures/compose-dashboard/compose.yaml"
           export DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+          for image in node:22-alpine golang:1.25-alpine alpine:3.20; do
+            docker pull "$image"
+          done
           "$app" compose -p dashboard246 -f "$fixture" up -d --build
           docker ps --filter label=com.docker.compose.project=dashboard246 --format '{{.Names}}'
           test "$(docker ps -q --filter label=com.docker.compose.project=dashboard246 | wc -l)" -eq 4
