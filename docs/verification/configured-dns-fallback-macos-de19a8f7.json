@@ -1,0 +1,97 @@
+{
+  "schema": "asagiri.configured-dns-fallback.v1",
+  "issue": 221,
+  "pull_request": 318,
+  "host": "macOS 26.7.3 ARM64",
+  "fixture_sha256": "9f111c46f0e59f8408e226b9b21afc4809bd26903b9d88d2e303a90003e9ab1a",
+  "resolver_source_sha256": "5f409a68e30b0ff2c3fb942309073b834e819619fd81f19c7cdccce400f57bce",
+  "baseline": {
+    "source_commit": "7468728f0e8d00f79e7fc1aa816555241350f734",
+    "responses": [
+      {
+        "first": "port-closed",
+        "exit": 1,
+        "stdout": ";; connection timed out; no servers could be reached\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "timeout",
+        "exit": 1,
+        "stdout": ";; connection timed out; no servers could be reached\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "servfail",
+        "exit": 1,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\n** server can't find service.fixture.invalid.: SERVFAIL\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "refused",
+        "exit": 1,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\n** server can't find service.fixture.invalid.: REFUSED\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "nxdomain",
+        "exit": 1,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\n** server can't find service.fixture.invalid.: NXDOMAIN\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "answer",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      }
+    ]
+  },
+  "candidate": {
+    "guest_source_commit": "de19a8f73506cff4efed9e3a9c58a5b029c040c7",
+    "host_source_commit": "7468728f0e8d00f79e7fc1aa816555241350f734",
+    "guest_sha256": "1e69175e6e95c68e88f61cd81b0af888b366f9a7f9612b699f4c43ae634dc861",
+    "responses": [
+      {
+        "first": "port-closed",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "timeout",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "servfail",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "refused",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "nxdomain",
+        "exit": 1,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\n** server can't find service.fixture.invalid.: NXDOMAIN\n\n",
+        "stderr": ""
+      },
+      {
+        "first": "answer",
+        "exit": 0,
+        "stdout": "Server:\t\t127.0.0.11\nAddress:\t127.0.0.11:53\n\nNon-authoritative answer:\nName:\tservice.fixture.invalid\nAddress: 192.0.2.66\n\n",
+        "stderr": ""
+      }
+    ],
+    "cleanup": true
+  },
+  "pending": [
+    "native hosted regression execution",
+    "merged and published qualification"
+  ]
+}
