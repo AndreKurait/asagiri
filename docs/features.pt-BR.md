@@ -59,6 +59,9 @@ Macs com Apple silicon e Intel (macOS 14+), Windows 10 e 11 (x86-64 e Arm, via W
   (pré-visualização, Salvar em Downloads, Mostrar no Finder); Configurações de fontes, tamanho
   do texto, CPUs e memória da VM (`~/.asagiri/vm.json`, usado a partir do próximo
   início da VM; `ASAGIRI_CPUS` e `ASAGIRI_MEMORY_MIB` têm precedência) e nomes locais
+- **Swap da VM no macOS**. Para reservar 512 MiB no disco de dados da VM,
+  adicione `"swap_mib": 512` ao objeto JSON existente em `~/.asagiri/vm.json`.
+  A alteração vale a partir da próxima inicialização da VM. Use `0` para desativar o swap.
 - **Barra de menus**: o Asagiri fica na barra de menus quando a janela fecha, com o
   estado da VM, os containers em execução (clique em um para abri-lo) e Iniciar/Parar
 - **Kubernetes**: `asagiri k8s start` — um cluster k3s de um só nó em um único
