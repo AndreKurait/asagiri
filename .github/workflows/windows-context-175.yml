@@ -1,0 +1,37 @@
+name: Compare Windows Docker CLI context selection
+on:
+  push:
+    branches: [qualification/windows-context-175]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-2025
+    steps:
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $terminal = (Get-Command docker.exe).Source
+          gh run download 45265682170 -R AndreKurait/asagiri -n packages-windows-x86_64
+          if ($LASTEXITCODE) { throw 'Package download failed' }
+          Expand-Archive Asagiri-0.1.14-dev.247-windows-x86_64.zip bundle
+          $packaged = (Get-ChildItem bundle -Recurse -Filter docker.exe | Select-Object -First 1).FullName
+          if (!$packaged -or $terminal -eq $packaged) { throw 'Two distinct clients required' }
+          $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'issue175-config'
+          Remove-Item Env:DOCKER_HOST,Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          Write-Host "Terminal=$terminal Packaged=$packaged"
+          & $packaged context create asagiri --docker 'host=npipe:////./pipe/asagiri'
+          if ($LASTEXITCODE) { throw 'Context creation failed' }
+          foreach ($name in 'default','asagiri') {
+            & $packaged context use $name
+            if ($LASTEXITCODE) { throw 'Context selection failed' }
+            foreach ($cli in $packaged,$terminal) {
+              $selected = & $cli context show
+              $endpoint = & $cli context inspect --format '{{.Endpoints.docker.Host}}' $selected
+              Write-Host "$cli selected=$selected endpoint=$endpoint"
+              if ($LASTEXITCODE -or $selected -ne $name) { throw 'Context mismatch' }
+              if ($name -eq 'asagiri' -and $endpoint -ne 'npipe:////./pipe/asagiri') { throw 'Endpoint mismatch' }
+            }
+          }
