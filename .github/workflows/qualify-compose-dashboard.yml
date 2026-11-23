@@ -35,9 +35,14 @@ jobs:
           sudo chown "$(id -u):$(id -g)" "$ASAGIRI_SOCKET"
           curl --fail --unix-socket "$ASAGIRI_SOCKET" http://localhost/_ping
           fixture="$PWD/tests/fixtures/compose-dashboard/compose.yaml"
+          images=(node:22-alpine golang:1.25-alpine alpine:3.20)
+          for image in "${images[@]}"; do
+            docker --host unix:///var/run/docker.sock pull "$image"
+          done
           export DOCKER_HOST="unix://$ASAGIRI_SOCKET"
-          for image in node:22-alpine golang:1.25-alpine alpine:3.20; do
-            docker pull "$image"
+          docker --host unix:///var/run/docker.sock save "${images[@]}" | docker load
+          for image in "${images[@]}"; do
+            docker image inspect "$image" >/dev/null
           done
           "$app" compose -p dashboard246 -f "$fixture" up -d --build
           docker ps --filter label=com.docker.compose.project=dashboard246 --format '{{.Names}}'
