@@ -462,7 +462,9 @@ def main():
                 definition = "asagiri-import-definition-" + nonce
                 source_id = docker("source", "create", "--name", definition, "--network", "none",
                                    "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
-                                   "--user", "1001:1002", "--workdir", "/tmp",
+                                   "--user", "1001:1002", "--workdir", "/tmp", "--group-add", "42",
+                                   "--device", "/dev/null:/dev/probe-null:r", "--pid", "host",
+                                   "--health-cmd", "true", "--health-interval", "15s",
                                    "-v", volume + ":/data:ro", image, "sh", "-ec",
                                    "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
                                    text=True).stdout.strip()
@@ -470,8 +472,10 @@ def main():
                 copied = get("destination", "/containers/" + definition + "/json")
                 original = get("source", "/containers/" + source_id + "/json")
                 assert copied["State"]["Status"] == "created" and not copied["State"]["Running"]
-                for field in ("Cmd", "Entrypoint", "User", "WorkingDir", "Labels"):
+                for field in ("Cmd", "Entrypoint", "User", "WorkingDir", "Labels", "Healthcheck"):
                     assert copied["Config"][field] == original["Config"][field], field
+                for field in ("Devices", "GroupAdd", "PidMode"):
+                    assert copied["HostConfig"][field] == original["HostConfig"][field], field
                 assert "IMPORT_MARKER=" + nonce in copied["Config"]["Env"]
                 assert copied["HostConfig"]["NetworkMode"] == "none"
                 assert any(m["Name"] == volume and m["Destination"] == "/data" and not m["RW"]
@@ -479,6 +483,21 @@ def main():
                 assert docker("destination", "start", "-a", copied["Id"]).stdout == payload
                 assert get("source", "/containers/" + source_id + "/json")["State"]["Status"] == "created"
                 case("container-definition-arrives-stopped-and-runs-with-copied-volume")
+
+                peer = "network-child-" + nonce
+                docker("source", "create", "--name", peer, "--network", "container:" + source_id,
+                       "--label", OWNER + "=" + nonce, "--group-add", "42", image, "true")
+                inventory = command(
+                    "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
+                    "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
+                ).stdout.split("containers:\n", 1)[1]
+                inventory_names = [line.strip().split()[0] for line in inventory.splitlines() if line.strip()]
+                assert inventory_names.index(definition) < inventory_names.index(peer), inventory_names
+                imported("container", peer)
+                child = get("destination", "/containers/" + peer + "/json")
+                assert child["HostConfig"]["NetworkMode"] == "container:" + copied["Id"]
+                assert child["HostConfig"]["GroupAdd"] == ["42"]
+                case("shared-network-child-resolves-imported-target")
 
                 writable = "writable-layer-" + nonce
                 script = ('if test -e /import-marker; then test ! -e /bin/sh && cat /import-marker; '

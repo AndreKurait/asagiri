@@ -4046,7 +4046,7 @@ function importClick(target) {
   if ((el = t("[data-impcol]"))) { ui.imp.col = el.dataset.impcol; return true; }
   if ((el = t("[data-impall]"))) { const k = el.dataset.impall, free = (ui.imp.inv[k] || []).filter((v) => !v.have && !(k === "volumes" && v.anonymous)); const all = free.every((v) => ui.imp.picked[k].has(v.name)); free.forEach((v) => (all ? ui.imp.picked[k].delete(v.name) : ui.imp.picked[k].add(v.name))); return true; }
   if ((el = t("[data-impgo]"))) {
-    const picked = Object.fromEntries(IMPORT_KINDS.map(([k]) => [k, [...ui.imp.picked[k]]]));
+    const picked = Object.fromEntries(IMPORT_KINDS.map(([k]) => [k, (ui.imp.inv[k] || []).filter((v) => ui.imp.picked[k].has(v.name)).map((v) => v.name)]));
     ui.imp.running = true; ui.imp.summary = "";
     send("import", { name: ui.imp.source, value: picked });
     // Chosen from the switch dialog: docker switches now that the import has started.
