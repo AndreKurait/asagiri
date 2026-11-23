@@ -1,0 +1,81 @@
+name: Native Windows registry settings
+on:
+  push:
+    branches: [qualification/windows-registry-settings-153]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Save and remove a registry exception through WebView2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $asset = "Asagiri-0.1.14-dev.188-windows-x86_64.zip"
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne "3ee017d9c8ee94292197badf38f432fc5eeb134892bf6311f1e85aa1ddebc854") { throw "bundle hash" }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          curl.exe --fail --silent --show-error --location -H "Authorization: Bearer $env:GH_TOKEN" https://api.github.com/repos/AndreKurait/asagiri/actions/artifacts/14784273311/zip -o candidate.zip
+          if ((Get-FileHash candidate.zip).Hash.ToLower() -ne '24684fffabb5b28b66d60e70caf9bb18fada818aaa889e070f05c12cc8248d37') { throw 'PR artifact checksum mismatch' }
+          Expand-Archive candidate.zip candidate
+          Copy-Item candidate/asagiri-win.exe $env:PICKER_APP -Force
+          wsl.exe --import Asagiri-registry153 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          python -m pip install playwright==1.55.0
+          $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+          if (!$runtime) {
+            $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $signature = Get-AuthenticodeSignature $installer
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation,') { throw 'Invalid WebView2 installer signature' }
+            $install = Start-Process $installer -ArgumentList '/silent','/install' -Wait -PassThru
+            if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
+          }
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-registry153'
+          @'
+          import os, pathlib, subprocess, time
+          from playwright.sync_api import sync_playwright
+          app = pathlib.Path(os.environ['PICKER_APP'])
+          docker = str(app.parent / 'bin' / 'docker.exe')
+          proc = subprocess.Popen([str(app), '--distro', 'Asagiri-registry153', '--pipe', r'\\.\pipe\asagiri-registry153'])
+          try:
+              with sync_playwright() as pw:
+                  for i in range(90):
+                      try:
+                          browser = pw.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=2000)
+                          break
+                      except Exception:
+                          if proc.poll() is not None or i == 89: raise
+                          time.sleep(1)
+                  page = browser.contexts[0].pages[0]
+                  for i in range(90):
+                      version = subprocess.run([docker,'version','--format','{{.Server.Version}}'], capture_output=True, text=True)
+                      if version.returncode == 0 and 'asagiri' in version.stdout.lower(): break
+                      time.sleep(1)
+                  from playwright.sync_api import expect
+                  page.evaluate("prefs.tab='mirrors'; show('settings')")
+                  field = page.locator('#registry-exceptions')
+                  save = page.locator('[data-savemirrors]')
+                  expect(field).to_have_value('', timeout=90000)
+                  for value in ['registry.test:5153', '']:
+                      field.fill(value)
+                      expect(save).to_be_enabled()
+                      save.click()
+                      expect(save).to_be_disabled(timeout=30000)
+                      page.evaluate("show('containers')")
+                      page.evaluate("ui.mirrors=null; prefs.tab='mirrors'; show('settings')")
+                      expect(field).to_have_value(value, timeout=30000)
+                      persisted = page.evaluate("ui.mirrors['insecure-registries']")
+                      assert persisted == ([value] if value else []), persisted
+                      print('Windows WebView2 registry exceptions reloaded:', persisted, flush=True)
+          finally:
+              subprocess.run(['taskkill','/PID',str(proc.pid),'/T','/F'],check=False)
+          '@ | python -
+          if ($LASTEXITCODE) { throw 'Windows registry settings check failed' }
