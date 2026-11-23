@@ -119,7 +119,7 @@ def check(args):
     if args.reference_docker:
         assert not version.get("AsagiriVersion") and "Podman" not in json.dumps(version), version
     else:
-        assert (version.get("AsagiriVersion") == "0.1.14-dev.188"
+        assert (version.get("AsagiriVersion") == "0.1.14-dev.195"
                 and Path(args.socket).parent == Path.cwd()
                 and os.environ.get("ASAGIRI_DATA_DIR") == str(Path.cwd() / "engine-data")
                 and os.environ.get("ASAGIRI_SOCKET") == args.socket), "Use a disposable Asagiri engine"
