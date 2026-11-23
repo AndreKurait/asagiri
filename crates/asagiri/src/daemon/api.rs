@@ -478,7 +478,7 @@ fn info(engine: &Engine) -> Value {
         "CgroupVersion": "2",
         "DefaultRuntime": "asagiri",
         "Runtimes": {"asagiri": {"path": "asagiri-init"}},
-        "SecurityOptions": ["name=cgroupns"],
+        "SecurityOptions": ["name=seccomp,profile=builtin", "name=cgroupns"],
         "BuilderVersion": "2",
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
         "AsagiriVmAwake": engine.is_awake(),
