@@ -56,7 +56,7 @@ jobs:
           wsl.exe --terminate Managed241
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified before install'
-          $script = Guest wslpath -u "$(Split-Path $env:PICKER_APP)\install.sh"
+          $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
           Guest sh $script.Trim()
           Guest cat /etc/wsl.conf
           Guest rm /tmp/managed241-marker
