@@ -119,6 +119,7 @@ section "run: output and exit codes"
 code empty-response-status 0 python3 "$(dirname "$0")/empty-response-status.py" "$SOCK" alpine
 code lifecycle-response-status 0 python3 "$(dirname "$0")/lifecycle-status.py" "$SOCK" alpine
 t echo "hello" $D run --rm alpine echo hello
+t nfs-client-filesystems "NFS client ready" $D run --rm --network none alpine sh -ec 'grep -qw nfs /proc/filesystems && grep -qw nfs4 /proc/filesystems && echo "NFS client ready"'
 t args "a b c" $D run --rm alpine echo a b c
 code exit-0 0 $D run --rm alpine true
 code exit-1 1 $D run --rm alpine false
