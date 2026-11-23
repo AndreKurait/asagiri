@@ -35,6 +35,23 @@ jobs:
             identify -format '%f %wx%h %k colors\n' "observations/window-$delay.png"
           done
           SH
+      - name: Verify direct AppImage launch and mounted filesystem
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          mkdir -p observations "$RUNNER_TEMP/fuse-home"
+          ls -l /dev/fuse
+          test -r /dev/fuse && test -w /dev/fuse
+          HOME="$RUNNER_TEMP/fuse-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s <<'SH'
+          app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
+          "$app" >observations/direct-launch.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          win=$(timeout 60 xdotool search --sync --onlyvisible --name Asagiri | head -1)
+          sleep 10
+          findmnt -rn -o TARGET,FSTYPE,SOURCE | awk '$2 ~ /^fuse/ && $1 ~ /\/.mount_/ {print; seen=1} END {exit !seen}' | tee observations/direct-mount.txt
+          import -window "$win" observations/direct-window.png
+          SH
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
