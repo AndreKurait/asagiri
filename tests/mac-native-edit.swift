@@ -149,8 +149,6 @@ let containerCommand = "echo " + containerMarker + " > /tmp/clipboard-result"
 board.clearContents(); board.setString(containerCommand, forType: .string)
 key(9)
 expect("paste into the container command field") { value() == containerCommand }
-key(0); board.clearContents(); key(8)
-expect("copy the selected container command") { board.string(forType: .string) == containerCommand }
 key(36, [])
 expect("pasted command executed in the running container") {
     let process = Process(), pipe = Pipe()
@@ -161,3 +159,15 @@ expect("pasted command executed in the running container") {
     process.waitUntilExit()
     return process.terminationStatus == 0 && String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) == containerMarker + "\n"
 }
+
+// Recall the executed command so paste/execution and copy give independent results.
+key(126, [])
+expect("recall submitted command in focused container field") { value() == containerCommand }
+key(0)
+expect("Command-A selects the container command") {
+    guard let focus = attr(app, "AXFocusedUIElement") else { return false }
+    return attr(focus as! AXUIElement, "AXSelectedText") as? String == containerCommand
+}
+board.clearContents()
+key(8)
+expect("Command-C copies the selected container command") { board.string(forType: .string) == containerCommand }
