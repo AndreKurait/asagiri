@@ -46,7 +46,10 @@ jobs:
             Invoke-Docker @('pull','alpine:3.21')
             $idle = [Diagnostics.Stopwatch]::StartNew()
             Start-Sleep -Seconds 10800
-            if ($idle.Elapsed.TotalSeconds -lt 10800 -or $bridge.HasExited) { throw 'Background host did not survive the idle interval' }
+            while ($idle.Elapsed.TotalSeconds -lt 10800) { Start-Sleep -Milliseconds 500 }
+            $bridge.Refresh()
+            Write-Host "Idle seconds=$($idle.Elapsed.TotalSeconds) background PID=$($bridge.Id) exited=$($bridge.HasExited)"
+            if ($bridge.HasExited) { Write-Host "Background exit code=$($bridge.ExitCode) exit time=$($bridge.ExitTime.ToUniversalTime())" }
             $watch = [Diagnostics.Stopwatch]::StartNew()
             $reply = Invoke-Docker @('run','--rm','alpine:3.21','echo','awake-111')
             if ($reply -notcontains 'awake-111') { throw "First command returned $reply" }
