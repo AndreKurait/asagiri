@@ -12,6 +12,15 @@ const MIN_CHANGE: u64 = 64 << 20;
 const QUIET: Duration = Duration::from_secs(30);
 const REFAULT_THRESHOLD: u64 = 256;
 
+/// VZ targets include physical memory that Linux excludes from MemTotal.
+/// Reserve that difference alongside the cgroup's measured working set.
+/// An older guest can omit the working-set sample or report no total.
+pub fn working_set_target(working_kib: u64, total_kib: u64, ceiling: u64) -> u64 {
+    let working = working_kib.saturating_mul(1024);
+    if working == 0 || total_kib == 0 { return working; }
+    working.saturating_add(ceiling.saturating_sub(total_kib.saturating_mul(1024)))
+}
+
 pub struct Balloon {
     pub target: u64,
     quiet_until: Instant,
@@ -67,6 +76,18 @@ mod tests {
     use super::*;
     const MIB: u64 = 1 << 20;
     const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn vz_target_accounts_for_pages_outside_linux_memtotal() {
+        let ceiling = 8 * GIB;
+        let total_kib = 8_211_244;
+        let working_kib = 544_764;
+        assert_eq!(working_set_target(working_kib, total_kib, ceiling),
+            working_kib * 1024 + ceiling - total_kib * 1024);
+        assert_eq!(working_set_target(working_kib, 0, ceiling), working_kib * 1024);
+        assert_eq!(working_set_target(0, total_kib, ceiling), 0);
+        assert_eq!(working_set_target(working_kib, u64::MAX, ceiling), working_kib * 1024);
+    }
 
     #[test]
     fn mapped_file_working_set_survives_low_anonymous_usage() {

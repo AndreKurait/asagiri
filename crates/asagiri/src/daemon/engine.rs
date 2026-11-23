@@ -1859,7 +1859,10 @@ impl Engine {
                 if !cfg!(target_os = "macos") {
                     continue;
                 }
-                if let Some(next) = target.sample(used, stats.mem_working_set_kib.saturating_mul(1024),
+                let working_set = super::balloon::working_set_target(
+                    stats.mem_working_set_kib, stats.mem_total_kib, ceiling,
+                );
+                if let Some(next) = target.sample(used, working_set,
                     stats.mem_refaults, stats.mem_stall, stats.oom_kills, ceiling, std::time::Instant::now())
                 {
                     vm.set_memory_target(next);
