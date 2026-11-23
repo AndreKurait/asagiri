@@ -1,0 +1,129 @@
+name: Verify Windows host-IP publishing diagnostics on the published MSI
+on:
+  push:
+    branches: [qualification/windows-ports-125]
+    paths: [.github/workflows/windows-ports-125.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
+          persist-credentials: false
+      - name: Prepare WSL
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Install the published MSI and use the registered context from a fresh shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "205"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
+          $installStep = 1
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          gh release download "v$version" -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE) { throw 'Published MSI download failed' }
+          if ((Get-FileHash $asset).Hash -ne '1592852ad8ae07a8b903592ec868164697ba49a38629e47de55127da646dc8b2') { throw 'MSI digest mismatch' }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+            python -m pip install pywinauto
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
+            $wizard = Start-Process $app -PassThru
+            @'
+          import sys
+          import time
+          from pywinauto.findwindows import ElementNotFoundError
+          from comtypes import COMError
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          for target, timeout in [('chooseBtn', 120), ('Open Asagiri', 600)]:
+              deadline = time.monotonic() + timeout
+              while time.monotonic() < deadline:
+                  try:
+                      controls = window.descendants()
+                      button = next((c for c in controls if c.is_enabled() and
+                                     (c.element_info.automation_id == target or
+                                      (c.element_info.control_type == 'Button' and c.window_text() == target))), None)
+                      if button:
+                          button.invoke()
+                          break
+                      language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
+                      if language:
+                          print('Invoking language Continue via UI Automation', flush=True)
+                          language.invoke()
+                  except ElementNotFoundError:
+                      time.sleep(1)
+                      continue
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                      print('UI element disappeared during refresh; querying again', flush=True)
+                  time.sleep(1)
+              else:
+                  raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
+          '@ | python - $wizard.Id
+            if ($LASTEXITCODE) {
+              $env:WSL_UTF8 = '1'
+              $systemWsl = Join-Path ([Environment]::SystemDirectory) 'wsl.exe'
+              Get-Command wsl.exe | Select-Object -ExpandProperty Source
+              foreach ($arg in '--version', '--status') {
+                & $systemWsl $arg
+                Write-Host "System WSL $arg exited with $LASTEXITCODE"
+              }
+              $log = Join-Path $bundle 'asagiri-win.log'
+              if (Test-Path $log) { Get-Content $log -Tail 40 }
+              throw 'Windows setup did not reach the expected control'
+            }
+            for ($i = 0; $i -lt 30; $i++) {
+              if ((Test-Path "$bundle/setup.json") -and (Get-Content "$bundle/setup.json" -Raw | ConvertFrom-Json).done) { break }
+              Start-Sleep -Seconds 1
+            }
+            $saved = Get-Content (Join-Path $bundle 'setup.json') -Raw | ConvertFrom-Json
+            if (!$saved.done -or $saved.distro -ne 'asagiri') { throw 'Windows setup did not complete' }
+            if (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue) { throw 'Docker Desktop is running' }
+            $checkContext = {
+              $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+              Remove-Item Env:DOCKER_HOST, Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+              $cli = (Get-Command docker.exe).Source
+              Write-Host "Fresh shell resolves docker.exe to $cli"
+              $expected = Join-Path $env:LOCALAPPDATA 'Asagiri\bin\docker.exe'
+              $available = @(Get-Command docker.exe -All | Select-Object -ExpandProperty Source)
+              if ($available -notcontains $expected) { throw "Bundled CLI missing from persisted PATH: $available" }
+              $bundledResult = & $expected --context asagiri run --rm alpine:3.21 echo bundled-context-98
+              if ($LASTEXITCODE -or $bundledResult -ne 'bundled-context-98') { exit 1 }
+              $result = docker.exe --context asagiri run --rm alpine:3.21 echo asagiri-context-98
+              if ($LASTEXITCODE -or $result -ne 'asagiri-context-98') { exit 1 }
+            }
+            pwsh -NoProfile -Command $checkContext
+            if ($LASTEXITCODE) { throw 'Fresh shell could not run a container through the named Asagiri context' }
+            $address = (Get-NetIPConfiguration | Where-Object IPv4DefaultGateway | Select-Object -First 1).IPv4Address.IPAddress
+            if (!$address) { throw 'Windows host IPv4 address unavailable' }
+            $denied = & $docker --context asagiri run -d -p "${address}:18921:80" alpine:3.21 sleep 120 2>&1 | Out-String
+            if (!$LASTEXITCODE -or $denied -notlike "*cannot publish on Windows host address $address from WSL*") { throw "Unexpected explicit address result $denied" }
+            Write-Host $denied
+            $wild = & $docker --context asagiri run -d --name port125 -p 0.0.0.0:18922:80 alpine:3.21 sh -c 'echo port125 >/tmp/index.html && exec httpd -f -p 80 -h /tmp' 2>&1 | Out-String
+            if ($LASTEXITCODE -or $wild -notlike '*Wildcard bindings do not configure Windows LAN access*') { throw "Unexpected wildcard result $wild" }
+            Write-Host $wild
+            curl.exe --fail --retry 8 --retry-connrefused --retry-delay 1 http://127.0.0.1:18922/ -o response.txt
+            if ($LASTEXITCODE -or (Get-Content response.txt -Raw).Trim() -ne 'port125') { throw 'Windows loopback HTTP check failed' }
+            Write-Host 'PASS explicit host IP diagnostic, wildcard warning, and Windows loopback HTTP'
