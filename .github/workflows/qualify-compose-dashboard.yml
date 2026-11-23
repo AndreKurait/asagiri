@@ -1,0 +1,50 @@
+name: Verify ARM64 Compose dashboard rendering
+on:
+  push:
+    branches: [qualification/ubuntu-compose-dashboard-246]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Exercise the packaged GTK dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb dbus-x11 gir1.2-atspi-2.0 at-spi2-core libfuse2t64
+          gh run download 45260712752 -R AndreKurait/asagiri -n packages-linux-aarch64
+          app="$PWD/Asagiri-0.1.14-dev.243-aarch64.AppImage"
+          echo "9c1a3b05e58dbe6828a6b7ff988df1286a0158355e7e718eab3df3be2c59a5a9  $app" | sha256sum -c -
+          chmod +x "$app"
+          export HOME="$RUNNER_TEMP/profile" GTK_MODULES=gail:atk-bridge
+          mkdir -p "$HOME/.asagiri"
+          echo '{"setupSkip":true,"lang":"en"}' > "$HOME/.asagiri/ui.json"
+          cat > inspect.py <<'PY'
+          import time
+          import gi
+          gi.require_version('Atspi', '2.0')
+          from gi.repository import Atspi
+          def names(node):
+              yield node.get_name()
+              for index in range(node.get_child_count()):
+                  child = node.get_child_at_index(index)
+                  if child:
+                      yield from names(child)
+          for attempt in range(40):
+              labels = list(names(Atspi.get_desktop(0)))
+              if 'No Compose projects yet' in labels:
+                  print('Rendered Compose empty-state heading')
+                  break
+              time.sleep(1)
+          else:
+              raise SystemExit(f'Compose heading missing: {labels[:120]}')
+          PY
+          export app
+          # shellcheck disable=SC2016 # Expand variables inside the Xvfb session.
+
+          dbus-run-session -- xvfb-run -a bash -ec '"$app" ui --view compose & pid=$!; trap "kill $pid 2>/dev/null || true" EXIT; /usr/bin/python3 inspect.py'
