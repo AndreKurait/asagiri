@@ -19,6 +19,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          tools="$RUNNER_TEMP/cilium-tools"
+          mkdir -p "$tools"
+          export PATH="$tools:$PATH"
+          GOBIN="$tools" go install helm.sh/helm/v3/cmd/helm@v3.17.3
+          helm version --short
+          for tool in kind kubectl; do command -v "$tool" || brew install "$tool"; done
           mkdir -p "$RUNNER_TEMP/build"
           gh release download v0.1.14-dev.188 -p Asagiri-0.1.14-dev.188-x86_64.tar.gz -D "$RUNNER_TEMP/build"
           cd "$RUNNER_TEMP/build"
@@ -42,15 +48,6 @@ jobs:
             if [ "$attempt" = 3 ]; then exit 1; fi
             sleep 5
           done
-          tools="$RUNNER_TEMP/cilium-tools"
-          mkdir -p "$tools"
-          export PATH="$tools:$PATH"
-          archive=helm-v3.17.3-darwin-amd64.tar.gz
-          curl -fsSL --retry 3 "https://get.helm.sh/$archive" -o "$tools/$archive"
-          curl -fsSL --retry 3 "https://get.helm.sh/$archive.sha256sum" -o "$tools/helm.sha256"
-          (cd "$tools" && shasum -a 256 -c helm.sha256 && tar xzf "$archive" && mv darwin-amd64/helm helm)
-          helm version --short
-          for tool in kind kubectl; do command -v "$tool" || brew install "$tool"; done
           export KUBECONFIG="$scratch/kubeconfig" KIND_EXPERIMENTAL_PROVIDER=docker
           trap 'kind delete cluster || true; kill "$daemon" || true' EXIT
           cat > "$scratch/kind.yaml" <<'CONFIG'
