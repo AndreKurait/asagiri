@@ -87,6 +87,40 @@ jobs:
           fi
           if test "$compose_rc" -ne 0; then exit "$compose_rc"; fi
           exit "$control_rc"
+      - name: Compare guest startup with published dev.205 on the same runner
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          work=$(mktemp -d /private/tmp/boot168.XXXXXX)
+          cd "$work"
+          mkdir old candidate
+          asset=Asagiri-0.1.14-dev.205-x86_64.tar.gz
+          gh release download v0.1.14-dev.205 -R AndreKurait/asagiri -p "$asset"
+          echo "ce251930f568a1f302dbf0534015591c7374db549170d22f8fd0402249cdaece  $asset" | shasum -a 256 -c -
+          tar xzf "$asset" -C old
+          gh run download 45223543628 -R AndreKurait/asagiri -n packages-macos-x86_64 -D package
+          tar xzf package/Asagiri-0.1.14-dev.223-x86_64.tar.gz -C candidate
+          sysctl kern.hv_support hw.memsize hw.ncpu
+          for app in old candidate; do
+            mkdir "$work/$app/home"
+            (
+              export HOME="$work/$app/home" ASAGIRI_DATA_DIR="$work/$app/store" ASAGIRI_SOCKET="$work/$app/docker.sock"
+              export DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+              bin="$work/$app/Asagiri.app/Contents/MacOS/asagiri"
+              cli="$work/$app/Asagiri.app/Contents/Resources/bin/docker"
+              "$bin" --version
+              "$bin" daemon >"$app/engine.log" 2>&1 &
+              daemon=$!
+              trap 'kill "$daemon" || true; wait "$daemon" || true' EXIT
+              for i in {1..60}; do "$cli" version >/dev/null 2>&1 && break; sleep 1; done
+              result=0
+              "$cli" run --rm alpine:3.21 echo booted || result=$?
+              echo "$app workload exit=$result"
+              tail -20 "$app/engine.log"
+            )
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
