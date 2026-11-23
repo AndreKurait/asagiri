@@ -36,9 +36,15 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           cd $env:RUNNER_TEMP
-          $asset = "Asagiri-0.1.14-dev.195-windows-x86_64.zip"
-          gh release download v0.1.14-dev.195 -R AndreKurait/asagiri -p $asset
-          if ((Get-FileHash $asset).Hash.ToLower() -ne "906a30dfdb13cdbca9625406026181c8e7b38b96b4d6a6394914488731591ccb") { throw "bundle hash" }
+          $tag = 'v0.1.14-dev.243'
+          $asset = 'Asagiri-0.1.14-dev.243-windows-x86_64.zip'
+          $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($ref.object.sha -ne '865088f2f78c52b7acd694e9c048b227a3449c43') { throw 'Release revision mismatch' }
+          $release = gh release view $tag -R AndreKurait/asagiri --json assets | ConvertFrom-Json
+          $digest = ($release.assets | Where-Object name -eq $asset).digest
+          if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Missing release asset digest' }
+          gh release download $tag -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw 'Release archive verification failed' }
           Expand-Archive $asset bundle
           $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
           wsl.exe --import Asagiri-cgroup139 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
@@ -51,18 +57,6 @@ jobs:
           wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/cgroup
           wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/mountinfo | Select-String ' - cgroup2? '
           if ($LASTEXITCODE) { throw 'Reading mount topology failed' }
-          for ($attempt=0; $attempt -lt 90; $attempt++) {
-            $ready = gh api repos/AndreKurait/asagiri/actions/runs/45239536309/artifacts --jq '.artifacts[]|select(.name=="linux-X64")|.id'
-            if ($ready) { break }
-            Start-Sleep -Seconds 10
-          }
-          gh run download 45239536309 -R AndreKurait/asagiri -n linux-X64 -D candidate
-          if ($LASTEXITCODE) { throw 'Candidate build unavailable' }
-          # Platform builds checked out the test merge, whose tree matches PR #401.
-          if ((Get-Content candidate/SOURCE_COMMIT -Raw).Trim() -ne '188fefc9ea46203b7646cac53b66b1703ef73a89') { throw 'Candidate revision mismatch' }
-          $candidatePath = (wsl.exe -d Asagiri-cgroup139 --exec wslpath -u "$env:RUNNER_TEMP\candidate").Trim()
-          wsl.exe -d Asagiri-cgroup139 -u root --exec sh -ec 'cd "$1" && sha256sum -c SHA256SUMS && cp asagiri /usr/local/bin/asagiri.next && chmod 755 /usr/local/bin/asagiri.next && mv /usr/local/bin/asagiri.next /usr/local/bin/asagiri && cp asagiri-init /usr/local/bin/asagiri-init.next && chmod 755 /usr/local/bin/asagiri-init.next && mv /usr/local/bin/asagiri-init.next /usr/local/bin/asagiri-init' sh $candidatePath
-          if ($LASTEXITCODE) { throw 'Candidate install failed' }
           wsl.exe --terminate Asagiri-cgroup139
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
           $docker = Join-Path (Split-Path $env:PICKER_APP) 'bin/docker.exe'
