@@ -1,0 +1,43 @@
+name: Released Apple Silicon port inspection
+on:
+  push:
+    branches: [qualification/mac-port-inspection-114]
+permissions:
+  contents: read
+jobs:
+  ports:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+            hash: 6c63b41c93c6afc3b03389ae568cbf4321b00fde27fffa841b04855272e3d5ff
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Inspect and reach published ports from the macOS host
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+          HASH: ${{ matrix.hash }}
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d /private/tmp/ports114.XXXXXX)"
+          test "$(uname -m)" = "$ARCH"
+          asset="Asagiri-0.1.14-dev.188-$ARCH.tar.gz"
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$asset"
+          echo "$HASH  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          export HOME="$PWD/home" ASAGIRI_DATA_DIR="$PWD/engine-data" ASAGIRI_SOCKET="$PWD/docker.sock" DOCKER_HOST="unix://$PWD/docker.sock" PATH="$PWD/Asagiri.app/Contents/Resources/bin:$PATH"
+          mkdir "$HOME"
+          Asagiri.app/Contents/MacOS/asagiri daemon >engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" || true; tail -35 engine.log' EXIT
+          for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 0.5; done
+          docker pull alpine:3.21
+          ASAGIRI_TEST_ENGINE=1 python3 "$GITHUB_WORKSPACE/tests/inspect-port-bindings.py" "$ASAGIRI_SOCKET" alpine:3.21
