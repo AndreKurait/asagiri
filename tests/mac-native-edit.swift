@@ -102,18 +102,30 @@ board.clearContents()
 board.setString("clipboard-qualification", forType: .string)
 key(0); key(9)
 Thread.sleep(forTimeInterval: 1)
-key(36, [])
-func terminalButton(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
-    let role = attr(element, "AXRole") as? String
-    if role == "AXButton", ["AXTitle", "AXDescription"].contains(where: { attr(element, $0) as? String == "Terminal" }) { return element }
-    guard depth < 24 else { return nil }
+func findControl(_ element: AXUIElement, role: String, label: String, depth: Int = 0) -> AXUIElement? {
+    if attr(element, "AXRole") as? String == role,
+       ["AXTitle", "AXDescription", "AXValue"].contains(where: { attr(element, $0) as? String == label }) { return element }
+    guard depth < 32 else { return nil }
     for child in attr(element, "AXChildren") as? [AXUIElement] ?? [] {
-        if let button = terminalButton(child, depth: depth + 1) { return button }
+        if let match = findControl(child, role: role, label: label, depth: depth + 1) { return match }
     }
     return nil
 }
+// The search field filters the table. Open the matching name in its row.
+expect("click the filtered container name") {
+    guard let name = findControl(app, role: "AXStaticText", label: "clipboard-qualification"),
+          let position = attr(name, "AXPosition"), let size = attr(name, "AXSize") else { return false }
+    var origin = CGPoint.zero, extent = CGSize.zero
+    guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+          AXValueGetValue(size as! AXValue, .cgSize, &extent), extent.width > 0 else { return false }
+    let point = CGPoint(x: origin.x + extent.width / 2, y: origin.y + extent.height / 2)
+    for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+    return true
+}
 expect("open container Terminal tab") {
-    guard let button = terminalButton(app) else { return false }
+    guard let button = findControl(app, role: "AXButton", label: "Terminal") else { return false }
     return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
 }
 let containerMarker = "container-" + UUID().uuidString
