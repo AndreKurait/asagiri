@@ -9,11 +9,19 @@ permissions:
 jobs:
   native-edit:
     runs-on: macos-26-intel
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9d34b401346ba61a18b6799527578f379b04faec
+          path: candidate
+          persist-credentials: false
+      - name: Build terminal focus candidate
+        working-directory: candidate
+        run: cargo build --locked -p asagiri --bin asagiri
       - name: Exercise AppKit and WebKit keyboard routing
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,7 +56,7 @@ jobs:
             sleep 5
           done
           test "$(docker inspect -f '{{.State.Running}}' clipboard-qualification)" = true
-          ./asagiri ui >"$scratch/ui.log" 2>&1 &
+          "$GITHUB_WORKSPACE/candidate/target/debug/asagiri" ui >"$scratch/ui.log" 2>&1 &
           ui_pid=$!
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
           swift "$GITHUB_WORKSPACE/tests/mac-native-edit.swift" "$ui_pid"
