@@ -38,7 +38,7 @@ jobs:
             if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
           }
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP 'asagiri-test-webview-profile'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=0 --remote-debugging-address=127.0.0.1'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=19253 --remote-debugging-address=127.0.0.1'
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-registry153'
           @'
           import os, pathlib, subprocess, time
@@ -50,11 +50,7 @@ jobs:
               with sync_playwright() as pw:
                   for i in range(90):
                       try:
-                          profile = pathlib.Path(os.environ['WEBVIEW2_USER_DATA_FOLDER'])
-                          native_profile = pathlib.Path(os.environ['LOCALAPPDATA']) / 'Asagiri' / 'WebView2'
-                          port_file = next(f for root in (profile, native_profile) for f in root.rglob('DevToolsActivePort'))
-                          port, ws = port_file.read_text().splitlines()[:2]
-                          browser = pw.chromium.connect_over_cdp(f'ws://127.0.0.1:{port}{ws}', timeout=3000)
+                          browser = pw.chromium.connect_over_cdp('http://127.0.0.1:19253', timeout=3000)
                           break
                       except Exception:
                           if proc.poll() is not None or i == 89: raise
