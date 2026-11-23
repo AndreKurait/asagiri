@@ -75,7 +75,7 @@ function render() {
 }
 channel.addEventListener("change", render);
 render();
-fetch("../releases.json", {cache: "no-cache"})
+const releaseIndexReady = fetch("../releases.json", {cache: "no-cache"})
   .then(response => { if (!response.ok) throw new Error("No release index"); return response.json(); })
   .then(index => {
     if (index.repository !== "AndreKurait/asagiri" || !index.channels) throw new Error("Invalid release index");
