@@ -59,6 +59,8 @@ jobs:
           $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
           Guest sh $script.Trim()
+          Guest sh -c 'printf "\n[interop]\nappendWindowsPath=false\n" >> /etc/wsl.conf'
+          Guest cp /etc/wsl.conf /tmp/edited-wsl.conf
           $revision = '4cfd1261d77cd3a83558e3dfa1639915e3a5e55a'
           foreach ($path in 'contrib/windows/asagiri.ps1','contrib/wsl/install.sh') {
             $file = Join-Path (Split-Path $env:PICKER_APP) (Split-Path $path -Leaf)
@@ -72,4 +74,4 @@ jobs:
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Original boot command ran after removal'
           Guest cat /etc/wsl.conf
-          Guest cmp /tmp/original-wsl.conf /etc/wsl.conf
+          Guest cmp /tmp/edited-wsl.conf /etc/wsl.conf
