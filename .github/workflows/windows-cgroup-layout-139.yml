@@ -79,12 +79,7 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest sh $script.Trim()
-          try { Guest /tmp/engineping } catch {
-            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
-            Write-Host 'Installer launch unavailable; starting detached-session control'
-            Guest sh -c 'HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock setsid /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 &'
-            try { Guest /tmp/engineping } finally { Guest cat /tmp/detached.log }
-          }
+          Guest sh -c 'printf "#!/bin/sh\ntouch /tmp/managed241-marker\nexec env HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock /usr/local/bin/asagiri daemon\n" > /usr/local/bin/boot241; chmod 755 /usr/local/bin/boot241; printf "[boot]\nsystemd=false\ncommand=/usr/local/bin/boot241\n" > /etc/wsl.conf'
           Guest cat /etc/wsl.conf
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
