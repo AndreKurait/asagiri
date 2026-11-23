@@ -62,7 +62,7 @@ jobs:
             $denied = & $docker run -d -p "${address}:18921:80" alpine:3.21 sleep 120 2>&1 | Out-String
             if (!$LASTEXITCODE -or $denied -notlike "*cannot publish on Windows host address $address from WSL*") { throw "Unexpected explicit address result $denied" }
             Write-Host $denied
-            $wild = & $docker run -d --name port125 -p 0.0.0.0:18922:80 alpine:3.21 sh -c 'echo port125 >/tmp/index.html && exec httpd -f -p 80 -h /tmp' 2>&1 | Out-String
+            $wild = & $docker run -d --name port125 -p 0.0.0.0:18922:80 busybox:1.37 sh -c 'echo port125 >/tmp/index.html && exec httpd -f -p 80 -h /tmp' 2>&1 | Out-String
             if ($LASTEXITCODE -or $wild -notlike '*Wildcard bindings do not configure Windows LAN access*') { throw "Unexpected wildcard result $wild" }
             Write-Host $wild
             & $docker inspect port125 --format '{{json .State}} {{json .NetworkSettings.Ports}}'
