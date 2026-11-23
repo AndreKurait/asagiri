@@ -55,5 +55,8 @@ jobs:
           for i in {1..30}; do grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port' && break; sleep 2; done
           grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port'
           kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444}]'
-          curl --noproxy '*' --retry 30 --retry-connrefused --retry-delay 2 --max-time 5 -fsS http://127.0.0.1:8444/ | grep -F 'Welcome to nginx'
+          kubectl get service loopback-check -o wide
+          kubectl get endpointslices -l kubernetes.io/service-name=loopback-check -o wide
+          curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/
+          grep -F 'Welcome to nginx' "$scratch/response.html"
           lsof -nP -a -p "$daemon" -iTCP:8444 -sTCP:LISTEN | grep -F '127.0.0.1:8444'
