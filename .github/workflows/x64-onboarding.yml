@@ -56,6 +56,12 @@ jobs:
           xdotool mousemove --window "$win" 786 677 click 1
           sleep 3
           import -window "$win" observations/after-continue.png
+          xdotool mousemove --window "$win" 724 173 click 1
+          for delay in 2 8; do
+            sleep "$delay"
+            import -window root "observations/after-start-$delay.png"
+            xdotool search --onlyvisible --name '.*' getwindowname %@ >"observations/window-titles-$delay.txt" || true
+          done
           compare -metric AE observations/direct-window.png observations/after-continue.png null: 2>observations/changed-pixels.txt || test "$?" = 1
           SH
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
