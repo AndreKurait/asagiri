@@ -45,7 +45,8 @@ jobs:
           docker pull alpine:3.21
           compose_rc=0
           python3 "$GITHUB_WORKSPACE/tests/qualification-168/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "docker-compose-darwin-$COMPOSE_ARCH" --output "$RUNNER_TEMP/compose-result.json" || compose_rc=$?
-          token_file=$(find "$HOME" "$ASAGIRI_DATA_DIR" -type f -name build-mirror-token -print | head -1)
+          token_file="$HOME/.asagiri/build-mirror-token"
+          test -s "$token_file"
           port=$(sed -n 's/.*image mirror for builds port=\([0-9]*\).*/\1/p' engine.log | head -1)
           if test -f "$token_file" && test -n "$port"; then
             mirror_path="/v2/$(cat "$token_file")/docker.io/library/alpine/manifests/3.21"
