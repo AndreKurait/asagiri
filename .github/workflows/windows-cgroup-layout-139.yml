@@ -59,6 +59,11 @@ jobs:
           $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
           Guest sh $script.Trim()
+          $revision = '5052137afb7a3b3b528521ac397e4e718ca5624a'
+          foreach ($path in 'contrib/windows/asagiri.ps1','contrib/wsl/install.sh') {
+            $file = Join-Path (Split-Path $env:PICKER_APP) (Split-Path $path -Leaf)
+            Invoke-WebRequest "https://raw.githubusercontent.com/AndreKurait/asagiri/$revision/$path" -OutFile $file
+          }
           & pwsh -NoProfile -File "$(Split-Path $env:PICKER_APP)\asagiri.ps1" -Uninstall -Distro Managed241
           Write-Host "Uninstaller exit code: $LASTEXITCODE"
           Guest sh -c 'test ! -e /usr/local/bin/asagiri && test ! -e /usr/local/bin/asagiri-init'
