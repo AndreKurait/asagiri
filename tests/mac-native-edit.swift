@@ -113,6 +113,8 @@ Thread.sleep(forTimeInterval: 1)
 func findControl(_ element: AXUIElement, role: String, label: String, depth: Int = 0) -> AXUIElement? {
     if attr(element, "AXRole") as? String == role,
        ["AXTitle", "AXDescription", "AXValue"].contains(where: { attr(element, $0) as? String == label }) { return element }
+    // WebKit exposes the entered query as static text inside the search field.
+    if attr(element, "AXRole") as? String == "AXComboBox" { return nil }
     guard depth < 32 else { return nil }
     for child in attr(element, "AXChildren") as? [AXUIElement] ?? [] {
         if let match = findControl(child, role: role, label: label, depth: depth + 1) { return match }
