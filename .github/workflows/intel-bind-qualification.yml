@@ -87,7 +87,17 @@ jobs:
           mirror_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "bridge").IPAddress}}' fixture-registry)
           test -n "$mirror_ip"
           mirror="$mirror_ip:49102"
-          docker run --rm --network bridge --pull=never alpine:3.21 wget -T 5 -qO- "http://$mirror/v2/"
+          if ! docker run --rm --network bridge --pull=never alpine:3.21 sh -ec '
+            for attempt in $(seq 1 20); do
+              if wget -T 2 -qO- "http://$1/v2/"; then exit 0; fi
+              sleep 1
+            done
+            exit 1
+          ' sh "$mirror"; then
+            docker inspect --format '{{json .State}}' fixture-registry
+            docker logs fixture-registry
+            exit 1
+          fi
           app="$RUNNER_TEMP/Asagiri.app/Contents/MacOS/asagiri"
           "$app" config set "$(jq -cn --arg registry "$mirror" '{"insecure-registries":[$registry]}')"
           "$app" registry-mirror add "http://$mirror"
