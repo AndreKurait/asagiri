@@ -43,6 +43,10 @@ jobs:
           mkdir -p observations "$RUNNER_TEMP/fuse-home"
           ls -l /dev/fuse
           test -r /dev/fuse && test -w /dev/fuse
+          # The hosted image also lists packer as a PolicyKit administrator.
+          # Select the login user for the password challenge in this disposable VM.
+          test "$(id -un)" = runner
+          echo 'polkit.addAdminRule(function(action, subject) { if (action.id === "org.freedesktop.policykit.exec" && subject.user === "runner") return ["unix-user:runner"]; });' | sudo tee /etc/polkit-1/rules.d/00-asagiri-test-admin.rules >/dev/null
           umask 077
           openssl rand -hex 24 | tr -d '\n' > "$RUNNER_TEMP/fuse-home/.test-password"
           trap 'rm -f "$RUNNER_TEMP/fuse-home/.test-password"' EXIT
