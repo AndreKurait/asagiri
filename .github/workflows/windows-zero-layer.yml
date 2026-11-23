@@ -5,22 +5,13 @@ on:
     paths: [.github/workflows/windows-zero-layer.yml]
 permissions:
   contents: read
+  actions: read
 jobs:
-  guest:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - run: bash scripts/windows-engine.sh "$PWD" "$RUNNER_TEMP/guest"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: candidate-init
-          path: ${{ runner.temp }}/guest/asagiri-init
   windows-cli:
-    needs: guest
     strategy:
       fail-fast: false
       matrix:
-        engine: [released, candidate]
+        engine: [candidate]
     runs-on: windows-2025
     timeout-minutes: 35
     steps:
@@ -29,6 +20,8 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
+          run-id: 45101640277
+          github-token: ${{ github.token }}
           name: candidate-init
           path: guest
       - name: Exercise settings-only image on WSL
@@ -48,9 +41,12 @@ jobs:
           wsl.exe --import Asagiri-empty-346 "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           if ('${{ matrix.engine }}' -eq 'candidate') {
-            $init = (wsl.exe -d Asagiri-empty-346 -u root -- wslpath -u "$env:GITHUB_WORKSPACE\guest\asagiri-init").Trim()
-            wsl.exe -d Asagiri-empty-346 -u root -- install -m 755 $init /usr/local/bin/asagiri-init
-            if ($LASTEXITCODE) { throw 'Could not install candidate init' }
+            $file = Join-Path $env:GITHUB_WORKSPACE 'guest/asagiri-init'
+            python -c "import subprocess,sys; f=open(sys.argv[1],'rb'); subprocess.run(['wsl.exe','-d','Asagiri-empty-346','-u','root','--exec','dd','of=/usr/local/bin/asagiri-init'],stdin=f,check=True)" $file
+            if ($LASTEXITCODE) { throw 'Candidate transfer failed' }
+            $expected = (Get-FileHash $file).Hash.ToLower()
+            $observed = wsl.exe -d Asagiri-empty-346 -u root --exec sha256sum /usr/local/bin/asagiri-init
+            if ($LASTEXITCODE -or "$observed" -notlike "$expected *") { throw 'Candidate init hash mismatch' }
           }
           $bridge = Start-Process $app -ArgumentList '--background','--distro','Asagiri-empty-346','--pipe','\\.\pipe\asagiri-load-test' -PassThru
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
