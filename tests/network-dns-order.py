@@ -150,8 +150,11 @@ def check(args):
         request("POST", "/containers/" + identity + "/start", statuses=(204,))
         return identity
 
-    def attach(cid, net):
-        request("POST", "/networks/" + net + "/connect", {"Container": cid}, (200, 204))
+    def attach(cid, net, priority=None):
+        body = {"Container": cid}
+        if priority is not None:
+            body["EndpointConfig"] = {"GwPriority": priority}
+        request("POST", "/networks/" + net + "/connect", body, (200, 204))
 
     def endpoint(cid, net):
         return get("/containers/" + cid + "/json")["NetworkSettings"]["Networks"][net]
@@ -280,10 +283,15 @@ def check(args):
             request("POST", "/containers/" + lifecycle + "/wait?condition=not-running")
             request("POST", "/containers/" + lifecycle + "/start", statuses=(204,))
             answers(lifecycle, case + "-restart", peers[preferred], nets[preferred], versions[preferred])
+            if case == "shared-first":
+                request("POST", "/networks/" + ids[1] + "/disconnect",
+                        {"Container": clients[0]}, (200, 204))
+                attach(clients[0], ids[1], priority=10)
+                answers(clients[0], "higher-gateway-priority", peers[1], nets[1], versions[1])
             errors = cleanup()
             assert not errors, errors
             assert inventory() == before, "Original inventory changed between DNS scenarios"
-        assert len(record["cases"]) == 25
+        assert len(record["cases"]) == 26
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=repr(error))
