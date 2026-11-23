@@ -23,7 +23,7 @@ jobs:
           mkdir -p "$HOME/.asagiri"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           asagiri daemon & daemon=$!
-          asagiri ui & ui=$!
+          asagiri ui --view settings & ui=$!
           trap 'kill "$ui" "$daemon" 2>/dev/null || true' EXIT
           "$RUNNER_TEMP/registry-settings" "$ui"
           for attempt in {1..15}; do

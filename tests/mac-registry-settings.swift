@@ -3,6 +3,12 @@ import ApplicationServices
 let app = AXUIElementCreateApplication(Int32(CommandLine.arguments[1])!)
 func attr(_ e: AXUIElement,_ k: String)->CFTypeRef? { var o:CFTypeRef?; _ = AXUIElementCopyAttributeValue(e,k as CFString,&o); return o }
 func find(_ e:AXUIElement,_ text:String,_ role:String,_ depth:Int=0)->AXUIElement? { if (attr(e,"AXRole") as? String)==role && ["AXDescription","AXTitle","AXHelp","AXValue"].contains(where:{(attr(e,$0) as? String)==text}) {return e}; if depth<25 {for c in attr(e,"AXChildren") as? [AXUIElement] ?? [] {if !CFEqual(c,e), let v=find(c,text,role,depth+1){return v}}};return nil }
-func press(_ text:String,_ roles:[String]) { for _ in 0..<12 { for role in roles { if let e=find(app,text,role), AXUIElementPerformAction(e,kAXPressAction as CFString) == .success {print("Pressed",text);return} };Thread.sleep(forTimeInterval:0.3) }; print("Missing",text);exit(1) }
-press("Settings…",["AXMenuItem"]);press("Registry mirrors",["AXButton","AXRadioButton"])
-for _ in 0..<12 {if let field=find(app,"Insecure registries","AXTextArea") {let result=AXUIElementSetAttributeValue(field,kAXValueAttribute as CFString,"registry.test:5153" as CFString); print("set",result.rawValue);press("Save",["AXButton"]);exit(0)};Thread.sleep(forTimeInterval:0.3)};exit(2)
+func dumpTree(_ e: AXUIElement, _ depth: Int = 0) {
+    guard depth < 16 else { return }
+    let attributes = ["AXRole", "AXTitle", "AXDescription", "AXValue"].compactMap { attr(e, $0) as? String }
+    print(depth, attributes.map { String($0.prefix(100)) })
+    for child in attr(e, "AXChildren") as? [AXUIElement] ?? [] where !CFEqual(child,e) { dumpTree(child,depth+1) }
+}
+func press(_ text:String,_ roles:[String]) { for _ in 0..<60 { for role in roles { if let e=find(app,text,role), AXUIElementPerformAction(e,kAXPressAction as CFString) == .success {print("Pressed",text);return} };Thread.sleep(forTimeInterval:0.3) }; dumpTree(app); print("Missing",text);exit(1) }
+press("Registry mirrors",["AXButton","AXRadioButton"])
+for _ in 0..<60 {if let field=find(app,"Insecure registries","AXTextArea") {let result=AXUIElementSetAttributeValue(field,kAXValueAttribute as CFString,"registry.test:5153" as CFString); print("set",result.rawValue);press("Save",["AXButton"]);exit(0)};Thread.sleep(forTimeInterval:0.3)};exit(2)
