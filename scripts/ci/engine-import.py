@@ -491,8 +491,8 @@ def main():
                     "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
                     "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
                 ).stdout.split("containers:\n", 1)[1]
-                names = [line.strip().split()[0] for line in inventory.splitlines() if line.strip()]
-                assert names.index(definition) < names.index(peer), names
+                inventory_names = [line.strip().split()[0] for line in inventory.splitlines() if line.strip()]
+                assert inventory_names.index(definition) < inventory_names.index(peer), inventory_names
                 imported("container", peer)
                 child = get("destination", "/containers/" + peer + "/json")
                 assert child["HostConfig"]["NetworkMode"] == "container:" + copied["Id"]
