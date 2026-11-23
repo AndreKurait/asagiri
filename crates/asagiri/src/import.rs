@@ -359,6 +359,46 @@ fn desktop_binds(host: &mut Value, resolved: &Value) -> io::Result<()> {
     Ok(())
 }
 
+/// Transfer changed filesystem layers through the engine, including whiteouts.
+/// Neither the diff nor the snapshot needs an executable inside the container.
+fn writable_image(ctx: &str, info: &Value) -> io::Result<Option<String>> {
+    let id = info["Id"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("missing source container ID"))?;
+    let run = |args: &[&str]| -> io::Result<String> {
+        let out = cli()?.args(["--context", ctx]).args(args).output()?;
+        if !out.status.success() {
+            return Err(io::Error::other(format!(
+                "{ctx}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    };
+    if run(&["diff", id])?.is_empty() {
+        return Ok(None);
+    }
+    if info["State"]["Running"].as_bool() != Some(false) {
+        return Err(io::Error::other(
+            "stop the source container before importing its writable layer",
+        ));
+    }
+    let output = run(&["commit", "--pause=false", id])?;
+    // Recent Docker clients print a flag deprecation notice before the ID.
+    let snapshot = output.lines().last().unwrap_or("");
+    if !snapshot.strip_prefix("sha256:").is_some_and(anonymous) {
+        return Err(io::Error::other(
+            "source engine returned an invalid snapshot image ID",
+        ));
+    }
+    let transfer = image_with_cli(ctx, snapshot, &cli);
+    let cleanup = run(&["image", "rm", "--no-prune", snapshot]);
+    let loaded = transfer?
+        .ok_or_else(|| io::Error::other("destination did not report a snapshot image ID"))?;
+    cleanup?;
+    Ok(Some(loaded))
+}
+
 /// The container, made again in Asagiri from the source's `inspect`, stopped:
 /// command, environment, labels, ports, mounts, restart policy and its
 /// networks (made in Asagiri first if missing). Its image must be in Asagiri.
@@ -400,7 +440,9 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
     }
     let cfg = &info["Config"];
     let mut image = cfg["Image"].as_str().unwrap_or("").to_owned();
-    if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
+    if let Some(snapshot) = writable_image(ctx, &info)? {
+        image = snapshot;
+    } else if json_lines(crate::flavor::CONTEXT.get(), &["image", "inspect", "--format", "{{json .Id}}", &image]).map_or(true, |v| v.is_empty()) {
         let loaded_id = image_with_cli(ctx, &image, &cli)?;
         // An untagged archive can lose the registry digest during load. Use the
         // content ID returned for this transfer, including on containerd sources

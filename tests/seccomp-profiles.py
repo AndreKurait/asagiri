@@ -115,6 +115,8 @@ def check(path, image):
     # container without CAP_SYS_ADMIN; chmod is something it allows.
     probe = "touch /f; chmod 600 /f; echo chmod=$?; unshare -U true; echo unshare=$?"
     try:
+        security_options = request("GET", "/info")["SecurityOptions"]
+        assert "name=seccomp,profile=builtin" in security_options, security_options
         for options in ([], ["seccomp=builtin"], ["seccomp=unconfined", "seccomp=builtin"]):
             status, output = run(options, probe)
             assert status == 0 and "chmod=0" in output and "unshare=1" in output, (options, output)

@@ -478,7 +478,7 @@ fn info(engine: &Engine) -> Value {
         "CgroupVersion": "2",
         "DefaultRuntime": "asagiri",
         "Runtimes": {"asagiri": {"path": "asagiri-init"}},
-        "SecurityOptions": ["name=cgroupns"],
+        "SecurityOptions": ["name=seccomp,profile=builtin", "name=cgroupns"],
         "BuilderVersion": "2",
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
         "AsagiriVmAwake": engine.is_awake(),
@@ -576,7 +576,7 @@ fn image_inspect_value(i: &asagiri_image::Image, stored: &Value) -> Value {
         "Size": i.size,
         "Architecture": i.platform.rsplit('/').next().unwrap_or(go_arch()),
         "Variant": stored["variant"],
-        "Os": "linux",
+        "Os": stored["os"].as_str().unwrap_or("linux"),
         "Config": config,
         "RootFS": {"Type": "layers", "Layers": stored["rootfs"]["diff_ids"].as_array().cloned().unwrap_or_default()},
     })
@@ -3794,6 +3794,16 @@ mod tests {
         assert_eq!(image_inspect_value(&image, &stored)["RootFS"],
             json!({"Type": "layers", "Layers": ["sha256:plain-a", "sha256:plain-b"]}));
         assert_eq!(image_inspect_value(&image, &json!({"config": {}}))["RootFS"]["Layers"], json!([]));
+    }
+
+    #[test]
+    fn image_inspection_reports_the_configured_os() {
+        let image: asagiri_image::Image = serde_json::from_value(json!({
+            "name": "inspect:test", "digest": "", "config_digest": "",
+            "layers": [], "size": 0, "platform": "wasi/wasm", "pulled_at": 0, "config": {},
+        })).unwrap();
+        assert_eq!(image_inspect_value(&image, &json!({"os": "wasi"}))["Os"], "wasi");
+        assert_eq!(image_inspect_value(&image, &json!({}))["Os"], "linux");
     }
 
     #[test]
