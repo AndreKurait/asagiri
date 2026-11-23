@@ -126,6 +126,15 @@ jobs:
               failed=1
             fi
           done
+          docker exec buildx_buildkit_asagiri-build0 cat /etc/buildkit/buildkitd.toml > "$scratch/actual-buildkit.toml"
+          python3 - "$scratch/actual-buildkit.toml" "$mirror" <<'PYTHON'
+          import sys, tomllib
+          with open(sys.argv[1], "rb") as config:
+              mirrors = tomllib.load(config)["registry"]["docker.io"]["mirrors"]
+          assert len(mirrors) >= 2 and mirrors[1] == sys.argv[2], "expected fixture as second mirror"
+          assert mirrors[0].startswith("198.19.248.254:"), "expected Asagiri local mirror first"
+          print("PASS running builder tries Asagiri's local image mirror before fixture registry")
+          PYTHON
           # Verify both build legs and the platform index from one invocation.
           printf '%s\n' 'FROM alpine:3.19' 'ARG TARGETARCH' 'RUN case "$TARGETARCH:$(uname -m)" in amd64:x86_64|arm64:aarch64) exit 0;; *) exit 1;; esac' > Dockerfile
           docker buildx build --builder asagiri-build --progress=plain --no-cache --provenance=false --platform linux/amd64,linux/arm64 --output "type=oci,dest=$scratch/result.tar" .
