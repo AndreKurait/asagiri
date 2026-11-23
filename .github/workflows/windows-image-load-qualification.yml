@@ -17,11 +17,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Set-Location $env:RUNNER_TEMP
           $hashes = @{
-            '158' = '93b24ba6cc0ce849b8f27f9bb7966e1d4bc972f87e40a9ce938f46d431a33303'
-            '181' = 'a5faf137d7d8697e475a7356b2f5971c1aede770482b5bb39c8b2415c30f7a44'
+            '205' = '1592852ad8ae07a8b903592ec868164697ba49a38629e47de55127da646dc8b2'
           }
           $imported = $false
-          foreach ($build in '181') {
+          foreach ($build in '205') {
           $version = "0.1.14-dev.$build"
           $asset = "Asagiri-$version-x86_64.msi"
           if (!(Test-Path $asset)) {
