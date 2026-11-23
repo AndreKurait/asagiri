@@ -218,6 +218,22 @@ def main():
         check_project_databases()
         step("restart the first project while its peer stays up", user("ddev", "restart"), timeout=600)
         check_project_databases()
+        # Probe a single shared network separately from each project's private db alias.
+        probe_network = "dns-order-probe"
+        step("create shared alias test network", dock("network", "create", probe_network))
+        for project in ("asagiri-ddev", "asagiri-peer"):
+            step("register shared alias for " + project, dock(
+                "network", "connect", "--alias", "order-probe", probe_network, "ddev-" + project + "-db",
+            ))
+        web_image = next(tag for tag in pin["images"] if tag.startswith("ddev/ddev-webserver:"))
+        step("check both addresses lead shared alias DNS responses", dock(
+            "run", "--rm", "--network", probe_network, "--entrypoint", "php", web_image, "-r",
+            '$first = []; $expected = null; for ($i = 0; $i < 48; $i++) { '
+            '$records = dns_get_record("order-probe", DNS_A); $ips = array_column($records ?: [], "ip"); '
+            'if (count(array_unique($ips)) !== 2) { var_dump($records); exit(1); } '
+            '$first[$ips[0]] = true; sort($ips); $expected ??= $ips; if ($expected !== $ips) exit(2); } '
+            'echo json_encode(array_keys($first)), PHP_EOL; exit(count($first) === 2 ? 0 : 3);',
+        ))
         step("stop the project and router", user("ddev", "poweroff"))
         record["status"] = "passed"
     except BaseException as error:
