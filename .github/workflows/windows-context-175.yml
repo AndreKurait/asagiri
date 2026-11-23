@@ -1,7 +1,7 @@
 name: Compare Windows Docker CLI context selection
 on:
   push:
-    branches: [qualification/windows-context-175]
+    branches: [qualification/windows-running-111]
 permissions:
   actions: read
   contents: read
@@ -58,8 +58,10 @@ jobs:
               if ($LASTEXITCODE -or $actual -ne $expected) { throw 'Image inventory mismatch' }
               Write-Host "$cli server=$server alpine=$actual"
             }
-            $saved = & $packaged create --name retained189 alpine:3.21 true
+            $saved = & $packaged run -d --restart always --name retained189 alpine:3.21 sleep 3600
             if ($LASTEXITCODE) { throw 'Creating the pre-restart container failed' }
+            & $packaged exec retained189 sh -c 'echo before-interruption > /tmp/marker'
+            if ($LASTEXITCODE) { throw 'Running workload baseline failed' }
             wsl.exe --terminate Asagiri-context175
             if ($LASTEXITCODE) { throw 'WSL termination failed' }
             $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -67,8 +69,13 @@ jobs:
             $elapsed = $timer.Elapsed.TotalSeconds
             Write-Host "First inspect after WSL termination took $elapsed seconds; exit=$LASTEXITCODE"
             if ($LASTEXITCODE -or $restored -ne $saved) { throw 'First inspect did not recover the existing container' }
-            & $terminal start -a retained189
-            if ($LASTEXITCODE) { throw 'Retained container could not start' }
+            for ($i=0; $i -lt 30; $i++) {
+              $marker = & $terminal exec retained189 cat /tmp/marker
+              if ($LASTEXITCODE -eq 0 -and $marker -eq 'before-interruption') { break }
+              Start-Sleep -Seconds 2
+            }
+            if ($LASTEXITCODE -or $marker -ne 'before-interruption') { throw 'Previously running workload did not recover automatically' }
+            Write-Host 'Running workload recovered with original ID and filesystem marker'
           } finally {
             if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id }
             wsl.exe --terminate Asagiri-context175
