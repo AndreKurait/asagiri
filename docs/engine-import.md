@@ -1,6 +1,6 @@
 # Import from another engine
 
-On macOS and Windows, `asagiri import` copies images, named volumes and
+On Linux, macOS and Windows, `asagiri import` copies images, named volumes and
 container definitions from Docker Desktop. On macOS it also accepts the
 `orbstack` source. Container definitions arrive stopped.
 
@@ -17,7 +17,7 @@ Without an item, `asagiri import desktop-linux` attempts the images, named
 volumes and containers Asagiri does not already have. It reports failed items.
 The [root filesystem import guide](docker-import.md) covers `docker import`
 and `docker load`. On Linux, the corresponding Asagiri rootfs command is
-`asagiri image import`; the bare `asagiri import` migration command is unavailable.
+`asagiri image import`. Use `asagiri import desktop-linux` for engine migration.
 
 ## Keep volume writers stopped
 
