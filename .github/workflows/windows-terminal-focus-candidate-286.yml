@@ -110,6 +110,9 @@ jobs:
               x, y = (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
               if not ctypes.windll.user32.SetCursorPos(x, y):
                   raise ctypes.WinError()
+              # Generate mouse movement after typing and allow WebView to process it.
+              ctypes.windll.user32.mouse_event(1, 1, 0, 0, 0)
+              time.sleep(0.5)
               verify_pointer()
               for i in range(4):
                   subprocess.run([docker,'create','--name',f'focus286-event-{i}','alpine:3.21','true'], check=True)
