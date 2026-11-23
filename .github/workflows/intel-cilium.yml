@@ -34,7 +34,7 @@ jobs:
           command -v skopeo || brew install skopeo
           images="$RUNNER_TEMP/cilium-images"
           mkdir -p "$images"
-          helm template cilium "$chart" --namespace kube-system --set kubeProxyReplacement=true --set k8sServiceHost=kind-control-plane --set k8sServicePort=6443 > "$images/rendered.yaml"
+          helm template cilium "$chart" --kube-version 1.35.5 --namespace kube-system --set kubeProxyReplacement=true --set k8sServiceHost=kind-control-plane --set k8sServicePort=6443 > "$images/rendered.yaml"
           awk '$1 == "image:" {gsub(/"/, "", $2); print $2}' "$images/rendered.yaml" | sort -u > "$images/refs"
           test -s "$images/refs"
           n=0
