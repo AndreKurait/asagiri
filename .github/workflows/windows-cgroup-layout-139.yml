@@ -36,11 +36,12 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           cd $env:RUNNER_TEMP
-          $tag = 'v0.1.14-dev.243'
-          $asset = 'Asagiri-0.1.14-dev.243-windows-x86_64.zip'
+          $tag = 'v0.1.14-dev.247'
+          $asset = 'Asagiri-0.1.14-dev.247-windows-x86_64.zip'
           $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
           if ($ref.object.sha -ne '865088f2f78c52b7acd694e9c048b227a3449c43') { throw 'Release revision mismatch' }
-          $release = gh release view $tag -R AndreKurait/asagiri --json assets | ConvertFrom-Json
+          $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
+          if ($release.isDraft) { throw 'Release is still a draft' }
           $digest = ($release.assets | Where-Object name -eq $asset).digest
           if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Missing release asset digest' }
           gh release download $tag -R AndreKurait/asagiri -p $asset
