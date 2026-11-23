@@ -14,8 +14,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Build the instrumented dev.212 Windows launcher
-        run: cargo build --release --locked -p asagiri-win
       - name: Prepare WSL
         run: |
           wsl.exe --status
@@ -45,6 +43,16 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
+          if ((Get-FileHash $asset).Hash -ne 'f3dc09608a49494288b9dc6dd787d460aa095d862eff0e6b5dbfac3ad494cbc0') { throw 'Unexpected dev.212 MSI' }
+          $files = @('asagiri', 'asagiri-init', 'asagiri-linux.tar.gz', 'install.sh', 'asagiri.ps1', 'setup-tools.ps1', 'asagiri-admin.ps1', 'bin/docker.exe', 'bin/asagiri.exe', 'bin/cli-plugins/docker-compose.exe', 'bin/cli-plugins/docker-buildx.exe')
+          $env:ASAGIRI_BUNDLE_SHA256 = ($files | ForEach-Object {
+            $digest = (Get-FileHash (Join-Path $bundle $_)).Hash.ToLowerInvariant()
+            "$_=$digest"
+          }) -join ';'
+          Push-Location $env:GITHUB_WORKSPACE
+          cargo build --release --locked -p asagiri-win
+          if ($LASTEXITCODE) { throw 'Instrumented launcher build failed' }
+          Pop-Location
           Copy-Item "$env:GITHUB_WORKSPACE/target/release/asagiri-win.exe" $app -Force
           $env:ASAGIRI_TEST_RESUMED = Join-Path $env:RUNNER_TEMP resumed116.txt
           $env:ASAGIRI_TEST_SUSPENDED = Join-Path $env:RUNNER_TEMP suspended116.txt
