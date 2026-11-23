@@ -58,8 +58,30 @@ jobs:
           Write-Host 'Existing boot command verified before install'
           $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
           Guest sh $script.Trim()
+          @'
+          package main
+          import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
+          func main() {
+            var last error
+            for i := 0; i < 15; i++ {
+              c, err := net.DialTimeout("unix", "/var/lib/asagiri-daemon/.asagiri/run/docker.sock", time.Second)
+              if err == nil {
+                c.SetDeadline(time.Now().Add(2*time.Second)); fmt.Fprint(c,"GET /_ping HTTP/1.0\r\nHost: localhost\r\n\r\n")
+                r,e := http.ReadResponse(bufio.NewReader(c),nil); if e == nil { b,e := io.ReadAll(r.Body); r.Body.Close(); if e == nil && r.StatusCode == 200 && string(b)=="OK" {fmt.Println("Engine answered /_ping"); c.Close(); return} }; c.Close()
+              }; last=err;time.Sleep(time.Second)
+            };fmt.Println("Engine did not answer",last); os.Exit(1)
+          }
+          '@ | Set-Content -Encoding utf8NoBOM engineping.go
+          $env:GOOS='linux'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
+          go build -o engineping engineping.go
+          if ($LASTEXITCODE) { throw 'Probe compilation failed' }
+          $probe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'engineping').Replace('\','/'))
+          Guest cp $probe.Trim() /tmp/engineping
+          Guest chmod 755 /tmp/engineping
+          Guest /tmp/engineping
           Guest cat /etc/wsl.conf
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified after install'
+          Guest /tmp/engineping
