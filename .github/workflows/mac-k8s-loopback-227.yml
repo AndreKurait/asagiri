@@ -29,6 +29,8 @@ jobs:
           gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$asset"
           echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  $asset" | shasum -a 256 -c -
           tar xzf "$asset"
+          command -v skopeo || brew install skopeo
+          skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/library/nginx:alpine "docker-archive:$scratch/nginx.tar:docker.io/library/nginx:alpine"
           export HOME="$scratch/home" ASAGIRI_DATA_DIR="$scratch/store" ASAGIRI_SOCKET="$scratch/docker.sock" ASAGIRI_GUEST_DIR="$scratch/Asagiri.app/Contents/Resources/guest"
           export DOCKER_HOST="unix://$ASAGIRI_SOCKET" PATH="$scratch/Asagiri.app/Contents/Resources/bin:$PATH"
           mkdir -p "$HOME/.kube"
@@ -37,8 +39,7 @@ jobs:
           trap 'tail -60 "$scratch/daemon.log"; kill "$daemon" || true' EXIT
           for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
           "$bin" k8s start --use
-          docker pull nginx:alpine
-          docker save nginx:alpine | docker exec -i asagiri-k8s k3s ctr images import -
+          docker exec -i asagiri-k8s k3s ctr images import - < "$scratch/nginx.tar"
           docker exec asagiri-k8s k3s crictl inspecti docker.io/library/nginx:alpine >/dev/null
           kubectl create deployment loopback-check --image=nginx:alpine
           if ! kubectl rollout status deployment/loopback-check --timeout=4m; then
