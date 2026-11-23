@@ -134,7 +134,21 @@ pub fn inventory(source: &str) -> io::Result<Value> {
             Ok(json!({"name": name, "anonymous": anonymous(&name), "have": have}))
         })
         .collect::<io::Result<_>>()?;
-    let containers: Vec<Value> = json_lines(ctx, &["ps", "-a", "--format", "{{json .}}"])?
+    let rows = json_lines(ctx, &["ps", "-a", "--no-trunc", "--format", "{{json .}}"])?;
+    let ids: Vec<_> = rows.iter().filter_map(|row| row["ID"].as_str()).collect();
+    let mut modes = std::collections::HashMap::new();
+    for batch in ids.chunks(128) {
+        let mut args = vec!["container", "inspect", "--format", r#"{"id":{{json .Id}},"mode":{{json .HostConfig.NetworkMode}}}"#];
+        args.extend_from_slice(batch);
+        for item in json_lines(ctx, &args)? {
+            if let (Some(id), Some(mode)) = (item["id"].as_str(), item["mode"].as_str()) {
+                if let Some(target) = mode.strip_prefix("container:") {
+                    modes.insert(id.to_owned(), target.to_owned());
+                }
+            }
+        }
+    }
+    let containers: Vec<Value> = order_network_peers(rows, &modes)?
         .into_iter()
         .map(|v| {
             let name = v["Names"].as_str().unwrap_or("").to_owned();
@@ -142,6 +156,25 @@ pub fn inventory(source: &str) -> io::Result<Value> {
         })
         .collect();
     Ok(json!({"source": ctx, "images": images, "volumes": volumes, "containers": containers}))
+}
+
+// Preserve source order among independent containers. Each pass moves every
+// container whose network peer is no longer waiting to be imported.
+fn order_network_peers(mut pending: Vec<Value>, peers: &std::collections::HashMap<String, String>) -> io::Result<Vec<Value>> {
+    let mut ordered = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let waiting: std::collections::HashSet<_> = pending.iter().flat_map(|row| [row["ID"].as_str(), row["Names"].as_str()]).flatten().collect();
+        let ready: Vec<_> = pending.iter().map(|row| {
+            row["ID"].as_str().and_then(|id| peers.get(id)).is_none_or(|peer| !waiting.contains(peer.as_str()))
+        }).collect();
+        if !ready.contains(&true) {
+            return Err(io::Error::other("cyclic network dependencies in source containers"));
+        }
+        pending = pending.into_iter().zip(ready).filter_map(|(row, ready)| {
+            if ready { ordered.push(row); None } else { Some(row) }
+        }).collect();
+    }
+    Ok(ordered)
 }
 
 /// `docker --context src save IMAGE | docker --context asagiri load`.
@@ -410,12 +443,23 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
     let journal = ImportJournal::open()?;
-    let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
+    let source_mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default");
+    let shared_target = source_mode.strip_prefix("container:");
+    let mode = if let Some(target) = shared_target {
+        let names = json_lines(ctx, &["container", "inspect", "--format", "{{json .Name}}", target])?;
+        let target_name = names.first().and_then(Value::as_str).map(|n| n.trim_start_matches('/')).filter(|n| !n.is_empty())
+            .ok_or_else(|| io::Error::other(format!("missing source network target {target}")))?;
+        // Destination creation resolves the imported peer's name to its local ID.
+        format!("container:{target_name}")
+    } else {
+        source_mode.to_owned()
+    };
     let hc = &info["HostConfig"];
     let mut host = json!({
         "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
         "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
         "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
+        "Devices": hc["Devices"], "GroupAdd": hc["GroupAdd"], "Dns": hc["Dns"], "PidMode": hc["PidMode"],
         "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
     });
     #[cfg(target_os = "macos")]
@@ -463,12 +507,24 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
         let aliases: Vec<&Value> = ep["Aliases"].as_array().into_iter().flatten().filter(|a| a.as_str() != Some(short.as_str())).collect();
         networks.insert(net.clone(), json!({"Aliases": aliases}));
     }
-    let body = json!({
-        "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
+    let mut body = json!({
+        "Healthcheck": cfg["Healthcheck"], "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
         "WorkingDir": cfg["WorkingDir"], "User": cfg["User"], "ExposedPorts": cfg["ExposedPorts"], "Tty": cfg["Tty"],
         "OpenStdin": cfg["OpenStdin"], "StopSignal": cfg["StopSignal"], "Hostname": cfg["Hostname"],
         "HostConfig": host, "NetworkingConfig": {"EndpointsConfig": networks},
     });
+    if shared_target.is_some() {
+        // Inspect includes inherited values that Docker rejects on create.
+        if let Some(config) = body.as_object_mut() {
+            config.remove("Hostname");
+            config.remove("ExposedPorts");
+        }
+        if let Some(host) = body["HostConfig"].as_object_mut() {
+            for key in ["Dns", "ExtraHosts", "PortBindings", "PublishAllPorts"] {
+                host.remove(key);
+            }
+        }
+    }
     let r = client::request("POST", &format!("/containers/create?name={name}"), Some(&body))?;
     if !r.ok() {
         return Err(io::Error::other(r.error()));
