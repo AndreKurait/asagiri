@@ -14,4 +14,4 @@ class Registry(http.server.BaseHTTPRequestHandler):
   if digest:self.send_header('Docker-Content-Digest',digest)
   self.end_headers()
   if body:self.wfile.write(data)
-http.server.ThreadingHTTPServer(('127.0.0.1',49102),Registry).serve_forever()
+http.server.ThreadingHTTPServer(('0.0.0.0',49102),Registry).serve_forever()

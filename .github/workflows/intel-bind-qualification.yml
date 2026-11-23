@@ -2,7 +2,7 @@ name: Intel Mac foreign-platform BuildKit selection
 on:
   workflow_dispatch:
   push:
-    branches: [qualification/intel-build-platform-102]
+    branches: [qualification/intel-guest-mirror-102]
     paths: [.github/workflows/intel-bind-qualification.yml]
 permissions:
   contents: read
@@ -78,6 +78,19 @@ jobs:
               fi
             done
           fi
+          mkdir "$scratch/registry"
+          (cd "$scratch/registry" && python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-fetch.py")
+          cp "$GITHUB_WORKSPACE/tests/qualification/alpine-index-serve.py" "$scratch/registry/serve.py"
+          docker create --name fixture-registry --network bridge --workdir /srv python:3.13-alpine python /srv/serve.py
+          docker cp "$scratch/registry/." fixture-registry:/srv
+          docker start fixture-registry
+          mirror_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "bridge").IPAddress}}' fixture-registry)
+          test -n "$mirror_ip"
+          mirror="$mirror_ip:49102"
+          docker run --rm --network bridge --pull=never alpine:3.21 wget -T 5 -qO- "http://$mirror/v2/"
+          app="$RUNNER_TEMP/Asagiri.app/Contents/MacOS/asagiri"
+          "$app" config set "$(jq -cn --arg registry "$mirror" '{"insecure-registries":[$registry]}')"
+          "$app" registry-mirror add "http://$mirror"
           if ! docker buildx inspect asagiri-build >/dev/null 2>&1; then
             docker buildx create --name asagiri-build --driver docker-container
           fi
