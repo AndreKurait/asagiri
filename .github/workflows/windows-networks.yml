@@ -15,6 +15,13 @@ jobs:
         with:
           ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
           persist-credentials: false
+      - name: Start without a preinstalled Docker CLI
+        run: |
+          $clients = @(Get-Command docker.exe -All -ErrorAction SilentlyContinue)
+          foreach ($client in $clients) {
+            Rename-Item -LiteralPath $client.Source -NewName 'docker.preinstalled.exe'
+          }
+          if (Get-Command docker.exe -ErrorAction SilentlyContinue) { throw 'Preinstalled Docker CLI still resolves' }
       - name: Prepare WSL
         run: |
           wsl.exe --status
@@ -103,6 +110,7 @@ jobs:
               $cli = (Get-Command docker.exe).Source
               Write-Host "Fresh shell resolves docker.exe to $cli"
               $expected = Join-Path $env:LOCALAPPDATA 'Asagiri\bin\docker.exe'
+              if ($cli -ne $expected) { throw "Expected bundled client but resolved $cli" }
               $available = @(Get-Command docker.exe -All | Select-Object -ExpandProperty Source)
               if ($available -notcontains $expected) { throw "Bundled CLI missing from persisted PATH: $available" }
               $bundledResult = & $expected --context asagiri run --rm alpine:3.21 echo bundled-context-98
