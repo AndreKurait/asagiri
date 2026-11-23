@@ -34,12 +34,13 @@ jobs:
           tar xzf "$asset"
           cp "$GITHUB_WORKSPACE/guest/out/x86_64/initramfs.cpio" Asagiri.app/Contents/Resources/guest/initramfs.cpio
           command -v skopeo || brew install skopeo
-          skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/library/nginx:alpine "docker-archive:$scratch/nginx.tar:docker.io/library/nginx:alpine"
+          skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/library/traefik:v3.3 "docker-archive:$scratch/nginx.tar:docker.io/library/traefik:v3.3"
           skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/rancher/mirrored-pause:3.10.2 "docker-archive:$scratch/pause.tar:docker.io/rancher/mirrored-pause:3.10.2"
           skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/rancher/klipper-lb:v0.4.17 "docker-archive:$scratch/klipper-lb.tar:docker.io/rancher/klipper-lb:v0.4.17"
           export HOME="$scratch/home" ASAGIRI_DATA_DIR="$scratch/store" ASAGIRI_SOCKET="$scratch/docker.sock" ASAGIRI_GUEST_DIR="$scratch/Asagiri.app/Contents/Resources/guest"
           export DOCKER_HOST="unix://$ASAGIRI_SOCKET" PATH="$scratch/Asagiri.app/Contents/Resources/bin:$PATH"
           mkdir -p "$HOME/.kube"
+          export ASAGIRI_HTTP_PORT=8080 ASAGIRI_HTTPS_PORT=8443
           "$bin" daemon > "$scratch/daemon.log" 2>&1 &
           daemon=$!
           trap 'tail -60 "$scratch/daemon.log"; kill "$daemon" || true' EXIT
@@ -52,22 +53,24 @@ jobs:
           docker cp "$scratch/klipper-lb.tar" asagiri-k8s:/var/lib/rancher/k3s/agent/klipper-lb-staged.tar
           docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/pause-staged.tar /var/lib/rancher/k3s/agent/images/pause.tar
           docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/klipper-lb-staged.tar /var/lib/rancher/k3s/agent/images/klipper-lb.tar
-          kubectl create deployment loopback-check --image=nginx:alpine
+          kubectl create deployment loopback-check --image=traefik:v3.3 -- traefik --entrypoints.web.address=:8000 --entrypoints.websecure.address=:8443 --ping=true --ping.entrypoint=web
           if ! kubectl rollout status deployment/loopback-check --timeout=4m; then
             kubectl describe pods -l app=loopback-check
             kubectl get events -A --sort-by=.metadata.creationTimestamp
             exit 1
           fi
-          kubectl expose deployment loopback-check --type=LoadBalancer --port=444 --target-port=80
-          for i in {1..30}; do grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port' && break; sleep 2; done
-          grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port'
-          kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444}]'
+          kubectl create service loadbalancer loopback-check --tcp=80:8000 --tcp=443:8443
+          for port in 80 443; do
+            for i in {1..30}; do grep -F "127.0.0.1:$port/tcp" "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port' && break; sleep 2; done
+            grep -F "127.0.0.1:$port/tcp" "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port'
+          done
+          kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444},{"op":"replace","path":"/spec/ports/1/port","value":8445}]'
           kubectl get service loopback-check -o wide
           kubectl get endpointslices -l kubernetes.io/service-name=loopback-check -o wide
-          if ! curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/; then
+          if ! curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/ping; then
             kubectl -n kube-system get daemonsets,pods -o wide
             kubectl -n kube-system get events --sort-by=.lastTimestamp | tail -60
             exit 1
           fi
-          grep -F 'Welcome to nginx' "$scratch/response.html"
+          grep -Fx 'OK' "$scratch/response.html"
           lsof -nP -a -p "$daemon" -iTCP:8444 -sTCP:LISTEN | grep -F '127.0.0.1:8444'
