@@ -156,6 +156,7 @@ jobs:
           '@ | Set-Content tray-check.py
             $start = [Diagnostics.ProcessStartInfo]::new('python')
             foreach ($arg in 'tray-check.py',"$($wizard.Id)",$app) { $start.ArgumentList.Add($arg) }
+            $start.WorkingDirectory = $env:RUNNER_TEMP
             $start.UseShellExecute = $false
             $start.RedirectStandardInput = $true
             $start.RedirectStandardOutput = $true
