@@ -1,0 +1,168 @@
+name: Measure Windows tray renderer memory and exercise twenty reopen cycles
+on:
+  push:
+    branches: [qualification/windows-tray-116]
+    paths: [.github/workflows/windows-tray-116.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
+          persist-credentials: false
+      - name: Prepare WSL
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Install the published MSI and use the registered context from a fresh shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "212"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
+          $installStep = 1
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          gh run download 45217003246 -R AndreKurait/asagiri -n packages-windows-x86_64 -D package
+          if ($LASTEXITCODE) { throw 'Release artifact download failed' }
+          Copy-Item (Join-Path package $asset) $asset
+          Write-Host "Tested MSI SHA-256: $((Get-FileHash $asset).Hash)"
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+            python -m pip install pywinauto
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $wizard = Start-Process $app -PassThru
+            @'
+          import sys
+          import time
+          from comtypes import COMError
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          for target, timeout in [('chooseBtn', 120), ('Open Asagiri', 600)]:
+              deadline = time.monotonic() + timeout
+              while time.monotonic() < deadline:
+                  try:
+                      controls = window.descendants()
+                      button = next((c for c in controls if c.is_enabled() and
+                                     (c.element_info.automation_id == target or
+                                      (c.element_info.control_type == 'Button' and c.window_text() == target))), None)
+                      if button:
+                          button.invoke()
+                          break
+                      language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
+                      if language:
+                          print('Invoking language Continue via UI Automation', flush=True)
+                          language.invoke()
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                      print('UI element disappeared during refresh; querying again', flush=True)
+                  time.sleep(1)
+              else:
+                  raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
+          '@ | python - $wizard.Id
+            if ($LASTEXITCODE) {
+              $env:WSL_UTF8 = '1'
+              $systemWsl = Join-Path ([Environment]::SystemDirectory) 'wsl.exe'
+              Get-Command wsl.exe | Select-Object -ExpandProperty Source
+              foreach ($arg in '--version', '--status') {
+                & $systemWsl $arg
+                Write-Host "System WSL $arg exited with $LASTEXITCODE"
+              }
+              $log = Join-Path $bundle 'asagiri-win.log'
+              if (Test-Path $log) { Get-Content $log -Tail 40 }
+              throw 'Windows setup did not reach the expected control'
+            }
+            for ($i = 0; $i -lt 30; $i++) {
+              if ((Test-Path "$bundle/setup.json") -and (Get-Content "$bundle/setup.json" -Raw | ConvertFrom-Json).done) { break }
+              Start-Sleep -Seconds 1
+            }
+            $saved = Get-Content (Join-Path $bundle 'setup.json') -Raw | ConvertFrom-Json
+            if (!$saved.done -or $saved.distro -ne 'asagiri') { throw 'Windows setup did not complete' }
+            if (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue) { throw 'Docker Desktop is running' }
+            $checkContext = {
+              $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+              Remove-Item Env:DOCKER_HOST, Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+              $cli = (Get-Command docker.exe).Source
+              Write-Host "Fresh shell resolves docker.exe to $cli"
+              $expected = Join-Path $env:LOCALAPPDATA 'Asagiri\bin\docker.exe'
+              $available = @(Get-Command docker.exe -All | Select-Object -ExpandProperty Source)
+              if ($available -notcontains $expected) { throw "Bundled CLI missing from persisted PATH: $available" }
+              $bundledResult = & $expected --context asagiri run --rm alpine:3.21 echo bundled-context-98
+              if ($LASTEXITCODE -or $bundledResult -ne 'bundled-context-98') { exit 1 }
+              $result = docker.exe --context asagiri run --rm alpine:3.21 echo asagiri-context-98
+              if ($LASTEXITCODE -or $result -ne 'asagiri-context-98') { exit 1 }
+            }
+            pwsh -NoProfile -Command $checkContext
+            if ($LASTEXITCODE) { throw 'Fresh shell could not run a container through the named Asagiri context' }
+            & $docker --context asagiri run -d --name tray-counter alpine:3.21 sh -c 'while true; do date +%s; sleep 1; done'
+            if ($LASTEXITCODE) { throw 'Could not start counter' }
+            function Show-RendererMemory($phase) {
+              $tree = @(Get-CimInstance Win32_Process)
+              $ids = @($wizard.Id)
+              do {
+                $children = @($tree | Where-Object { $_.ParentProcessId -in $ids -and $_.ProcessId -notin $ids })
+                $ids += @($children | ForEach-Object ProcessId)
+              } while ($children.Count)
+              $renderers = @($tree | Where-Object { $_.ProcessId -in $ids -and $_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -match '--type=renderer' })
+              if (!$renderers.Count) { throw "No WebView2 renderers at $phase" }
+              $rows = @(Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Where-Object { $_.IDProcess -in $renderers.ProcessId })
+              if ($rows.Count -ne $renderers.Count) { throw 'Incomplete renderer sample' }
+              $rows | Select-Object @{Name='phase';Expression={$phase}}, IDProcess, WorkingSetPrivate | Format-Table
+            }
+            Show-RendererMemory visible
+            @'
+          import sys, time, subprocess
+          from pywinauto import Desktop
+          from win32gui import PostMessage, IsWindowVisible
+          from win32con import WM_CLOSE
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          hwnd = window.handle
+          for i in range(20):
+              PostMessage(hwnd, WM_CLOSE, 0, 0)
+              deadline = time.monotonic() + 10
+              while IsWindowVisible(hwnd):
+                  if time.monotonic() > deadline: raise RuntimeError('Window remained visible')
+                  time.sleep(.02)
+              if i == 0:
+                  print('HIDDEN', flush=True)
+                  input()
+              subprocess.Popen([sys.argv[2]])
+              window.wait('visible', timeout=10)
+              window.child_window(control_type='Document', found_index=0).wait('visible', timeout=10)
+              print('Reopened', i+1, flush=True)
+          '@ | Set-Content tray-check.py
+            $start = [Diagnostics.ProcessStartInfo]::new('python')
+            foreach ($arg in 'tray-check.py',"$($wizard.Id)",$app) { $start.ArgumentList.Add($arg) }
+            $start.UseShellExecute = $false
+            $start.RedirectStandardInput = $true
+            $start.RedirectStandardOutput = $true
+            $driver = [Diagnostics.Process]::Start($start)
+            if ($driver.StandardOutput.ReadLine() -ne 'HIDDEN') { throw 'Window never reached tray' }
+            Start-Sleep -Seconds 10
+            Show-RendererMemory hidden
+            $ticks = @(& $docker --context asagiri logs tray-counter)
+            if ($LASTEXITCODE -or $ticks.Count -lt 8) { throw 'Container stopped counting' }
+            $driver.StandardInput.WriteLine('continue')
+            $driver.StandardInput.Close()
+            $driver.StandardOutput.ReadToEnd()
+            $driver.WaitForExit()
+            if ($driver.ExitCode) { throw 'Window reopen failed' }
+            Show-RendererMemory reopened
