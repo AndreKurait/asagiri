@@ -24,9 +24,11 @@ settings it started with. Invalid settings are rejected before saving.
 | `max-concurrent-uploads` | `5` | 1–16 blob uploads per push, including the image config |
 
 These are the supported daemon keys. Unknown keys, invalid URLs, noninteger
-limits and files larger than 64 KiB produce an error. The existing Settings
-window and `asagiri registry-mirror` command edit the same mirror list while
-preserving transport policy and transfer limits. When `daemon.json` does not
+limits and files larger than 64 KiB produce an error.
+
+Open **Settings → Registry mirrors** to edit the mirror list and private registry exceptions. Under **Insecure registries**, enter one registry address (such as `registry.lan:5000`) or IP range per line. Choose **Save** to apply your edits. To revoke an exception, remove its line and save again. The `asagiri registry-mirror` command edits the same mirror list.
+
+When `daemon.json` does not
 specify `registry-mirrors`, Asagiri imports the legacy
 `registry-mirrors.json` list. An explicit empty list disables that fallback.
 

@@ -43,7 +43,8 @@ const demoNetworks = ["morning_default", "jobs_default", "bridge"].map((Name, i)
   Labels: {}, Containers: {},
 }));
 const demoLists = () => asagiri.on({ type: "lists", containers: demoContainers, images: demoImages, volumes: demoVolumes, networks: demoNetworks });
-let demoMirrors = [];
+const demoRegistry = { "registry-mirrors": [], "insecure-registries": [] };
+const reportRegistry = () => asagiri.on({ type: "mirrors", ...structuredClone(demoRegistry), applies_to: "docker.io" });
 let demoMcpPermissions = { enabled: false, allowContainerChanges: false };
 const demoIntegrations = () => asagiri.on({
   type: "integrations", permissions: { ...demoMcpPermissions },
@@ -112,7 +113,7 @@ function demoCommand(message) {
     running_cpus: 4, running_memory_mib: 8192, awake: true, overridden: false, max_cpus: 12, max_memory_mib: 16384 });
   if (cmd === "buildwith") return asagiri.on({ type: "buildwith", with: "asagiri", engine: null,
     ask: false, taken: false, ready: true, builder: "asagiri-build", context: "asagiri" });
-  if (cmd === "mirrors") return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+  if (cmd === "mirrors") return reportRegistry();
   if (cmd === "integrations") return demoIntegrations();
   if (cmd === "setintegrations") {
     demoMcpPermissions = { enabled: message.value?.enabled === true,
@@ -134,8 +135,10 @@ function demoCommand(message) {
     return asagiri.on(structuredClone(demoProxy));
   }
   if (cmd === "setmirrors") {
-    demoMirrors = Array.isArray(message.value?.mirrors) ? message.value.mirrors.filter((m) => typeof m === "string") : [];
-    return asagiri.on({ type: "mirrors", mirrors: demoMirrors, applies_to: "docker.io" });
+    for (const key of Object.keys(demoRegistry)) {
+      if (Array.isArray(message.value?.[key])) demoRegistry[key] = message.value[key].filter(item => typeof item === "string");
+    }
+    return reportRegistry();
   }
   if (cmd === "openurl" || cmd === "url" || cmd === "open") return toast("ok", "Links open in the installed app.");
   if (["stop", "start"].includes(cmd)) return asagiri.on({ type: "state", state: cmd === "start" ? "running" : "stopped" });
