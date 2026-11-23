@@ -49,10 +49,21 @@ jobs:
               window = Desktop(backend='uia').window(process=proc.pid, class_name='AsagiriWindow')
               window.wait('visible', timeout=90)
               def click(title):
-                  options = {'found_index': 0} if title == 'Settings' else {}
-                  control = window.child_window(title=title, control_type='Button', **options)
-                  control.wait('enabled visible', timeout=30)
-                  control.click_input()
+                  deadline = time.monotonic() + 30
+                  while time.monotonic() < deadline:
+                      buttons = window.descendants(control_type='Button')
+                      for button in buttons:
+                          if button.window_text() == title and button.is_visible() and button.is_enabled():
+                              if title == 'Settings':
+                                  button.invoke()
+                                  time.sleep(1)
+                                  if not any(b.window_text() == 'Registry mirrors' and b.is_visible() for b in window.descendants(control_type='Button')):
+                                      continue
+                              else:
+                                  button.invoke()
+                              return
+                      time.sleep(0.5)
+                  raise RuntimeError(f'{title} unavailable; visible buttons: {[b.window_text() for b in buttons if b.is_visible()]}')
               def field():
                   control = window.child_window(auto_id='registry-exceptions', control_type='Edit')
                   control.wait('visible', timeout=30)
