@@ -480,6 +480,15 @@ def main():
                 assert get("source", "/containers/" + source_id + "/json")["State"]["Status"] == "created"
                 case("container-definition-arrives-stopped-and-runs-with-copied-volume")
 
+                peer = "network-child-" + nonce
+                docker("source", "create", "--name", peer, "--network", "container:" + source_id,
+                       "--label", OWNER + "=" + nonce, "--group-add", "42", image, "true")
+                imported("container", peer)
+                child = get("destination", "/containers/" + peer + "/json")
+                assert child["HostConfig"]["NetworkMode"] == "container:" + copied["Id"]
+                assert child["HostConfig"]["GroupAdd"] == ["42"]
+                case("shared-network-child-resolves-imported-target")
+
                 # A repository digest can be lost on save/load even when the config survives.
                 digest_ref = "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
                 digest_container = "digest-only-" + nonce

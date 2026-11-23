@@ -250,7 +250,17 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
         }
     }
     let mut networks = serde_json::Map::new();
-    let mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default").to_owned();
+    let source_mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default");
+    let shared_target = source_mode.strip_prefix("container:");
+    let mode = if let Some(target) = shared_target {
+        let names = json_lines(ctx, &["container", "inspect", "--format", "{{json .Name}}", target])?;
+        let target_name = names.first().and_then(Value::as_str).map(|n| n.trim_start_matches('/')).filter(|n| !n.is_empty())
+            .ok_or_else(|| io::Error::other(format!("missing source network target {target}")))?;
+        // Destination creation resolves the imported peer's name to its local ID.
+        format!("container:{target_name}")
+    } else {
+        source_mode.to_owned()
+    };
     for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
         if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
             let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -265,17 +275,30 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
         "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
         "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
         "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
+        "Devices": hc["Devices"], "GroupAdd": hc["GroupAdd"], "Dns": hc["Dns"], "PidMode": hc["PidMode"],
         "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
     });
     if let Some(o) = host.as_object_mut() {
         o.retain(|_, v| !v.is_null());
     }
-    let body = json!({
-        "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
+    let mut body = json!({
+        "Healthcheck": cfg["Healthcheck"], "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
         "WorkingDir": cfg["WorkingDir"], "User": cfg["User"], "ExposedPorts": cfg["ExposedPorts"], "Tty": cfg["Tty"],
         "OpenStdin": cfg["OpenStdin"], "StopSignal": cfg["StopSignal"], "Hostname": cfg["Hostname"],
         "HostConfig": host, "NetworkingConfig": {"EndpointsConfig": networks},
     });
+    if shared_target.is_some() {
+        // Inspect includes inherited values that Docker rejects on create.
+        if let Some(config) = body.as_object_mut() {
+            config.remove("Hostname");
+            config.remove("ExposedPorts");
+        }
+        if let Some(host) = body["HostConfig"].as_object_mut() {
+            for key in ["Dns", "ExtraHosts", "PortBindings", "PublishAllPorts"] {
+                host.remove(key);
+            }
+        }
+    }
     let r = client::request("POST", &format!("/containers/create?name={name}"), Some(&body))?;
     if !r.ok() {
         return Err(io::Error::other(r.error()));
