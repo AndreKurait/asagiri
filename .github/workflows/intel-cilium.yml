@@ -1,0 +1,63 @@
+name: Published Intel guest Cilium startup
+on:
+  push:
+    branches: [qualification/intel-cilium-94]
+    paths: [.github/workflows/intel-cilium.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cilium:
+    runs-on: macos-26-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start Cilium in a kind cluster on the bundled guest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/build"
+          gh release download v0.1.14-dev.188 -p Asagiri-0.1.14-dev.188-x86_64.tar.gz -D "$RUNNER_TEMP/build"
+          cd "$RUNNER_TEMP/build"
+          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  Asagiri-0.1.14-dev.188-x86_64.tar.gz" | shasum -a 256 -c -
+          tar xzf Asagiri-0.1.14-dev.188-x86_64.tar.gz
+          cd Asagiri.app/Contents/MacOS
+          export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
+          scratch=$(mktemp -d /tmp/edit255.XXXXXX)
+          export HOME="$scratch/home"
+          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          mkdir -p "$HOME/.asagiri/run"
+          echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          export PATH="$RUNNER_TEMP/build/Asagiri.app/Contents/Resources/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+          unset DOCKER_CONTEXT
+          for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
+          trap 'tail -60 "$scratch/daemon.log"' ERR
+          for attempt in 1 2 3; do
+            docker pull alpine:3.21 && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 5
+          done
+          for tool in kind helm kubectl; do command -v "$tool" || brew install "$tool"; done
+          export KUBECONFIG="$scratch/kubeconfig" KIND_EXPERIMENTAL_PROVIDER=docker
+          trap 'kind delete cluster || true; kill "$daemon" || true' EXIT
+          cat > "$scratch/kind.yaml" <<'CONFIG'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            kubeProxyMode: none
+          CONFIG
+          kind create cluster --config "$scratch/kind.yaml" --image kindest/node:v1.35.5 --retain
+          helm install cilium oci://quay.io/cilium/charts/cilium --version 1.20.2 --namespace kube-system --set kubeProxyReplacement=true --set k8sServiceHost=kind-control-plane --set k8sServicePort=6443
+          if ! kubectl -n kube-system rollout status ds/cilium --timeout=5m; then
+            kubectl -n kube-system get pods -o wide
+            kubectl -n kube-system logs ds/cilium -c cilium-agent --tail=80 || true
+            exit 1
+          fi
+          kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+          kubectl wait --for=condition=Ready nodes --all --timeout=2m
