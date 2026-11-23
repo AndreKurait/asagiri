@@ -31,6 +31,7 @@ jobs:
           tar xzf "$asset"
           command -v skopeo || brew install skopeo
           skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/library/nginx:alpine "docker-archive:$scratch/nginx.tar:docker.io/library/nginx:alpine"
+          skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/rancher/mirrored-pause:3.10.2 "docker-archive:$scratch/pause.tar:docker.io/rancher/mirrored-pause:3.10.2"
           export HOME="$scratch/home" ASAGIRI_DATA_DIR="$scratch/store" ASAGIRI_SOCKET="$scratch/docker.sock" ASAGIRI_GUEST_DIR="$scratch/Asagiri.app/Contents/Resources/guest"
           export DOCKER_HOST="unix://$ASAGIRI_SOCKET" PATH="$scratch/Asagiri.app/Contents/Resources/bin:$PATH"
           mkdir -p "$HOME/.kube"
@@ -42,6 +43,8 @@ jobs:
           docker exec asagiri-k8s mkdir -p /var/lib/rancher/k3s/agent/images
           docker cp "$scratch/nginx.tar" asagiri-k8s:/var/lib/rancher/k3s/agent/nginx-staged.tar
           docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/nginx-staged.tar /var/lib/rancher/k3s/agent/images/nginx.tar
+          docker cp "$scratch/pause.tar" asagiri-k8s:/var/lib/rancher/k3s/agent/pause-staged.tar
+          docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/pause-staged.tar /var/lib/rancher/k3s/agent/images/pause.tar
           kubectl create deployment loopback-check --image=nginx:alpine
           if ! kubectl rollout status deployment/loopback-check --timeout=4m; then
             kubectl describe pods -l app=loopback-check
