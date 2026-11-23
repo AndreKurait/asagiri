@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "يوصله Asagiri مجددًا عند عودته. أوقف الانتظار لتتركه على هذا الكمبيوتر.",
   "Waiting to come back": "بانتظار عودته",
   "No languages match": "لا توجد لغات مطابقة",
-  "Cut": "قص"
+  "Cut": "قص",
+  "Insecure registries": "سجلات غير آمنة",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "أدخل عنوان سجل أو نطاق IP واحدًا في كل سطر. يمكن لهذه السجلات استخدام HTTP أو شهادات موقّعة ذاتيًا."
 }

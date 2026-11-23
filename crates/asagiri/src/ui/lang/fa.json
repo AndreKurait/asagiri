@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri وقتی برگردد دوباره وصلش می‌کند. انتظار را متوقف کنید تا روی این رایانه بماند.",
   "Waiting to come back": "در انتظار بازگشت",
   "No languages match": "هیچ زبانی پیدا نشد",
-  "Cut": "برش"
+  "Cut": "برش",
+  "Insecure registries": "رجیستری‌های ناامن",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "در هر خط یک نشانی رجیستری یا یک محدودهٔ IP وارد کنید. این رجیستری‌ها می‌توانند از HTTP یا گواهی‌های خودامضا استفاده کنند."
 }

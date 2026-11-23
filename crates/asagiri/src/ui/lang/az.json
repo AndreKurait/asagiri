@@ -1701,5 +1701,7 @@
   "Disabling access blocks new requests from connected clients. Actions already sent to the engine may finish.": "Girişi söndürəndə qoşulmuş müştərilərin yeni sorğuları bloklanır. Mühərrikə artıq göndərilmiş əməliyyatlar tamamlana bilər.",
   "Enable MCP access": "MCP girişini aktivləşdir",
   "Read engine status, containers, recent logs, images, volumes and networks. Application logs may contain secrets.": "Mühərrikin vəziyyətini, konteynerləri, son jurnalları, obrazları, cildləri və şəbəkələri oxuyun. Tətbiq jurnallarında məxfi məlumat ola bilər.",
-  "Cut": "Kəs"
+  "Cut": "Kəs",
+  "Insecure registries": "Təhlükəsiz olmayan reyestrlər",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Hər sətirdə bir reyestr ünvanı və ya IP diapazonu daxil edin. Bu reyestrlər HTTP və ya özü imzalanmış sertifikatlardan istifadə edə bilər."
 }

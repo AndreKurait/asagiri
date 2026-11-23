@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "裝置回來後 Asagiri 會再次接上。停止等待即可把它留在這台電腦上。",
   "Waiting to come back": "等待重新接上",
   "No languages match": "沒有符合的語言",
-  "Cut": "剪下"
+  "Cut": "剪下",
+  "Insecure registries": "不安全的映像檔登錄庫",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "每行輸入一個登錄庫位址或 IP 範圍。這些登錄庫可以使用 HTTP 或自簽憑證。"
 }

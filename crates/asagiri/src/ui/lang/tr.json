@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri geri geldiğinde onu yeniden bağlar. Bu bilgisayarda kalması için beklemeyi bırakın.",
   "Waiting to come back": "Geri gelmesi bekleniyor",
   "No languages match": "Eşleşen dil yok",
-  "Cut": "Kes"
+  "Cut": "Kes",
+  "Insecure registries": "Güvenli olmayan kayıt depoları",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Her satıra bir kayıt deposu adresi veya IP aralığı girin. Bu depolar HTTP veya kendinden imzalı sertifikalar kullanabilir."
 }

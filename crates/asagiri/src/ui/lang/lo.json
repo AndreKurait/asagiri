@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ຈະເຊື່ອມຕໍ່ມັນອີກເມື່ອກັບມາ. ຢຸດລໍຖ້າເພື່ອປະມັນໄວ້ໃນຄອມພິວເຕີນີ້.",
   "Waiting to come back": "ກຳລັງລໍຖ້າໃຫ້ກັບມາ",
   "No languages match": "ບໍ່ມີພາສາທີ່ກົງກັນ",
-  "Cut": "ຕັດ"
+  "Cut": "ຕັດ",
+  "Insecure registries": "ຄັງອິມເມຈທີ່ບໍ່ປອດໄພ",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "ປ້ອນໜຶ່ງທີ່ຢູ່ຄັງອິມເມຈ ຫຼື ຊ່ວງ IP ຕໍ່ແຖວ. ຄັງເຫຼົ່ານີ້ອາດໃຊ້ HTTP ຫຼື ໃບຢັ້ງຢືນທີ່ເຊັນເອງ."
 }
