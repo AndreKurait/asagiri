@@ -32,3 +32,11 @@ jobs:
           "$bundled" --context asagiri info
           /bin/zsh -lic 'command -v docker && docker context show && docker info --format "{{.ServerVersion}}" && docker run --rm alpine:3.21 echo mac-first-launch-98' | tee fresh-shell.log
           grep -Fx mac-first-launch-98 fresh-shell.log
+      - name: Inspect guest startup after first-launch failure
+        if: failure()
+        run: |
+          sw_vers
+          sysctl kern.hv_support hw.memsize hw.ncpu
+          for log in "$HOME/.asagiri/daemon.log" "$HOME/.asagiri/logs/guest-console.log"; do
+            if test -f "$log"; then echo "$log"; tail -100 "$log"; fi
+          done
