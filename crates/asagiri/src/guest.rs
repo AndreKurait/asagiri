@@ -43,6 +43,8 @@ pub struct BootOptions {
     /// The VM's memory ceiling; 1 GiB if not set. The daemon sets a larger
     /// one and keeps the guest inside it with the balloon.
     pub memory_mib: Option<u64>,
+    /// Swap space requested on the persistent guest disk, in MiB.
+    pub swap_mib: u64,
     /// The VM's CPUs; 2 if not set.
     pub cpus: Option<usize>,
 }
@@ -167,6 +169,9 @@ impl Guest {
         // swiotlb=noforce: the VM's virtio devices address all of memory, so
         // the kernel's 64 MB bounce buffer would sit there unused.
         let mut cmdline = String::from("console=hvc0 rdinit=/init panic=-1 rcupdate.rcu_expedited=1 swiotlb=noforce");
+        if opts.data_disk && opts.swap_mib > 0 {
+            cmdline.push_str(&format!(" asagiri.swap_mib={}", opts.swap_mib));
+        }
         if !opts.console && opts.console_log.is_none() {
             cmdline.push_str(" quiet loglevel=0");
         } else if !opts.console {

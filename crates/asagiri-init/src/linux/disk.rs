@@ -50,3 +50,41 @@ pub fn grow() -> io::Result<()> {
     )?;
     Ok(())
 }
+
+/// Set up the VM's swap before accepting container requests.
+pub fn configure_swap() -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let cmdline = std::fs::read_to_string("/proc/cmdline")?;
+    let size = cmdline.split_ascii_whitespace().find_map(|arg| arg.strip_prefix("asagiri.swap_mib="))
+        .unwrap_or("0").parse::<u64>().map_err(io::Error::other)?;
+    let path = c"/var/lib/asagiri/.vm-swap";
+    let filename = std::path::Path::new(super::DATA).join(".vm-swap");
+    match std::fs::remove_file(&filename) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    if size == 0 { return Ok(()); }
+    // SAFETY: sysconf only queries the running kernel's page size.
+    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).map_err(io::Error::other)?;
+    if page < 4096 { return Err(io::Error::other("invalid swap page size")); }
+    let bytes = size.checked_mul(1 << 20).ok_or_else(|| io::Error::other("swap size overflow"))?;
+    let last = u32::try_from(bytes / page as u64 - 1).map_err(io::Error::other)?;
+    let mut file = File::options().write(true).create_new(true).mode(0o600).open(&filename)?;
+    let result = (|| {
+        // Allocate physical extents; Linux rejects sparse swap files.
+        let err = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, i64::try_from(bytes).map_err(io::Error::other)?) };
+        if err != 0 { return Err(io::Error::from_raw_os_error(err)); }
+        let mut header = vec![0; page];
+        header[1024..1028].copy_from_slice(&1u32.to_ne_bytes());
+        header[1028..1032].copy_from_slice(&last.to_ne_bytes());
+        header[page - 10..].copy_from_slice(b"SWAPSPACE2");
+        file.write_all(&header)?;
+        drop(file);
+        // SAFETY: path is a static NUL-terminated pathname.
+        super::sys::check(unsafe { libc::swapon(path.as_ptr(), 0) } as _, "enable guest swap")?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(filename); }
+    result
+}

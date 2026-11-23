@@ -911,6 +911,7 @@ fn resources(engine: &Engine) -> Value {
     json!({
         "cpus": e::vm_cpus(),
         "memory_mib": e::memory_ceiling() >> 20,
+        "swap_mib": e::swap_mib(),
         "running_cpus": engine.cpus(),
         "running_memory_mib": engine.memory().0 >> 20,
         "awake": engine.is_awake(),
@@ -1017,9 +1018,15 @@ fn set_resources(req: &Request) -> Result<(), Error> {
     let max_mem = e::physical_memory_bytes() >> 20;
     let cpus = body["cpus"].as_u64().filter(|c| (1..=e::max_cpus() as u64).contains(c)).ok_or_else(|| Error::BadRequest(format!("cpus must be 1 to {}", e::max_cpus())))?;
     let mem = body["memory_mib"].as_u64().filter(|m| (1024..=max_mem).contains(m)).ok_or_else(|| Error::BadRequest(format!("memory_mib must be 1024 to {max_mem}")))?;
+    static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SAVING.lock().unwrap_or_else(|err| err.into_inner());
+    let swap = match body.get("swap_mib") {
+        Some(value) => value.as_u64().filter(|size| size.checked_mul(1024 * 1024).is_some()).ok_or_else(|| Error::BadRequest("swap_mib must be a nonnegative whole number of MiB representable in bytes".into()))?,
+        None => e::swap_mib(),
+    };
     let path = e::resources_path().ok_or_else(|| Error::Io(io::Error::other("HOME is not set")))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json!({"cpus": cpus, "memory_mib": mem}).to_string()).and_then(|()| std::fs::rename(&tmp, &path)).map_err(Error::Io)
+    std::fs::write(&tmp, json!({"cpus": cpus, "memory_mib": mem, "swap_mib": swap}).to_string()).and_then(|()| std::fs::rename(&tmp, &path)).map_err(Error::Io)
 }
 
 fn set_ports(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
