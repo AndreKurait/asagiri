@@ -1,0 +1,25 @@
+name: Diagnose concurrent Windows Docker configuration edits
+on:
+  push:
+    branches: [qualification/windows-config-contention]
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Repeat the concurrent registry edit test
+        run: |
+          $test = 'engine::logins::config::tests::concurrent_edits_retain_every_registry_and_other_settings'
+          $messages = cargo test --locked -p asagiri-win --no-run --message-format=json
+          if ($LASTEXITCODE) { throw 'Compilation failed' }
+          $exe = $messages | ConvertFrom-Json | Where-Object { $_.executable -and $_.profile.test -and $_.target.name -eq 'asagiri-win' } | Select-Object -Last 1 -ExpandProperty executable
+          if (!$exe) { throw 'Test executable missing' }
+          foreach ($iteration in 1..200) {
+            & $exe $test --exact --nocapture
+            if ($LASTEXITCODE) { throw "Concurrent edit failed on iteration $iteration" }
+          }

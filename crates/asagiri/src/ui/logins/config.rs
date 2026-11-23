@@ -38,7 +38,7 @@ fn destination(path: &Path) -> io::Result<PathBuf> {
     match fs::symlink_metadata(path) {
         // Like Docker, update the target of an existing config symlink.
         // A dangling link is an error, never replaced with a new config.
-        Ok(_) => path.canonicalize(),
+        Ok(_) => path.canonicalize().inspect_err(|e| eprintln!("path.canonicalize(): {e}")),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let parent = path.parent().ok_or_else(|| io::Error::other("config has no parent"))?;
             let name = path.file_name().ok_or_else(|| io::Error::other("config has no filename"))?;
@@ -68,7 +68,7 @@ fn lock(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(lock_path)?;
+    let file = options.open(lock_path).inspect_err(|e| eprintln!("options.open(lock_path): {e}"))?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(io::Error::other("config lock isn't a regular file"));
@@ -81,7 +81,7 @@ fn lock(path: &Path) -> io::Result<File> {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "config lock belongs to another user"));
         }
     }
-    file.lock()?;
+    file.lock().inspect_err(|e| eprintln!("file.lock(): {e}"))?;
     // Leave the lock inode in place. Removing it after unlock would let a
     // waiting writer lock a different inode from the next arriving writer.
     Ok(file)
@@ -97,12 +97,12 @@ fn persist(path: &Path, temporary: &Path, bytes: &[u8]) -> io::Result<()> {
     }
     // create_new also rejects a pre-existing temporary symlink. On failure
     // its target and the pre-existing name must both remain untouched.
-    let mut file = options.open(temporary)?;
+    let mut file = options.open(temporary).inspect_err(|e| eprintln!("options.open(temporary): {e}"))?;
     let result = (|| {
-        file.write_all(bytes)?;
-        file.sync_all()?;
+        file.write_all(bytes).inspect_err(|e| eprintln!("file.write_all(bytes): {e}"))?;
+        file.sync_all().inspect_err(|e| eprintln!("file.sync_all(): {e}"))?;
         drop(file);
-        fs::rename(temporary, path)?;
+        fs::rename(temporary, path).inspect_err(|e| eprintln!("fs::rename(temporary, path): {e}"))?;
         #[cfg(unix)]
         File::open(path.parent().ok_or_else(|| io::Error::other("config has no parent"))?)?.sync_all()?;
         Ok(())
@@ -112,9 +112,9 @@ fn persist(path: &Path, temporary: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub(super) fn edit(path: &Path, change: impl FnOnce(&mut Value) -> io::Result<()>) -> io::Result<()> {
-    let path = destination(path)?;
-    let _lock = lock(&path)?;
-    let mut value = read(&path)?;
+    let path = destination(path).inspect_err(|e| eprintln!("destination(path): {e}"))?;
+    let _lock = lock(&path).inspect_err(|e| eprintln!("lock(&path): {e}"))?;
+    let mut value = read(&path).inspect_err(|e| eprintln!("read(&path): {e}"))?;
     change(&mut value)?;
     let mut bytes = serde_json::to_vec_pretty(&value).map_err(io::Error::other)?;
     bytes.push(b'\n');
