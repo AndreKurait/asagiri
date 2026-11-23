@@ -1,27 +1,27 @@
-name: Inspect x64 AppImage onboarding window
+name: Inspect arm64 AppImage onboarding window
 on:
   push:
-    branches: [qualification/linux-x64-onboarding-132]
+    branches: [qualification/linux-arm64-onboarding-132]
 permissions:
   contents: read
   actions: read
 jobs:
   onboarding:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 12
     steps:
       - name: Install desktop runtime and capture tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb xauth xdotool imagemagick dbus-x11
-      - name: Capture the main revision's x64 AppImage in a fresh X session
+      - name: Capture the main revision's arm64 AppImage in a fresh X session
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download 45112151103 -R AndreKurait/asagiri -n appimage-X64 -D package
-          app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
-          echo "7a88b13167f563fe212bd84e56bf486e08fdff7cf8570769b4241b896781dd34  $app" | sha256sum -c -
+          gh run download 45117213954 -R AndreKurait/asagiri -n appimage-ARM64 -D package
+          app="$PWD/package/Asagiri-0.0.0-aarch64.AppImage"
+          echo "10596c88fcb7e37ce2e5f9af2479a3850fffeb0810e158ca838bfba3efe1839d  $app" | sha256sum -c -
           chmod +x "$app"
           mkdir -p observations "$RUNNER_TEMP/clean-home"
           HOME="$RUNNER_TEMP/clean-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s -- "$app" <<'SH'
@@ -43,7 +43,7 @@ jobs:
           ls -l /dev/fuse
           test -r /dev/fuse && test -w /dev/fuse
           HOME="$RUNNER_TEMP/fuse-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s <<'SH'
-          app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
+          app="$PWD/package/Asagiri-0.0.0-aarch64.AppImage"
           "$app" >observations/direct-launch.log 2>&1 &
           app_pid=$!
           trap 'kill "$app_pid" 2>/dev/null || true' EXIT
@@ -55,5 +55,5 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: x64-onboarding-observations
+          name: arm64-onboarding-observations
           path: observations/
