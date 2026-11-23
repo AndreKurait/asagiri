@@ -440,13 +440,13 @@ impl Dns {
         r.extend_from_slice(&((a.len() + aaaa.len()) as u16).to_be_bytes());
         r.extend_from_slice(&[0, 0, 0, 0]);
         r.extend_from_slice(&q[12..end]);
-        for ip in a {
+        for ip in shuffled_answers(a).iter() {
             r.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1]);
             r.extend_from_slice(&TTL.to_be_bytes());
             r.extend_from_slice(&[0, 4]);
             r.extend_from_slice(ip);
         }
-        for (_, ip) in aaaa {
+        for (_, ip) in shuffled_answers(aaaa).iter() {
             r.extend_from_slice(&[0xc0, 0x0c, 0, 28, 0, 1]);
             r.extend_from_slice(&TTL.to_be_bytes());
             r.extend_from_slice(&[0, 16]);
@@ -685,6 +685,21 @@ fn bound(ip: [u8; 4], port: u16) -> io::Result<OwnedFd> {
     Ok(sock)
 }
 
+/// Vary the order within one network and address family without changing the registry.
+fn shuffled_answers<T: Copy>(records: &[T]) -> std::borrow::Cow<'_, [T]> {
+    use std::hash::{BuildHasher, RandomState};
+    if records.len() < 2 {
+        return std::borrow::Cow::Borrowed(records);
+    }
+    let seed = RandomState::new();
+    let mut records = records.to_vec();
+    for end in (1..records.len()).rev() {
+        let index = seed.hash_one(end) as usize % (end + 1);
+        records.swap(end, index);
+    }
+    std::borrow::Cow::Owned(records)
+}
+
 fn response_matches(msg: &[u8], pending: &Pending) -> bool {
     msg.get(2).is_some_and(|flags| flags & 0x80 != 0) && msg.get(12..12 + pending.question.len()).is_some_and(|question| question == pending.question)
 }
@@ -774,6 +789,24 @@ mod tests {
     }
 
     #[test]
+    fn multiple_addresses_do_not_always_start_with_the_first_registration() {
+        let mut dns = Dns::default();
+        dns.servers.push(Server { bridges: vec!["shared".into()], priorities: HashMap::new(), sock: udp_socket().unwrap(), container: None });
+        for last in [3, 4, 5] {
+            dns.register("shared", ["db"].iter(), [10, 1, 0, last]);
+        }
+        let q = query("db", 1);
+        let mut first = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            let mut records = answers(&dns.answer(0, &q).unwrap(), q.len());
+            first.insert(records[0].clone());
+            records.sort();
+            assert_eq!(records, [3, 4, 5].map(|last| (1, vec![10, 1, 0, last])));
+        }
+        assert!(first.len() > 1);
+    }
+
+    #[test]
     fn a_containers_networks_are_searched_by_docker_network_name() {
         for (shared, project, shared_answers) in [("kiri_shared_t", "kra_default", true), ("ddev_default", "ddev-a_default", false), ("zz_shared", "kca_default", false)] {
             for bridges in [["asagiri1", "asagiri2"], ["asagiri2", "asagiri1"]] {
@@ -785,7 +818,8 @@ mod tests {
                 dns.register("asagiri1", ["db"].iter(), [10, 1, 0, 4]);
                 dns.register("asagiri2", ["db"].iter(), [10, 2, 0, 3]);
                 let q = query("db", 1);
-                let got = answers(&dns.answer(0, &q).unwrap(), q.len());
+                let mut got = answers(&dns.answer(0, &q).unwrap(), q.len());
+                got.sort();
                 let want = if shared_answers { vec![(1, vec![10, 1, 0, 3]), (1, vec![10, 1, 0, 4])] } else { vec![(1, vec![10, 2, 0, 3])] };
                 assert_eq!(got, want, "{shared} and {project}, joined as {bridges:?}");
             }
