@@ -415,6 +415,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
             drop(prepared.net_ready.take());
+            net::prioritize_startup_routes(pid, &ways_out).map_err(kill_child)?;
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "go on".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
@@ -436,6 +437,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 Some(link) => macvlans.0.push(link),
                 None => veths.push(host_if),
             }
+            ways_out.extend(net::WayOut::of("eth0", spec.net.gateway, v6, plug));
             if embedded_dns {
                 dns_entries.push((spec.net.bridge.to_owned(), spec.net.ip));
                 // An IPv6-only network's bridge has no IPv4 address to serve on,

@@ -271,7 +271,6 @@ impl Dns {
         if let Some(name) = net_opts::values(net.opts, net_opts::NETWORK).next().filter(|n| !n.is_empty()) {
             self.name_network(net.bridge, name);
         }
-        let priority = net_opts::values(net.opts, net_opts::GW_PRIORITY).next().and_then(|value| value.parse::<i64>().ok()).unwrap_or_default();
         let plug = super::net::Plug::from_opts(net.opts);
         let gateways = if plug.internal || plug.own_link() {
             0
@@ -281,7 +280,7 @@ impl Dns {
         };
         for server in self.servers.iter_mut().filter(|s| s.container.is_some_and(|(p, _)| p == pid)) {
             if server.bridges.iter().any(|b| b == net.bridge) {
-                server.priorities.insert(net.bridge.to_owned(), (Reverse(priority), plug.internal, Reverse(gateways)));
+                server.priorities.insert(net.bridge.to_owned(), (Reverse(plug.gw_priority), plug.internal, Reverse(gateways)));
             }
         }
     }
