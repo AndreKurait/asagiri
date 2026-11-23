@@ -68,8 +68,12 @@ jobs:
               else:
                   raise RuntimeError(f'Container absent from dashboard. Visible controls: {[c.window_text()[:120] for c in visible][:100]}')
               click('Terminal')
-              prompt = window.child_window(auto_id='term-in', control_type='Edit')
-              prompt.wait('visible enabled', timeout=60)
+              prompt = window.child_window(title='Command to run in the container', control_type='Edit')
+              try:
+                  prompt.wait('visible enabled', timeout=60)
+              except Exception:
+                  print([(c.element_info.control_type, c.element_info.automation_id, c.window_text()[:100]) for c in window.descendants() if c.is_visible()], flush=True)
+                  raise
               prompt.click_input()
               send_keys('echo pending{HOME}{RIGHT 5}', with_spaces=True)
               for i in range(4):
