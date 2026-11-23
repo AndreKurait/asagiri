@@ -1,0 +1,56 @@
+name: Released engine DNS reuse on x86-64 kernel 7.3
+on:
+  push:
+    branches: [qualification/tumbleweed-dns-130]
+    paths: [.github/workflows/tumbleweed-dns-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  dns-reuse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Boot the pinned openSUSE guest and exercise the released engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+          image=openSUSE-Tumbleweed-Minimal-VM.x86_64-1.0.0-Cloud-Snapshot20261121.qcow2
+          curl -fL --retry 3 -o "$image" "https://download.opensuse.org/tumbleweed/appliances/$image"
+          echo "7ba3b9ed4ea8e86dbf5a5f538870f834d37a2ac30d763e0268f3186dd03ddb95  $image" | sha256sum -c -
+          qemu-img resize "$image" 12G
+          ssh-keygen -q -t ed25519 -N '' -f guest-key
+          { echo '#cloud-config'; echo 'users:'; echo '  - name: tester'; echo '    sudo: ALL=(ALL) NOPASSWD:ALL'; echo '    ssh_authorized_keys:'; printf '      - %s\n' "$(cat guest-key.pub)"; } > user-data
+          cloud-localds seed.img user-data
+          sudo qemu-system-x86_64 -accel kvm -cpu host -smp 2 -m 3072 -display none -daemonize -serial file:console.log -drive "file=$image,if=virtio,format=qcow2" -drive file=seed.img,format=raw,media=cdrom -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22
+          opts=(-i guest-key -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=3)
+          guest() { ssh "${opts[@]}" -p 2222 tester@127.0.0.1 "$@"; }
+          for attempt in {1..90}; do guest true && break; sleep 2; done
+          guest uname -a || { sudo tail -100 console.log; exit 1; }
+          asset=asagiri-0.1.14-dev.188-linux-x86_64.tar.gz
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$asset"
+          echo "34f0654e15a574d9124d51cdb874bd423f86c9fce9046beb0c2145d8d6a5b8dd  $asset" | sha256sum -c -
+          scp "${opts[@]}" -P 2222 "$asset" "$GITHUB_WORKSPACE/tests/network-dns-reuse.py" tester@127.0.0.1:
+          guest 'sudo bash -se' <<'GUEST'
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          [[ $(uname -r) == 7.3.* ]]
+          tar -xzf asagiri-*-linux-x86_64.tar.gz
+          engine=$(find "$PWD" -type f -name asagiri -perm /111 | head -1)
+          export PATH="$(dirname "$engine"):$PATH"
+          if ! command -v docker; then zypper --non-interactive install --no-recommends docker; fi
+          export ASAGIRI_DATA_DIR=/test-store ASAGIRI_TEST_ENGINE=1 ASAGIRI_SOCKET=/tmp/engine.sock DOCKER_HOST=unix:///tmp/engine.sock
+          "$engine" daemon > /tmp/engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" 2>/dev/null || true; tail -60 /tmp/engine.log' EXIT
+          for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
+          docker version
+          docker pull alpine:3.21
+          python3 network-dns-reuse.py "$ASAGIRI_SOCKET" alpine:3.21
+          GUEST
