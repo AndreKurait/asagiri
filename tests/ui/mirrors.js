@@ -59,6 +59,21 @@ t("saving registry exceptions patches only the transport list", () => {
   const patch = sent.find(m => m.type === "setmirrors").value;
   if (JSON.stringify(patch) !== JSON.stringify({"insecure-registries": ["registry.lan:5000", "192.0.2.5:443"]})) throw new Error(JSON.stringify(patch));
 });
+t("one save updates mirrors and removes the last registry exception", () => {
+  asagiri.on({ ...mirrors([]), "insecure-registries": ["registry.lan:5000"] });
+  if (document.getElementById("registry-exceptions").value !== "registry.lan:5000") throw new Error("saved registry missing");
+  put("registry-exceptions", "");
+  put("mirror-url", "https://mirror.example.com");
+  document.querySelector("#content [data-mirroradd]").click();
+  sent.length = 0;
+  save().click();
+  const updates = sent.filter(m => m.type === "setmirrors");
+  if (updates.length !== 1) throw new Error(JSON.stringify(updates));
+  const expected = {"registry-mirrors": ["https://mirror.example.com"], "insecure-registries": []};
+  if (JSON.stringify(updates[0].value) !== JSON.stringify(expected)) throw new Error(JSON.stringify(updates[0].value));
+  asagiri.on({type: "mirrors", ...expected});
+  if (!save().disabled || document.getElementById("registry-exceptions").value !== "") throw new Error("save did not settle");
+});
 t("with no daemon the page says to start Asagiri", () => {
   asagiri.on({ type: "mirrors", error: "connection refused" });
   open();
