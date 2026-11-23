@@ -21,15 +21,18 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p asagiri --bin asagiri
+          rustup target add x86_64-unknown-linux-musl
+          cargo xtask guest --arch x86_64
           codesign --force --sign - --entitlements crates/asagiri/asagiri.entitlements target/debug/asagiri
           command -v kubectl || brew install kubectl
           bin="$PWD/target/debug/asagiri"
           scratch=$(mktemp -d /tmp/k8s227.XXXXXX)
           cd "$scratch"
-          asset=Asagiri-0.1.14-dev.188-x86_64.tar.gz
-          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$asset"
-          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  $asset" | shasum -a 256 -c -
+          asset=Asagiri-0.1.14-dev.205-x86_64.tar.gz
+          gh release download v0.1.14-dev.205 -R AndreKurait/asagiri -p "$asset"
+          echo "ce251930f568a1f302dbf0534015591c7374db549170d22f8fd0402249cdaece  $asset" | shasum -a 256 -c -
           tar xzf "$asset"
+          cp "$GITHUB_WORKSPACE/guest/out/x86_64/initramfs.cpio" Asagiri.app/Contents/Resources/guest/initramfs.cpio
           command -v skopeo || brew install skopeo
           skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/library/nginx:alpine "docker-archive:$scratch/nginx.tar:docker.io/library/nginx:alpine"
           skopeo --override-os linux --override-arch amd64 copy --retry-times 3 docker://docker.io/rancher/mirrored-pause:3.10.2 "docker-archive:$scratch/pause.tar:docker.io/rancher/mirrored-pause:3.10.2"
