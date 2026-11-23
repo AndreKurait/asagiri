@@ -1105,6 +1105,7 @@
   "Stop on {host}": "Կանգնեցնել {host} համակարգչում",
   "Stop sharing": "Դադարեցնել կիսումը",
   "Stop signal": "Կանգնեցման ազդանշան",
+  "Stop the engine when Asagiri quits": "Asagiri-ից դուրս գալիս կանգնեցնել շարժիչը",
   "Stop waiting": "Դադարեցնել սպասումը",
   "Stop {name}": "Կանգնեցնել՝ {name}",
   "Stop {name} on {host}?": "Կանգնեցնե՞լ {name} կիսումը {host} համակարգչում։",

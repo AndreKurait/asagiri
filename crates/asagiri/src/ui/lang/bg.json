@@ -1106,6 +1106,7 @@
   "Stop sharing": "Спиране на споделянето",
   "Stop signal": "Сигнал за спиране",
   "Stop waiting": "Спри чакането",
+  "Stop the engine when Asagiri quits": "Спиране на двигателя при изход от Asagiri",
   "Stop {name}": "Спиране на {name}",
   "Stop {name} on {host}?": "Спиране на {name} на {host}?",
   "Stopped": "Спрян",

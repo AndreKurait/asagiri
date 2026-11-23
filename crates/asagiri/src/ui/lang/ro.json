@@ -1106,6 +1106,7 @@
   "Stop sharing": "Oprește partajarea",
   "Stop signal": "Semnal de oprire",
   "Stop waiting": "Nu mai aștepta",
+  "Stop the engine when Asagiri quits": "Oprește motorul la închiderea Asagiri",
   "Stop {name}": "Oprește {name}",
   "Stop {name} on {host}?": "Oprești {name} pe {host}?",
   "Stopped": "Oprit",

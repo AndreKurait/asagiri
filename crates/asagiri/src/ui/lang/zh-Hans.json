@@ -1106,6 +1106,7 @@
   "Stop sharing": "停止分享",
   "Stop signal": "停止信号",
   "Stop waiting": "停止等待",
+  "Stop the engine when Asagiri quits": "退出 Asagiri 时停止引擎",
   "Stop {name}": "停止 {name}",
   "Stop {name} on {host}?": "停止 {host} 上的 {name}？",
   "Stopped": "已停止",

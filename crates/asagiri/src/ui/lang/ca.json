@@ -1106,6 +1106,7 @@
   "Stop sharing": "Deixa de compartir",
   "Stop signal": "Senyal d'aturada",
   "Stop waiting": "Deixa d'esperar",
+  "Stop the engine when Asagiri quits": "Atura el motor en sortir de l’Asagiri",
   "Stop {name}": "Atura {name}",
   "Stop {name} on {host}?": "Vols aturar {name} a {host}?",
   "Stopped": "Aturat",

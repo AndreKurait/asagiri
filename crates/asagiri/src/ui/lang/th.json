@@ -1106,6 +1106,7 @@
   "Stop sharing": "หยุดแชร์",
   "Stop signal": "สัญญาณหยุด",
   "Stop waiting": "หยุดรอ",
+  "Stop the engine when Asagiri quits": "หยุดเอนจินเมื่อออกจาก Asagiri",
   "Stop {name}": "หยุด {name}",
   "Stop {name} on {host}?": "หยุด {name} บน {host} ไหม",
   "Stopped": "หยุดแล้ว",

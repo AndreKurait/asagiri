@@ -1106,6 +1106,7 @@
   "Stop sharing": "Ngừng chia sẻ",
   "Stop signal": "Tín hiệu dừng",
   "Stop waiting": "Ngừng chờ",
+  "Stop the engine when Asagiri quits": "Dừng động cơ khi thoát Asagiri",
   "Stop {name}": "Dừng {name}",
   "Stop {name} on {host}?": "Dừng {name} trên {host}?",
   "Stopped": "Đã dừng",

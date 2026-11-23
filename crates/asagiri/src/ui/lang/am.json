@@ -1106,6 +1106,7 @@
   "Stop sharing": "ማጋራት አቁም",
   "Stop signal": "የማቆሚያ ሲግናል",
   "Stop waiting": "መጠበቅ አቁም",
+  "Stop the engine when Asagiri quits": "Asagiri ሲዘጋ ሞተሩን አቁም",
   "Stop {name}": "{name}ን አቁም",
   "Stop {name} on {host}?": "{name} በ{host} ላይ ይቁም?",
   "Stopped": "ቆሟል",

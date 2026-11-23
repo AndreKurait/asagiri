@@ -1106,6 +1106,7 @@
   "Stop sharing": "షేర్ చేయడం ఆపు",
   "Stop signal": "స్టాప్ సిగ్నల్",
   "Stop waiting": "వేచి ఉండటం ఆపు",
+  "Stop the engine when Asagiri quits": "Asagiri నుండి నిష్క్రమించినప్పుడు ఇంజిన్‌ను ఆపివేయి",
   "Stop {name}": "{name}ను ఆపు",
   "Stop {name} on {host}?": "{host}లో {name}ను ఆపాలా?",
   "Stopped": "ఆగింది",

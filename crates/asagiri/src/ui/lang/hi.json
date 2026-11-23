@@ -1106,6 +1106,7 @@
   "Stop sharing": "शेयर करना बंद करें",
   "Stop signal": "स्टॉप सिग्नल",
   "Stop waiting": "इंतज़ार बंद करें",
+  "Stop the engine when Asagiri quits": "Asagiri बंद होने पर इंजन रोकें",
   "Stop {name}": "{name} रोकें",
   "Stop {name} on {host}?": "{host} पर {name} रोकें?",
   "Stopped": "रुका हुआ",

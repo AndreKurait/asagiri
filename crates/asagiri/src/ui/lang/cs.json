@@ -1106,6 +1106,7 @@
   "Stop sharing": "Přestat sdílet",
   "Stop signal": "Signál zastavení",
   "Stop waiting": "Přestat čekat",
+  "Stop the engine when Asagiri quits": "Při ukončení Asagiri zastavit engine",
   "Stop {name}": "Zastavit {name}",
   "Stop {name} on {host}?": "Zastavit {name} na {host}?",
   "Stopped": "Zastaveno",

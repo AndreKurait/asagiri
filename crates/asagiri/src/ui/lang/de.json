@@ -1106,6 +1106,7 @@
   "Stop sharing": "Teilen beenden",
   "Stop signal": "Stoppsignal",
   "Stop waiting": "Nicht mehr warten",
+  "Stop the engine when Asagiri quits": "Engine beim Beenden von Asagiri stoppen",
   "Stop {name}": "{name} stoppen",
   "Stop {name} on {host}?": "{name} auf {host} stoppen?",
   "Stopped": "Gestoppt",

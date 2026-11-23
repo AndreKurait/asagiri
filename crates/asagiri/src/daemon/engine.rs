@@ -1135,6 +1135,10 @@ impl Engine {
                         crate::diag::info!("Kubernetes service published", at = format!("{host_ip}:{port}/{proto}"));
                         lb.insert((port, proto), fw);
                     }
+                    #[cfg(target_os = "macos")]
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && host_ip == "127.0.0.1" && port < 1024 => {
+                        crate::diag::warn!("macOS denied the low localhost port; set the Kubernetes Service port to 1024 or higher and keep its targetPort", at = format!("{host_ip}:{port}/{proto}"), error = e);
+                    }
                     Err(e) => crate::diag::warn!("Kubernetes service port not published", port = format!("{port}/{proto}"), error = e),
                 }
             }

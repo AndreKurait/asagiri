@@ -1106,6 +1106,7 @@
   "Stop sharing": "共有を停止",
   "Stop signal": "停止シグナル",
   "Stop waiting": "待機をやめる",
+  "Stop the engine when Asagiri quits": "Asagiri の終了時にエンジンを停止",
   "Stop {name}": "{name} を停止",
   "Stop {name} on {host}?": "{host} の {name} を停止しますか？",
   "Stopped": "停止",

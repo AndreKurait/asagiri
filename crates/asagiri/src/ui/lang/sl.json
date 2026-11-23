@@ -1106,6 +1106,7 @@
   "Stop sharing": "Ustavi deljenje",
   "Stop signal": "Signal za ustavitev",
   "Stop waiting": "Nehaj čakati",
+  "Stop the engine when Asagiri quits": "Ustavi pogon ob izhodu iz Asagirija",
   "Stop {name}": "Ustavi {name}",
   "Stop {name} on {host}?": "Ustavim {name} na {host}?",
   "Stopped": "Ustavljeno",

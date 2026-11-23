@@ -1106,6 +1106,7 @@
   "Stop sharing": "Megosztás leállítása",
   "Stop signal": "Leállítási jel",
   "Stop waiting": "Várakozás leállítása",
+  "Stop the engine when Asagiri quits": "A motor leállítása az Asagiri bezárásakor",
   "Stop {name}": "Leállítás: {name}",
   "Stop {name} on {host}?": "Leállítod? {name} itt: {host}",
   "Stopped": "Leállítva",

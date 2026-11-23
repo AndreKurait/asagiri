@@ -1106,6 +1106,7 @@
   "Stop sharing": "إيقاف المشاركة",
   "Stop signal": "إشارة الإيقاف",
   "Stop waiting": "إيقاف الانتظار",
+  "Stop the engine when Asagiri quits": "إيقاف المحرك عند إنهاء Asagiri",
   "Stop {name}": "إيقاف {name}",
   "Stop {name} on {host}?": "إيقاف {name} على {host}؟",
   "Stopped": "متوقف",

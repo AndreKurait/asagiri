@@ -1106,6 +1106,7 @@
   "Stop sharing": "Закрити доступ",
   "Stop signal": "Сигнал зупинки",
   "Stop waiting": "Не чекати",
+  "Stop the engine when Asagiri quits": "Зупиняти рушій під час виходу з Asagiri",
   "Stop {name}": "Зупинити {name}",
   "Stop {name} on {host}?": "Зупинити {name} на {host}?",
   "Stopped": "Зупинено",

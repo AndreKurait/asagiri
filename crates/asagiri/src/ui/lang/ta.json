@@ -1106,6 +1106,7 @@
   "Stop sharing": "பகிர்வதை நிறுத்து",
   "Stop signal": "நிறுத்தச் சமிக்ஞை",
   "Stop waiting": "காத்திருப்பதை நிறுத்து",
+  "Stop the engine when Asagiri quits": "Asagiri மூடப்படும்போது இயந்திரத்தை நிறுத்து",
   "Stop {name}": "{name}-ஐ நிறுத்து",
   "Stop {name} on {host}?": "{host}-இல் {name}-ஐ நிறுத்தவா?",
   "Stopped": "நிறுத்தப்பட்டது",

@@ -1106,6 +1106,7 @@
   "Stop sharing": "Paylaşımı dayandır",
   "Stop signal": "Dayandırma siqnalı",
   "Stop waiting": "Gözləməyi dayandır",
+  "Stop the engine when Asagiri quits": "Asagiri bağlananda mühərriki dayandır",
   "Stop {name}": "Dayandır: {name}",
   "Stop {name} on {host}?": "{name} {host} üzərində dayandırılsın?",
   "Stopped": "Dayandırıldı",
