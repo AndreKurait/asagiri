@@ -1,4 +1,4 @@
-name: Verify published Windows launcher preserves Stop at background startup
+name: Verify published Windows dashboard preserves Stop at foreground startup
 on:
   push:
     branches: [qualification/windows-login-188]
@@ -68,8 +68,12 @@ jobs:
           $p.WaitForExit()
           wsl.exe --terminate asagiri
           if ($LASTEXITCODE) { throw 'WSL termination failed' }
-          $p = Start-Process $app -ArgumentList '--background' -PassThru
+          python -m pip install pywinauto==0.6.9
+          if ($LASTEXITCODE) { throw 'UI Automation installation failed' }
+          $p = Start-Process $app -PassThru
           Wait-Engine
+          python -c "from pywinauto import Desktop; import sys; w=Desktop(backend='uia').window(process=int(sys.argv[1]),title='Asagiri'); doc=w.child_window(title='Asagiri',control_type='Document'); doc.wait('visible', timeout=90); print('Visible dashboard:',doc.window_text())" $p.Id
+          if ($LASTEXITCODE) { throw 'Foreground dashboard did not appear' }
           $before = & $docker run --rm alpine:3.21 true 2>&1 | Out-String
           if (!$LASTEXITCODE -or $before -notmatch 'stopped') { throw "Expected persisted Stop: $before" }
           Write-Host $before
