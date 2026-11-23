@@ -1,0 +1,120 @@
+name: macOS System Keychain update verification
+on:
+  push:
+    branches: [qualification/arm64-dev223-registry-144]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  keychain:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8b3bf1e32796162f825b353f1a306c78cf9ea560
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri --bin asagiri
+      - name: Verify HTTPS against a temporary system root
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euxo pipefail
+          app="$PWD/target/debug/asagiri"
+          cd "$RUNNER_TEMP"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=fixture-144-root -keyout ca.key -out ca.pem
+          openssl req -new -newkey rsa:2048 -nodes -subj /CN=localhost -keyout leaf.key -out leaf.csr
+          printf 'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n' > extensions
+          openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 1 -extfile extensions -out leaf.pem
+          mkdir feed
+          echo '{"version":"99.0.0","url":"https://localhost/unused","sha256":"unused"}' >feed/latest.json
+          python3 - <<'PY' &
+          import http.server, ssl, functools, json
+          class Handler(http.server.SimpleHTTPRequestHandler):
+              def do_POST(self):
+                  if self.path != '/v1/login/dev':
+                      self.send_error(404)
+                      return
+                  request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                  body = json.dumps({'login': request['login'], 'token': 'fixture-only'}).encode()
+                  self.send_response(200)
+                  self.send_header('Content-Length', str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+          server = http.server.HTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory='feed'))
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain('leaf.pem', 'leaf.key')
+          server.socket = tls.wrap_socket(server.socket, server_side=True)
+          with open('port', 'w') as port: print(server.server_port, file=port)
+          server.serve_forever()
+          PY
+          server=$!
+          trap 'kill "$server" || true' EXIT
+          for attempt in {1..50}; do [[ -s port ]] && break; sleep 0.1; done
+          port=$(cat port)
+          export ASAGIRI_UPDATE_URL="https://localhost:$port/latest.json"
+          unset SSL_CERT_FILE SSL_CERT_DIR ASAGIRI_SHARE_CA
+          export ASAGIRI_SHARE_SERVER="localhost:$port" ASAGIRI_SHARE_CONNECT="127.0.0.1:$port"
+          export ASAGIRI_DATA_DIR="$RUNNER_TEMP/share-store"
+          if "$app" share login --dev probe144 >untrusted.log 2>&1; then exit 1; fi
+          grep -Ei 'UnknownIssuer|certificate is not trusted|unknown issuer' untrusted.log
+          curl --cacert ca.pem -fsS "$ASAGIRI_UPDATE_URL"
+          if "$app" update --check; then exit 1; fi
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem
+          "$app" update --check | grep -F '99.0.0'
+          if ASAGIRI_UPDATE_URL="https://127.0.0.1:$port/latest.json" "$app" update --check; then exit 1; fi
+          "$app" share login --dev probe144 | grep -F 'probe144'
+          if ASAGIRI_SHARE_SERVER="127.0.0.1:$port" "$app" share login --dev probe144 >wrong-name.log 2>&1; then exit 1; fi
+          grep -Ei 'NotValidForName|host(name)? mismatch|did not match|does not match|hostname.*incorrect' wrong-name.log
+      - name: Pull a TLS OCI image using the dev.223 release-build ARM64 application
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          dmg=Asagiri-0.1.14-dev.223-arm64.dmg
+          gh run download 45223543628 -R AndreKurait/asagiri -n packages-macos-arm64 -D release-package
+          mv "release-package/$dmg" "$dmg"
+          shasum -a 256 "$dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/release-volume" "$dmg"
+          app="$RUNNER_TEMP/release-volume/Asagiri.app/Contents/MacOS/asagiri"
+          "$app" --version
+          # Use the runner NIC because loopback registries can use plain HTTP.
+          export FIXTURE_IP=$(ipconfig getifaddr en0)
+          test -n "$FIXTURE_IP"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=registry-144-root -keyout registry.key -out registry.pem
+          printf 'subjectAltName=IP:%s\nextendedKeyUsage=serverAuth\n' "$FIXTURE_IP" > registry.ext
+          openssl x509 -req -in leaf.csr -CA registry.pem -CAkey registry.key -CAcreateserial -days 1 -extfile registry.ext -out registry-leaf.pem
+          python3 -u - >registry-server.log 2>&1 <<'PY' &
+          import os, pathlib, runpy, signal, ssl
+          print('Starting OCI fixture on', os.environ['FIXTURE_IP'], flush=True)
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain('registry-leaf.pem', 'leaf.key')
+          fixture = runpy.run_path(os.environ['GITHUB_WORKSPACE'] + '/tests/registry-ca.py')['Registry']
+          registry = fixture(os.environ['FIXTURE_IP'], tls, {tls: 'registry-144'}, 'mac-arm64', 'system')
+          repo = 'registryca/keychain'
+          pathlib.Path('registry-ref').write_text(registry.authority + '/' + repo + ':latest')
+          expected = registry.image(repo)['manifest_digest'].split(':')[1][:12]
+          pathlib.Path('registry-digest').write_text(expected)
+          signal.pause()
+          PY
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..120}; do
+            [[ -s registry-digest ]] && break
+            if ! kill -0 "$server" 2>/dev/null; then cat registry-server.log; wait "$server"; exit 1; fi
+            sleep 1
+          done
+          cat registry-server.log
+          test -s registry-digest
+          ref=$(cat registry-ref)
+          export ASAGIRI_DATA_DIR="$RUNNER_TEMP/oci-store"
+          unset SSL_CERT_FILE SSL_CERT_DIR
+          if "$app" raw pull "$ref" >registry-before.log 2>&1; then exit 1; fi
+          cat registry-before.log
+          grep -Ei 'UnknownIssuer|not trusted|unknown issuer' registry-before.log
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain registry.pem
+          "$app" raw pull "$ref" 2>&1 | tee registry-after.log
+          grep -F "$(cat registry-digest)" registry-after.log
+          grep -F '0 already here' registry-after.log
