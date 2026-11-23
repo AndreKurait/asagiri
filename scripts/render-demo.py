@@ -169,8 +169,13 @@ def main():
                        "field.dispatchEvent(new Event('input',{bubbles:true}));"
                        "document.querySelector('[data-mirroradd]').click(); document.querySelector('[data-savemirrors]').click(); }")
             assert browser.js("document.querySelectorAll('[data-mirrordel]').length===1 && document.querySelector('[data-savemirrors]').disabled")
+            browser.js("{ const field=document.querySelector('#registry-exceptions'); field.value='registry.example.invalid:5000';"
+                       "field.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[data-savemirrors]').click(); }")
+            assert browser.js("document.querySelector('.pref .mono')?.textContent==='https://mirror.example.invalid' && "
+                              "document.querySelector('#registry-exceptions').value==='registry.example.invalid:5000'")
             browser.js("document.querySelector('[data-mirrordel]').click(); document.querySelector('[data-savemirrors]').click()")
             assert browser.js("document.querySelectorAll('[data-mirrordel]').length===0 && document.querySelector('[data-savemirrors]').disabled")
+            assert browser.js("document.querySelector('#registry-exceptions').value==='registry.example.invalid:5000'")
             browser.js("document.querySelector('[data-stab=integrations]').click()")
             assert browser.js("document.querySelector('[data-mcp=allowContainerChanges][data-value=\"1\"]').disabled")
             browser.js("document.querySelector('[data-mcp=enabled][data-value=\"1\"]').click()")
