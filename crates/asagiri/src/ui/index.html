@@ -744,7 +744,7 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
 #ctxcard .row-end { display: flex; justify-content: space-between; gap: 8px; }
 #ctxcard .x { position: absolute; top: 10px; inset-inline-end: 10px; border: 0; background: none; color: var(--faint); cursor: pointer; }
 /* The update card: bottom right, above the status bar. */
-.updcard { position: fixed; inset-inline-end: 16px; bottom: 36px; width: 352px; box-sizing: border-box; padding: 16px; display: grid; gap: 14px; z-index: 6;
+.updcard { position: fixed; inset-inline-end: 16px; bottom: 36px; width: min(352px, calc(100% - 32px)); box-sizing: border-box; padding: 16px; display: grid; gap: 14px; z-index: 6;
            background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 36px rgba(0, 0, 0, .45); }
 .updcard .head { display: flex; gap: 12px; align-items: flex-start; }
 .updcard .ic { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--blue-light); background: color-mix(in srgb, var(--blue) 18%, transparent); }
@@ -757,11 +757,11 @@ tr[data-rowopen] .sel, .sel { cursor: text; -webkit-user-select: text; user-sele
 .updcard .err { margin-top: 6px; font-size: var(--fs); color: var(--red); }
 .updcard .close { flex: none; border: 0; background: none; padding: 2px; color: var(--faint); cursor: pointer; display: inline-flex; }
 .updcard .close:hover { color: var(--text); }
-.updcard .row { display: flex; align-items: center; gap: 8px; }
+.updcard .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .updcard .btn { height: 32px; }
 .updcard .skip { margin-inline-start: auto; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .updcard .skip:hover { color: var(--text); }
-.updcard .snooze { display: flex; gap: 6px; }
+.updcard .snooze { display: flex; flex-wrap: wrap; gap: 6px; }
 .updcard .foot { font-size: var(--fs-small); color: var(--faint); }
 /* Live stats on the Overview tab: four small charts, the last minute. */
 .statsrow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
@@ -2039,9 +2039,13 @@ body.beat { --beat: ring 1.6s ease-out; }
 .dg-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding-block: 0; padding-inline: 9px 4px; border-radius: 13px; font-size: var(--fs); color: var(--text);
            background: color-mix(in srgb, var(--blue) 16%, transparent); }
 .dg-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; display: inline-flex; padding: 2px; }
-.dg-log { background: #0A0E12; border: 1px solid var(--line); border-radius: 10px; height: 280px; overflow: auto; padding: 6px 0; font: var(--fs-log)/1.5 var(--mono-font);
+.dg-log { container-type: inline-size; background: #0A0E12; border: 1px solid var(--line); border-radius: 10px; height: 280px; overflow: auto; padding: 6px 0; font: var(--fs-log)/1.5 var(--mono-font);
           color: #D9DEE4; user-select: text; -webkit-user-select: text; cursor: text; }
 .dg-row { display: grid; grid-template-columns: 84px 38px 46px minmax(0, 1fr); gap: 8px; padding: 0 12px; }
+@container (max-width: 460px) {
+  .dg-row { grid-template-columns: auto auto 1fr; row-gap: 0; padding-block: 3px; }
+  .dg-row .m { grid-column: 1 / -1; }
+}
 .dg-row:hover { background: rgba(255, 255, 255, .04); }
 .dg-row .t { color: #6B7682; font-variant-numeric: tabular-nums; }
 .dg-row .lv { font-weight: 600; font-size: var(--fs-small); letter-spacing: .02em; }
@@ -3969,11 +3973,15 @@ function mirrorsPane() {
   const rows = draft.length
     ? draft.map((url, i) => `<div class="pref"><span class="t mono">${esc(url)}</span><button class="btn" data-mirrordel="${i}">${tr("Remove")}</button></div>`).join("")
     : `<p class="muted">${tr("No mirrors yet: Docker Hub images come from Docker Hub itself.")}</p>`;
-  const changed = JSON.stringify(draft) !== JSON.stringify(m.mirrors || []);
+  const changed = JSON.stringify(draft) !== JSON.stringify(m["registry-mirrors"] || []);
   return `<div class="pane"><h3>${tr("Registry mirrors")}</h3>
     <p class="muted">${tr("Docker Hub images pull through these in order; the first that has the image answers, and Docker Hub itself is the fallback. Other registries are pulled directly.")}</p>
     ${rows}
     <div class="res-foot" style="margin-top:14px"><input class="field" id="mirror-url" style="flex:1;max-width:420px" aria-label="${tr("Mirror address")}" value="${esc(ui.mirrorUrl)}" placeholder="https://mirror.example.com" spellcheck="false" autocomplete="off"><button class="btn" data-mirroradd>${tr("Add mirror")}</button></div>
+
+    <label for="registry-exceptions">${tr("Insecure registries")}</label>
+    <p class="muted">${tr("Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.")}</p>
+    <textarea class="field" id="registry-exceptions" rows="3" spellcheck="false">${esc(ui.registryExceptions)}</textarea>
     <div class="res-foot" style="margin-top:14px"><span class="muted">${tr("These apply to docker pull and docker build; pushes never go through them.")}</span><span style="flex:1"></span><button class="btn primary" data-savemirrors${changed ? "" : " disabled"}>${tr("Save")}</button></div>
   </div>`;
 }
@@ -4191,6 +4199,17 @@ function renderSettings() {
   settingsShown.html = html; settingsShown.el = $("content").firstElementChild;
   diagDrawn();
   for (const k of ["http", "https", "no_proxy"]) $(`px-${k}`)?.addEventListener("input", (ev) => { ui.pxDraft[k] = ev.target.value; });
+  const exceptions = $("registry-exceptions");
+  if (exceptions) {
+    const current = (ui.mirrors["insecure-registries"] || []).join("\n");
+    const save = document.querySelector("[data-savemirrors]");
+    const mirrorsChanged = JSON.stringify(ui.mirrorDraft) !== JSON.stringify(ui.mirrors["registry-mirrors"] || []);
+    save.disabled = !mirrorsChanged && current === ui.registryExceptions;
+    exceptions.addEventListener("input", () => {
+      ui.registryExceptions = exceptions.value;
+      save.disabled = !mirrorsChanged && current === exceptions.value;
+    });
+  }
   $("mirror-url")?.addEventListener("input", (ev) => { ui.mirrorUrl = ev.target.value; });
   $("mirror-url")?.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); mirrorAdd(); } });
   $("px-pool")?.addEventListener("input", (ev) => { ui.pxDraft.pool = ev.target.value.trim(); poolDraw(); });
@@ -6971,7 +6990,7 @@ window.asagiri = {
       case "importdone": if (ctx.card?.total) { ctx.card.finished = true; drawCtxCard(); } ui.imp.running = false; ui.imp.summary = e.failed ? tr("Imported {done}; {failed} failed (hover “Failed” for why).", { done: e.done, failed: e.failed }) : trn(e.done, "Imported {n} item.", "Imported {n} items."); send("inventory", { name: ui.imp.source }); toast(e.failed ? "error" : "ok", ui.imp.summary); drawImportModal(); break;
       case "routerports": ui.rports = e; ui.rpDraft = {}; render(); break;
       case "proxy": ui.proxy = e; ui.pxDraft = { ...(e.settings || {}), ...(e.pool ? { pool: e.pool.pool } : {}) }; if (ui.view === "settings") render(); break;
-      case "mirrors": ui.mirrors = e; ui.mirrorDraft = [...(e.mirrors || [])]; ui.mirrorUrl = ""; if (ui.view === "settings") render(); break;
+      case "mirrors": ui.mirrors = e; ui.mirrorDraft = [...(e["registry-mirrors"] || [])]; ui.registryExceptions = (e["insecure-registries"] || []).join("\n"); ui.mirrorUrl = ""; if (ui.view === "settings") render(); break;
       case "integrations": ui.integrations = e; ui.integrationPending = false; if (ui.view === "settings") render(); break;
       case "resources": ui.res = e; ui.resDraft = { cpus: e.cpus, memory_mib: e.memory_mib }; if (ui.view === "settings") render(); break;
       case "detail": if (ui.view !== "containers") show("containers"); openDetail(e.id); break;
@@ -7092,7 +7111,12 @@ $("content").addEventListener("click", (ev) => {
   else if ((el = t("[data-savepx]"))) { if (!el.disabled && !(ui.proxy?.pool && poolCheck(ui.pxDraft.pool, ui.proxy.pool).cls === "err")) send("setproxy", { value: ui.pxDraft }); }
   else if (t("[data-mirroradd]")) mirrorAdd();
   else if ((el = t("[data-mirrordel]"))) { ui.mirrorDraft.splice(+el.dataset.mirrordel, 1); render(); }
-  else if (t("[data-savemirrors]")) send("setmirrors", { value: { mirrors: ui.mirrorDraft } });
+  else if (t("[data-savemirrors]")) {
+    const patch = {};
+    if (JSON.stringify(ui.mirrorDraft) !== JSON.stringify(ui.mirrors["registry-mirrors"] || [])) patch["registry-mirrors"] = ui.mirrorDraft;
+    if (ui.registryExceptions !== (ui.mirrors["insecure-registries"] || []).join("\n")) patch["insecure-registries"] = ui.registryExceptions.split(/\n/).map(s => s.trim()).filter(Boolean);
+    send("setmirrors", { value: patch });
+  }
   else if ((el = t("[data-mcp]"))) {
     if (!el.disabled && !ui.integrationPending && ui.integrations?.permissions) {
       const value = { ...ui.integrations.permissions, [el.dataset.mcp]: el.dataset.value === "1" };

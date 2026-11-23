@@ -1,0 +1,25 @@
+--- a/fs/overlayfs/inode.c
++++ b/fs/overlayfs/inode.c
+@@ -192,7 +192,8 @@
+ 		} else if (OVL_TYPE_ORIGIN(type)) {
+ 			struct kstat lowerstat;
+ 			u32 lowermask = STATX_INO | STATX_BLOCKS |
+-					(!is_dir ? STATX_NLINK : 0);
++					(!is_dir ? STATX_NLINK : 0) |
++					(request_mask & STATX_BTIME);
+ 
+ 			ovl_path_lower(dentry, &realpath);
+ 			err = vfs_getattr_nosec(&realpath, &lowerstat, lowermask,
+@@ -220,6 +221,12 @@
+ 			     (is_dir || lowerstat.nlink == 1))) {
+ 				fsid = ovl_layer_lower(dentry)->fsid;
+ 				stat->ino = lowerstat.ino;
++				/* Copy-up preserves this inode's visible identity. */
++				if (request_mask & STATX_BTIME) {
++					stat->result_mask &= ~STATX_BTIME;
++					stat->result_mask |= lowerstat.result_mask & STATX_BTIME;
++					stat->btime = lowerstat.btime;
++				}
+ 			}
+ 
+ 			/*

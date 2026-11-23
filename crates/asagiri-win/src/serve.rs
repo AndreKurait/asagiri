@@ -1103,12 +1103,19 @@ try {
             response.extend_from_slice(&body);
             let name = format!("asagiri-dotnet-eof-{}-{}", std::process::id(), &status[..3]);
             let pipe = Arc::new(Pipe::create(&format!(r"\\.\pipe\{name}"), true).unwrap());
-            let client = Command::new("powershell.exe")
+            let mut client = Command::new("powershell.exe")
                 .args(["-NoProfile", "-NonInteractive", "-Command", CLIENT])
                 .env("ASAGIRI_TEST_PIPE", &name)
                 .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
                 .spawn().unwrap();
-            pipe.connect_within(Some(Duration::from_secs(10))).unwrap();
+            // This deadline includes cold PowerShell and CLR startup on hosted Windows.
+            // Once connected, the client still has only five seconds per response read.
+            if let Err(error) = pipe.connect_within(Some(Duration::from_secs(60))) {
+                let _ = client.kill();
+                let output = client.wait_with_output().unwrap();
+                panic!("{status}: .NET pipe client did not connect: {error}; {}: {}",
+                    output.status, String::from_utf8_lossy(&output.stderr));
+            }
             let mut request = [0u8; 512];
             let n = pipe.read_within(&mut request, Some(Duration::from_secs(5))).unwrap();
             assert!(String::from_utf8_lossy(&request[..n]).contains("Connection: close"));

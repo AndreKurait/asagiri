@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri lo ricollega quando torna. Smetti di attendere per lasciarlo su questo computer.",
   "Waiting to come back": "In attesa del ritorno",
   "No languages match": "Nessuna lingua corrispondente",
-  "Cut": "Taglia"
+  "Cut": "Taglia",
+  "Insecure registries": "Registri non sicuri",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Inserisci un indirizzo di registro o un intervallo IP per riga. Questi registri possono usare HTTP o certificati autofirmati."
 }

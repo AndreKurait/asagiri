@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri liittää sen uudelleen, kun se palaa. Lopeta odotus, niin se jää tähän tietokoneeseen.",
   "Waiting to come back": "Odottaa paluuta",
   "No languages match": "Ei vastaavia kieliä",
-  "Cut": "Leikkaa"
+  "Cut": "Leikkaa",
+  "Insecure registries": "Suojaamattomat rekisterit",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Anna kullekin riville yksi rekisterin osoite tai IP-osoitealue. Nämä rekisterit voivat käyttää HTTP:tä tai itse allekirjoitettuja varmenteita."
 }

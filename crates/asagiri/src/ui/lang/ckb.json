@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri کاتێک گەڕایەوە دووبارە پەیوەستی دەکاتەوە. چاوەڕێ بوەستێنە بۆ ئەوەی لەسەر ئەم کۆمپیوتەرە بمێنێتەوە.",
   "Waiting to come back": "چاوەڕێی گەڕانەوەیە",
   "No languages match": "هیچ زمانێک ناگونجێت",
-  "Cut": "بڕین"
+  "Cut": "بڕین",
+  "Insecure registries": "تۆمارگە ناپارێزراوەکان",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "لە هەر دێڕێکدا ناونیشانی تۆمارگەیەک یان مەودایەکی IP بنووسە. ئەم تۆمارگانە دەتوانن HTTP یان بڕوانامەی خۆواژۆکراو بەکاربهێنن."
 }

@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ще го закачи отново, когато се върне. Спрете чакането, за да остане на този компютър.",
   "Waiting to come back": "Чака да се върне",
   "No languages match": "Няма съвпадащи езици",
-  "Cut": "Изрежи"
+  "Cut": "Изрежи",
+  "Insecure registries": "Несигурни регистри",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Въведете по един адрес на регистър или IP диапазон на ред. Тези регистри могат да използват HTTP или самоподписани сертификати."
 }

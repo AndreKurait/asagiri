@@ -678,9 +678,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         let late = procs.get(id).and_then(|p| p.run.late_dns.as_ref());
                         let owner = late.map_or(n.ip, |l| l.ip);
                         // A macvlan or ipvlan network has no gateway address to answer on.
+                        let added_route = net::WayOut::of(ifname, n.gateway, v6, plug);
                         let attached = net::attach(&mut bridges, n.bridge, &host_if, pid, num, n.ip, n.prefix, n.gateway, mac, v6, plug).and_then(|link| {
                             let served = if plug.no_ipv4 || plug.own_link() { Ok(()) } else { dns.serve(n.bridge, n.gateway) }
                                 .and_then(|()| std::fs::File::open(format!("/proc/{pid}/ns/net")).and_then(|ns| dns.serve_in(&ns, pid, owner, n.bridge)));
+                            let served = served.and_then(|()| match (&added_route, procs.get(id)) {
+                                (Some(way), Some(p)) => net::prioritize_attached_route(pid, &p.run.ways_out, way),
+                                _ => Ok(()),
+                            });
                             // Nothing outside the container names such a
                             // link for the next try to clear away.
                             if let (Err(_), Some(m)) = (&served, &link) {
@@ -717,7 +722,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                     }
                                     // The interface is new: nothing kept under its name holds.
                                     p.run.ways_out.retain(|w| w.ifname != ifname);
-                                    p.run.ways_out.extend(net::WayOut::of(ifname, n.gateway, v6, plug));
+                                    p.run.ways_out.extend(added_route);
                                 }
                                 Msg::Ack.encode(&mut out)
                             }
@@ -725,6 +730,11 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                                 // The daemon takes the network as not joined: no
                                 // interface, and no route through it, stays behind.
                                 let _ = net::detach(&host_if);
+                                if added_route.is_some() {
+                                    if let Some(p) = procs.get(id) {
+                                        let _ = net::restore_default_routes(pid, &p.run.ways_out);
+                                    }
+                                }
                                 Msg::Error(&format!("connect: {e}")).encode(&mut out)
                             }
                         }

@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ga ponovo povezuje kada se vrati. Prestanite da čekate da biste ga ostavili na ovom računaru.",
   "Waiting to come back": "Čeka da se vrati",
   "No languages match": "Nijedan jezik se ne poklapa",
-  "Cut": "Iseci"
+  "Cut": "Iseci",
+  "Insecure registries": "Nebezbedni registri",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Unesite jednu adresu registra ili IP opseg po redu. Ovi registri mogu koristiti HTTP ili samopotpisane sertifikate."
 }

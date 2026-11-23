@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri îl atașează din nou când revine. Nu mai așteptați ca să rămână pe acest computer.",
   "Waiting to come back": "Așteaptă să revină",
   "No languages match": "Nicio limbă nu se potrivește",
-  "Cut": "Decupează"
+  "Cut": "Decupează",
+  "Insecure registries": "Registre nesecurizate",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Introduceți o adresă de registru sau un interval IP pe fiecare linie. Aceste registre pot utiliza HTTP sau certificate autosemnate."
 }

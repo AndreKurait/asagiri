@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri sẽ gắn lại khi thiết bị quay lại. Ngừng chờ để để nó lại trên máy tính này.",
   "Waiting to come back": "Đang chờ quay lại",
   "No languages match": "Không có ngôn ngữ nào khớp",
-  "Cut": "Cắt"
+  "Cut": "Cắt",
+  "Insecure registries": "Kho đăng ký không an toàn",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Nhập một địa chỉ kho đăng ký hoặc một dải IP trên mỗi dòng. Các kho này có thể dùng HTTP hoặc chứng chỉ tự ký."
 }

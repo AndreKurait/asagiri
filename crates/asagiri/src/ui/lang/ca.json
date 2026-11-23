@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri el tornarà a connectar quan torni. Deixa d'esperar per deixar-lo en aquest ordinador.",
   "Waiting to come back": "Esperant que torni",
   "No languages match": "Cap idioma no coincideix",
-  "Cut": "Retalla"
+  "Cut": "Retalla",
+  "Insecure registries": "Registres insegurs",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Introduïu una adreça de registre o un interval IP per línia. Aquests registres poden utilitzar HTTP o certificats autosignats."
 }
