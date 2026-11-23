@@ -62,7 +62,23 @@ jobs:
             }
             if ($LASTEXITCODE) { throw 'Engine startup failed' }
             & $docker pull alpine:3.21
-            if ($LASTEXITCODE) { throw 'Image pull failed' }
+            if ($LASTEXITCODE -eq 0) { throw 'Hybrid baseline unexpectedly passed' }
+            $config = Join-Path $env:USERPROFILE '.wslconfig'
+            if (Test-Path $config) { throw 'Existing WSL settings require preservation' }
+            "[wsl2]`nkernelCommandLine=cgroup_no_v1=all" | Set-Content -Encoding ascii $config
+            Stop-Process -Id $launcher.Id
+            wsl.exe --shutdown
+            wsl.exe -d Asagiri-cgroup139 -- cat /proc/cmdline
+            wsl.exe -d Asagiri-cgroup139 -- cat /sys/fs/cgroup/cgroup.controllers
+            if ($LASTEXITCODE) { throw 'Unified hierarchy missing' }
+            $launcher = Start-Process $env:PICKER_APP -ArgumentList '--distro','Asagiri-cgroup139','--pipe','\\.\pipe\asagiri-cgroup139' -PassThru
+            for ($i=0; $i -lt 90; $i++) {
+              & $docker info 2>$null | Out-Null
+              if ($LASTEXITCODE -eq 0) { break }
+              Start-Sleep -Seconds 2
+            }
+            & $docker pull alpine:3.21
+            if ($LASTEXITCODE) { throw 'Unified hierarchy image pull failed' }
             & $docker run --rm alpine:3.21 true
             if ($LASTEXITCODE) { throw 'Container start failed' }
           } finally {
