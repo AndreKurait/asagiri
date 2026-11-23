@@ -72,11 +72,21 @@ jobs:
               click('Registry mirrors')
               assert field().get_value() == ''
               for value in ['registry.test:5153', '']:
-                  field().click_input()
-                  send_keys('^a{BACKSPACE}')
-                  if value:
-                      send_keys(value, vk_packet=True)
-                  assert field().get_value() == value
+                  import tkinter
+                  clipboard = tkinter.Tk()
+                  clipboard.withdraw()
+                  try:
+                      clipboard.clipboard_clear()
+                      if value:
+                          clipboard.clipboard_append(value)
+                      clipboard.update()
+                      field().click_input()
+                      send_keys('^a')
+                      send_keys('^v' if value else '{BACKSPACE}')
+                      observed = field().get_value()
+                      assert observed == value, (value, observed)
+                  finally:
+                      clipboard.destroy()
                   click('Save')
                   window.child_window(title='Save', control_type='Button').wait_not('enabled', timeout=30)
                   click('Containers')
