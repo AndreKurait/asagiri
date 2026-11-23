@@ -28,6 +28,9 @@ jobs:
           export PATH="$tools:$PATH"
           GOBIN="$tools" go install helm.sh/helm/v3/cmd/helm@v3.17.3
           helm version --short
+          chart="$RUNNER_TEMP/cilium-1.20.2.tgz"
+          curl --fail --location --retry 3 https://helm.cilium.io/cilium-1.20.2.tgz -o "$chart"
+          echo "b2afd87b7f75f875f92a14559f14f59b7babbb479d968e3fd625a20bf30ec20e  $chart" | shasum -a 256 -c -
           command -v kind || GOBIN="$tools" go install sigs.k8s.io/kind@v0.31.0
           command -v kubectl || brew install kubectl
           mkdir -p "$RUNNER_TEMP/build"
@@ -63,7 +66,7 @@ jobs:
             kubeProxyMode: none
           CONFIG
           kind create cluster --config "$scratch/kind.yaml" --image kindest/node:v1.35.5 --retain
-          helm install cilium oci://quay.io/cilium/charts/cilium --version 1.20.2 --namespace kube-system --set kubeProxyReplacement=true --set k8sServiceHost=kind-control-plane --set k8sServicePort=6443
+          helm install cilium "$chart" --namespace kube-system --set kubeProxyReplacement=true --set k8sServiceHost=kind-control-plane --set k8sServicePort=6443
           if ! kubectl -n kube-system rollout status ds/cilium --timeout=5m; then
             kubectl -n kube-system get pods -o wide
             kubectl -n kube-system logs ds/cilium -c cilium-agent --tail=80 || true
