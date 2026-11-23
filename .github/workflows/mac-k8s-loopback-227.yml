@@ -1,7 +1,7 @@
 name: Native Mac Kubernetes loopback ports
 on:
   push:
-    branches: [qualification/mac-k8s-loopback-227]
+    branches: [qualification/intel-traefik-tls-227]
 permissions:
   contents: read
 jobs:
@@ -53,7 +53,7 @@ jobs:
           docker cp "$scratch/klipper-lb.tar" asagiri-k8s:/var/lib/rancher/k3s/agent/klipper-lb-staged.tar
           docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/pause-staged.tar /var/lib/rancher/k3s/agent/images/pause.tar
           docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/klipper-lb-staged.tar /var/lib/rancher/k3s/agent/images/klipper-lb.tar
-          kubectl create deployment loopback-check --image=traefik:v3.3 -- traefik --entrypoints.web.address=:8000 --entrypoints.websecure.address=:8443 --ping=true --ping.entrypoint=web
+          kubectl create deployment loopback-check --image=traefik:v3.3 -- traefik --entrypoints.web.address=:8000 --entrypoints.websecure.address=:8443 --ping=true --ping.entrypoint=websecure --entrypoints.websecure.http.tls=true
           if ! kubectl rollout status deployment/loopback-check --timeout=4m; then
             kubectl describe pods -l app=loopback-check
             kubectl get events -A --sort-by=.metadata.creationTimestamp
@@ -67,10 +67,10 @@ jobs:
           kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444},{"op":"replace","path":"/spec/ports/1/port","value":8445}]'
           kubectl get service loopback-check -o wide
           kubectl get endpointslices -l kubernetes.io/service-name=loopback-check -o wide
-          if ! curl --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" http://127.0.0.1:8444/ping; then
+          if ! curl --insecure --noproxy '*' --retry 30 --retry-all-errors --retry-delay 2 --retry-max-time 90 --max-time 5 -fsS -o "$scratch/response.html" https://127.0.0.1:8445/ping; then
             kubectl -n kube-system get daemonsets,pods -o wide
             kubectl -n kube-system get events --sort-by=.lastTimestamp | tail -60
             exit 1
           fi
           grep -Fx 'OK' "$scratch/response.html"
-          lsof -nP -a -p "$daemon" -iTCP:8444 -sTCP:LISTEN | grep -F '127.0.0.1:8444'
+          lsof -nP -a -p "$daemon" -iTCP:8445 -sTCP:LISTEN | grep -F '127.0.0.1:8445'
