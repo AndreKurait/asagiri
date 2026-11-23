@@ -583,6 +583,13 @@ pub fn mount_rootfs(paths: &Paths, id: &str, image_layers: StrList<'_>) -> io::R
         seen.push(digest);
         lower.push(layers::hex(digest)?);
     }
+    // A settings-only image still needs a lower directory for overlayfs.
+    let empty;
+    if lower.is_empty() {
+        empty = base.join("empty");
+        fs::create_dir_all(&empty)?;
+        lower.push(empty.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "container directory is not UTF-8"))?);
+    }
     // diff/commit archive the upper layer itself. Kernel defaults that leave
     // metadata-only files or directory redirects there would lose file data.
     // Keep index's exclusive-upper protection: copy/restart cleanup must
