@@ -136,6 +136,7 @@ jobs:
             @'
           import sys, time, subprocess
           from pywinauto import Desktop
+          from pywinauto.keyboard import send_keys
           from win32gui import PostMessage, IsWindowVisible
           from win32con import WM_CLOSE
           window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
@@ -152,6 +153,16 @@ jobs:
               subprocess.Popen([sys.argv[2]])
               window.wait('visible', timeout=10)
               window.child_window(control_type='Document', found_index=0).wait('visible', timeout=10)
+              window.set_focus()
+              send_keys('^k')
+              search = window.child_window(auto_id='gq', control_type='Edit')
+              search.wait('visible enabled', timeout=10)
+              marker = f'traycycle{i+1}'
+              send_keys(marker, pause=.03)
+              deadline = time.monotonic() + 5
+              while search.get_value() != marker:
+                  if time.monotonic() > deadline: raise RuntimeError(f'Input did not update on reopen {i+1}: {search.get_value()}')
+                  time.sleep(.05)
               print('Reopened', i+1, flush=True)
           '@ | Set-Content tray-check.py
             $start = [Diagnostics.ProcessStartInfo]::new('python')
