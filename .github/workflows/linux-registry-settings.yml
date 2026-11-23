@@ -38,5 +38,18 @@ jobs:
           GLib.timeout_add_seconds(45, Gtk.main_quit)
           Gtk.main()
           print('\n'.join(lines), flush=True)
-          assert len(lines) == 8 and all(line.startswith('ITEM ') for line in lines), lines
+          expected = [
+              'PASS with no mirrors it says Docker Hub itself is used',
+              'PASS opening Settings asks for the mirrors',
+              'PASS adding an address shows it, and Save sends the whole list',
+              "PASS the daemon's answer resets the page to the saved list",
+              'PASS removing a mirror takes it out of the list Save sends',
+              'PASS saving registry exceptions patches only the transport list',
+              'PASS one save updates mirrors and removes the last registry exception',
+              'PASS with no daemon the page says to start Asagiri',
+              'ITEM settings tab Registry mirrors',
+              'ITEM mirrors address field',
+              'ITEM mirrors add button',
+          ]
+          assert lines == expected, lines
           PY
