@@ -45,6 +45,8 @@ jobs:
                           except NotImplementedError: pass
                   time.sleep(1)
               raise RuntimeError((label, [(n.getRoleName(), n.name) for n in controls() if n.name][-100:]))
+          press('Keep building with Docker')
+          press('Open Asagiri')
           press('Registry mirrors')
           time.sleep(2)
           print([(n.getRoleName(),n.name) for n in controls() if n.name or n.getRoleName()=='text'],flush=True)
