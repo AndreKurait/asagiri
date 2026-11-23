@@ -1,6 +1,6 @@
 //! CI entrypoint for the desktop migration module, using real Docker contexts.
 //! Linux forwards `asagiri image import` to Docker's rootfs-import command;
-//! bare `asagiri import` is reserved for desktop migration and unsupported there.
+//! bare `asagiri import` runs the desktop migration command.
 //! Build this example only for the disposable engine migration fixture.
 
 #[cfg(target_os = "linux")]
