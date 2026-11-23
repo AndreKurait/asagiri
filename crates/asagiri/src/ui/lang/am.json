@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri ሲመለስ እንደገና ያገናኘዋል። በዚህ ኮምፒውተር ላይ ለመተው መጠበቅ ያቁሙ።",
   "Waiting to come back": "እስኪመለስ በመጠበቅ ላይ",
   "No languages match": "የሚዛመድ ቋንቋ የለም",
-  "Cut": "ቁረጥ"
+  "Cut": "ቁረጥ",
+  "Insecure registries": "ደህንነታቸው ያልተጠበቀ መዝገቦች",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "በእያንዳንዱ መስመር አንድ የመዝገብ አድራሻ ወይም የIP ክልል ያስገቡ። እነዚህ መዝገቦች HTTP ወይም በራስ የተፈረሙ የምስክር ወረቀቶችን ሊጠቀሙ ይችላሉ።"
 }

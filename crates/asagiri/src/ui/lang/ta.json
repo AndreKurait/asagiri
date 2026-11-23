@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "திரும்ப வந்ததும் Asagiri அதை மீண்டும் இணைக்கும். இந்தக் கணினியிலேயே வைக்கக் காத்திருப்பதை நிறுத்துங்கள்.",
   "Waiting to come back": "திரும்ப வரக் காத்திருக்கிறது",
   "No languages match": "பொருந்தும் மொழி இல்லை",
-  "Cut": "வெட்டு"
+  "Cut": "வெட்டு",
+  "Insecure registries": "பாதுகாப்பற்ற பதிவகங்கள்",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "ஒவ்வொரு வரியிலும் ஒரு பதிவக முகவரி அல்லது IP வரம்பை உள்ளிடவும். இந்தப் பதிவகங்கள் HTTP அல்லது சுய கையொப்பமிட்ட சான்றிதழ்களைப் பயன்படுத்தலாம்."
 }

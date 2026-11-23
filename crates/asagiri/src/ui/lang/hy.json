@@ -1701,5 +1701,7 @@
   "— the log stream ended —": "— մատյանի հոսքն ավարտվեց —",
   "‹ Back": "‹ Հետ",
   "★ Star on GitHub": "★ Աստղ տալ GitHub-ում",
-  "✓ Installed": "✓ Տեղադրված է"
+  "✓ Installed": "✓ Տեղադրված է",
+  "Insecure registries": "Անապահով ռեեստրներ",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Յուրաքանչյուր տողում մուտքագրեք մեկ ռեեստրի հասցե կամ IP միջակայք։ Այս ռեեստրները կարող են օգտագործել HTTP կամ ինքնաստորագրված վկայագրեր։"
 }

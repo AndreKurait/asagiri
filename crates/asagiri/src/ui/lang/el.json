@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Το Asagiri τη συνδέει ξανά μόλις επιστρέψει. Σταματήστε την αναμονή για να μείνει σε αυτόν τον υπολογιστή.",
   "Waiting to come back": "Αναμονή επιστροφής",
   "No languages match": "Δεν βρέθηκαν γλώσσες",
-  "Cut": "Αποκοπή"
+  "Cut": "Αποκοπή",
+  "Insecure registries": "Μη ασφαλή μητρώα",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Εισαγάγετε μία διεύθυνση μητρώου ή ένα εύρος IP ανά γραμμή. Αυτά τα μητρώα μπορούν να χρησιμοποιούν HTTP ή αυτοϋπογεγραμμένα πιστοποιητικά."
 }

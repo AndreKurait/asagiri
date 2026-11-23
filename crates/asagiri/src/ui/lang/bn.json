@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "ফিরে এলে Asagiri এটি আবার যুক্ত করবে। এই কম্পিউটারে রেখে দিতে অপেক্ষা বন্ধ করুন।",
   "Waiting to come back": "ফেরার অপেক্ষায়",
   "No languages match": "কোনো ভাষা মেলেনি",
-  "Cut": "কাটুন"
+  "Cut": "কাটুন",
+  "Insecure registries": "অনিরাপদ রেজিস্ট্রি",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "প্রতি লাইনে একটি রেজিস্ট্রির ঠিকানা বা IP পরিসর লিখুন। এই রেজিস্ট্রিগুলি HTTP বা স্ব-স্বাক্ষরিত সার্টিফিকেট ব্যবহার করতে পারে।"
 }

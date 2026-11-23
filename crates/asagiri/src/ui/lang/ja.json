@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "戻ってきたら Asagiri がもう一度接続します。このコンピュータに残すには待機をやめてください。",
   "Waiting to come back": "戻るのを待機中",
   "No languages match": "一致する言語はありません",
-  "Cut": "切り取り"
+  "Cut": "切り取り",
+  "Insecure registries": "安全でないレジストリ",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "各行にレジストリのアドレスまたは IP アドレス範囲を 1 つ入力してください。これらのレジストリでは HTTP または自己署名証明書を使用できます。"
 }

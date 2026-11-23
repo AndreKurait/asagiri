@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "Asagiri memasangnya lagi saat kembali. Berhenti menunggu agar tetap di komputer ini.",
   "Waiting to come back": "Menunggu kembali",
   "No languages match": "Tidak ada bahasa yang cocok",
-  "Cut": "Potong"
+  "Cut": "Potong",
+  "Insecure registries": "Registri tidak aman",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Masukkan satu alamat registri atau rentang IP per baris. Registri ini dapat menggunakan HTTP atau sertifikat yang ditandatangani sendiri."
 }

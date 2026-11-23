@@ -1701,5 +1701,7 @@
   "Asagiri attaches it again when it's back. Stop waiting to leave it on this computer.": "A Asagiri újra csatlakoztatja, amikor visszatér. Állítsa le a várakozást, hogy ezen a számítógépen maradjon.",
   "Waiting to come back": "Visszatérésre vár",
   "No languages match": "Nincs egyező nyelv",
-  "Cut": "Kivágás"
+  "Cut": "Kivágás",
+  "Insecure registries": "Nem biztonságos regisztrációs adatbázisok",
+  "Enter one registry address or IP range per line. These registries may use HTTP or self-signed certificates.": "Soronként egy címet vagy IP-tartományt adjon meg. Ezek a regisztrációs adatbázisok HTTP-t vagy önaláírt tanúsítványokat használhatnak."
 }
