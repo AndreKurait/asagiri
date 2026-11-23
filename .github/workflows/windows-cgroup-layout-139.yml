@@ -79,10 +79,16 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest sh $script.Trim()
-          Guest /tmp/engineping
+          try { Guest /tmp/engineping } catch {
+            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
+            throw
+          }
           Guest cat /etc/wsl.conf
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified after install'
-          Guest /tmp/engineping
+          try { Guest /tmp/engineping } catch {
+            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
+            throw
+          }
