@@ -168,7 +168,7 @@ jobs:
           deadline = time.monotonic() + 30
           while time.monotonic() < deadline:
               controls = window.descendants()
-              rows = [c for c in controls if c.is_visible() and 'tray-counter' in c.window_text().lower()]
+              rows = [c for c in controls if c.is_visible() and c.window_text().lower().split()[:1] == ['tray-counter']]
               if rows:
                   row = min(rows, key=lambda c: len(c.window_text()))
                   print('Opening container:', row.element_info.control_type, row.window_text(), flush=True)
@@ -176,7 +176,7 @@ jobs:
                   break
               time.sleep(.5)
           else:
-              raise RuntimeError([(c.element_info.control_type, c.element_info.automation_id, c.window_text()[:90]) for c in controls if c.is_visible()][:150])
+              raise RuntimeError([(c.element_info.control_type, c.window_text()[:180]) for c in controls if 'tray-counter' in c.window_text().lower()])
           terminal = window.child_window(title='Terminal', control_type='Button', found_index=0)
           terminal.wait('visible enabled', timeout=15)
           terminal.click_input()
