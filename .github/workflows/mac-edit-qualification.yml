@@ -37,6 +37,11 @@ jobs:
           unset DOCKER_CONTEXT
           for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
           trap 'tail -60 "$scratch/daemon.log"' ERR
+          for attempt in 1 2 3; do
+            docker pull alpine:3.21 && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 5
+          done
           docker create --name clipboard-qualification alpine:3.21 sleep 900
           for attempt in 1 2 3; do
             docker start clipboard-qualification && break
