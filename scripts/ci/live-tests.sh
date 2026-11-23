@@ -7,6 +7,8 @@
 # busybox and on alpine. Prints one line per script, its complete output
 # when it fails, and exits 1 when any failed.
 set -u
+suite=${2:-all}
+case "$suite" in all|core|clients) ;; *) echo "unknown live suite: $suite" >&2; exit 2 ;; esac
 bin=$(cd "$1" && pwd) || exit 2
 src=$(cd "$(dirname "$0")/../.." && pwd)
 timed() {
@@ -18,50 +20,53 @@ timed() {
     "$@"
   fi
 }
-timed reference/ci-engine-import python3 "$src/tests/ci-engine-import.py" || exit 1
-# Run the same archive cases on the runner's Docker engine for comparison.
-timed reference/layer-hardlinks python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
-timed reference/container-ancestor python3 "$src/tests/container-ancestor.py" /var/run/docker.sock --reference-docker || exit 1
-# Establish Docker's allowed serialization behavior before testing the private
-# Asagiri build. The fixture itself never pulls or touches unowned containers.
-docker image inspect alpine:3.21 >/dev/null 2>&1 || timed pull/host-alpine docker pull -q alpine:3.21 >/dev/null || exit 2
-timed reference/shared-root python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
-# The production importer needs two engines. Give it fresh private stores,
-# exercise the actual Docker CLI contexts, and remove both hosts afterward.
-failed=0
-if ! timed live/engine-import sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
-  python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --fixtures "${bin}-fixtures" \
-    --out "${bin}-engine-import"; then
-  echo "[FAIL] desktop engine migration; continuing the independent live checks"
-  failed=$((failed + 1))
-fi
 name=asagiri-live-$$
 sock=/run/asagiri/docker.sock
 dock() { docker exec "$name" docker -H "unix://$sock" "$@"; }
 
-# Run the identical many-layer fixture on the runner's Docker daemon.
-timed reference/many-layers python3 "$src/tests/many-layers.py" /var/run/docker.sock alpine:3.21 || exit 2
-# The same read-only fixture runs against the runner's Docker daemon first.
-timed reference/distribution python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
-timed reference/image-digest-export python3 "$src/tests/image-digest-export.py" /var/run/docker.sock --reference-docker || exit 2
-timed reference/image-remove python3 "$src/tests/image-remove.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/image-label-inheritance python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
-ASAGIRI_TEST_ENGINE=1 timed reference/image-load-completion python3 "$src/tests/image-load-completion.py" /var/run/docker.sock --reference-docker || exit 2
-timed reference/volume-owner python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/volume-labels python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/start-exec-image-user python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/tmpfs-inspect python3 "$src/tests/tmpfs-inspect.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/user-resolution python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
-timed reference/network-dns-order python3 "$src/tests/network-dns-order.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/daemon-time python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
-timed reference/image-order python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
-timed reference/top-arguments python3 "$src/tests/top-arguments.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
-timed reference/api-compatibility python3 "$src/tests/api-compatibility.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+failed=0
 compose_evidence=$(python3 "$src/scripts/ci/compose-health-client.py" "${bin}-health-compose") || exit 2
-timed reference/healthchecks python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
-  --output "$compose_evidence/health-docker.json" || exit 2
-timed reference/compose-health python3 "$src/tests/compose-health.py" /var/run/docker.sock alpine:3.21 --reference-docker \
-  --compose-plugin "$compose_evidence/docker-compose" --output "$compose_evidence/compose-docker.json" || exit 2
+if [ "$suite" != clients ]; then
+  timed reference/ci-engine-import python3 "$src/tests/ci-engine-import.py" || exit 1
+  # Run the same archive cases on the runner's Docker engine for comparison.
+  timed reference/layer-hardlinks python3 "$src/tests/layer-hardlinks.py" /var/run/docker.sock --reference-docker || exit 1
+  timed reference/container-ancestor python3 "$src/tests/container-ancestor.py" /var/run/docker.sock --reference-docker || exit 1
+  # Establish Docker's allowed serialization behavior before testing the private
+  # Asagiri build. The fixture itself never pulls or touches unowned containers.
+  docker image inspect alpine:3.21 >/dev/null 2>&1 || timed pull/host-alpine docker pull -q alpine:3.21 >/dev/null || exit 2
+  timed reference/shared-root python3 "$src/tests/shared-root.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 1
+  # The production importer needs two engines. Give it fresh private stores,
+  # exercise the actual Docker CLI contexts, and remove both hosts afterward.
+  if ! timed live/engine-import sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+    python3 "$src/scripts/ci/engine-import.py" --binaries "$bin" --fixtures "${bin}-fixtures" \
+      --out "${bin}-engine-import"; then
+    echo "[FAIL] desktop engine migration; continuing the independent live checks"
+    failed=$((failed + 1))
+  fi
+  # Run the identical many-layer fixture on the runner's Docker daemon.
+  timed reference/many-layers python3 "$src/tests/many-layers.py" /var/run/docker.sock alpine:3.21 || exit 2
+  # The same read-only fixture runs against the runner's Docker daemon first.
+  timed reference/distribution python3 "$src/tests/distribution.py" /var/run/docker.sock --reference-docker || exit 2
+  timed reference/image-digest-export python3 "$src/tests/image-digest-export.py" /var/run/docker.sock --reference-docker || exit 2
+  timed reference/image-remove python3 "$src/tests/image-remove.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/image-label-inheritance python3 "$src/tests/image-label-inheritance.py" /var/run/docker.sock || exit 2
+  ASAGIRI_TEST_ENGINE=1 timed reference/image-load-completion python3 "$src/tests/image-load-completion.py" /var/run/docker.sock --reference-docker || exit 2
+  timed reference/volume-owner python3 "$src/tests/volume-owner.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/volume-labels python3 "$src/tests/volume-labels.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/start-exec-image-user python3 "$src/tests/start-exec-image-user.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/tmpfs-inspect python3 "$src/tests/tmpfs-inspect.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/user-resolution python3 "$src/tests/user-resolution.py" /var/run/docker.sock alpine:3.21 || exit 2
+  timed reference/network-dns-order python3 "$src/tests/network-dns-order.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/daemon-time python3 "$src/tests/daemon-time.py" /var/run/docker.sock --reference-docker || exit 2
+  timed reference/image-order python3 "$src/tests/image-order.py" /var/run/docker.sock --reference-docker || exit 2
+  timed reference/top-arguments python3 "$src/tests/top-arguments.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/api-compatibility python3 "$src/tests/api-compatibility.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
+  timed reference/healthchecks python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
+    --output "$compose_evidence/health-docker.json" || exit 2
+  timed reference/compose-health python3 "$src/tests/compose-health.py" /var/run/docker.sock alpine:3.21 --reference-docker \
+    --compose-plugin "$compose_evidence/docker-compose" --output "$compose_evidence/compose-docker.json" || exit 2
+
+fi
 
 # IPv6 probes need an enabled private host namespace. Docker may otherwise
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
@@ -113,6 +118,16 @@ run api-version --cold
 for img in busybox:stable alpine:3.21; do
   timed "pull/$img" docker exec "$name" docker -H "unix://$sock" pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
 done
+if [ "$suite" != core ]; then
+  run mcp-integration alpine:3.21
+  run mcp-sdk alpine:3.21
+  run browser-integration alpine:3.21
+  for img in busybox:stable alpine:3.21; do run image-import "$img"; done
+fi
+if [ "$suite" = clients ]; then
+  [ "$failed" -eq 0 ] || { docker logs "$name" >&2; exit 1; }
+  exit 0
+fi
 # Construct a settings-only Docker archive, then exercise
 # the candidate's load, inspect and root mount through the Docker CLI.
 check_zero_layer_root() (
@@ -197,11 +212,7 @@ run init-descriptors alpine:3.21
 run device-filter-failure alpine:3.21
 run overlay-copyup alpine:3.21
 run kind-network alpine:3.21
-run mcp-integration alpine:3.21
-run mcp-sdk alpine:3.21
-run browser-integration alpine:3.21
 for img in busybox:stable alpine:3.21; do
-  run image-import "$img"
   run bind-inotify "$img"
   run start-exec-readiness "$img"
 done

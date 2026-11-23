@@ -293,7 +293,7 @@ jobs:
         # limits and seccomp, on busybox and alpine.
         env:
           ASAGIRI_CI_TRACE: ${{ runner.temp }}/runtime-spans.jsonl
-        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin" core
       - name: Summarize runner timings
         if: ${{ !cancelled() }}
         run: |
@@ -324,6 +324,40 @@ jobs:
           path: ${{ runner.temp }}/bin-health-compose/*.json
           if-no-files-found: ignore
           retention-days: 90
+
+  linux_integrations:
+    name: Linux clients and integrations
+    needs: linux_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-test-inputs-X64
+          path: ${{ runner.temp }}
+      - name: Verify tested binaries and fixtures against this checkout
+        run: |
+          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/linux-inputs.tar"
+          for dir in bin bin-fixtures; do
+            test "$(cat "$RUNNER_TEMP/$dir/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+            (cd "$RUNNER_TEMP/$dir" && sha256sum -c SHA256SUMS)
+          done
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
+      - name: Test MCP, browser and image import on a private engine
+        env:
+          ASAGIRI_CI_TRACE: ${{ runner.temp }}/client-spans.jsonl
+        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin" clients
+      - name: Preserve client timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-client-trace-${{ runner.arch }}
+          path: ${{ runner.temp }}/client-spans.jsonl
+          retention-days: 30
       - name: Restart the daemon with orphaned container mounts
         run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Verify registry TLS trust and actual BuildKit admission
@@ -395,13 +429,13 @@ jobs:
   linux:
     name: Linux
     if: ${{ always() }}
-    needs: [linux_build, linux_packages, linux_runtime]
+    needs: [linux_build, linux_packages, linux_runtime, linux_integrations]
     runs-on: ubuntu-slim
     steps:
       - name: Require successful build, packaging and runtime tests
         env:
           RESULTS: ${{ toJSON(needs.*.result) }}
-        run: python3 -c 'import json,os,sys; sys.exit(json.loads(os.environ["RESULTS"]) != ["success"] * 3)'
+        run: python3 -c 'import json,os,sys; sys.exit(json.loads(os.environ["RESULTS"]) != ["success"] * 4)'
 
   native_linux_arm:
     name: Native Linux ARM64
