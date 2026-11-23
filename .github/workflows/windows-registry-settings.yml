@@ -53,7 +53,9 @@ jobs:
                   while time.monotonic() < deadline:
                       buttons = window.descendants(control_type='Button')
                       for button in buttons:
-                          if button.window_text() == title and button.is_visible() and button.is_enabled():
+                          label = button.window_text()
+                          matches = label == title or (title == 'Containers' and label.startswith('Containers ') and label[11:].isdigit())
+                          if matches and button.is_visible() and button.is_enabled():
                               if title == 'Settings':
                                   button.invoke()
                                   time.sleep(1)
