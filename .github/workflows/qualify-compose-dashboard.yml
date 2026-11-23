@@ -66,14 +66,14 @@ jobs:
                   labels = [widget.get_name() for widget in widgets]
                   if attempt % 5 == 0:
                       print([name for name in labels if name][:50], flush=True)
+                  if {'Structure', 'Services', 'Compose file', 'Logs'}.issubset(labels) and 'Compose dashboard246' in labels:
+                      print('Opened running dashboard246 project and observed its four detail tabs')
+                      break
                   for label in ('Continue', 'English Same as Linux Hello', 'Keep building with Docker', 'Open Asagiri', 'Start engine', 'dashboard246', 'Compose Beta'):
                       button = next((w for name, w in zip(labels, widgets) if name == label and w.get_state_set().contains(Atspi.StateType.ENABLED) and w.get_n_actions()), None)
                       if button and button.do_action(0):
                           print(f'Activated {label}', flush=True)
                           break
-                  if {'Structure', 'Services', 'Compose file', 'Logs'}.issubset(labels) and 'dashboard246' in labels:
-                      print('Opened running dashboard246 project and observed its four detail tabs')
-                      break
               except GLib.Error as error:
                   print(f"Accessibility tree changed: {error}", flush=True)
               time.sleep(1)
