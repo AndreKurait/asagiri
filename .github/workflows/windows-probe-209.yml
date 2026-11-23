@@ -1,7 +1,7 @@
-name: Verify dashboard selection when Windows WSL cannot answer
+name: Reproduce dev.212 returning completed Windows setup to the wizard
 on:
   push:
-    branches: [qualification/windows-probe-209]
+    branches: [qualification/windows-baseline-209]
 permissions:
   contents: read
 jobs:
@@ -9,20 +9,19 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Build and test the candidate launcher
-        run: |
-          cargo test --locked -p asagiri-win incomplete_setup_resumes_from_persisted_state
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo build --locked --release -p asagiri-win
       - name: Launch the actual dashboard and setup views with an unavailable WSL service
         run: |
           $ErrorActionPreference = 'Stop'
           python -m pip install pywinauto==0.6.9
           if ($LASTEXITCODE) { throw 'UI Automation installation failed' }
-          $app = (Resolve-Path target/release/asagiri-win.exe).Path
+          $asset = 'Asagiri-0.1.14-dev.212-x86_64.msi'
+          $msi = Join-Path $env:RUNNER_TEMP $asset
+          Invoke-WebRequest "https://github.com/AndreKurait/asagiri/releases/download/v0.1.14-dev.212/$asset" -OutFile $msi
+          if ((Get-FileHash $msi).Hash -ne 'f3dc09608a49494288b9dc6dd787d460aa095d862eff0e6b5dbfac3ad494cbc0') { throw 'Wrong MSI digest' }
+          $installer = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($installer.ExitCode -notin 0,3010) { throw "Install failed: $($installer.ExitCode)" }
+          $app = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.exe'
+          Get-Process asagiri-win -ErrorAction SilentlyContinue | Stop-Process -Force
           $homeDir = Join-Path $env:LOCALAPPDATA Asagiri
           New-Item -Force -ItemType Directory $homeDir | Out-Null
           wsl.exe --version
@@ -36,7 +35,8 @@ jobs:
             if (!$LASTEXITCODE) { throw 'WSL still returned a successful distro list' }
             foreach ($done in $true,$false) {
               @{done=$done;distro='asagiri'} | ConvertTo-Json | Set-Content (Join-Path $homeDir setup.json) -Encoding utf8NoBOM
-              $expected = if ($done) { 'Asagiri' } else { 'Asagiri Setup' }
+              Write-Host "Testing persisted done=$done"
+              $expected = 'Asagiri Setup'
               $process = Start-Process $app -PassThru
               try {
                 python -c "from pywinauto import Desktop; import sys; window = Desktop(backend='uia').window(process=int(sys.argv[1]), title='Asagiri'); doc = window.child_window(title=sys.argv[2], control_type='Document'); doc.wait('visible', timeout=90); print('Visible WebView document:', doc.window_text())" $process.Id $expected
