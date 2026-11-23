@@ -39,7 +39,7 @@ jobs:
           $tag = 'v0.1.14-dev.247'
           $asset = 'Asagiri-0.1.14-dev.247-windows-x86_64.zip'
           $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
-          if ($ref.object.sha -ne '865088f2f78c52b7acd694e9c048b227a3449c43') { throw 'Release revision mismatch' }
+          if ($ref.object.sha -ne '03ca8b46c7ebc0ca17f99901b1aafd8eb9740ec1') { throw 'Release revision mismatch' }
           $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
           if ($release.isDraft) { throw 'Release is still a draft' }
           $digest = ($release.assets | Where-Object name -eq $asset).digest
