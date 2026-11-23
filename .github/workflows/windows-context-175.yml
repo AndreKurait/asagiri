@@ -58,6 +58,17 @@ jobs:
               if ($LASTEXITCODE -or $actual -ne $expected) { throw 'Image inventory mismatch' }
               Write-Host "$cli server=$server alpine=$actual"
             }
+            $saved = & $packaged create --name retained189 alpine:3.21 true
+            if ($LASTEXITCODE) { throw 'Creating the pre-restart container failed' }
+            wsl.exe --terminate Asagiri-context175
+            if ($LASTEXITCODE) { throw 'WSL termination failed' }
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            $restored = & $terminal inspect retained189 --format '{{.Id}}'
+            $elapsed = $timer.Elapsed.TotalSeconds
+            Write-Host "First inspect after WSL termination took $elapsed seconds; exit=$LASTEXITCODE"
+            if ($LASTEXITCODE -or $restored -ne $saved) { throw 'First inspect did not recover the existing container' }
+            & $terminal start -a retained189
+            if ($LASTEXITCODE) { throw 'Retained container could not start' }
           } finally {
             if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id }
             wsl.exe --terminate Asagiri-context175
