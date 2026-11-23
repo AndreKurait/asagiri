@@ -1,4 +1,4 @@
-name: Inspect x64 AppImage onboarding window
+name: Verify published Linux AppImage graphical authorization and engine startup
 on:
   push:
     branches: [qualification/linux-x64-onboarding-132]
@@ -7,34 +7,35 @@ permissions:
   actions: read
 jobs:
   onboarding:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            digest: 4c18e613e5efa530cb109d8fc50154e92aa8dd4e3d662d4765be87e79b53b8ac
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            digest: a86e1b53e79c343535687f13ac8046fc376e1f903d58a44206129b3b6054d1f1
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
     steps:
       - name: Install desktop runtime and capture tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-0 xvfb xauth xdotool imagemagick dbus-x11 pkexec policykit-1-gnome
-      - name: Capture the main revision's x64 AppImage in a fresh X session
+      - name: Download and verify published AppImage
         env:
           GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ matrix.digest }}
         run: |
-          set -euo pipefail
-          gh run download 45112151103 -R AndreKurait/asagiri -n appimage-X64 -D package
-          app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
-          echo "7a88b13167f563fe212bd84e56bf486e08fdff7cf8570769b4241b896781dd34  $app" | sha256sum -c -
-          chmod +x "$app"
-          mkdir -p observations "$RUNNER_TEMP/clean-home"
-          HOME="$RUNNER_TEMP/clean-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s -- "$app" <<'SH'
-          APPIMAGE_EXTRACT_AND_RUN=1 "$1" >observations/app.log 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-          win=$(timeout 60 xdotool search --sync --onlyvisible --name 'Asagiri' | head -1)
-          for delay in 10 20; do
-            sleep "$delay"
-            import -window "$win" "observations/window-$delay.png"
-            identify -format '%f %wx%h %k colors\n' "observations/window-$delay.png"
-          done
-          SH
+          test "$(uname -m)" = "$ARCH"
+          asset="Asagiri-0.1.14-dev.205-$ARCH.AppImage"
+          gh release download v0.1.14-dev.205 -R AndreKurait/asagiri -p "$asset"
+          echo "$DIGEST  $asset" | sha256sum -c -
+          mv "$asset" release.AppImage
+          chmod +x release.AppImage
       - name: Verify direct AppImage launch and mounted filesystem
         if: ${{ !cancelled() }}
         run: |
@@ -42,8 +43,12 @@ jobs:
           mkdir -p observations "$RUNNER_TEMP/fuse-home"
           ls -l /dev/fuse
           test -r /dev/fuse && test -w /dev/fuse
+          umask 077
+          openssl rand -hex 24 | tr -d '\n' > "$RUNNER_TEMP/fuse-home/.test-password"
+          trap 'rm -f "$RUNNER_TEMP/fuse-home/.test-password"' EXIT
+          { printf '%s:' "$(id -un)"; cat "$RUNNER_TEMP/fuse-home/.test-password"; echo; } | sudo chpasswd
           sudo systemd-run --wait --pipe --collect --uid="$(id -un)" --property=PAMName=login --working-directory="$PWD" /usr/bin/env HOME="$RUNNER_TEMP/fuse-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s <<'SH'
-          app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
+          app="$PWD/release.AppImage"
           "$app" >observations/direct-launch.log 2>&1 &
           app_pid=$!
           agent=$(dpkg-query -L policykit-1-gnome | awk '/\/polkit-gnome-authentication-agent-1$/ {print; exit}')
@@ -68,10 +73,19 @@ jobs:
             xdotool search --onlyvisible --name '.*' getwindowname %@ >"observations/window-titles-$delay.txt" || true
           done
           grep -Ei 'authenticat|password' observations/window-titles-*.txt
+          auth=$(timeout 10 xdotool search --sync --onlyvisible --name 'Authenticate' | head -1)
+          xdotool windowfocus --sync "$auth"
+          xdotool type --file "$HOME/.test-password"
+          xdotool key Return
+          for attempt in $(seq 1 60); do
+            if sudo -n curl -fsS --unix-socket /run/asagiri/docker.sock http://localhost/_ping >observations/engine-ping.txt 2>/dev/null && grep -qx OK observations/engine-ping.txt; then break; fi
+            sleep 2
+          done
+          grep -qx OK observations/engine-ping.txt
           compare -metric AE observations/direct-window.png observations/after-continue.png null: 2>observations/changed-pixels.txt || test "$?" = 1
           SH
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: x64-onboarding-observations
+          name: onboarding-${{ matrix.arch }}
           path: observations/
