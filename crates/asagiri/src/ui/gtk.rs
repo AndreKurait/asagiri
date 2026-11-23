@@ -4,7 +4,9 @@
 //! through `asagiri.on(...)`.
 //!
 //! The window keeps the desktop's own title bar, as on Windows. Closing it
-//! quits the window only: the engine is a system service and keeps running.
+//! quits the window only, unless Settings → Appearance → Close the window to
+//! the tray is on and the tray is up (issue #405): then it hides behind the
+//! tray instead. Either way the engine is a system service and keeps running.
 
 use std::cell::RefCell;
 use std::io;
@@ -24,6 +26,11 @@ thread_local! {
     static WINDOW: RefCell<Option<gtk::Window>> = const { RefCell::new(None) };
 }
 
+/// The engine thread's channel, kept so the tray setting can start or stop
+/// the tray after the window opens (Settings → Appearance → Close the window
+/// to the tray). Set in `run`, before the window opens.
+static TRAY_TX: std::sync::Mutex<Option<mpsc::Sender<Cmd>>> = std::sync::Mutex::new(None);
+
 /// Before the page's own scripts: which system this is.
 const SHIM: &str = r#"window.ASAGIRI_OS = "linux";"#;
 
@@ -39,6 +46,11 @@ pub fn run(autostart: bool, view: Option<String>) -> io::Result<()> {
     let (tx, rx) = mpsc::channel();
     let engine_tx = tx.clone();
     let engine = std::thread::Builder::new().name("asagiri-engine".into()).spawn(move || engine(rx, engine_tx))?;
+    *TRAY_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx.clone());
+    // The tray, when the setting says so and a tray host took it: closing
+    // the window then hides it instead of quitting (issue #405). Windows
+    // and macOS always have their tray; Linux only gets one on opt-in.
+    super::tray::set_active(super::prefs()["closeToTray"] == true, &tx, ICON_PNG);
 
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title(crate::flavor::APP.get());
@@ -82,7 +94,14 @@ pub fn run(autostart: bool, view: Option<String>) -> io::Result<()> {
 
     set_appearance(prefs()["theme"].as_str().unwrap_or("system"));
     let quit_tx = tx;
-    window.connect_delete_event(move |_, _| {
+    window.connect_delete_event(move |window, _| {
+        // Close to the tray, when the setting is on and the tray is up: the
+        // window hides and the engine thread carries on. Otherwise closing
+        // quits, as it always has.
+        if super::tray::active() && super::prefs()["closeToTray"] == true {
+            window.hide();
+            return glib::Propagation::Stop;
+        }
         let _ = quit_tx.send(Cmd::Quit);
         gtk::main_quit();
         glib::Propagation::Proceed
@@ -178,6 +197,34 @@ pub(super) fn eval(js: String) {
     });
 }
 
+/// Shows the window again (the tray's Open Asagiri, or a tray click), from any
+/// thread. On Wayland the host may need an activation token to raise it;
+/// ksni hands one to the tray's click, but GTK takes the window as it is.
+pub(super) fn show() {
+    glib::MainContext::default().invoke(|| {
+        WINDOW.with(|v| {
+            if let Some(window) = v.borrow().as_ref() {
+                window.show();
+                window.present();
+            }
+        });
+    });
+}
+
+/// Restore a hidden dashboard when its tray icon disappears.
+pub(super) fn tray_disconnected() {
+    glib::idle_add_once(|| {
+        WINDOW.with(|v| {
+            if let Some(window) = v.borrow().as_ref() {
+                if !window.is_visible() && !super::tray::active() {
+                    window.show();
+                    window.present();
+                }
+            }
+        });
+    });
+}
+
 /// Closes the window, from any thread.
 pub(super) fn quit() {
     glib::MainContext::default().invoke(|| {
@@ -187,6 +234,24 @@ pub(super) fn quit() {
             }
         });
     });
+}
+
+/// Quits from the tray, from any thread: the engine thread ends on
+/// Cmd::Quit and the GTK loop ends here, whether the window is shown or
+/// hidden behind the tray. Not `quit()`: closing a hidden window is not a
+/// way to ask it to quit.
+pub(super) fn quit_now(tx: &mpsc::Sender<Cmd>) {
+    let _ = tx.send(Cmd::Quit);
+    glib::MainContext::default().invoke(gtk::main_quit);
+}
+
+/// Settings → Appearance → Close the window to the tray, changed while the
+/// window runs: start the tray, or stop it. Called from `set_pref`, on the
+/// engine thread; the channel is the one `run` kept.
+pub(super) fn set_close_to_tray(on: bool) {
+    if let Some(tx) = TRAY_TX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        super::tray::set_active(on, tx, ICON_PNG);
+    }
 }
 
 /// The desktop's own title bar moves the window; the page's strip is not a handle here.

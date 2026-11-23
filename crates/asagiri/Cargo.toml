@@ -64,13 +64,20 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 gtk = { version = "0.18", optional = true }
 webkit2gtk = { version = "2.0", optional = true, features = ["v2_40"] }
 javascriptcore-rs = { version = "1", optional = true }
+# The tray (issue #405): StatusNotifierItem over D-Bus, pure Rust, no
+# libappindicator and no deprecated GTK StatusIcon. `blocking` for the
+# spawn/update/shutdown API; `async-io` instead of the default tokio, so
+# the window pulls in no async runtime it doesn't already use. Unlicense,
+# which deny.toml allows.
+# ksni PR 48 migrates the tray to zbus 6. Pin until the port is released.
+ksni = { path = "../../vendor/ksni", optional = true, default-features = false, features = ["async-io", "blocking"] }
 
 # The tests read back the tar archives the managed builder writes.
 [dev-dependencies]
 tar = "0.4"
 
 [features]
-window = ["dep:gtk", "dep:webkit2gtk", "dep:javascriptcore-rs"]
+window = ["dep:gtk", "dep:webkit2gtk", "dep:javascriptcore-rs", "dep:ksni"]
 
 [lints]
 workspace = true

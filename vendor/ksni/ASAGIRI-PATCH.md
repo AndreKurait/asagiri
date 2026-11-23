@@ -1,0 +1,1 @@
+The tray uses the zbus 6 port from iovxw/ksni PR #48, commit `93f005b9f94f3da633b3d067665349765089cc31` in `jmortlock/ksni`. The library files and license are copied from that revision. Replace with a released crate once the port ships.
