@@ -48,6 +48,9 @@ On macOS, Linux, and Windows with the Asagiri WSL distro, `asagiri scan IMAGE` s
   a folder (`driver_opts: {type: none, o: bind, device: /path}`). Mac bind sources in
   `/Users`, `/Volumes`, `/private`, `/tmp`, `/var/folders`, `/opt` and
   `/usr/local` use the Mac's files. Other paths stay in the Linux VM.
+  On Apple Silicon macOS 26.7.3, `chown` on a writable Mac bind mount can
+  return success while the file still appears owned by root inside the container.
+  Use a named volume for data whose ownership must change to a container UID.
   The Mac share uses 1 MiB read-ahead for sequential reads; cache coherence
   and read-only mounts are unchanged. Other filesystems keep their settings.
   New named and anonymous `--mount` volumes keep requested labels and local
