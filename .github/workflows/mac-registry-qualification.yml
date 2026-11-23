@@ -1,0 +1,33 @@
+name: Native macOS registry settings
+on:
+  push:
+    branches: [qualification/macos-registry-settings-153]
+permissions:
+  contents: read
+jobs:
+  registry-settings:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri --bin asagiri
+      - name: Save a registry exception through Settings and read it from the daemon
+        run: |
+          set -euo pipefail
+          swiftc tests/mac-registry-settings.swift -o "$RUNNER_TEMP/registry-settings"
+          scratch=$(mktemp -d /tmp/registry153.XXXXXX)
+          export HOME="$scratch/home" ASAGIRI_SOCKET="$scratch/engine.sock" ASAGIRI_DATA_DIR="$scratch/store"
+          export PATH="$PWD/target/debug:$PATH"
+          mkdir -p "$HOME/.asagiri"
+          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          asagiri daemon & daemon=$!
+          asagiri ui & ui=$!
+          trap 'kill "$ui" "$daemon" 2>/dev/null || true' EXIT
+          "$RUNNER_TEMP/registry-settings" "$ui"
+          for attempt in {1..15}; do
+            if curl -fsS --unix-socket "$ASAGIRI_SOCKET" http://localhost/asagiri/daemon-config | jq -e '.["insecure-registries"] == ["registry.test:5153"]'; then exit 0; fi
+            sleep 1
+          done
+          exit 1
