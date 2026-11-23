@@ -1,7 +1,7 @@
 name: Verify published Windows engine on the reported WSL 2.4.13 kernel
 on:
   push:
-    branches: [qualification/windows-wsl2413-139]
+    branches: [qualification/windows-boot-command-241]
 permissions:
   actions: read
   contents: read
@@ -30,7 +30,7 @@ jobs:
           $version = wsl.exe --version | Out-String
           Write-Host $version
           if ($version -notmatch '2\.4\.13\.0') { throw 'Reported WSL version was not installed' }
-      - name: Inspect stock WSL mounts and start a container
+      - name: Verify existing boot command before and after packaged installation
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -48,48 +48,18 @@ jobs:
           if ($LASTEXITCODE -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw 'Release archive verification failed' }
           Expand-Archive $asset bundle
           $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
-          wsl.exe --import Asagiri-cgroup139 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          wsl.exe --import Managed241 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
-          wsl.exe --version
           $env:WSL_UTF8 = '1'
-          $kernel = wsl.exe -d Asagiri-cgroup139 -- uname -r
-          Write-Host "Actual kernel: $kernel"
-          if ($kernel -notlike '5.15.167.4-microsoft-standard-WSL2*') { throw 'Actual kernel differs from the upstream report' }
-          wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/cgroup
-          wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/mountinfo | Select-String ' - cgroup2? '
-          if ($LASTEXITCODE) { throw 'Reading mount topology failed' }
-          wsl.exe --terminate Asagiri-cgroup139
-          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
-          $docker = Join-Path (Split-Path $env:PICKER_APP) 'bin/docker.exe'
-          $launcher = Start-Process $env:PICKER_APP -ArgumentList '--distro','Asagiri-cgroup139','--pipe','\\.\pipe\asagiri-cgroup139' -PassThru
-          try {
-            for ($i=0; $i -lt 90; $i++) {
-              & $docker info 2>$null | Out-Null
-              if ($LASTEXITCODE -eq 0) { break }
-              Start-Sleep -Seconds 2
-            }
-            if ($LASTEXITCODE) { throw 'Engine startup failed' }
-            $failure = & $docker pull alpine:3.21 2>&1 | Out-String
-            Write-Host $failure
-            if (!$LASTEXITCODE -or $failure -notlike '*hybrid hierarchy with v2 at /sys/fs/cgroup/unified*') { throw 'Missing actionable hybrid hierarchy diagnostic' }
-            $config = Join-Path $env:USERPROFILE '.wslconfig'
-            if (Test-Path $config) { throw 'Existing WSL settings require preservation' }
-            "[wsl2]`nkernelCommandLine=cgroup_no_v1=all" | Set-Content -Encoding ascii $config
-            Stop-Process -Id $launcher.Id
-            wsl.exe --shutdown
-            wsl.exe -d Asagiri-cgroup139 -- cat /proc/cmdline
-            wsl.exe -d Asagiri-cgroup139 -- cat /sys/fs/cgroup/cgroup.controllers
-            if ($LASTEXITCODE) { throw 'Unified hierarchy missing' }
-            $launcher = Start-Process $env:PICKER_APP -ArgumentList '--distro','Asagiri-cgroup139','--pipe','\\.\pipe\asagiri-cgroup139' -PassThru
-            for ($i=0; $i -lt 90; $i++) {
-              & $docker info 2>$null | Out-Null
-              if ($LASTEXITCODE -eq 0) { break }
-              Start-Sleep -Seconds 2
-            }
-            & $docker pull alpine:3.21
-            if ($LASTEXITCODE) { throw 'Unified hierarchy image pull failed' }
-            & $docker run --rm alpine:3.21 true
-            if ($LASTEXITCODE) { throw 'Container start failed' }
-          } finally {
-            if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id }
-          }
+          function Guest { & wsl.exe -d Managed241 -u root -- @args; if ($LASTEXITCODE) { throw "Guest command failed: $args" } }
+          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=touch /tmp/managed241-marker\n" > /etc/wsl.conf'
+          wsl.exe --terminate Managed241
+          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+          Write-Host 'Existing boot command verified before install'
+          $script = Guest wslpath -u "$(Split-Path $env:PICKER_APP)\install.sh"
+          Guest sh $script.Trim()
+          Guest cat /etc/wsl.conf
+          Guest rm /tmp/managed241-marker
+          wsl.exe --terminate Managed241
+          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+          Write-Host 'Existing boot command verified after install'
