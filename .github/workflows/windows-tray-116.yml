@@ -165,9 +165,18 @@ jobs:
               print('Reopened', i+1, flush=True)
           containers = window.child_window(title_re=r'^Containers(?:\s*\d+)?$', control_type='Button', found_index=0)
           containers.invoke()
-          row = window.child_window(title='tray-counter', control_type='Text', found_index=0)
-          row.wait('visible', timeout=15)
-          row.click_input()
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              controls = window.descendants()
+              rows = [c for c in controls if c.is_visible() and 'tray-counter' in c.window_text().lower()]
+              if rows:
+                  row = min(rows, key=lambda c: len(c.window_text()))
+                  print('Opening container:', row.element_info.control_type, row.window_text(), flush=True)
+                  row.click_input()
+                  break
+              time.sleep(.5)
+          else:
+              raise RuntimeError([(c.element_info.control_type, c.element_info.automation_id, c.window_text()[:90]) for c in controls if c.is_visible()][:150])
           terminal = window.child_window(title='Terminal', control_type='Button', found_index=0)
           terminal.wait('visible enabled', timeout=15)
           terminal.invoke()
