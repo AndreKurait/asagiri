@@ -47,10 +47,12 @@ jobs:
           $docker = Join-Path $bundle 'bin/docker.exe'
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
             $wizard = Start-Process $app -PassThru
             @'
           import sys
           import time
+          from pywinauto.findwindows import ElementNotFoundError
           from comtypes import COMError
           from pywinauto import Desktop
           window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
@@ -70,6 +72,9 @@ jobs:
                       if language:
                           print('Invoking language Continue via UI Automation', flush=True)
                           language.invoke()
+                  except ElementNotFoundError:
+                      time.sleep(1)
+                      continue
                   except COMError as error:
                       if error.hresult != -2147220991:
                           raise
