@@ -1,0 +1,42 @@
+name: Linux WebKitGTK registry settings
+on:
+  push:
+    branches: [qualification/linux-registry-settings-153]
+permissions:
+  contents: read
+jobs:
+  webkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y gir1.2-webkit2-4.1 python3-gi xvfb xauth
+      - run: |
+          xvfb-run -a /usr/bin/python3 - <<'PY'
+          import runpy, gi
+          gi.require_version('WebKit2', '4.1')
+          from gi.repository import GLib, Gtk, WebKit2
+          page = runpy.run_path('scripts/ui-test.py')['page']('tests/ui/mirrors.js', 'linux')
+          window = Gtk.Window()
+          window.set_default_size(760, 480)
+          view = WebKit2.WebView()
+          window.add(view)
+          window.show_all()
+          lines = []
+          def result(view, task, data):
+              value = view.evaluate_javascript_finish(task).to_string()
+              if value:
+                  lines.extend(value.splitlines())
+                  Gtk.main_quit()
+          def poll():
+              view.evaluate_javascript("Array.from(document.querySelectorAll('#results')).map(e => e.textContent).join('\\n')", -1, None, None, None, result, None)
+              return True
+          view.load_html(page, 'about:blank')
+          GLib.timeout_add(500, poll)
+          GLib.timeout_add_seconds(45, Gtk.main_quit)
+          Gtk.main()
+          print('\n'.join(lines), flush=True)
+          assert len(lines) == 8 and all(line.startswith('ITEM ') for line in lines), lines
+          PY
