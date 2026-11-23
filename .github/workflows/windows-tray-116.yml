@@ -163,6 +163,16 @@ jobs:
               window.child_window(control_type='Document', found_index=0).wait('visible', timeout=10)
               check_navigation()
               print('Reopened', i+1, flush=True)
+          welcome = window.child_window(auto_id='welcome-go', control_type='Button')
+          if welcome.exists(timeout=3):
+              window.child_window(title_re=r'^localhost By port', control_type='Button').invoke()
+              welcome.invoke()
+              welcome.wait_not('visible', timeout=10)
+          # The star prompt can already be behind the first-run domain dialog.
+          star = window.child_window(title_re=r'.*Star on GitHub', control_type='Button')
+          if star.exists(timeout=2):
+              dismiss = next(c for c in star.wrapper_object().parent().descendants() if c.window_text() == 'Not now')
+              dismiss.invoke()
           containers = window.child_window(title_re=r'^Containers(?:\s*\d+)?$', control_type='Button', found_index=0)
           containers.invoke()
           deadline = time.monotonic() + 30
