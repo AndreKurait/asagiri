@@ -22,8 +22,8 @@ jobs:
           echo "e8dc0b86afc72080c0ef8f9cac958a5782ba707bd3619227392ab2a928f94be3  $app" | sha256sum -c -
           chmod +x "$app"
           "$app" --appimage-extract >/dev/null
-          export HOME="$RUNNER_TEMP/test-home" ASAGIRI_SOCKET="$RUNNER_TEMP/daemon.sock" ASAGIRI_DATA_DIR="$RUNNER_TEMP/test-store"
-          mkdir -p "$HOME/.asagiri"
+          export HOME="$RUNNER_TEMP/test-home" ASAGIRI_SOCKET="$RUNNER_TEMP/test-home/.asagiri/run/docker.sock" ASAGIRI_DATA_DIR="$RUNNER_TEMP/test-store"
+          mkdir -p "$HOME/.asagiri/run"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           sudo env HOME="$HOME" ASAGIRI_SOCKET="$ASAGIRI_SOCKET" ASAGIRI_DATA_DIR="$ASAGIRI_DATA_DIR" "$PWD/squashfs-root/usr/bin/asagiri" daemon >daemon.log 2>&1 &
           for i in {1..40}; do test -S "$ASAGIRI_SOCKET" && break; sleep 1; done
@@ -48,5 +48,46 @@ jobs:
           press('Registry mirrors')
           time.sleep(2)
           print([(n.getRoleName(),n.name) for n in controls() if n.name or n.getRoleName()=='text'],flush=True)
+          # Runs in the packaged dashboard's AT-SPI test after opening Registry mirrors.
+          import json
+          import os
+          import subprocess
+
+
+          def exception_field():
+              for _ in range(30):
+                  for control in controls():
+                      if control.name == 'Insecure registries':
+                          try:
+                              control.queryEditableText()
+                              return control
+                          except NotImplementedError:
+                              pass
+                  time.sleep(0.5)
+              raise RuntimeError('Missing editable Insecure registries field')
+
+
+          def exceptions():
+              data = subprocess.check_output(['curl', '-fsS', '--unix-socket', os.environ['ASAGIRI_SOCKET'], 'http://localhost/asagiri/daemon-config'])
+              return json.loads(data).get('insecure-registries', [])
+
+
+          assert exceptions() == []
+          for value in ['registry.test:5153', '']:
+              field = exception_field()
+              field.queryEditableText().setTextContents(value)
+              press('Save')
+              expected = [value] if value else []
+              for _ in range(30):
+                  if exceptions() == expected:
+                      break
+                  time.sleep(0.5)
+              else:
+                  raise RuntimeError(('Saved exceptions differ', expected, exceptions()))
+              press('Appearance')
+              press('Registry mirrors')
+              text = exception_field().queryText().getText(0, -1)
+              assert text == value, (text, value)
+              print('Verified saved exceptions through daemon and reopened GTK field:', expected, flush=True)
           PY
           SH
