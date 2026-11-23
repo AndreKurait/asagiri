@@ -1,0 +1,24 @@
+name: Run Apple Silicon Buildx output on native x86 Linux
+on:
+  push:
+    branches: [qualification/native-image-212]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Restore the public base layer and execute the original manifest
+        working-directory: tests/qualification/issue212
+        run: |
+          test "$(uname -m)" = x86_64
+          base=25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471
+          token=$(curl -fsS 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/alpine:pull' | jq -er .token)
+          curl -fsSL --retry 3 -H "Authorization: Bearer $token" "https://registry-1.docker.io/v2/library/alpine/blobs/sha256:$base" -o "blobs/sha256/$base"
+          (cd blobs/sha256 && for digest in *; do echo "$digest  $digest"; done | sha256sum -c -)
+          test "$(jq -r '.manifests[0].digest' index.json)" = sha256:fce0eabc9994aedd656ccceb1f779b50dee95236bdc3395f28c5d72450b7b918
+          skopeo copy oci:. docker-daemon:issue212:native
+          docker run --rm --network none issue212:native sh -ec 'cat /arch.txt; uname -m; test "$(cat /arch.txt)" = x86_64; test "$(uname -m)" = x86_64'
