@@ -19,6 +19,18 @@ The [root filesystem import guide](docker-import.md) covers `docker import`
 and `docker load`. On Linux, the corresponding Asagiri rootfs command is
 `asagiri image import`. Use `asagiri import desktop-linux` for engine migration.
 
+## Check data stored outside volumes
+
+Keep the source container until you verify the files your application wrote in
+its writable layer. Check any extended attributes the application uses, even
+when the import reports success. In a Docker Engine migration, a file survived
+but its binary `user.*` attribute disappeared during `docker commit` on the
+source. `docker export` and `docker cp -a` also omitted that attribute.
+
+For workloads that depend on this metadata, make an application-level backup
+that preserves it and verify its value after restoring. Volume data is copied
+separately.
+
 ## Keep volume writers stopped
 
 Stop an application's source containers cleanly before importing its volume.

@@ -457,6 +457,7 @@ fn container_after_volumes(source: &str, name: &str, failed_volumes: &[String]) 
     let hc = &info["HostConfig"];
     let mut host = json!({
         "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
+        "CgroupnsMode": hc["CgroupnsMode"],
         "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
         "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
         "Devices": hc["Devices"], "GroupAdd": hc["GroupAdd"], "Dns": hc["Dns"], "PidMode": hc["PidMode"],

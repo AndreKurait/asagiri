@@ -610,6 +610,14 @@ def main():
                 case("digest-only-container-arrives-stopped-and-runs", reference=digest_ref,
                      source_image=original["Image"], destination_image=copied["Image"])
 
+                host_cgroup = "host-cgroup-" + nonce
+                docker("source", "create", "--name", host_cgroup, "--cgroupns", "host", "--network", "none",
+                       "--label", OWNER + "=" + nonce, image, "true")
+                error = imported("container", host_cgroup, success=False)
+                assert "--cgroupns=host" in error, error
+                assert request("destination", "GET", "/containers/" + host_cgroup + "/json")[0] == 404
+                case("unsupported-host-cgroup-namespace-rejected-on-import")
+
                 # Prove removal through each API before removing its private host.
                 for engine in names:
                     for row in get(engine, "/containers/json?all=1"):
