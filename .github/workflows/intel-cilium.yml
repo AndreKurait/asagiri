@@ -118,7 +118,18 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/cilium-env"
           unset DOCKER_CONTEXT
-          kind create cluster --config "$scratch/kind.yaml" --image kindest/node:v1.35.5 --retain
+          (
+            while true; do
+              date -u
+              df -h "$RUNNER_TEMP"
+              sysctl vm.swapusage
+              ps -axo pid,rss,pcpu,comm -r | head -12 || true
+              sleep 20
+            done
+          ) &
+          sampler=$!
+          trap 'kill "$sampler" 2>/dev/null || true' EXIT
+          kind create cluster --verbosity 6 --config "$scratch/kind.yaml" --image kindest/node:v1.35.5 --retain
       - name: Import pinned Cilium images into containerd
         timeout-minutes: 20
         run: |
