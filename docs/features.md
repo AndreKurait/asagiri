@@ -133,7 +133,13 @@ On macOS, Linux, and Windows with the Asagiri WSL distro, `asagiri scan IMAGE` s
   WSL's localhost relay drops half-closes, and `docker run` loses its
   output
 
-Kubernetes LoadBalancer services are published on `localhost`, and
+Kubernetes LoadBalancer services are published on `localhost` by default.
+On macOS, if the daemon reports permission denied for a port below 1024,
+use a higher Service port and keep the workload's `targetPort`. For example,
+`port: 8443` with `targetPort: 443` leaves the application listening on 443
+and makes the Service available on localhost port 8443.
+
+
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
 
 `docker top` accepts its default columns; other `ps_args`, such as `aux` or
