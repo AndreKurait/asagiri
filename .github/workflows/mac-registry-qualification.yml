@@ -18,9 +18,9 @@ jobs:
           set -euo pipefail
           swiftc tests/mac-registry-settings.swift -o "$RUNNER_TEMP/registry-settings"
           scratch=$(mktemp -d /tmp/registry153.XXXXXX)
-          export HOME="$scratch/home" ASAGIRI_SOCKET="$scratch/engine.sock" ASAGIRI_DATA_DIR="$scratch/store"
+          export HOME="$scratch/home" ASAGIRI_SOCKET="$scratch/home/.asagiri/run/docker.sock" ASAGIRI_DATA_DIR="$scratch/store"
           export PATH="$PWD/target/debug:$PATH"
-          mkdir -p "$HOME/.asagiri"
+          mkdir -p "$HOME/.asagiri/run"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           asagiri daemon & daemon=$!
           asagiri ui --view settings & ui=$!
