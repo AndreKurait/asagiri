@@ -79,8 +79,16 @@ jobs:
                                   editor.set_focus()
                                   assert GetForegroundWindow() == editor.handle
                                   time.sleep(2)
-                                  window.set_focus()
-                                  assert GetForegroundWindow() == window.handle
+                                  from pywinauto.keyboard import send_keys
+                                  from pywinauto.timings import wait_until
+                                  from win32gui import GetWindowText
+                                  send_keys('%{TAB}')
+                                  try:
+                                      wait_until(10, .2, lambda: GetForegroundWindow() == window.handle)
+                                  except Exception:
+                                      print('Foreground after Alt+Tab:', GetWindowText(GetForegroundWindow()),
+                                            'setup bounds:', window.rectangle(), flush=True)
+                                      raise
                                   rect = window.rectangle()
                                   doc = window.child_window(control_type='Document', found_index=0)
                                   doc.wait('visible', timeout=10)
