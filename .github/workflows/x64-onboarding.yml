@@ -51,6 +51,12 @@ jobs:
           sleep 10
           findmnt -rn -o TARGET,FSTYPE,SOURCE | awk '$2 ~ /^fuse/ && $1 ~ /\/.mount_/ {print; seen=1} END {exit !seen}' | tee observations/direct-mount.txt
           import -window "$win" observations/direct-window.png
+          # Button center measured on the Ubuntu x64 1152x800 language picker.
+          test "$(identify -format '%wx%h' observations/direct-window.png)" = '1152x800'
+          xdotool mousemove --window "$win" 786 677 click 1
+          sleep 3
+          import -window "$win" observations/after-continue.png
+          compare -metric AE observations/direct-window.png observations/after-continue.png null: 2>observations/changed-pixels.txt || test "$?" = 1
           SH
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
