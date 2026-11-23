@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Verify first-run diagnostics when the configured HTTP proxy refuses connections
+      - name: Install the dev.212 MSI and prepare WSL
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -42,12 +42,26 @@ jobs:
           if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
           python -m pip install pywinauto
           if ($LASTEXITCODE) { throw 'Unable to install UI automation' }
+      - name: Exercise setup diagnostics and recovery
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
           $chooseScript = Join-Path $env:GITHUB_WORKSPACE 'tests/windows-choose-linux-109.py'
           $profileDir = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $setupPath = Join-Path $profileDir 'setup.json'
           @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $profileDir 'ui.json')
           $settings = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
           $old = Get-ItemProperty $settings
+          # Restore runner connectivity even if desktop automation blocks in a native call.
+          $watchFile = Join-Path $env:RUNNER_TEMP 'restore-test-proxy.ps1'
+          @'
+          Start-Sleep -Seconds 420
+          Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' ProxyEnable 0
+          '@ | Set-Content $watchFile
+          $watchdog = Start-Process pwsh -ArgumentList '-NoProfile','-File',$watchFile -PassThru
           try {
             Set-ItemProperty $settings ProxyServer '127.0.0.1:17892'
             Set-ItemProperty $settings ProxyEnable 1
@@ -69,6 +83,7 @@ jobs:
               if ($null -eq $old.$key) { Remove-ItemProperty $settings $key -ErrorAction SilentlyContinue }
               else { Set-ItemProperty $settings $key $old.$key }
             }
+            if (!$watchdog.HasExited) { Stop-Process -Id $watchdog.Id -Force }
             if ($process -and !$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() }
           }
           if ($saved.done -ne $false -or $saved.distro -ne 'asagiri') { throw 'Missing incomplete setup state' }
@@ -88,7 +103,7 @@ jobs:
             wsl.exe --terminate asagiri
           }
       - name: Show the desktop setup log on failure
-        if: failure()
+        if: always()
         run: |
           $log = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.log'
           if (Test-Path $log) { Get-Content $log -Tail 35 }
