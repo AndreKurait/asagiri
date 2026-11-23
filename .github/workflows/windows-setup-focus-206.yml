@@ -1,0 +1,128 @@
+name: Verify the Windows setup window after switching applications
+on:
+  push:
+    branches: [qualification/windows-setup-focus-206]
+    paths: [.github/workflows/windows-setup-focus-206.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
+          persist-credentials: false
+      - name: Prepare WSL
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Install the published MSI and use the registered context from a fresh shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "212"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
+          $installStep = 1
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          gh run download 45217003246 -R AndreKurait/asagiri -n packages-windows-x86_64 -D package
+          if ($LASTEXITCODE) { throw 'Release artifact download failed' }
+          Copy-Item (Join-Path package $asset) $asset
+          Write-Host "Tested MSI SHA-256: $((Get-FileHash $asset).Hash)"
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+            python -m pip install pywinauto
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
+            $wizard = Start-Process $app -PassThru
+            @'
+          import sys
+          import time
+          from pywinauto.findwindows import ElementNotFoundError
+          from comtypes import COMError
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          for target, timeout in [('chooseBtn', 120), ('Open Asagiri', 600)]:
+              deadline = time.monotonic() + timeout
+              while time.monotonic() < deadline:
+                  try:
+                      controls = window.descendants()
+                      button = next((c for c in controls if c.is_enabled() and
+                                     (c.element_info.automation_id == target or
+                                      (c.element_info.control_type == 'Button' and c.window_text() == target))), None)
+                      if button:
+                          if target == 'chooseBtn':
+                              before = window.rectangle()
+                              button.invoke()
+                              import subprocess
+                              from pywinauto import mouse
+                              from win32gui import GetForegroundWindow
+                              other = subprocess.Popen(['notepad.exe'])
+                              try:
+                                  editor = Desktop(backend='uia').window(class_name='Notepad', found_index=0)
+                                  editor.wait('visible', timeout=20)
+                                  editor.set_focus()
+                                  assert GetForegroundWindow() == editor.handle
+                                  time.sleep(2)
+                                  window.set_focus()
+                                  assert GetForegroundWindow() == window.handle
+                                  rect = window.rectangle()
+                                  doc = window.child_window(control_type='Document', found_index=0)
+                                  doc.wait('visible', timeout=10)
+                                  assert rect.width() == before.width() and rect.height() == before.height()
+                                  assert doc.rectangle().width() > 300 and doc.rectangle().height() > 200
+                                  x, y = rect.left + rect.width() // 2, rect.top + 12
+                                  mouse.press(coords=(x,y))
+                                  mouse.move(coords=(x+54,y+34))
+                                  mouse.release(coords=(x+54,y+34))
+                                  time.sleep(.5)
+                                  after = window.rectangle()
+                                  print('Setup bounds before / restored / dragged', before, rect, after, flush=True)
+                                  assert after.left - rect.left >= 30 and after.top - rect.top >= 15
+                              finally:
+                                  other.terminate()
+                          else:
+                              button.invoke()
+                          break
+                      language = next((c for c in controls if c.element_info.automation_id == 'lang-go' and c.is_enabled()), None)
+                      if language:
+                          print('Invoking language Continue via UI Automation', flush=True)
+                          language.invoke()
+                  except ElementNotFoundError:
+                      time.sleep(1)
+                      continue
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                      print('UI element disappeared during refresh; querying again', flush=True)
+                  time.sleep(1)
+              else:
+                  raise RuntimeError((target, [(c.element_info.automation_id, c.window_text()) for c in controls][:100]))
+          '@ | python - $wizard.Id
+            if ($LASTEXITCODE) {
+              $env:WSL_UTF8 = '1'
+              $systemWsl = Join-Path ([Environment]::SystemDirectory) 'wsl.exe'
+              Get-Command wsl.exe | Select-Object -ExpandProperty Source
+              foreach ($arg in '--version', '--status') {
+                & $systemWsl $arg
+                Write-Host "System WSL $arg exited with $LASTEXITCODE"
+              }
+              $log = Join-Path $bundle 'asagiri-win.log'
+              if (Test-Path $log) { Get-Content $log -Tail 40 }
+              throw 'Windows setup did not reach the expected control'
+            }
