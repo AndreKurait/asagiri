@@ -61,10 +61,12 @@ jobs:
             # retaining the host-supplied resolver used by the bridge gateway.
             wsl.exe -d dns123 -u root -- apk add --no-cache iptables
             if ($LASTEXITCODE) { throw 'Installing the test firewall tool failed' }
+            $iptables = (wsl.exe -d dns123 -u root -- sh -lc 'command -v iptables').Trim()
+            if ($iptables -notlike '/*') { throw 'Could not resolve the installed iptables executable' }
             foreach ($server in '8.8.8.8','8.8.4.4') {
               foreach ($chain in 'OUTPUT','FORWARD') {
                 foreach ($protocol in 'udp','tcp') {
-                  wsl.exe -d dns123 -u root --exec iptables -I $chain -d $server -p $protocol --dport 53 -j REJECT
+                  wsl.exe -d dns123 -u root --exec $iptables -I $chain -d $server -p $protocol --dport 53 -j REJECT
                   if ($LASTEXITCODE) { throw "Failed to restrict $protocol DNS to $server in $chain" }
                 }
               }
