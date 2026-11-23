@@ -340,7 +340,10 @@ def main():
                 assert request("destination", "GET", "/volumes/" + missing)[0] == 404
                 case("missing-source-does-not-create-a-destination")
 
-                docker("source", "volume", "create", "--label", OWNER + "=" + nonce, volume)
+                project_labels = {"com.supabase.cli.project": nonce, "com.docker.compose.project": nonce}
+                docker("source", "volume", "create", "--label", OWNER + "=" + nonce,
+                       "--label", "com.supabase.cli.project=" + nonce,
+                       "--label", "com.docker.compose.project=" + nonce, volume)
                 writer = "asagiri-import-writer-" + nonce
                 cid = docker("source", "run", "-d", "--name", writer, "--network", "none",
                              "--label", OWNER + "=" + nonce, "-v", volume + ":/data",
@@ -436,6 +439,19 @@ def main():
                      api_image_ids={key: value["Id"] for key, value in record["image_inspections"].items()})
                 del archive
                 imported("volume", volume)
+                # An unrelated project makes a silently ignored filter observable.
+                other_volume = volume + "-other"
+                docker("destination", "volume", "create", "--label", OWNER + "=" + nonce,
+                       "--label", "com.supabase.cli.project=other", "--label", "com.docker.compose.project=other",
+                       other_volume)
+                labels = get("destination", "/volumes/" + volume)["Labels"]
+                for key, value in project_labels.items():
+                    assert labels.get(key) == value, (key, labels)
+                    matches = docker("destination", "volume", "ls", "-q", "--filter",
+                                     "label=" + key + "=" + value, text=True).stdout.splitlines()
+                    assert matches == [volume], (key, matches)
+                docker("destination", "volume", "rm", other_volume)
+                case("imported-volume-discoverable-by-project-labels", labels=project_labels)
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
                 assert get("destination", "/containers/json?all=1") == []
@@ -463,6 +479,22 @@ def main():
                 assert docker("destination", "start", "-a", copied["Id"]).stdout == payload
                 assert get("source", "/containers/" + source_id + "/json")["State"]["Status"] == "created"
                 case("container-definition-arrives-stopped-and-runs-with-copied-volume")
+
+                writable = "writable-layer-" + nonce
+                script = ('if test -e /import-marker; then test ! -e /bin/sh && cat /import-marker; '
+                          'else printf %s "$1" > /import-marker && rm /bin/sh; fi')
+                docker("source", "run", "--name", writable, "--network", "none",
+                       "--label", OWNER + "=" + nonce, "--entrypoint", "/bin/busybox",
+                       image, "sh", "-ec", script, "sh", nonce)
+                imported("container", writable)
+                assert get("destination", "/containers/" + writable + "/json")["State"]["Status"] == "created"
+                # The preserved changes are in the snapshot image. The new container
+                # must answer diff before its first start, with no changes of its own.
+                assert docker("destination", "diff", writable).stdout == b""
+                assert docker("destination", "start", "-a", writable, text=True).stdout == nonce
+                assert get("destination", "/containers/" + writable + "/json")["State"]["ExitCode"] == 0
+                assert get("source", "/containers/" + writable + "/json")["State"]["Status"] == "exited"
+                case("container-writable-layer-preserves-added-and-deleted-files")
 
                 # A repository digest can be lost on save/load even when the config survives.
                 digest_ref = "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"

@@ -80,7 +80,7 @@ def check(args):
     def request(method, path, body=None, statuses=(200,), raw=False):
         connection = Connection(args.socket)
         try:
-            connection.request(method, "/v1.47" + path,
+            connection.request(method, ("/v1.48" if args.reference_docker else "/v1.47") + path,
                                None if body is None else json.dumps(body),
                                {"Content-Type": "application/json"})
             response = connection.getresponse()
@@ -88,6 +88,8 @@ def check(args):
             assert len(data) <= LIMIT, "API response exceeded the fixture limit"
             assert response.status in statuses, (method, path, response.status, data[:1000])
             return response.status, data if raw else json.loads(data) if data else None
+        except TimeoutError as error:
+            raise TimeoutError(f"{method} {path} timed out after {connection.timeout}s of socket inactivity") from error
         finally:
             connection.close()
 
@@ -150,14 +152,17 @@ def check(args):
         request("POST", "/containers/" + identity + "/start", statuses=(204,))
         return identity
 
-    def attach(cid, net):
-        request("POST", "/networks/" + net + "/connect", {"Container": cid}, (200, 204))
+    def attach(cid, net, priority=None):
+        body = {"Container": cid}
+        if priority is not None:
+            body["EndpointConfig"] = {"GwPriority": priority}
+        request("POST", "/networks/" + net + "/connect", body, (200, 204))
 
     def endpoint(cid, net):
         return get("/containers/" + cid + "/json")["NetworkSettings"]["Networks"][net]
 
-    def query(cid, kind):
-        body = {"Cmd": ["timeout", "5", "nslookup", "-type=" + kind, "db.", "127.0.0.11"],
+    def execute(cid, command):
+        body = {"Cmd": command,
                 "AttachStdout": True, "AttachStderr": True, "Tty": False}
         eid = request("POST", "/containers/" + cid + "/exec", body, (201,))[1]["Id"]
         assert re.fullmatch(r"[0-9a-f]{64}", eid)
@@ -172,8 +177,18 @@ def check(args):
             state = get("/exec/" + eid + "/json")
             if not state["Running"]:
                 break
-            assert time.monotonic() < deadline, "DNS lookup did not finish after its output closed"
+            assert time.monotonic() < deadline, "Exec did not finish after its output closed"
             time.sleep(.01)
+        assert state["ExitCode"] == 0, (command, state["ExitCode"], text)
+        return text
+
+    def default_gateway(cid, net):
+        text = execute(cid, ["ip", "-4", "route", "show", "default"])
+        gateways = re.findall(r"^default via (\S+)", text, re.MULTILINE)
+        assert gateways == [endpoint(cid, net)["Gateway"]], (net, gateways, text)
+
+    def query(cid, kind):
+        text = execute(cid, ["timeout", "5", "nslookup", "-type=" + kind, "db.", "127.0.0.11"])
         addresses = []
         in_answer = False
         for line in text.splitlines():
@@ -182,7 +197,7 @@ def check(args):
                 in_answer = True
             elif in_answer and re.match(r"^Address(?: [0-9]+)?:", line):
                 addresses.append(str(ipaddress.ip_address(line.split(":", 1)[1].strip().split()[0])))
-        assert state["ExitCode"] == 0 and addresses, (kind, state["ExitCode"], text)
+        assert addresses, (kind, text)
         assert len(addresses) == len(set(addresses)), text
         return sorted(addresses), text
 
@@ -280,10 +295,23 @@ def check(args):
             request("POST", "/containers/" + lifecycle + "/wait?condition=not-running")
             request("POST", "/containers/" + lifecycle + "/start", statuses=(204,))
             answers(lifecycle, case + "-restart", peers[preferred], nets[preferred], versions[preferred])
+            if case == "shared-first":
+                request("POST", "/networks/" + ids[1] + "/disconnect",
+                        {"Container": clients[0]}, (200, 204))
+                attach(clients[0], ids[1], priority=10)
+                default_gateway(clients[0], nets[1])
+                answers(clients[0], "higher-gateway-priority", peers[1], nets[1], versions[1])
+                request("POST", "/containers/" + clients[0] + "/restart?t=0", statuses=(204,))
+                assert endpoint(clients[0], nets[1])["GwPriority"] == 10
+                default_gateway(clients[0], nets[1])
+                answers(clients[0], "higher-gateway-priority-after-restart", peers[1], nets[1], versions[1])
+                request("POST", "/networks/" + ids[1] + "/disconnect",
+                        {"Container": clients[0]}, (200, 204))
+                default_gateway(clients[0], nets[0])
             errors = cleanup()
             assert not errors, errors
             assert inventory() == before, "Original inventory changed between DNS scenarios"
-        assert len(record["cases"]) == 25
+        assert len(record["cases"]) == 27
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=repr(error))

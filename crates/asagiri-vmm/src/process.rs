@@ -106,6 +106,13 @@ impl Vm {
     }
 
     pub fn start(cfg: Config) -> io::Result<Vm> {
+        // On hybrid WSL kernels v2 lives below the v1 mount tree. The agent
+        // needs it at the root and exits before it can report why over its socket.
+        let cgroup = Path::new("/sys/fs/cgroup");
+        if !cgroup.join("cgroup.controllers").exists() && cgroup.join("unified/cgroup.controllers").is_file() {
+            return Err(io::Error::new(io::ErrorKind::Unsupported,
+                "Asagiri needs cgroup v2 at /sys/fs/cgroup; this host has a hybrid hierarchy with v2 at /sys/fs/cgroup/unified"));
+        }
         // The agent's sockets take root commands, so their folder must be
         // root's alone: /run, not an inherited XDG_RUNTIME_DIR (`sudo -E`
         // keeps the user's, where they could have put the folder first).

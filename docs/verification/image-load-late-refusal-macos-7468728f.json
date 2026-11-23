@@ -1,0 +1,52 @@
+{
+  "schema": "asagiri.image-load-late-refusal.v1",
+  "issue": 245,
+  "pull_request": 317,
+  "host": "macOS 26.7.3 ARM64",
+  "baseline": {
+    "source_commit": "dfcf3833fb556c4b9b35f6f610d0a027234a3ad6",
+    "fixture_sha256": "4c94d4a8bf09636974f7522fa506ccc224284402998cbd3f9dc8c70c7df2f92b",
+    "responses": [
+      {
+        "chunked": false,
+        "response_before_trailer": true,
+        "write_error": "[Errno 32] Broken pipe",
+        "status": 400,
+        "message": "numeric field was not a number: xxxxxxxx when getting cksum for xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "chunked": true,
+        "response_before_trailer": true,
+        "write_error": "[Errno 32] Broken pipe",
+        "status": 400,
+        "message": "numeric field was not a number: xxxxxxxx when getting cksum for xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    ]
+  },
+  "candidate": {
+    "source_commit": "7468728f0e8d00f79e7fc1aa816555241350f734",
+    "fixture": "tests/image-load-completion.py",
+    "fixture_sha256": "25e280060395f413033f55945b2037005d4794a30a753ab1129b23778e932ebc",
+    "host_sha256": "83b79b8075259603fabe014b37393117e1f79d37e27c531d78ef0a83555570c0",
+    "guest_sha256": "9f1a2384725622b0bb801e8ac7456bf62519a605ffe68c6bd5ae6694ba637711",
+    "http_unit_tests": 32,
+    "exit": 0,
+    "fixture_output": [
+      "PASS truncated content-length load publishes no image",
+      "PASS truncated chunked load publishes no image",
+      "PASS padded load waits for full body, then publishes image",
+      "PASS refused chunked and content-length loads preserve the diagnostic with a late upload",
+      "PASS plain tar load publication matches response status",
+      "PASS gzip load publication matches response status",
+      "PASS multiple gzip members load publication matches response status",
+      "PASS damaged gzip checksum load publication matches response status",
+      "PASS truncated gzip trailer load publication matches response status",
+      "PASS unsupported bzip2 load publication matches response status",
+      "PASS damaged gzip preserves the existing image tag"
+    ]
+  },
+  "pending": [
+    "merged Linux qualification",
+    "published-app qualification"
+  ]
+}

@@ -208,8 +208,16 @@ fn wsl_component_missing() -> bool {
         .is_ok_and(|output| crate::wsl_text::missing_component(&output.stdout, &output.stderr))
 }
 
+fn probe_distros() -> io::Result<Vec<String>> {
+    let output = crate::update::output_within(quiet("wsl.exe").args(["-l", "-q"]), crate::update::WSL_LIMIT)?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!("WSL distro list failed: {}", output.status)));
+    }
+    Ok(wsl_text(&output.stdout).lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect())
+}
+
 pub(crate) fn distros() -> Vec<String> {
-    quiet("wsl.exe").args(["-l", "-q"]).output().map(|o| wsl_text(&o.stdout).lines().map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+    probe_distros().unwrap_or_default()
 }
 
 fn existing_ubuntu() -> Option<String> {
@@ -238,11 +246,15 @@ fn restarted_since(at: u64) -> bool {
 /// Whether the window should open on setup rather than Asagiri.
 pub fn needed() -> bool {
     let s = saved();
-    setup_needed(&s, &distros())
+    setup_needed(&s, probe_distros)
 }
 
-fn setup_needed(s: &Saved, installed: &[String]) -> bool {
-    !s.done || s.distro.as_ref().is_none_or(|d| !installed.contains(d))
+fn setup_needed(s: &Saved, probe: impl FnOnce() -> io::Result<Vec<String>>) -> bool {
+    let Some(distro) = s.distro.as_ref().filter(|_| s.done) else { return true };
+    match probe() {
+        Ok(installed) => !installed.contains(distro),
+        Err(error) => error.kind() == io::ErrorKind::NotFound,
+    }
 }
 
 /// The step to show now, from what is on this PC.
@@ -923,9 +935,10 @@ mod tests {
     #[test]
     fn incomplete_setup_resumes_from_persisted_state() {
         use super::{resume_step, setup_needed, Saved};
+        use std::io;
         let saved: Saved = serde_json::from_str(r#"{"done":false,"distro":"asagiri","lastError":"pull failed"}"#).unwrap();
         let installed = vec!["asagiri".to_owned()];
-        assert!(setup_needed(&saved, &installed));
+        assert!(setup_needed(&saved, || panic!("unfinished setup must not wait for WSL")));
         assert_eq!(resume_step(&saved, true, |_| true, || false, || installed.clone(), || false), "engine");
         assert_eq!(resume_step(&saved, true, |_| true, || false, || installed.clone(), || true), "tools");
         assert_eq!(resume_step(&saved, true, |_| true, || false, Vec::new, || panic!("no daemon probe without a distro")), "choose");
@@ -933,8 +946,11 @@ mod tests {
         let failed_pull = Saved { test_error: Some("proxy refused".into()), ..saved.clone() };
         assert_eq!(resume_step(&failed_pull, true, |_| true, || false, || installed.clone(), || true), "engine");
         let complete = Saved { done: true, ..saved };
-        assert!(!setup_needed(&complete, &installed));
-        assert!(setup_needed(&complete, &[]));
+        assert!(!setup_needed(&complete, || Ok(installed.clone())));
+        assert!(setup_needed(&complete, || Ok(Vec::new())));
+        assert!(setup_needed(&complete, || Err(io::ErrorKind::NotFound.into())));
+        assert!(!setup_needed(&complete, || Err(io::ErrorKind::TimedOut.into())));
+        assert!(!setup_needed(&complete, || Err(io::Error::other("WSL unavailable"))));
         let restarting = Saved { restart_after: Some(123), ..complete };
         assert_eq!(resume_step(&restarting, false, |_| panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent"), || panic!("WSL is absent")), "welcome");
         assert_eq!(resume_step(&restarting, true, |at| { assert_eq!(at, 123); false }, || panic!("restart is pending"), || panic!("restart is pending"), || panic!("restart is pending")), "restart");

@@ -540,6 +540,36 @@ pub(super) fn paste(done: impl FnOnce(String) + Send + 'static) {
     });
 }
 
+/// Open a compose file…: AppKit's own open panel, on the main thread, for
+/// .yaml and .yml files (an open panel can't offer file names, only kinds).
+/// `done` gets the path, or None when cancelled.
+pub(super) fn pick_compose_file(title: &str, _filters: &[String; 2], done: impl FnOnce(Option<std::path::PathBuf>) + Send + 'static) {
+    let title = title.to_owned();
+    DispatchQueue::main().exec_async(move || {
+        // SAFETY: on the main thread (main queue); NSOpenPanel's documented
+        // messages, with the argument types AppKit declares.
+        let picked = (|| unsafe {
+            let panel: Retained<AnyObject> = msg_send![objc2::class!(NSOpenPanel), openPanel];
+            let _: () = msg_send![&*panel, setCanChooseFiles: true];
+            let _: () = msg_send![&*panel, setCanChooseDirectories: false];
+            let _: () = msg_send![&*panel, setAllowsMultipleSelection: false];
+            let words = NSString::from_str(&title);
+            let _: () = msg_send![&*panel, setTitle: &*words];
+            let _: () = msg_send![&*panel, setMessage: &*words];
+            let kinds = objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str("yaml"), NSString::from_str("yml")]);
+            let _: () = msg_send![&*panel, setAllowedFileTypes: &*kinds];
+            let answer: isize = msg_send![&*panel, runModal];
+            if answer != 1 {
+                return None;
+            }
+            let url: Option<Retained<AnyObject>> = msg_send![&*panel, URL];
+            let path: Option<Retained<NSString>> = msg_send![&*url?, path];
+            Some(std::path::PathBuf::from(path?.to_string()))
+        })();
+        done(picked);
+    });
+}
+
 /// The installed font families, sorted; `mono` keeps the fixed-pitch ones.
 pub(super) fn font_families(mono: bool) -> Vec<String> {
     use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFString, CFType};
@@ -646,8 +676,7 @@ define_class!(
 
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _note: &NSNotification) {
-            // The daemon keeps running (and sleeps when idle); only the
-            // engine thread stops.
+            let stop_on_quit = super::prefs()["stopEngineOnQuit"] == true;
             let _ = self.ivars().tx.send(Cmd::Quit);
             if let Some(engine) = self.ivars().engine.borrow_mut().take() {
                 let _ = engine.join();
@@ -656,12 +685,18 @@ define_class!(
             // the engine moves to it now, not at the next login.
             if crate::update::staged().is_some() {
                 match crate::update::install_staged() {
+                    Ok(_) if stop_on_quit => {}
                     Ok(version) => {
                         if let Err(e) = crate::update::restart_engine(&version) {
                             diag::error!("the engine did not restart on the update", version = version, error = e);
                         }
                     }
                     Err(e) => diag::error!("the update did not install", error = e),
+                }
+            }
+            if stop_on_quit {
+                if let Err(e) = crate::update::stop_engine() {
+                    diag::error!("the engine did not stop on quit", error = e);
                 }
             }
         }

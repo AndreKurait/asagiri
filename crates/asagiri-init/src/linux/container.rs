@@ -436,6 +436,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 Some(link) => macvlans.0.push(link),
                 None => veths.push(host_if),
             }
+            ways_out.extend(net::WayOut::of("eth0", spec.net.gateway, v6, plug));
             if embedded_dns {
                 dns_entries.push((spec.net.bridge.to_owned(), spec.net.ip));
                 // An IPv6-only network's bridge has no IPv4 address to serve on,
@@ -492,6 +493,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 net.dns.describe_network(pid, endpoint);
                 ways_out.extend(net::WayOut::of(&format!("eth{n}"), endpoint.gateway, v6, plug));
             }
+            net::prioritize_startup_routes(pid, &ways_out).map_err(kill_child)?;
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
@@ -2485,6 +2487,11 @@ mod tests {
         assert_eq!(super::start_failure("noise\nasagiri: cannot start container: mount: boom\nmore"), Some("mount: boom"));
         assert_eq!(super::start_failure("hello from the program\n"), None);
         assert_eq!(super::start_failure("asagiri: cannot start container: \n"), None);
+        // As the child writes it: a backslash as it is, line breaks as spaces.
+        let said = format!("asagiri: cannot start container: {}\n", super::sys::one_line("user: unknown user DOM\\bob"));
+        assert_eq!(super::start_failure(&said), Some("user: unknown user DOM\\bob"));
+        let said = format!("asagiri: cannot start container: {}\n", super::sys::one_line("user: unknown user a\nb"));
+        assert_eq!(super::start_failure(&said), Some("user: unknown user a b"));
         assert_eq!(super::start_failure(""), None);
     }
 

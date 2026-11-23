@@ -1,0 +1,25 @@
+{
+  "schema": "asagiri.arch-desktop-lifecycle.v1",
+  "issue": 268,
+  "architecture": "x86_64",
+  "recipe_merged_commit": "4ee2e902dc09b6cc784a8666a80d70ba8cdeee65",
+  "unchanged_recipe_test_head": "321dd51bb123bcd235f3bd89c08cac7870cb9cf3",
+  "immutable_package_source": "c9179f64d476434e4ba5bcfd0ec5dc1fe9c93818",
+  "package_source_archive_sha256": "3d9a366e62b2b58c999656caf7b1cd52d9d67a8e1a3fb8f1dfda13ed526ab77f",
+  "independent_engine_lifecycle_job": 136891395080,
+  "integration_lifecycle_job": 136894653264,
+  "integration_lifecycle_job_log_sha256": "ef863446f6001415fc7e0218b4405f057e20244c6f3b958a5d25595600d235f5",
+  "checked_package_file_count": 16,
+  "displays": [
+    "X11",
+    "Wayland"
+  ],
+  "checks": [
+    "pacman installation",
+    "pacman upgrade",
+    "pacman removal",
+    "named-volume data across package transitions and daemon restart",
+    "engine, agent and systemd unit file hashes match across all transitions"
+  ],
+  "scope": "x86-64 Arch desktop. The isolated runner launches the separate daemon directly and verifies the systemd unit file."
+}

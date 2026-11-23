@@ -58,6 +58,7 @@ pub fn newer(candidate: &str, current: &str) -> bool {
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
         .timeout_connect(Some(std::time::Duration::from_secs(10)))
         .user_agent(concat!("asagiri/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -281,7 +282,7 @@ fn spawn_daemon() -> io::Result<()> {
 /// Stops the engine on the socket, if one answers: SIGTERM (it powers the
 /// VM off and removes the socket), then SIGKILL if it is still there after
 /// 30 seconds.
-fn stop_engine() -> io::Result<()> {
+pub(crate) fn stop_engine() -> io::Result<()> {
     let Some(engine) = process::Engine::connect()? else { return Ok(()) };
     crate::diag::info!("stopping the engine", pid = engine.pid());
     engine.stop()

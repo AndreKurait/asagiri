@@ -78,7 +78,11 @@ def main():
             common = ("--privileged", "--cgroupns=private", "--tmpfs", "/run", "--tmpfs", "/tmp",
                       "--label", OWNER + "=" + nonce)
             commands = {
-                "Asagiri": [*common, "-v", str(bins) + ":/opt/asagiri:ro",
+                "Asagiri": [*common,
+                            # The benchmark mounts binaries directly, bypassing package dependencies.
+                            "--mount", "type=bind,src=/etc/ssl/certs/ca-certificates.crt,"
+                            "dst=/run/reference-ca.pem,readonly",
+                            "-e", "SSL_CERT_FILE=/run/reference-ca.pem", "-v", str(bins) + ":/opt/asagiri:ro",
                             "-v", str(folders["Asagiri"]) + ":/run/asagiri",
                             "-v", "/var/lib/asagiri", "-v", "/test-store",
                             "-e", "ASAGIRI_SOCKET=/run/asagiri/docker.sock",
