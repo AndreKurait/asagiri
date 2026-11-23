@@ -58,7 +58,7 @@ mod tooling;
 mod guest;
 #[cfg(target_os = "linux")]
 mod hostaccess;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod import;
 #[cfg(unix)]
 mod k8s;
@@ -212,7 +212,7 @@ fn main() -> ExitCode {
         Some("machine") => machine::run(&args[1..]),
         #[cfg(unix)]
         Some("usb") => usb::run(&args[1..]),
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         Some("import") => import::run(&args[1..]),
         #[cfg(target_os = "macos")]
         Some("update") => update::run(&args[1..]),
