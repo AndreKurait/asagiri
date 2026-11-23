@@ -11,8 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: 87afda808e5fa2d3817f578691fcbdd2dbf1987f
           persist-credentials: false
-      - name: Build candidate and start its managed cluster
+      - name: Build merged revision and start its managed cluster
         env:
           GH_TOKEN: ${{ github.token }}
           CARGO_INCREMENTAL: '0'
