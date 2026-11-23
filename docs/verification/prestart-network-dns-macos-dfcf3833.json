@@ -1,0 +1,68 @@
+{
+  "schema": "asagiri.prestart-network-dns.v1",
+  "issue": 219,
+  "pull_request": 315,
+  "host": "macOS 26.7.3 ARM64",
+  "baseline": {
+    "release": "v0.1.14-dev.152",
+    "commit": "6857850b326f27967f51b51cd5a818c194b6e628",
+    "fixture_revision": "92a47917e695fe1418a600574dc0679f6633c638",
+    "fixture_sha256": "bc606791c3f9a039bb2aac960648a515947bed0eb5c7188bb6cdf75a295dd4ad",
+    "exit": 1,
+    "first_resolver": "172.17.0.1",
+    "expected_resolver": "127.0.0.11",
+    "successful_scenarios": [
+      "PASS a container on the default bridge resolves the network it joins",
+      "PASS the names go with the network",
+      "PASS after a restart with both networks",
+      "PASS a container with its own DNS servers",
+      "PASS a changed resolv.conf is left alone",
+      "PASS a container on a user network joins a second one"
+    ]
+  },
+  "candidate": {
+    "source_commit": "dfcf3833fb556c4b9b35f6f610d0a027234a3ad6",
+    "platform_fixture": "network-connect-dns.py",
+    "fixture_sha256": "68e05061ea2c4d547c1c1f36749ab03af463dcb19cfae5fa76078706bc25ebb0",
+    "image": "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f",
+    "exit": 0,
+    "protocol_tests": 5,
+    "host_sha256": "c3ee5ef214e860c65fcf392c790c2b01e6d2328d950b411dcba3bcca0ee7563a",
+    "guest_sha256": "11bea2a3254380d6eac57d4a89e788d0a760e1aba92f25ea5a8675405ce669c0",
+    "fixture_output": [
+      "PASS a container on the default bridge resolves the network it joins",
+      "PASS the names go with the network",
+      "PASS after a restart with both networks",
+      "PASS a container with its own DNS servers",
+      "PASS a changed resolv.conf is left alone",
+      "PASS a container on a user network joins a second one",
+      "PASS a preconnected bridge container resolves its peer from its first lookup",
+      "PASS failed preconnection releases the address reserved on the first network",
+      "PASS rename replaces the DNS name and preserves per-network aliases",
+      "9 network connect DNS scenarios passed"
+    ],
+    "k3d": {
+      "version": "5.9.0",
+      "k3s_version": "v1.35.5-k3s1",
+      "k3d_sha256": "fe106541d5d0a3f18debcd4d432a16f8c0ce3e6ddc06f8fbb6f696a122313e00",
+      "result": {
+        "cluster": "dns219-860f2f9d",
+        "api_readyz": "ok",
+        "ready_nodes": [
+          "k3d-dns219-860f2f9d-server-0"
+        ],
+        "load_balancer_networks": [
+          "bridge",
+          "k3d-dns219-860f2f9d"
+        ],
+        "dns_server": "127.0.0.11",
+        "resolved_peer_ip": "172.18.0.2"
+      },
+      "removed_owned_cluster_network_and_containers": true
+    }
+  },
+  "pending": [
+    "merged-source qualification",
+    "published-app qualification"
+  ]
+}

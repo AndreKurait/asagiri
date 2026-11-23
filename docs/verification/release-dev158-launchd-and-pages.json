@@ -1,0 +1,34 @@
+{
+  "release": "v0.1.14-dev.158",
+  "source": "a553b320553bea2258fe60843544e56c6471a7c0",
+  "launchd": {
+    "host": "macOS",
+    "at": "2026-11-21T18:03:35.749686+00:00",
+    "ephemeral_launchd_job": "dev.asagiri.fixture.log-rotation-767e7e7614274a51a302b767d3a82b3b",
+    "native_job_running": true,
+    "original_len": 5800036,
+    "final_len": 1049260,
+    "inode_retained": true,
+    "previous_process_line": true,
+    "native_daemon_started": true,
+    "native_daemon_error": true,
+    "daemon_shutdown": true,
+    "mode": "0o600"
+  },
+  "cleanup": "Disposable NFS mount manually unmounted after launchd shutdown; fixture removed.",
+  "pages": {
+    "run": 44931707128,
+    "publication": "44931707128-1",
+    "checks": [
+      "installer, pinned RPM key, release index, and all available download channels",
+      "HTTPS, commit a553b320553bea2258fe60843544e56c6471a7c0, 5 public pages, and 12 local assets",
+      "demo navigation, stop/start, inspect, and logs",
+      "demo MCP permissions update only its sample state",
+      "all demo settings tabs, mirror edits, themes, and Arabic/English language switching",
+      "site build tabs and desktop/mobile layout",
+      "missing-release progress links, real DMG links, and untrusted download rejection",
+      "installer platform/channel selection, copy commands, and desktop/mobile layouts"
+    ],
+    "local_tests": 11
+  }
+}

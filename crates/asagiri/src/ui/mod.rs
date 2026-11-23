@@ -559,13 +559,13 @@ fn proxy(save: Option<serde_json::Value>) {
 /// Reads (or saves, then reads) the Docker Hub registry mirrors.
 fn registry_mirrors(save: Option<serde_json::Value>) {
     if let Some(body) = save {
-        match client::request("POST", "/asagiri/registry-mirrors", Some(&body)) {
+        match client::request("POST", "/asagiri/daemon-config", Some(&body)) {
             Ok(r) if r.ok() => emit(notice("ok", &tr("Registry mirrors saved"))),
             Ok(r) => emit(notice("error", &r.error())),
             Err(e) => emit(notice("error", &e.to_string())),
         }
     }
-    match client::get("/asagiri/registry-mirrors") {
+    match client::get("/asagiri/daemon-config") {
         Ok(mut v) => {
             v["type"] = "mirrors".into();
             emit(v.to_string());

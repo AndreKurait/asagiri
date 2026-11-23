@@ -400,7 +400,7 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
   var SVG = function (vb, w, h, inner) { return '<svg viewBox="' + vb + '" width="' + w + '" height="' + h + '" aria-hidden="true" focusable="false">' + inner + '</svg>'; };
   var halo = '<circle cx="110" cy="90" r="82" fill="#F2684A" opacity="0.08"/>';
   var dawn = function (id) { return SVG('0 0 220 180', 220, 180, halo + '<g transform="translate(46 16) scale(2)">' + MIST(id) + '</g>'); };
-  var choice = function (label, own) { return SVG('0 0 440 168', '100%', 168,
+  var choiceArt = function (label, own) { return SVG('0 0 440 168', '100%', 168,
     '<path d="M0 150Q90 85 190 133T440 115V168H0Z" fill="#252B49"/>' +
     (own ? '<g transform="translate(70 20) scale(1.7)">' + MIST('su-choice') + '</g>' : '<g fill="none" stroke="#ADB3CD" stroke-width="3"><rect x="88" y="43" width="76" height="62" rx="9"/><path d="M104 65h40m-40 17h25"/></g>') +
     '<text x="255" y="83" fill="#F3F1F7" font-family="' + MONO + '" font-size="18">' + esc(label) + '</text><path d="M224 104h136" stroke="#F2684A" stroke-width="3" stroke-linecap="round"/>'); };
@@ -408,8 +408,8 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
     welcome: dawn('su-welcome'),
     download: SVG('0 0 64 64', 72, 72, '<circle cx="32" cy="32" r="30" fill="#1B203C" stroke="#394164" stroke-width="2"/><path d="M32 16v26m-11-11 11 11 11-11M20 48h24" fill="none" stroke="#F2684A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'),
     restart: SVG('0 0 220 180', 220, 180, halo + '<path d="M181 80a73 73 0 1 1-18-42m-4-18 4 18 18-4" fill="none" stroke="#848BA8" stroke-width="5" stroke-linecap="round"/><g transform="translate(62 32) scale(1.5)">' + MIST('su-restart') + '</g>'),
-    chooseAsagiri: function (label) { return choice(label, true); },
-    chooseUbuntu: function (label) { return choice(label, false); },
+    chooseAsagiri: function (label) { return choiceArt(label, true); },
+    chooseUbuntu: function (label) { return choiceArt(label, false); },
     linuxAsagiri: SVG('0 0 120 100', 120, 100, '<g transform="translate(20 3) scale(1.25)">' + MIST('su-linux') + '</g>'),
     linuxUbuntu: SVG('0 0 120 100', 120, 100, '<rect x="17" y="14" width="86" height="64" rx="9" fill="#252B49" stroke="#848BA8" stroke-width="2"/><path d="m33 35 12 10-12 10m22 0h25M44 88h32" fill="none" stroke="#F2684A" stroke-width="4" stroke-linecap="round"/>'),
     engine: SVG('0 0 120 100', 120, 100, '<g transform="translate(20 3) scale(1.25)">' + MIST('su-engine') + '</g>'),
