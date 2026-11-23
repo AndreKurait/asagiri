@@ -1,7 +1,7 @@
-name: Published Windows WSL cgroup layout
+name: Verify published Windows engine on the reported WSL 2.4.13 kernel
 on:
   push:
-    branches: [qualification/windows-cgroup-layout-139]
+    branches: [qualification/windows-wsl2413-139]
 permissions:
   actions: read
   contents: read
@@ -10,6 +10,26 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
+      - name: Install the reported Microsoft WSL release on this disposable runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP 'wsl.2.4.13.0.x64.msi'
+          Invoke-WebRequest 'https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi' -OutFile $msi
+          $signature = Get-AuthenticodeSignature $msi
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft WSL signature' }
+          Get-FileHash $msi
+          wsl.exe --shutdown
+          $installed = Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -eq 'Windows Subsystem for Linux' -and $_.WindowsInstaller -eq 1 }
+          foreach ($entry in $installed) {
+            $remove = Start-Process msiexec -ArgumentList "/x $($entry.PSChildName) /qn /norestart" -Wait -PassThru
+            if ($remove.ExitCode -ne 0) { throw "WSL uninstall exited $($remove.ExitCode)" }
+          }
+          $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "WSL install exited $($install.ExitCode)" }
+          $env:WSL_UTF8 = '1'
+          $version = wsl.exe --version | Out-String
+          Write-Host $version
+          if ($version -notmatch '2\.4\.13\.0') { throw 'Reported WSL version was not installed' }
       - name: Inspect stock WSL mounts and start a container
         env:
           GH_TOKEN: ${{ github.token }}
@@ -24,7 +44,11 @@ jobs:
           wsl.exe --import Asagiri-cgroup139 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
           wsl.exe --version
-          wsl.exe -d Asagiri-cgroup139 -- uname -a
+          $env:WSL_UTF8 = '1'
+          $kernel = wsl.exe -d Asagiri-cgroup139 -- uname -r
+          Write-Host "Actual kernel: $kernel"
+          if ($kernel -notlike '5.15.167.4-microsoft-standard-WSL2*') { throw 'Actual kernel differs from the upstream report' }
+          wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/cgroup
           wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/mountinfo | Select-String ' - cgroup2? '
           if ($LASTEXITCODE) { throw 'Reading mount topology failed' }
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
