@@ -1206,6 +1206,7 @@
   "Stop on {host}": "Спиране на {host}",
   "Stop sharing": "Спиране на споделянето",
   "Stop signal": "Сигнал за спиране",
+  "Stop the engine when Asagiri quits": "Спиране на двигателя при изход от Asagiri",
   "Stop waiting": "Спри чакането",
   "Stop {name}": "Спиране на {name}",
   "Stop {name} on {host}?": "Спиране на {name} на {host}?",

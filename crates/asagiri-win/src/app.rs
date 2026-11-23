@@ -1185,6 +1185,18 @@ mod tests {
             }
         })()"#), "true", "native terminal lost focus, caret, or draft during a list refresh");
         println!("Reloaded setup and opened desktop; ignored cancelled navigation {cancelled}");
+        // SAFETY: this thread owns the test's controller.
+        unsafe { ctl.SetBounds(RECT { left: 0, top: 0, right: 320, bottom: 480 }).unwrap() };
+        let narrow = crate::assemble::page(PAGE, Some("de"));
+        assert_eq!(completed(&wv, 15, || load(&wv, narrow)), Some(true));
+        let viewport: usize = eval(&wv, "innerWidth").parse().unwrap();
+        assert!((1..=320).contains(&viewport), "unexpected viewport width {viewport}");
+        let layout = include_str!("../../../tests/ui/update-log-width.js");
+        let script = format!("(() => {{ let lines; const report = result => lines = result;\n{layout}\nreturn lines; }})()");
+        let lines: Vec<String> = serde_json::from_str(&eval(&wv, &script)).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().all(|line| line.starts_with("PASS ")), "{lines:?}");
+        println!("German WebView2 layout at {viewport}px: {lines:?}");
         let previous = SERVED.with(|page| Rc::downgrade(&page.borrow()));
         assert_eq!(completed(&wv, 15, || load(&wv, "<html>Replacement</html>".into())), Some(true));
         assert!(eval(&wv, "document.body.innerText").contains("Replacement"));

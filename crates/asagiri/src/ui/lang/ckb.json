@@ -1206,6 +1206,7 @@
   "Stop on {host}": "ڕاگرتن لەسەر {host}",
   "Stop sharing": "ڕاگرتنی هاوبەشکردن",
   "Stop signal": "ئاماژەی ڕاگرتن",
+  "Stop the engine when Asagiri quits": "کاتێک لە Asagiri دەردەچیت بزوێنەرەکە بوەستێنە",
   "Stop waiting": "وەستاندنی چاوەڕێ",
   "Stop {name}": "ڕاگرتنی {name}",
   "Stop {name} on {host}?": "{name} لەسەر {host} ڕابگیرێت؟",

@@ -1206,6 +1206,7 @@
   "Stop on {host}": "Pysäytä laitteessa {host}",
   "Stop sharing": "Lopeta jakaminen",
   "Stop signal": "Pysäytyssignaali",
+  "Stop the engine when Asagiri quits": "Pysäytä moottori, kun Asagiri suljetaan",
   "Stop waiting": "Lopeta odotus",
   "Stop {name}": "Pysäytä {name}",
   "Stop {name} on {host}?": "Pysäytetäänkö {name} (laite: {host})?",

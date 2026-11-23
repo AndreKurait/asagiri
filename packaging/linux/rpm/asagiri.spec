@@ -50,6 +50,7 @@ BuildArch:      %{asagiri_arch}
 AutoReq:        no
 Requires:       glibc%{?_isa} >= 2.34
 Requires:       libgcc%{?_isa}
+Requires:       ca-certificates
 Requires(pre):  shadow-utils
 %if 0%{?with_cli}
 Requires(post): %{_sbindir}/update-alternatives

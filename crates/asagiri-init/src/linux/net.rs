@@ -67,6 +67,7 @@ impl Ip6 {
 /// How a container is plugged into one network, from its settings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Plug {
+    pub gw_priority: i64,
     /// `--internal`: no default route.
     pub internal: bool,
     /// IPv6-only: no IPv4 address on the container or the bridge.
@@ -87,6 +88,7 @@ impl Plug {
     pub fn from_opts(opts: asagiri_proto::StrList<'_>) -> Plug {
         use asagiri_proto::net_opts as k;
         Plug {
+            gw_priority: k::values(opts, k::GW_PRIORITY).next().and_then(|p| p.parse().ok()).unwrap_or_default(),
             internal: k::values(opts, k::INTERNAL).next().is_some(),
             no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(),
             mtu: k::values(opts, k::MTU).next().and_then(|m| m.parse().ok()),
@@ -810,7 +812,7 @@ pub fn attach_container(
 /// returned, for the caller to keep with the container.
 #[allow(clippy::too_many_arguments)]
 pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc::pid_t, n: u32, ip: [u8; 4], prefix: u8, gateway: [u8; 4], mac: Option<[u8; 6]>, v6: Option<Ip6>, plug: Plug) -> io::Result<Option<Macvlan>> {
-    let Plug { internal, no_ipv4, mtu, no_icc, macvlan, ipvlan } = plug;
+    let Plug { internal, no_ipv4, mtu, no_icc, macvlan, ipvlan, .. } = plug;
     let internal = internal || plug.own_link();
     let mac = Some(mac.unwrap_or_else(|| mac_for(ip)));
     let mut host = Netlink::open(libc::NETLINK_ROUTE)?;
@@ -955,6 +957,7 @@ pub fn extra_veth(id: &str, n: u32) -> String {
 /// the container and its gateways.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WayOut {
+    pub priority: i64,
     pub ifname: String,
     pub gateway: Option<[u8; 4]>,
     pub gateway6: Option<[u8; 16]>,
@@ -965,25 +968,64 @@ impl WayOut {
     pub fn of(ifname: &str, gateway: [u8; 4], v6: Option<Ip6>, plug: Plug) -> Option<WayOut> {
         let gateway = (!plug.no_ipv4 && gateway != [0; 4]).then_some(gateway);
         let gateway6 = v6.map(|v| v.gateway);
-        (!plug.internal && !plug.own_link() && (gateway.is_some() || gateway6.is_some())).then(|| WayOut { ifname: ifname.to_owned(), gateway, gateway6 })
+        (!plug.internal && !plug.own_link() && (gateway.is_some() || gateway6.is_some())).then(|| WayOut { priority: plug.gw_priority, ifname: ifname.to_owned(), gateway, gateway6 })
     }
 }
 
+/// During setup the first available gateway is already installed for each family.
+/// Replace it only when a later endpoint has strictly higher priority.
+pub fn prioritize_startup_routes(pid: libc::pid_t, ways: &[WayOut]) -> io::Result<()> {
+    fn preferred<'a>(mut eligible: impl Iterator<Item = &'a WayOut>) -> Option<&'a WayOut> {
+        let first = eligible.next()?;
+        let best = eligible.fold(first, |best, next| if next.priority > best.priority { next } else { best });
+        (best.priority > first.priority).then_some(best)
+    }
+    let ipv4 = preferred(ways.iter().filter(|way| way.gateway.is_some()));
+    let ipv6 = preferred(ways.iter().filter(|way| way.gateway6.is_some()));
+    replace_preferred_routes(pid, ipv4, ipv6)
+}
+
+pub fn prioritize_attached_route(pid: libc::pid_t, existing: &[WayOut], added: &WayOut) -> io::Result<()> {
+    let outranks = |eligible: fn(&WayOut) -> bool| {
+        existing.iter().filter(|way| way.ifname != added.ifname && eligible(way)).map(|way| way.priority).max().is_some_and(|priority| added.priority > priority)
+    };
+    let ipv4 = (added.gateway.is_some() && outranks(|way| way.gateway.is_some())).then_some(added);
+    let ipv6 = (added.gateway6.is_some() && outranks(|way| way.gateway6.is_some())).then_some(added);
+    replace_preferred_routes(pid, ipv4, ipv6)
+}
+
+fn replace_preferred_routes(pid: libc::pid_t, ipv4: Option<&WayOut>, ipv6: Option<&WayOut>) -> io::Result<()> {
+    if ipv4.is_none() && ipv6.is_none() {
+        return Ok(());
+    }
+    let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
+    let mut inner = Netlink::open_in(&netns)?;
+    if let Some((way, gateway)) = ipv4.and_then(|way| Some((way, way.gateway?))) {
+        netlink::replace_default_route(&mut inner, netlink::index_in(&netns, &way.ifname)?, gateway)?;
+    }
+    if let Some((way, gateway)) = ipv6.and_then(|way| Some((way, way.gateway6?))) {
+        netlink::replace_default_route6(&mut inner, netlink::index_in(&netns, &way.ifname)?, gateway)?;
+    }
+    Ok(())
+}
+
 /// After a network was unplugged: a default route that went with it comes
-/// back through the first of the container's remaining networks that can
-/// give one. A default route that is still there stays. IPv4 and IPv6 each
+/// back through the highest-priority remaining network that can supply it.
+/// Equal priorities retain join order. A default route that is still there stays. IPv4 and IPv6 each
 /// on their own: a network that cannot give one family's route is passed
 /// over for that family only.
 pub fn restore_default_routes(pid: libc::pid_t, ways: &[WayOut]) -> io::Result<()> {
     let netns = std::fs::File::open(format!("/proc/{pid}/ns/net"))?;
     let mut inner = Netlink::open_in(&netns)?;
-    for way in ways {
+    let mut ranked: Vec<_> = ways.iter().collect();
+    ranked.sort_by_key(|way| std::cmp::Reverse(way.priority));
+    for way in &ranked {
         let Some(gateway) = way.gateway else { continue };
         if netlink::index_in(&netns, &way.ifname).and_then(|index| netlink::add_default_route_if_none(&mut inner, index, gateway)).is_ok() {
             break;
         }
     }
-    for way in ways {
+    for way in &ranked {
         let Some(gateway) = way.gateway6 else { continue };
         if netlink::index_in(&netns, &way.ifname).and_then(|index| netlink::add_default_route6(&mut inner, index, gateway)).is_ok() {
             break;
@@ -1098,7 +1140,7 @@ mod tests {
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "mtu=1400"]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
-        assert_eq!(Plug::from_opts(net.opts), Plug { internal: true, no_ipv4: false, mtu: Some(1400), no_icc: false, macvlan: None, ipvlan: None });
+        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, mtu: Some(1400), no_icc: false, macvlan: None, ipvlan: None });
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
@@ -1110,7 +1152,7 @@ mod tests {
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "noicc=1"]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
-        assert_eq!(Plug::from_opts(net.opts), Plug { internal: true, no_ipv4: false, mtu: None, no_icc: true, macvlan: None, ipvlan: None });
+        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, mtu: None, no_icc: true, macvlan: None, ipvlan: None });
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
@@ -1122,11 +1164,11 @@ mod tests {
         let routed = Plug::default();
         let v6 = Ip6 { ip: [0xfd, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], prefix: 64, gateway: [0xfd, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] };
         let gateway = [10, 5, 0, 1];
-        assert_eq!(WayOut::of("eth1", gateway, None, routed), Some(WayOut { ifname: "eth1".into(), gateway: Some(gateway), gateway6: None }));
-        assert_eq!(WayOut::of("eth2", gateway, Some(v6), routed), Some(WayOut { ifname: "eth2".into(), gateway: Some(gateway), gateway6: Some(v6.gateway) }));
+        assert_eq!(WayOut::of("eth1", gateway, None, routed), Some(WayOut { priority: 0, ifname: "eth1".into(), gateway: Some(gateway), gateway6: None }));
+        assert_eq!(WayOut::of("eth2", gateway, Some(v6), routed), Some(WayOut { priority: 0, ifname: "eth2".into(), gateway: Some(gateway), gateway6: Some(v6.gateway) }));
         // An IPv6-only network has no IPv4 gateway to route through.
         let v6_only = Plug { no_ipv4: true, ..routed };
-        assert_eq!(WayOut::of("eth1", gateway, Some(v6), v6_only), Some(WayOut { ifname: "eth1".into(), gateway: None, gateway6: Some(v6.gateway) }));
+        assert_eq!(WayOut::of("eth1", gateway, Some(v6), v6_only), Some(WayOut { priority: 0, ifname: "eth1".into(), gateway: None, gateway6: Some(v6.gateway) }));
         assert_eq!(WayOut::of("eth1", [0; 4], Some(v6), routed).unwrap().gateway, None);
         // An internal network gives no default route, whatever it has.
         let internal = Plug { internal: true, ..routed };

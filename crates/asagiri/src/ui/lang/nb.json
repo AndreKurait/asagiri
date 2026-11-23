@@ -1206,6 +1206,7 @@
   "Stop on {host}": "Stopp på {host}",
   "Stop sharing": "Slutt å dele",
   "Stop signal": "Stoppsignal",
+  "Stop the engine when Asagiri quits": "Stopp motoren når Asagiri avsluttes",
   "Stop waiting": "Slutt å vente",
   "Stop {name}": "Stopp {name}",
   "Stop {name} on {host}?": "Stoppe {name} på {host}?",

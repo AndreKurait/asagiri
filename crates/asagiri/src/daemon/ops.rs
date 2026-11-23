@@ -604,7 +604,7 @@ fn connect(req: &Request, engine: &Engine, network: &str) -> Result<Value, Error
     let container = b["Container"].as_str().unwrap_or_default();
     let aliases = b["EndpointConfig"]["Aliases"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
     let (ip, ip6, mac) = super::api::endpoint_address(&b["EndpointConfig"])?;
-    engine.connect(network, container, aliases, ip, ip6, mac)?;
+    engine.connect(network, container, aliases, ip, ip6, mac, super::api::endpoint_priority(&b["EndpointConfig"])?)?;
     Ok(Value::Null)
 }
 

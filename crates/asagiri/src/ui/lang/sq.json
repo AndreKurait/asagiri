@@ -1206,6 +1206,7 @@
   "Stop on {host}": "Ndalo në {host}",
   "Stop sharing": "Ndalo ndarjen",
   "Stop signal": "Sinjali i ndalimit",
+  "Stop the engine when Asagiri quits": "Ndale motorin kur mbyllet Asagiri",
   "Stop waiting": "Ndalo pritjen",
   "Stop {name}": "Ndalo {name}",
   "Stop {name} on {host}?": "Të ndalet {name} në {host}?",

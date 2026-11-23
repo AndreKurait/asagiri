@@ -1206,6 +1206,7 @@
   "Stop on {host}": "إيقاف على {host}",
   "Stop sharing": "إيقاف المشاركة",
   "Stop signal": "إشارة الإيقاف",
+  "Stop the engine when Asagiri quits": "إيقاف المحرك عند إنهاء Asagiri",
   "Stop waiting": "إيقاف الانتظار",
   "Stop {name}": "إيقاف {name}",
   "Stop {name} on {host}?": "إيقاف {name} على {host}؟",

@@ -35,6 +35,7 @@ pub fn lite() -> bool {
 
 pub(crate) fn agent() -> ureq::Agent {
     let mut cfg = ureq::Agent::config_builder()
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
         .timeout_connect(Some(Duration::from_secs(15)))
         .user_agent(concat!("asagiri/", env!("CARGO_PKG_VERSION")));
     let e = crate::daemon::proxy::effective();

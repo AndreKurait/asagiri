@@ -1206,6 +1206,7 @@
   "Stop on {host}": "በ{host} ላይ አቁም",
   "Stop sharing": "ማጋራት አቁም",
   "Stop signal": "የማቆሚያ ሲግናል",
+  "Stop the engine when Asagiri quits": "Asagiri ሲዘጋ ሞተሩን አቁም",
   "Stop waiting": "መጠበቅ አቁም",
   "Stop {name}": "{name}ን አቁም",
   "Stop {name} on {host}?": "{name} በ{host} ላይ ይቁም?",

@@ -1206,6 +1206,7 @@
   "Stop on {host}": "{host} құрылғысында тоқтату",
   "Stop sharing": "Бөлісуді тоқтату",
   "Stop signal": "Тоқтату сигналы",
+  "Stop the engine when Asagiri quits": "Asagiri жабылғанда қозғалтқышты тоқтату",
   "Stop waiting": "Күтуді тоқтату",
   "Stop {name}": "{name} тоқтату",
   "Stop {name} on {host}?": "{name} {host} құрылғысында тоқтатылсын ба?",

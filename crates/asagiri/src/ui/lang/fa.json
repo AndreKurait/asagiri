@@ -1206,6 +1206,7 @@
   "Stop on {host}": "توقف روی {host}",
   "Stop sharing": "توقف اشتراک‌گذاری",
   "Stop signal": "سیگنال توقف",
+  "Stop the engine when Asagiri quits": "توقف موتور هنگام خروج از Asagiri",
   "Stop waiting": "توقف انتظار",
   "Stop {name}": "توقف {name}",
   "Stop {name} on {host}?": "{name} روی {host} متوقف شود؟",
