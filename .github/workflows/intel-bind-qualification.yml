@@ -97,10 +97,30 @@ jobs:
             fi
             if docker buildx build --builder asagiri-build --platform "linux/$platform" --build-arg "EXPECTED=$expected" --progress=plain --no-cache ${flags[@]+"${flags[@]}"} --build-arg "BASE=$ref" --load -t "probe:$scenario" .; then
               test "$(docker image inspect "probe:$scenario" --format '{{.Architecture}}')" = "$platform"
-              test "$(docker run --rm --platform "linux/$platform" "probe:$scenario" uname -m)" = "$expected"
+              # The Dockerfile already executed uname in the BuildKit worker.
               echo "PASS $scenario"
             else
               failed=1
             fi
           done
+          # Verify both build legs and the platform index from one invocation.
+          printf '%s\n' 'FROM alpine:3.19' 'ARG TARGETARCH' 'RUN case "$TARGETARCH:$(uname -m)" in amd64:x86_64|arm64:aarch64) exit 0;; *) exit 1;; esac' > Dockerfile
+          docker buildx build --builder asagiri-build --progress=plain --no-cache --provenance=false --platform linux/amd64,linux/arm64 --output "type=oci,dest=$scratch/result.tar" .
+          python3 - "$scratch/result.tar" <<'PYTHON'
+          import json, sys, tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              def platforms(index):
+                  for descriptor in index["manifests"]:
+                      algorithm, digest = descriptor["digest"].split(":")
+                      manifest = json.load(archive.extractfile(f"blobs/{algorithm}/{digest}"))
+                      if "manifests" in manifest:
+                          yield from platforms(manifest)
+                      else:
+                          algorithm, digest = manifest["config"]["digest"].split(":")
+                          config = json.load(archive.extractfile(f"blobs/{algorithm}/{digest}"))
+                          yield config["os"] + "/" + config["architecture"]
+              built = sorted(platforms(json.load(archive.extractfile("index.json"))))
+              assert built == ["linux/amd64", "linux/arm64"], built
+              print("PASS exported OCI platforms", built)
+          PYTHON
           exit "$failed"
