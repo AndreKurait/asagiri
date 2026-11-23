@@ -40,7 +40,13 @@ jobs:
           n=0
           while IFS= read -r ref; do
             n=$((n+1))
-            skopeo copy --retry-times 3 --all --preserve-digests "docker://$ref" "oci-archive:$images/$n.tar:${ref%@*}"
+            source_ref=$ref
+            if [[ $ref == *@* ]]; then
+              name=${ref%@*}
+              if [[ ${name##*/} == *:* ]]; then name=${name%:*}; fi
+              source_ref="$name@${ref##*@}"
+            fi
+            skopeo copy --retry-times 3 --all --preserve-digests "docker://$source_ref" "oci-archive:$images/$n.tar:${ref%@*}"
           done < "$images/refs"
           command -v kind || GOBIN="$tools" go install sigs.k8s.io/kind@v0.31.0
           command -v kubectl || brew install kubectl
