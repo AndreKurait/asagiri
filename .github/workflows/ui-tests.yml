@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-tests-${{ github.event.pull_request.number || github.ref }}
+  group: ui-tests-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

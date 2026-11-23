@@ -22,7 +22,7 @@ env:
 
 concurrency:
   # Publication checks the release commit, so finish its active main build.
-  group: platforms-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'current' }}
+  group: platforms-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'current' }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
