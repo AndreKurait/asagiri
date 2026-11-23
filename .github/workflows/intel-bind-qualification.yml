@@ -67,10 +67,16 @@ jobs:
           (cd "$scratch/registry" && exec python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-serve.py") >"$scratch/registry.log" 2>&1 &
           registry_pid=$!
           trap 'kill "$registry_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/registry.log"' EXIT
-          for attempt in {1..15}; do curl -fsS http://192.168.64.1:49102/v2/ && break; sleep 1; done
+          for attempt in {1..10}; do
+            curl --noproxy '*' --max-time 2 -fsS http://127.0.0.1:49102/v2/ && break
+            kill -0 "$registry_pid"
+            sleep 1
+          done
+          curl --noproxy '*' --max-time 2 -fsS http://127.0.0.1:49102/v2/
+          docker run --rm --pull=never alpine:3.21 wget -T 5 -qO- http://198.19.248.254:49102/v2/
           app="$RUNNER_TEMP/Asagiri.app/Contents/MacOS/asagiri"
-          "$app" config set '{"insecure-registries":["192.168.64.1:49102"]}'
-          "$app" registry-mirror add http://192.168.64.1:49102
+          "$app" config set '{"insecure-registries":["198.19.248.254:49102"]}'
+          "$app" registry-mirror add http://198.19.248.254:49102
           docker buildx create --name asagiri-build --driver docker-container --use
           failed=0
           for scenario in cached forced uncached reverse; do
