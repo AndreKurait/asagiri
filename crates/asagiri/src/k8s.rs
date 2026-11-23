@@ -557,8 +557,13 @@ mod tests {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = held.local_addr().unwrap().port();
         assert!(!super::port_free(port, false));
-        let got = super::pick_port(port, false).unwrap();
-        assert!(got > port && got <= port + super::PORT_TRIES, "{got}");
+        let picked = super::pick_port(port, false);
+        if port == u16::MAX {
+            assert!(picked.is_err());
+        } else {
+            let got = picked.unwrap();
+            assert!(got > port && got - port <= super::PORT_TRIES, "{got}");
+        }
     }
 
     #[test]
