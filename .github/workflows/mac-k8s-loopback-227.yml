@@ -1,0 +1,47 @@
+name: Native Mac Kubernetes loopback ports
+on:
+  push:
+    branches: [qualification/mac-k8s-loopback-227]
+permissions:
+  contents: read
+jobs:
+  service:
+    runs-on: macos-26-intel
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build candidate and start its managed cluster
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: |
+          set -euo pipefail
+          cargo build --locked -p asagiri --bin asagiri
+          codesign --force --sign - --entitlements crates/asagiri/asagiri.entitlements target/debug/asagiri
+          command -v kubectl || brew install kubectl
+          bin="$PWD/target/debug/asagiri"
+          scratch=$(mktemp -d /tmp/k8s227.XXXXXX)
+          cd "$scratch"
+          asset=Asagiri-0.1.14-dev.188-x86_64.tar.gz
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p "$asset"
+          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          export HOME="$scratch/home" ASAGIRI_DATA_DIR="$scratch/store" ASAGIRI_SOCKET="$scratch/docker.sock" ASAGIRI_GUEST_DIR="$scratch/Asagiri.app/Contents/Resources/guest"
+          export DOCKER_HOST="unix://$ASAGIRI_SOCKET" PATH="$scratch/Asagiri.app/Contents/Resources/bin:$PATH"
+          mkdir -p "$HOME/.kube"
+          "$bin" daemon > "$scratch/daemon.log" 2>&1 &
+          daemon=$!
+          trap 'tail -60 "$scratch/daemon.log"; kill "$daemon" || true' EXIT
+          for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
+          "$bin" k8s start --use
+          kubectl create deployment loopback-check --image=nginx:alpine
+          kubectl rollout status deployment/loopback-check --timeout=4m
+          kubectl expose deployment loopback-check --type=LoadBalancer --port=444 --target-port=80
+          for i in {1..30}; do grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port' && break; sleep 2; done
+          grep -F '127.0.0.1:444/tcp' "$scratch/daemon.log" | grep -F 'macOS denied the low localhost port'
+          kubectl patch service loopback-check --type=json -p='[{"op":"replace","path":"/spec/ports/0/port","value":8444}]'
+          curl --noproxy '*' --retry 30 --retry-connrefused --retry-delay 2 --max-time 5 -fsS http://127.0.0.1:8444/ | grep -F 'Welcome to nginx'
+          lsof -nP -a -p "$daemon" -iTCP:8444 -sTCP:LISTEN | grep -F '127.0.0.1:8444'
