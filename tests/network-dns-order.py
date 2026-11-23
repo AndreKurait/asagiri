@@ -80,7 +80,7 @@ def check(args):
     def request(method, path, body=None, statuses=(200,), raw=False):
         connection = Connection(args.socket)
         try:
-            connection.request(method, "/v1.47" + path,
+            connection.request(method, ("/v1.48" if args.reference_docker else "/v1.47") + path,
                                None if body is None else json.dumps(body),
                                {"Content-Type": "application/json"})
             response = connection.getresponse()
