@@ -1,0 +1,119 @@
+{
+  "release": "v0.1.14-dev.157",
+  "linux_job": "https://github.com/AndreKurait/asagiri/actions/runs/44920296642/job/136894653454",
+  "supabase": {
+    "commit": "e4f2c161e526933f1b2cb2254d1b8bcd0c48c37e",
+    "release": "v0.1.14-dev.157",
+    "architecture": "arm64",
+    "archive": "Asagiri-0.1.14-dev.157-arm64.tar.gz",
+    "sha256": "386dabae8c0a9b281b87342b2a5cb6fe836fbf3801674dc94a9c8fa22152e54b",
+    "release_attestation": true,
+    "deep_codesign": true,
+    "checks": [
+      {
+        "image": null,
+        "platform": "linux/arm64",
+        "host_release": "v0.1.14-dev.157",
+        "engine_version": "0.1.14-dev.157",
+        "archive": {
+          "case": "reported archive via docker load, create and export",
+          "paths": [
+            "bin/sym",
+            "bin/hl"
+          ],
+          "target": "/bin/real"
+        },
+        "outcome": "passed"
+      },
+      {
+        "image": "supabase/postgres:15.8.1.085",
+        "platform": "linux/arm64",
+        "host_release": "v0.1.14-dev.157",
+        "engine_version": "0.1.14-dev.157",
+        "image_id": "sha256:a5a0c2b809d5415edff7c010d9facf29063cb138f88ed3a66efdf24b83e79a96",
+        "registry_digests": [
+          "supabase/postgres@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b"
+        ],
+        "stat_and_version": "symbolic link 2 2239263\npostgres (PostgreSQL) 15.8",
+        "outcome": "passed"
+      },
+      {
+        "image": "supabase/postgres:15.8.1.060",
+        "platform": "linux/arm64",
+        "host_release": "v0.1.14-dev.157",
+        "engine_version": "0.1.14-dev.157",
+        "image_id": "sha256:7e1559c037c21858d742e67feff91546df91ecf57a15ca59d4349867d138fd48",
+        "registry_digests": [
+          "supabase/postgres@sha256:0e2279598bc0224fb5960c3a61eb23270cd60119427f3a7bdec86ba282600dcc"
+        ],
+        "stat_and_version": "symbolic link 2 2239256\npostgres (PostgreSQL) 15.8",
+        "outcome": "passed"
+      },
+      {
+        "image": "public.ecr.aws/supabase/postgres:17.4.1.074",
+        "platform": "linux/arm64",
+        "host_release": "v0.1.14-dev.157",
+        "engine_version": "0.1.14-dev.157",
+        "image_id": "sha256:7c642451c7f362982d352cc08496861bb38c6c45f6490085cfc1905fdb951704",
+        "registry_digests": [
+          "public.ecr.aws/supabase/postgres@sha256:dc436b5b4ebeb0f3bdf6d8dda2b390cc094e14d24cd434d5fe02840459e67670"
+        ],
+        "stat_and_version": "symbolic link 2 2238948\npostgres (PostgreSQL) 17.4",
+        "image_entrypoint": [
+          "docker-entrypoint.sh"
+        ],
+        "image_command": [
+          "postgres",
+          "-D",
+          "/etc/postgresql"
+        ],
+        "postgres_ready": "/run/postgresql:5432 - accepting connections",
+        "sql_answer": "195",
+        "outcome": "passed"
+      }
+    ]
+  },
+  "network": "PASS a container on the default bridge resolves the network it joins\nPASS the names go with the network\nPASS after a restart with both networks\nPASS a container with its own DNS servers\nPASS a changed resolv.conf is left alone\nPASS a container on a user network joins a second one\nPASS a preconnected bridge container resolves its peer from its first lookup\nPASS failed preconnection releases the address reserved on the first network\nPASS rename replaces the DNS name and preserves per-network aliases\n9 network connect DNS scenarios passed\n",
+  "remaining_checks": {
+    "engine": [
+      {
+        "Name": "Engine",
+        "Version": "27.5.1-asagiri",
+        "Details": {
+          "ApiVersion": "1.48",
+          "Arch": "arm64",
+          "AsagiriVersion": "0.1.14-dev.157",
+          "MinAPIVersion": "1.24",
+          "Os": "linux"
+        }
+      }
+    ],
+    "fixture": "asagiri-319-release-rest.py",
+    "sha256": "92e788a651a697ab162fa6da45c547d116436b211def591abe28989c66288a30",
+    "image": "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f",
+    "exit": 0,
+    "stdout": "PASS truncated content-length load publishes no image\nPASS truncated chunked load publishes no image\nPASS padded load waits for full body, then publishes image\nPASS refused chunked and content-length loads preserve the diagnostic with a late upload\nPASS plain tar load publication matches response status\nPASS gzip load publication matches response status\nPASS multiple gzip members load publication matches response status\nPASS damaged gzip checksum load publication matches response status\nPASS truncated gzip trailer load publication matches response status\nPASS unsupported bzip2 load publication matches response status\nPASS damaged gzip preserves the existing image tag\n[{\"first\": \"port-closed\", \"exit\": 0, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\nNon-authoritative answer:\\nName:\\tservice.fixture.invalid\\nAddress: 192.0.2.66\\n\\n\", \"stderr\": \"\"}, {\"first\": \"timeout\", \"exit\": 0, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\nNon-authoritative answer:\\nName:\\tservice.fixture.invalid\\nAddress: 192.0.2.66\\n\\n\", \"stderr\": \"\"}, {\"first\": \"servfail\", \"exit\": 0, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\nNon-authoritative answer:\\nName:\\tservice.fixture.invalid\\nAddress: 192.0.2.66\\n\\n\", \"stderr\": \"\"}, {\"first\": \"refused\", \"exit\": 0, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\nNon-authoritative answer:\\nName:\\tservice.fixture.invalid\\nAddress: 192.0.2.66\\n\\n\", \"stderr\": \"\"}, {\"first\": \"nxdomain\", \"exit\": 1, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\n** server can't find service.fixture.invalid.: NXDOMAIN\\n\\n\", \"stderr\": \"\"}, {\"first\": \"answer\", \"exit\": 0, \"stdout\": \"Server:\\t\\t127.0.0.11\\nAddress:\\t127.0.0.11:53\\n\\nNon-authoritative answer:\\nName:\\tservice.fixture.invalid\\nAddress: 192.0.2.66\\n\\n\", \"stderr\": \"\"}]\nPASS configured DNS fallback with closed, silent and transiently failing servers\nk3d version v5.9.0\nk3s version v1.35.5-k3s1 (default)\n{\"cluster\": \"dns219-c770c921\", \"api_readyz\": \"ok\", \"ready_nodes\": [\"k3d-dns219-c770c921-server-0\"], \"load_balancer_networks\": [\"bridge\", \"k3d-dns219-c770c921\"], \"dns_server\": \"127.0.0.11\", \"resolved_peer_ip\": \"172.18.0.2\"}\nPASS k3d network and containers removed\nPASS integrated runtime checks\n",
+    "stderr": ""
+  },
+  "bind_recreation": {
+    "engine": [
+      {
+        "Name": "Engine",
+        "Version": "27.5.1-asagiri",
+        "Details": {
+          "ApiVersion": "1.48",
+          "Arch": "arm64",
+          "AsagiriVersion": "0.1.14-dev.157",
+          "MinAPIVersion": "1.24",
+          "Os": "linux"
+        }
+      }
+    ],
+    "fixture": "asagiri-190-release157.py",
+    "sha256": "d9e484f6ff701d1b6ca013a13420fc7b4783f4cf510b09d2c3349b4fc6c3e0f8",
+    "image": "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f",
+    "exit": 0,
+    "stdout": "3.21: Pulling from library/alpine\n26089ff12bb1: Pulling fs layer\n26089ff12bb1: Download complete\n26089ff12bb1: Pull complete\nDigest: sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab\nStatus: Downloaded newer image for alpine:3.21\ndocker.io/library/alpine:3.21\nPASS bind recreate and replace, with and without a watcher (30 attempts)\n",
+    "stderr": ""
+  }
+}
