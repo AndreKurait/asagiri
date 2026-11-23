@@ -26,14 +26,14 @@ jobs:
           test ! -e "$ASAGIRI_SOCKET"
           sudo mkdir -p /run/asagiri
           mkdir -p "$HOME/.asagiri/run"
-          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":["docker","builds"]}' > "$HOME/.asagiri/ui.json"
           sudo env HOME="$HOME" ASAGIRI_SOCKET="$ASAGIRI_SOCKET" ASAGIRI_DATA_DIR="$ASAGIRI_DATA_DIR" "$PWD/squashfs-root/usr/bin/asagiri" daemon >daemon.log 2>&1 &
           for i in {1..40}; do test -S "$ASAGIRI_SOCKET" && break; sleep 1; done
           sudo chown "$(id -u):$(id -g)" "$ASAGIRI_SOCKET"
           curl -fsS --unix-socket "$ASAGIRI_SOCKET" http://localhost/_ping
           export GTK_MODULES=gail:atk-bridge
           dbus-run-session -- xvfb-run -a bash -eu -s -- "$app" <<'SH'
-          "$1" --appimage-extract-and-run ui --view settings >ui.log 2>&1 &
+          # Use the standard Linux service socket and per-user dashboard preferences.
+          env -u ASAGIRI_SOCKET "$1" --appimage-extract-and-run ui --view settings >ui.log 2>&1 &
           /usr/bin/python3 - <<'PY'
           import pyatspi as a, time
           def controls():
