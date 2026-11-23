@@ -140,6 +140,17 @@ jobs:
             docker exec -i kind-control-plane ctr -n k8s.io images import --all-platforms --digests - < "$archive"
           done
           while IFS= read -r ref; do
+            if [[ $ref == *@* ]]; then
+              tag=${ref%@*}
+              digest=${ref##*@}
+              repository=${tag%:*}
+              actual=$(docker exec kind-control-plane ctr -n k8s.io images ls | awk -v tag="$tag" '$1 == tag {print $3}')
+              if [[ $actual != "$digest" ]]; then
+                echo "Imported $tag has digest $actual, expected $digest" >&2
+                exit 1
+              fi
+              docker exec kind-control-plane ctr -n k8s.io images tag --force "$tag" "$repository@$digest"
+            fi
             docker exec kind-control-plane crictl inspecti "$ref" >/dev/null
           done < "$images/refs"
       - name: Start Cilium and verify node readiness
