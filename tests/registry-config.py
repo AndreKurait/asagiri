@@ -313,11 +313,18 @@ def check(path, binary):
             assert http_model.manifests_published == 2
 
             config({"insecure-registries": [plain, tls]})
+            tls_login = {**credentials, "serveraddress": tls}
+            tls_model.auth = basic
+            try:
+                assert json.loads(api("POST", "/auth", tls_login))["Status"] == "Login Succeeded"
+            finally:
+                tls_model.auth = None
             pull(tls, "self-signed-allowed-" + token)
             tls_model.redirect = "https://" + outside
             pull(tls, "redirect-" + token, False)
             assert not other_tls.requests, "TLS exception escaped to another authority"
             config({"insecure-registries": [plain]})
+            api("POST", "/auth", tls_login, expected=400)
             pull(tls, "revoked-" + token, False)
 
             # Explicit literal-IP CIDRs cover the matching address.
