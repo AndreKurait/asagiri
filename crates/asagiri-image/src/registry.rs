@@ -453,9 +453,12 @@ impl Client {
     }
 
     fn api_base(&self, r: &Reference) -> String {
-        let host = r.api_host();
+        self.registry_base(r.api_host())
+    }
+
+    fn registry_base(&self, host: &str) -> String {
         if !self.settings.allows_insecure(host) {
-            return r.api_base();
+            return format!("{}://{host}", if crate::reference::is_local(host) { "http" } else { "https" });
         }
         if self.mirrors.as_ref().is_some_and(|ms| ms.iter().any(|m| m.host == host && m.http)) {
             return format!("http://{host}");
@@ -1177,7 +1180,7 @@ impl Client {
     pub fn login(&self, server: &str) -> Result<(), Error> {
         let host = server.trim_start_matches("https://").trim_start_matches("http://").split('/').next().unwrap_or_default();
         let host = if host.is_empty() || host == "index.docker.io" || host == "docker.io" { "registry-1.docker.io" } else { host };
-        let base = format!("{}://{host}", if crate::reference::is_local(host) { "http" } else { "https" });
+        let base = self.registry_base(host);
         let url = format!("{base}/v2/");
         let resp = self.agent.get(&url).call()?;
         match resp.status().as_u16() {

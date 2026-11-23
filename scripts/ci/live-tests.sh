@@ -113,6 +113,39 @@ run api-version --cold
 for img in busybox:stable alpine:3.21; do
   timed "pull/$img" docker exec "$name" docker -H "unix://$sock" pull -q "$img" >/dev/null || { echo "could not pull $img"; exit 2; }
 done
+# Construct a settings-only Docker archive, then exercise
+# the candidate's load, inspect and root mount through the Docker CLI.
+check_zero_layer_root() (
+  archive=$(mktemp) || exit 1
+  tag="asagiri-live-zero-layer-$$:test"
+  trap 'rm -f "$archive"' EXIT
+  python3 - "$archive" "$tag" "$(docker version --format '{{.Server.Arch}}')" <<'PYIMAGE' || exit 1
+import hashlib
+import io
+import json
+import sys
+import tarfile
+
+archive, tag, arch = sys.argv[1:]
+config = json.dumps({"architecture": arch, "os": "linux", "config": {"Cmd": ["/nothing"], "Labels": {"empty": "1"}},
+                     "rootfs": {"type": "layers", "diff_ids": []}}).encode()
+name = hashlib.sha256(config).hexdigest() + ".json"
+manifest = json.dumps([{"Config": name, "RepoTags": [tag], "Layers": []}]).encode()
+with tarfile.open(archive, "w") as tar:
+    for path, data in [(name, config), ("manifest.json", manifest)]:
+        entry = tarfile.TarInfo(path)
+        entry.size = len(data)
+        tar.addfile(entry, io.BytesIO(data))
+PYIMAGE
+  docker exec -i "$name" docker -H "unix://$sock" load < "$archive" || exit 1
+  layers=$(dock image inspect --format '{{len .RootFS.Layers}}' "$tag") || exit 1
+  [ "$layers" = 0 ] || { echo "Expected zero layers, found $layers"; exit 1; }
+  output=$(dock run --rm --network none "$tag" 2>&1)
+  status=$?
+  echo "zero-layer start exited $status: $output"
+  [ "$status" = 127 ] && printf '%s\n' "$output" | grep -F 'stat /nothing: no such file'
+)
+check_zero_layer_root || failed=$((failed + 1))
 run engine-identity
 run engine-power alpine:3.21
 run exec-errors alpine:3.21
