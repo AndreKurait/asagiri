@@ -288,10 +288,13 @@ def check(args):
                         {"Container": clients[0]}, (200, 204))
                 attach(clients[0], ids[1], priority=10)
                 answers(clients[0], "higher-gateway-priority", peers[1], nets[1], versions[1])
+                request("POST", "/containers/" + clients[0] + "/restart?t=0", statuses=(204,))
+                assert endpoint(clients[0], nets[1])["GwPriority"] == 10
+                answers(clients[0], "higher-gateway-priority-after-restart", peers[1], nets[1], versions[1])
             errors = cleanup()
             assert not errors, errors
             assert inventory() == before, "Original inventory changed between DNS scenarios"
-        assert len(record["cases"]) == 26
+        assert len(record["cases"]) == 27
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=repr(error))
