@@ -69,6 +69,14 @@ docker run --rm --tmpfs /tmp:exec,nosuid,nodev \
     cargo clean --locked --release -p asagiri -p asagiri-image -p asagiri-proto -p asagiri-vmm -p asagiri-share-proto
     cargo test --locked -p asagiri --features window hostaccess::tests::
     cargo test --locked -p asagiri --features window ui::logins
+    bash packaging/linux/fetch-cli.sh /tmp/compose-tools /cache/downloads "$(uname -m)"
+    mkdir -p /tmp/compose-config/cli-plugins
+    ln -s /tmp/compose-tools/docker-compose /tmp/compose-config/cli-plugins/docker-compose
+    (
+      export PATH="/tmp/compose-tools:$PATH" DOCKER_CONFIG=/tmp/compose-config
+      docker compose version
+      cargo test --locked -p asagiri --features window ui::compose::tests::
+    )
     cargo build --locked --release -p asagiri --features window
     image=$(bash packaging/linux/appimage.sh /bin-input /cache/target/release/asagiri /out /cache/downloads)
     xvfb-run -a python3 tests/appimage.py "$image" /bin-input /cache/target/release/asagiri \
