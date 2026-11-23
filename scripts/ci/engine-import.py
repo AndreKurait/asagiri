@@ -462,7 +462,9 @@ def main():
                 definition = "asagiri-import-definition-" + nonce
                 source_id = docker("source", "create", "--name", definition, "--network", "none",
                                    "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
-                                   "--user", "1001:1002", "--workdir", "/tmp",
+                                   "--user", "1001:1002", "--workdir", "/tmp", "--group-add", "42",
+                                   "--device", "/dev/null:/dev/probe-null:r", "--pid", "host",
+                                   "--health-cmd", "true", "--health-interval", "15s",
                                    "-v", volume + ":/data:ro", image, "sh", "-ec",
                                    "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
                                    text=True).stdout.strip()
@@ -470,8 +472,10 @@ def main():
                 copied = get("destination", "/containers/" + definition + "/json")
                 original = get("source", "/containers/" + source_id + "/json")
                 assert copied["State"]["Status"] == "created" and not copied["State"]["Running"]
-                for field in ("Cmd", "Entrypoint", "User", "WorkingDir", "Labels"):
+                for field in ("Cmd", "Entrypoint", "User", "WorkingDir", "Labels", "Healthcheck"):
                     assert copied["Config"][field] == original["Config"][field], field
+                for field in ("Devices", "GroupAdd", "PidMode"):
+                    assert copied["HostConfig"][field] == original["HostConfig"][field], field
                 assert "IMPORT_MARKER=" + nonce in copied["Config"]["Env"]
                 assert copied["HostConfig"]["NetworkMode"] == "none"
                 assert any(m["Name"] == volume and m["Destination"] == "/data" and not m["RW"]
