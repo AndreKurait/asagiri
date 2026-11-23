@@ -415,7 +415,6 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         // Not bridged, but with sysctls to write: no network to wait for.
         if let Some(go) = go.take_if(|_| !bridged) {
             drop(prepared.net_ready.take());
-            net::prioritize_startup_routes(pid, &ways_out).map_err(kill_child)?;
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "go on".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
@@ -494,6 +493,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
                 net.dns.describe_network(pid, endpoint);
                 ways_out.extend(net::WayOut::of(&format!("eth{n}"), endpoint.gateway, v6, plug));
             }
+            net::prioritize_startup_routes(pid, &ways_out).map_err(kill_child)?;
             super::hostopts::apply_sysctls(pid, &host.sysctls).map_err(kill_child)?;
             // SAFETY: one byte to a pipe we own: "your network is ready".
             unsafe { libc::write(go.as_raw_fd(), b"g".as_ptr().cast(), 1) };
