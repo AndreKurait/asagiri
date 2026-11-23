@@ -1,0 +1,73 @@
+name: Released Windows terminal focus
+on:
+  push:
+    branches: [qualification/windows-terminal-focus-286]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  picker:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Exercise terminal input across live engine refreshes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $asset = "Asagiri-0.1.14-dev.188-windows-x86_64.zip"
+          gh release download v0.1.14-dev.188 -R AndreKurait/asagiri -p $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne "3ee017d9c8ee94292197badf38f432fc5eeb134892bf6311f1e85aa1ddebc854") { throw "bundle hash" }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          wsl.exe --import Asagiri-focus286 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          python -m pip install playwright==1.55.0
+          $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+          if (!$runtime) {
+            $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $signature = Get-AuthenticodeSignature $installer
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation,') { throw 'Invalid WebView2 installer signature' }
+            $install = Start-Process $installer -ArgumentList '/silent','/install' -Wait -PassThru
+            if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
+          }
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+          @'
+          import os, pathlib, subprocess, time
+          from playwright.sync_api import sync_playwright
+          app = pathlib.Path(os.environ['PICKER_APP'])
+          docker = str(app.parent / 'bin' / 'docker.exe')
+          proc = subprocess.Popen([str(app), '--distro', 'Asagiri-focus286'])
+          try:
+              with sync_playwright() as pw:
+                  for i in range(90):
+                      try:
+                          browser = pw.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=2000)
+                          break
+                      except Exception:
+                          if proc.poll() is not None or i == 89: raise
+                          time.sleep(1)
+                  page = browser.contexts[0].pages[0]
+                  for i in range(90):
+                      if subprocess.run([docker,'version'], capture_output=True).returncode == 0: break
+                      time.sleep(1)
+                  cid = subprocess.check_output([docker,'run','-d','--name','focus286','alpine:3.21','sleep','300'], text=True).strip()
+                  page.evaluate("show('containers')")
+                  page.get_by_text('focus286',exact=True).first.wait_for(timeout=90000)
+                  page.evaluate("id => {openDetail(id); setTab('terminal')}", cid)
+                  prompt = page.locator('#term-in')
+                  prompt.click(); prompt.press_sequentially('echo pending'); prompt.press('Home')
+                  for _ in range(5): prompt.press('ArrowRight')
+                  for i in range(4):
+                      name = 'focus286-event-' + str(i)
+                      subprocess.run([docker,'create','--name',name,'alpine:3.21','true'], check=True)
+                      time.sleep(6)
+                      observed = prompt.evaluate('e => [document.activeElement===e,e.value,e.selectionStart,e.selectionEnd]')
+                      print(i, observed, flush=True)
+                      assert observed == [True,'echo pending',5,5], observed
+          finally:
+              subprocess.run(['taskkill','/PID',str(proc.pid),'/T','/F'],check=False)
+          '@ | python -
+          if ($LASTEXITCODE) { throw 'Windows live focus check failed' }
