@@ -455,7 +455,7 @@ fn update_state(state: &str, latest: Option<&str>, error: Option<String>) {
 }
 
 /// Tells the page what there is: a staged update ("updateready"), else a
-/// newer release ("update"); and whether the engine runs an older build than
+/// newer release ("update"); and whether the engine runs a different build from
 /// the app ("enginestale"). `manual` (Check for Updates…, About's Check now)
 /// also says when there is nothing new, and shows a skipped or snoozed
 /// version again. With "Check for updates automatically" off, only a manual
@@ -470,7 +470,7 @@ pub fn check_now(manual: bool) {
         if !manual {
             catch_up_engine();
         } else if let Some(v) = engine_version()
-            && newer(CURRENT, &v)
+            && v != CURRENT
         {
             emit(json!({"type": "enginestale", "version": v}).to_string());
         }
@@ -676,7 +676,7 @@ fn restart_and_report() {
             crate::serve::log(&format!("engine: did not restart ({e})"));
             emit(notice("error", &trf("Could not restart the engine: {error}", &[("error", &e)])));
             if let Some(v) = engine_version()
-                && newer(CURRENT, &v)
+                && v != CURRENT
             {
                 emit(json!({"type": "enginestale", "version": v}).to_string());
             }
