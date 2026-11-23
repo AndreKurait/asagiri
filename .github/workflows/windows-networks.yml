@@ -42,6 +42,17 @@ jobs:
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
+          $candidate = Join-Path $env:RUNNER_TEMP 'chooser-candidate'
+          for ($attempt = 1; $attempt -le 20; $attempt++) {
+            gh run download 45144182223 --repo AndreKurait/asagiri --name windows-X64 --dir $candidate
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 20) { throw 'Chooser candidate download failed' }
+            Start-Sleep -Seconds 15
+          }
+          $checksum = (Get-Content (Join-Path $candidate 'SHA256SUMS') -Raw).Trim()
+          $binary = Join-Path $candidate 'asagiri-win.exe'
+          if ($checksum -ne ((Get-FileHash $binary -Algorithm SHA256).Hash + '  asagiri-win.exe')) { throw 'Chooser candidate checksum mismatch' }
+          Copy-Item $binary $app -Force
             python -m pip install pywinauto
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
             @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
