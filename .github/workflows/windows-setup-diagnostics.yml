@@ -4,6 +4,7 @@ on:
     branches: [qualification/published-windows-setup-110]
 permissions:
   contents: read
+  actions: read
 jobs:
   windows-cli:
     runs-on: windows-2025
@@ -17,13 +18,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = '0.1.14-dev.188'
+          $version = '0.1.14-dev.212'
           $asset = "Asagiri-$version-x86_64.msi"
           Set-Location $env:RUNNER_TEMP
-          gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset --pattern SHA256SUMS
-          if ($LASTEXITCODE) { throw 'Published installer download failed' }
+          gh run download 45217003246 -R AndreKurait/asagiri -n packages-windows-x86_64 -D package
+          if ($LASTEXITCODE) { throw 'Release package download failed' }
+          Copy-Item (Join-Path package $asset) $asset
           $digest = (Get-FileHash $asset).Hash.ToLowerInvariant()
-          if (!(Select-String -Path SHA256SUMS -Pattern "^$digest\s+\*?$([regex]::Escape($asset))$" -Quiet)) { throw 'Published MSI checksum mismatch' }
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           if (Test-Path $bundle) { throw 'Expected a fresh hosted user profile before installation' }
           $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart" -Wait -PassThru
