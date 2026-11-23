@@ -155,13 +155,13 @@ jobs:
               window.child_window(control_type='Document', found_index=0).wait('visible', timeout=10)
               window.set_focus()
               send_keys('^k')
-              search = window.child_window(auto_id='gq', control_type='Edit')
+              search = window.child_window(title='Search Asagiri', control_type='ComboBox')
               search.wait('visible enabled', timeout=10)
               marker = f'traycycle{i+1}'
               send_keys(marker, pause=.03)
               deadline = time.monotonic() + 5
-              while search.get_value() != marker:
-                  if time.monotonic() > deadline: raise RuntimeError(f'Input did not update on reopen {i+1}: {search.get_value()}')
+              while search.iface_value.CurrentValue != marker:
+                  if time.monotonic() > deadline: raise RuntimeError(f'Input did not update on reopen {i+1}: {search.iface_value.CurrentValue}')
                   time.sleep(.05)
               print('Reopened', i+1, flush=True)
           '@ | Set-Content tray-check.py
