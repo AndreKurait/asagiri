@@ -45,8 +45,35 @@ def check(path, image):
                 containers.append(readonly)
                 assert call('cp', readonly + ':/new-mount/resolv.conf', '-')
                 denied = subprocess.run(docker + ['cp', str(local), readonly + ':/new-mount/denied'], capture_output=True, timeout=30)
-                assert denied.returncode != 0, denied.stdout
+                assert denied.returncode != 0 and b'mounted volume is marked read-only' in denied.stderr, denied.stderr
                 print('PASS stopped ' + kind + ' copy-in/out, runtime persistence, export exclusion, and read-only enforcement')
+            # Seed aliases and a mountpoint before mounting the parent read-only.
+            call('run', '--rm', '--network', 'none', '-v', volume + ':/tree', image, 'sh', '-ec',
+                 'mkdir -p /tree/child /tree/locked; ln -s child /tree/write-link; ln -s locked /tree/read-link')
+            nested = call('create', '--network', 'none', '--read-only', '-v', volume + ':/tree:ro',
+                          '-v', '/tree/child', image, 'true').decode().strip()
+            containers.append(nested)
+            upload = io.BytesIO()
+            with tarfile.open(fileobj=upload, mode='w') as tar:
+                for name in ('first', 'second'):
+                    header = tarfile.TarInfo(name)
+                    header.size = len(payload)
+                    tar.addfile(header, io.BytesIO(payload))
+            for phase in ('created', 'exited'):
+                if phase == 'exited':
+                    call('start', '-a', nested)
+                denied = subprocess.run(docker + ['cp', '-', nested + ':/tree/read-link/'],
+                                        input=upload.getvalue(), capture_output=True, timeout=30)
+                assert denied.returncode and b'mounted volume is marked read-only' in denied.stderr, denied.stderr
+                for name in ('first', 'second'):
+                    missing = subprocess.run(docker + ['cp', nested + ':/tree/locked/' + name, '-'],
+                                             capture_output=True, timeout=30)
+                    assert missing.returncode and name.encode() in missing.stderr, missing.stderr
+                call('cp', '-', nested + ':/tree/write-link/', input=upload.getvalue())
+                for name in ('first', 'second'):
+                    with tarfile.open(fileobj=io.BytesIO(call('cp', nested + ':/tree/child/' + name, '-'))) as tar:
+                        assert tar.extractfile(tar.getmembers()[0]).read() == payload
+                print('PASS nested writable mount and read-only symlink destination in ' + phase + ' state')
             # #245: Supabase checks an existing database volume through a new
             # container before its process has ever started.
             call('run', '--rm', '--network', 'none', '-v', volume + ':/data', image,
@@ -61,7 +88,7 @@ def check(path, image):
                 marker = 'probe-' + phase
                 root_file = cid + ':/etc/' + marker
                 denied = subprocess.run(docker + ['cp', str(local), root_file], capture_output=True, timeout=30)
-                assert denied.returncode != 0, 'copy unexpectedly wrote to the read-only root'
+                assert denied.returncode != 0 and b'container rootfs is marked read-only' in denied.stderr, denied.stderr
                 missing = subprocess.run(docker + ['cp', root_file, '-'], capture_output=True, timeout=30)
                 assert missing.returncode != 0, 'failed upload left a file on the read-only root'
                 volume_file = cid + ':/data/' + marker
