@@ -43,6 +43,13 @@ jobs:
           trap 'kill "$daemon" || true; tail -35 engine.log' EXIT
           for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 0.5; done
           docker pull alpine:3.21
+          token_file=$(find "$HOME" "$ASAGIRI_DATA_DIR" -type f -name build-mirror-token -print -quit)
+          port=$(sed -n 's/.*image mirror for builds port=\([0-9]*\).*/\1/p' engine.log | head -1)
+          if test -f "$token_file" && test -n "$port"; then
+            mirror_path="/v2/$(cat "$token_file")/docker.io/library/alpine/manifests/3.21"
+            curl --silent --output /dev/null --max-time 8 --write-out 'Mac mirror manifest HTTP %{http_code}\n' "http://127.0.0.1:$port$mirror_path" || true
+            docker run --rm alpine:3.21 sh -c 'case "$(wget -q -T 8 -O - "$1" 2>/dev/null | wc -c)" in *[1-9]*) echo "guest mirror returned a manifest";; *) echo "guest mirror returned no manifest";; esac' sh "http://198.19.248.254:$port$mirror_path"
+          fi
           python3 "$GITHUB_WORKSPACE/tests/qualification-168/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "docker-compose-darwin-$COMPOSE_ARCH" --output "$RUNNER_TEMP/compose-result.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
