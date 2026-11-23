@@ -18,10 +18,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $asset = 'Asagiri-0.1.14-dev.188-windows-x86_64.zip'
+          $asset = 'Asagiri-0.1.14-dev.205-windows-x86_64.zip'
           Set-Location $env:RUNNER_TEMP
-          gh release download v0.1.14-dev.188 --repo AndreKurait/asagiri --pattern $asset
-          if ((Get-FileHash $asset).Hash.ToLower() -ne '3ee017d9c8ee94292197badf38f432fc5eeb134892bf6311f1e85aa1ddebc854') { throw 'Published bundle hash mismatch' }
+          gh release download v0.1.14-dev.205 --repo AndreKurait/asagiri --pattern $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne '6c418ff6b768dffbabad468e0b9c4ab0b2a73729249ed3c02a52a4c22712e3a7') { throw 'Published bundle hash mismatch' }
           Expand-Archive $asset -DestinationPath load-test
           $app = (Get-ChildItem load-test -Filter asagiri-win.exe -Recurse -File -ErrorAction Stop).FullName
           $bundle = Split-Path $app
@@ -55,6 +55,17 @@ jobs:
               }
               if (!$diagnostic.Contains("$driver networks have no parent interface (-o parent=eth0)")) { throw $diagnostic }
               Write-Host "PASS $driver explicit eth0 parent diagnostic"
+            }
+            $address = '2606:4700:4700::1111'
+            curl.exe -6 --noproxy '*' --connect-timeout 8 --max-time 15 --silent --show-error --output NUL "http://[$address]/"
+            if ($LASTEXITCODE) { throw 'Windows host has no verified external IPv6 HTTP path; container egress inconclusive' }
+            wsl.exe -d Asagiri-net-114 -u root -- ip -6 route get $address
+            if ($LASTEXITCODE) { throw 'Windows host reached IPv6 but the WSL guest lacks an external route' }
+            Invoke-Docker @('network','create','--ipv6','--subnet','fd42:114::/64','egress114')
+            try {
+              Invoke-Docker @('run','--rm','--network','egress114','alpine:3.21','sh','-ec','ip -6 route; wget -T 15 -S -O /dev/null http://[2606:4700:4700::1111]/')
+            } finally {
+              Invoke-Docker @('network','rm','egress114')
             }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
