@@ -1089,6 +1089,7 @@
   "Stop on {host}": "Zaustavi na {host}",
   "Stop sharing": "Prekini deljenje",
   "Stop signal": "Signal za zaustavljanje",
+  "Stop the engine when Asagiri quits": "Zaustavi pokretač pri izlasku iz aplikacije Asagiri",
   "Stop {name}": "Zaustavi {name}",
   "Stop {name} on {host}?": "Zaustaviti {name} na {host}?",
   "Stopped": "Zaustavljeno",

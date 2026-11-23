@@ -506,7 +506,7 @@ fn trf(en: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 }
 
 fn set_pref(name: &str, value: serde_json::Value) {
-    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked") {
+    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "stopEngineOnQuit" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked") {
         return;
     }
     let Some(path) = prefs_path() else { return };
@@ -1420,6 +1420,12 @@ mod tests {
         let p = super::prefs();
         assert_eq!((p["font"].as_str(), p["scale"].as_f64(), p.get("script")), (Some("Georgia"), Some(1.1), None));
         assert_eq!(p["starAsked"], true);
+        // Existing profiles keep the engine running until the user opts in.
+        assert_ne!(p["stopEngineOnQuit"], true);
+        for enabled in [true, false] {
+            super::set_pref("stopEngineOnQuit", enabled.into());
+            assert_eq!(super::prefs()["stopEngineOnQuit"], enabled);
+        }
         // Check for updates automatically stays off across launches.
         super::set_pref("updateAuto", false.into());
         assert_eq!(super::prefs()["updateAuto"], false);

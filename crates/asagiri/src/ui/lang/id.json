@@ -1089,6 +1089,7 @@
   "Stop on {host}": "Hentikan di {host}",
   "Stop sharing": "Berhenti berbagi",
   "Stop signal": "Sinyal stop",
+  "Stop the engine when Asagiri quits": "Hentikan mesin saat keluar dari Asagiri",
   "Stop {name}": "Hentikan {name}",
   "Stop {name} on {host}?": "Hentikan {name} di {host}?",
   "Stopped": "Berhenti",

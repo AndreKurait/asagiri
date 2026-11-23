@@ -1089,6 +1089,7 @@
   "Stop on {host}": "Ferma su {host}",
   "Stop sharing": "Interrompi condivisione",
   "Stop signal": "Segnale di arresto",
+  "Stop the engine when Asagiri quits": "Arresta il motore all’uscita da Asagiri",
   "Stop {name}": "Ferma {name}",
   "Stop {name} on {host}?": "Fermare {name} su {host}?",
   "Stopped": "Fermato",

@@ -282,7 +282,7 @@ fn spawn_daemon() -> io::Result<()> {
 /// Stops the engine on the socket, if one answers: SIGTERM (it powers the
 /// VM off and removes the socket), then SIGKILL if it is still there after
 /// 30 seconds.
-fn stop_engine() -> io::Result<()> {
+pub(crate) fn stop_engine() -> io::Result<()> {
     let Some(engine) = process::Engine::connect()? else { return Ok(()) };
     crate::diag::info!("stopping the engine", pid = engine.pid());
     engine.stop()
