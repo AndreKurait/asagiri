@@ -50,8 +50,15 @@ jobs:
           press('English Same as Linux Hello')
           press('Continue')
           press('Keep building with Docker')
-          press('Skip')
-          press('Skip')
+          for expected in (1, 2):
+              press('Skip')
+              for _ in range(45):
+                  undo_count = sum(n.name == 'Undo' for n in controls())
+                  if undo_count >= expected:
+                      break
+                  time.sleep(1)
+              else:
+                  raise RuntimeError(('Skip was not acknowledged', expected, [(n.getRoleName(), n.name) for n in controls() if n.name][-100:]))
           press('Open Asagiri')
           press('Registry mirrors')
           time.sleep(2)
