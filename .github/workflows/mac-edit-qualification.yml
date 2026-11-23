@@ -36,7 +36,13 @@ jobs:
           export PATH="$RUNNER_TEMP/build/Asagiri.app/Contents/Resources/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
           unset DOCKER_CONTEXT
           for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
-          docker run -d --name clipboard-qualification alpine:3.21 sleep 900
+          trap 'tail -60 "$scratch/daemon.log"' ERR
+          docker create --name clipboard-qualification alpine:3.21 sleep 900
+          for attempt in 1 2 3; do
+            docker start clipboard-qualification && break
+            sleep 5
+          done
+          test "$(docker inspect -f '{{.State.Running}}' clipboard-qualification)" = true
           ./asagiri ui >"$scratch/ui.log" 2>&1 &
           ui_pid=$!
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
