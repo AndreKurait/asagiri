@@ -1,0 +1,68 @@
+name: Check default engine socket visibility from a second WSL distro
+on:
+  push:
+    branches: [qualification/windows-distro-138]
+    paths: [.github/workflows/windows-distro-138.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
+          persist-credentials: false
+      - name: Prepare WSL
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Compare Windows named-pipe access with a separate WSL distro
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "223"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
+          $installStep = 1
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          gh release download "v$version" -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE) { throw 'Published MSI download failed' }
+          if ((Get-FileHash $asset).Hash -ne 'eada8bf8c82bb6d9add0f9de75209e718cd6fb3b807e96a5bcd599e1a7d097e6') { throw 'MSI digest mismatch' }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --import asagiri "$env:RUNNER_TEMP/asagiri" "$bundle/asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw 'Importing the MSI bundled distro failed' }
+          @{done=$true;linux='asagiri';distro='asagiri'} | ConvertTo-Json | Set-Content "$bundle/setup.json" -Encoding utf8NoBOM
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri'
+          function Wait-Engine {
+            for ($i=0; $i -lt 60; $i++) {
+              & $docker info 2>$null | Out-Null
+              if (!$LASTEXITCODE) { return }
+              Start-Sleep 2
+            }
+            throw 'Engine did not respond'
+          }
+          Get-Process asagiri-win -ErrorAction SilentlyContinue | Stop-Process -Force
+          $p = Start-Process $app -ArgumentList '--background' -PassThru
+          Wait-Engine
+          & $docker run --rm alpine:3.21 echo windows-pipe-ok
+          if ($LASTEXITCODE) { throw 'Windows client control failed' }
+          wsl.exe --import Development138 "$env:RUNNER_TEMP/dev138" "$bundle/asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw 'Second distro registration failed' }
+          wsl.exe -d asagiri -u root -- sh -ec 'find /run /var/lib /root -type s -name docker.sock 2>/dev/null | head -20'
+          wsl.exe -d Development138 -u root -- sh -ec 'test -d /mnt/wsl; ls -ld /mnt/wsl; find /mnt/wsl -type s -print; for socket in /var/run/docker.sock /run/asagiri/docker.sock /mnt/wsl/asagiri/docker.sock; do if test -S "$socket"; then echo "socket present $socket"; exit 1; fi; done; echo default-integration-sockets-absent'
+          if ($LASTEXITCODE) { throw 'Second distro socket check failed' }
