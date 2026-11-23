@@ -65,6 +65,14 @@ jobs:
             $wild = & $docker run -d --name port125 -p 0.0.0.0:18922:80 alpine:3.21 sh -c 'echo port125 >/tmp/index.html && exec httpd -f -p 80 -h /tmp' 2>&1 | Out-String
             if ($LASTEXITCODE -or $wild -notlike '*Wildcard bindings do not configure Windows LAN access*') { throw "Unexpected wildcard result $wild" }
             Write-Host $wild
+            & $docker inspect port125 --format '{{json .State}} {{json .NetworkSettings.Ports}}'
+            & $docker logs port125
+            & $docker exec port125 wget -qO- http://127.0.0.1:80/
+            if ($LASTEXITCODE) { throw 'HTTP failed inside the serving container' }
+            wsl.exe -d port125 -- wget -O- -T 5 http://127.0.0.1:18922/
+            Write-Host "WSL loopback HTTP exit: $LASTEXITCODE"
+            wsl.exe -d port125 -- hostname -I
+            Get-NetTCPConnection -LocalPort 18922 -ErrorAction SilentlyContinue | Format-Table LocalAddress,LocalPort,State,OwningProcess
             curl.exe --fail --retry 8 --retry-connrefused --retry-delay 1 http://127.0.0.1:18922/ -o response.txt
             if ($LASTEXITCODE -or (Get-Content response.txt -Raw).Trim() -ne 'port125') { throw 'Windows loopback HTTP check failed' }
             Write-Host 'PASS explicit host IP diagnostic, wildcard warning, and Windows loopback HTTP'
