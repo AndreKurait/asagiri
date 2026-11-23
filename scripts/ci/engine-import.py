@@ -488,6 +488,9 @@ def main():
                        image, "sh", "-ec", script, "sh", nonce)
                 imported("container", writable)
                 assert get("destination", "/containers/" + writable + "/json")["State"]["Status"] == "created"
+                # The preserved changes are in the snapshot image. The new container
+                # must answer diff before its first start, with no changes of its own.
+                assert docker("destination", "diff", writable).stdout == b""
                 assert docker("destination", "start", "-a", writable, text=True).stdout == nonce
                 assert get("destination", "/containers/" + writable + "/json")["State"]["ExitCode"] == 0
                 assert get("source", "/containers/" + writable + "/json")["State"]["Status"] == "exited"
