@@ -487,6 +487,12 @@ def main():
                 peer = "network-child-" + nonce
                 docker("source", "create", "--name", peer, "--network", "container:" + source_id,
                        "--label", OWNER + "=" + nonce, "--group-add", "42", image, "true")
+                inventory = command(
+                    "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
+                    "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
+                ).stdout.split("containers:\n", 1)[1]
+                names = [line.strip().split()[0] for line in inventory.splitlines() if line.strip()]
+                assert names.index(definition) < names.index(peer), names
                 imported("container", peer)
                 child = get("destination", "/containers/" + peer + "/json")
                 assert child["HostConfig"]["NetworkMode"] == "container:" + copied["Id"]
