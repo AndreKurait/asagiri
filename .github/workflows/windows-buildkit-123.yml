@@ -1,0 +1,83 @@
+name: Verify Docker Buildx networking on published Windows WSL
+on:
+  push:
+    branches: [qualification/windows-buildkit-123]
+    paths: [.github/workflows/windows-buildkit-123.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 9c4da961d9351b3e898baf6842295f3f86caafc9
+          persist-credentials: false
+      - name: Prepare WSL
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Build the upstream Alpine DNS example using the released Windows launcher and WSL distro
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_BUILD: "205"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $build = $env:QUALIFICATION_BUILD
+          if ($build -notmatch '^[0-9]+$') { throw 'Set QUALIFICATION_BUILD to the published dev build containing PR #352' }
+          $installStep = 1
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          gh release download "v$version" -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE) { throw 'Published MSI download failed' }
+          if ((Get-FileHash $asset).Hash -ne '1592852ad8ae07a8b903592ec868164697ba49a38629e47de55127da646dc8b2') { throw 'MSI digest mismatch' }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\asagiri-msi-$installStep-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          wsl.exe --import dns123 "$env:RUNNER_TEMP/dns123" "$bundle/asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw 'Importing the MSI bundled distro failed' }
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-dns123'
+          $launcher = Start-Process $app -ArgumentList '--distro','dns123','--pipe','\\.\pipe\asagiri-dns123' -PassThru
+          try {
+            for ($i=0; $i -lt 90; $i++) {
+              & $docker info 2>$null | Out-Null
+              if ($LASTEXITCODE -eq 0) { break }
+              Start-Sleep -Seconds 2
+            }
+            if ($LASTEXITCODE) { throw 'Engine startup failed' }
+            & $docker pull alpine:3.21
+            if ($LASTEXITCODE) { throw 'Alpine pull failed' }
+            & $docker run --rm alpine:3.21 sh -ec 'cat /etc/resolv.conf && wget -q -O /dev/null https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/APKINDEX.tar.gz'
+            if ($LASTEXITCODE) { throw 'Plain container HTTPS control failed' }
+            $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'buildkit-client-config'
+            $plugins = Join-Path $env:DOCKER_CONFIG 'cli-plugins'
+            New-Item -ItemType Directory -Force $plugins | Out-Null
+            $plugin = Get-ChildItem $bundle -Filter docker-buildx.exe -Recurse | Select-Object -First 1
+            if (!$plugin) { throw 'Bundled Buildx plugin missing' }
+            Copy-Item $plugin.FullName $plugins
+            & $docker buildx version
+            & $docker buildx create --name dns123 --driver docker-container --driver-opt image=moby/buildkit:v0.34.2 --use
+            if ($LASTEXITCODE) { throw 'Cannot create Buildx builder' }
+            try {
+              & $docker buildx inspect --bootstrap dns123
+              if ($LASTEXITCODE) { throw 'Builder bootstrap failed' }
+              New-Item -ItemType Directory build123 | Out-Null
+              "FROM alpine:latest`nRUN cat /etc/resolv.conf && apk add --no-cache curl" | Set-Content -Encoding ascii build123/Dockerfile
+              & $docker buildx build --builder dns123 --progress plain --no-cache --load -t dns123:checked build123
+              if ($LASTEXITCODE) { throw 'BuildKit networked RUN failed' }
+              & $docker run --rm dns123:checked curl --version
+              if ($LASTEXITCODE) { throw 'Built image missing curl' }
+            } finally {
+              & $docker logs --tail 100 buildx_buildkit_dns1230
+            }
+          } finally { if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id } }
