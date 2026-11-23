@@ -1,7 +1,7 @@
-name: Published WSL network drivers and bridge options
+name: Published Windows default Docker CLI endpoint
 on:
   push:
-    branches: [qualification/windows-networks-114]
+    branches: [qualification/windows-default-cli-98]
     paths: [.github/workflows/windows-networks.yml]
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Exercise the network fixtures in the published WSL distro
+      - name: Exercise the bundled CLI with an empty Docker configuration
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -44,18 +44,23 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            $repo = (wsl.exe -d Asagiri-net-114 --cd "$env:GITHUB_WORKSPACE" --exec pwd)
-            if ($LASTEXITCODE -or !$repo) { throw 'Cannot resolve checkout inside WSL' }
-            $repo = $repo.Trim()
-            wsl.exe -d Asagiri-net-114 -u root -- apk add --no-cache python3 docker-cli ca-certificates
-            if ($LASTEXITCODE) { throw 'Cannot install native WSL test clients' }
-            $failed = @()
-            foreach ($suite in 'network-internal-gateway','inspect-port-bindings') {
-              Write-Host "Running $suite"
-              wsl.exe -d Asagiri-net-114 -u root -- python3 "$repo/tests/$suite.py" /var/lib/asagiri-daemon/.asagiri/run/docker.sock alpine:3.21
-              if ($LASTEXITCODE) { $failed += $suite } else { Write-Host "PASS $suite" }
+            $id = (& $docker create alpine:3.21 echo default-endpoint-98).Trim()
+            if ($LASTEXITCODE -or !$id) { throw 'Could not create reference container on Asagiri' }
+            $other = Get-Service docker -ErrorAction SilentlyContinue
+            if ($other -and $other.Status -eq 'Running') { Stop-Service docker }
+            Remove-Item Env:DOCKER_HOST
+            $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'fresh-docker-config'
+            New-Item -ItemType Directory -Path $env:DOCKER_CONFIG | Out-Null
+            if ((& $docker context show) -ne 'default') { throw 'Expected the default Docker context' }
+            for ($i = 0; $i -lt 45; $i++) {
+              $seen = & $docker inspect --format '{{.Id}}' $id 2>$null
+              if ($LASTEXITCODE -eq 0 -and $seen -eq $id) { break }
+              Start-Sleep -Seconds 2
             }
-            if ($failed.Count) { throw "Failed suites: $($failed -join ', ')" }
+            if ($seen -ne $id) { throw 'Default endpoint did not find the Asagiri container' }
+            $marker = & $docker start -a $id
+            if ($LASTEXITCODE -or $marker -ne 'default-endpoint-98') { throw 'Default endpoint execution failed' }
+            Write-Host 'PASS default context found and executed the Asagiri container through the bundled CLI'
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-net-114
