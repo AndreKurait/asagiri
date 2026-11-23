@@ -439,7 +439,9 @@ fn data_dirs() -> io::Result<container::Paths> {
         mount(c"asagiri", c"/var/lib/asagiri", c"tmpfs", libc::MS_NOATIME, Some(c"mode=0755"))?;
     } else {
         disk::grow()?;
-        disk::configure_swap()?;
+        if let Err(e) = disk::configure_swap() {
+            eprintln!("asagiri-init: guest swap unavailable ({e}); continuing without swap");
+        }
     }
     // The Mac's filesystem over virtiofs, for bind mounts.
     sys::mkdir(c"/mnt", 0o755);
