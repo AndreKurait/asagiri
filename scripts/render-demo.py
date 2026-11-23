@@ -222,6 +222,8 @@ def main():
             print("PASS site build tabs and desktop/mobile layout", flush=True)
             browser.load(origin + "/install/", 1440, 1100)
             assert browser.js("document.documentElement.scrollWidth <= innerWidth"), "Desktop install layout overflows"
+            # Let the initial download finish before exercising synthetic release states.
+            browser.js("releaseIndexReady.then(() => true)")
             browser.js("""window.savedReleaseIndex = releases;
               window.savedDownloadStatus = document.getElementById('download-status');
               window.savedDownloadStatus.remove();
