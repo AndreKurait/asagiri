@@ -3420,7 +3420,7 @@ function renderDetail() {
   const facts = [[tr("Image"), `<span title="${esc(c.Image)}">${esc(refLabel(c.Image))}</span>`],
     id && [tr("ID"), `<span class="mono" title="${esc(id)}">sha256:${esc(id.slice(7, 19))}</span>${copyBtn(id, tr("image ID"))}`],
     project && ["Compose", `<span class="cproj"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="${PH.stack}"/></svg>${esc(project)}</span>`]].filter(Boolean);
-  $("content").innerHTML = `<div class="dhead">
+  const heading = `<div class="dhead">
       <div class="tile-wrap">${tile(c.icon, "cube")}${reachable ? `<span class="kbadge" title="${tr("Reachable at {url}", { url: esc(domain) })}">${KDOT}</span>` : ""}</div>
       <div class="who"><b>${esc(d.name)}</b></div>
       ${statusPill(c)}
@@ -3438,9 +3438,18 @@ function renderDetail() {
     </span></div>
     ${c.State === "exited" && c.AsagiriOOMKilled ? oomLine(tr("Stopped: out of memory"), c.AsagiriFinishedAt ? tr("{time} ago, when the VM's {mem} ran out.", { time: since(c.AsagiriFinishedAt), mem: memText(ui.mem?.ceiling || 0) }) : tr("when the VM's {mem} ran out.", { mem: memText(ui.mem?.ceiling || 0) }),
       btn(tr("Start again"), `data-c="start" data-id="${c.Id}"`) + btn(tr("More memory"), "data-memmore")) : ""}
-    ${fixPanel(c)}
-    <div id="dbody"></div>`;
-  const body = $("dbody");
+    ${fixPanel(c)}`;
+  const content = $("content");
+  let body = $("dbody");
+  const keepTerminal = d.tab === "terminal" && running && body?.parentNode === content && termEl.parentNode === body;
+  if (keepTerminal) {
+    // Replacing the detail body disconnects the prompt and drops its focus.
+    while (content.firstChild !== body) content.firstChild.remove();
+    body.insertAdjacentHTML("beforebegin", heading);
+  } else {
+    content.innerHTML = `${heading}<div id="dbody"></div>`;
+    body = $("dbody");
+  }
   watchStats();
   if (d.focusFix && $("fix-val")) { d.focusFix = false; $("fix-val").focus(); }
   if (d.tab === "overview") {
@@ -3461,10 +3470,15 @@ function renderDetail() {
     $("log-follow").addEventListener("change", (ev) => { d.follow = ev.target.checked; if (d.follow) logEl.scrollTop = logEl.scrollHeight; });
     if (d.follow) logEl.scrollTop = logEl.scrollHeight;
   } else if (d.tab === "terminal") {
-    body.innerHTML = running
+    const toolbar = running
       ? `<div class="logbar"><span class="muted">${tr("Runs each command with {sh} in {name}; {cd} carries over. ↑ and ↓ go through earlier commands.", { sh: '<span class="mono">sh -c</span>', name: esc(d.name), cd: '<span class="mono">cd</span>' })}</span><span style="flex:1"></span>${btn(tr("Open in Terminal"), "data-terminal", "primary")}</div>`
       : `<div class="logbar"><span class="muted">${tr("Start the container to run commands in it.")}</span></div>`;
-    if (running) { body.append(termEl); setPrompt(); probePrompt(); }
+    if (keepTerminal) body.firstElementChild.outerHTML = toolbar;
+    else {
+      body.innerHTML = toolbar;
+      if (running) body.append(termEl);
+    }
+    if (running) { setPrompt(); probePrompt(); }
   } else body.innerHTML = filesView(d);
 }
 
