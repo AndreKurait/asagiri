@@ -231,6 +231,14 @@ impl Ui {
             let Some(w) = self.webview.as_ref().and_then(|w| w.cast::<ICoreWebView2_3>().ok()) else { return };
             if visible || self.executing != 0 {
                 let _ = w.Resume();
+                if visible {
+                    let mut suspended = windows::core::BOOL::default();
+                    if w.IsSuspended(&mut suspended).is_ok() && !suspended.as_bool() {
+                        if let Some(path) = std::env::var_os("ASAGIRI_TEST_RESUMED") {
+                            let _ = std::fs::write(path, "visible, IsSuspended=false");
+                        }
+                    }
+                }
             } else if self.loaded {
                 let mut suspended = windows::core::BOOL::default();
                 if w.IsSuspended(&mut suspended).is_ok() && suspended.as_bool() {
@@ -239,6 +247,16 @@ impl Ui {
                 let _ = w.TrySuspend(&TrySuspendCompletedHandler::create(Box::new(|_, _| {
                     // Closing and immediately reopening can race completion.
                     with_ui_soon(|ui| {
+                        if !ui.visible() {
+                            if let Some(view) = ui.webview.as_ref().and_then(|v| v.cast::<ICoreWebView2_3>().ok()) {
+                                let mut suspended = windows::core::BOOL::default();
+                                if view.IsSuspended(&mut suspended).is_ok() && suspended.as_bool() {
+                                    if let Some(path) = std::env::var_os("ASAGIRI_TEST_SUSPENDED") {
+                                        let _ = std::fs::write(path, "hidden, IsSuspended=true");
+                                    }
+                                }
+                            }
+                        }
                         if ui.visible() || ui.executing != 0 {
                             ui.sync_webview_visibility();
                         }
