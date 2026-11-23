@@ -499,6 +499,22 @@ def main():
                 assert child["HostConfig"]["GroupAdd"] == ["42"]
                 case("shared-network-child-resolves-imported-target")
 
+                writable = "writable-layer-" + nonce
+                script = ('if test -e /import-marker; then test ! -e /bin/sh && cat /import-marker; '
+                          'else printf %s "$1" > /import-marker && rm /bin/sh; fi')
+                docker("source", "run", "--name", writable, "--network", "none",
+                       "--label", OWNER + "=" + nonce, "--entrypoint", "/bin/busybox",
+                       image, "sh", "-ec", script, "sh", nonce)
+                imported("container", writable)
+                assert get("destination", "/containers/" + writable + "/json")["State"]["Status"] == "created"
+                # The preserved changes are in the snapshot image. The new container
+                # must answer diff before its first start, with no changes of its own.
+                assert docker("destination", "diff", writable).stdout == b""
+                assert docker("destination", "start", "-a", writable, text=True).stdout == nonce
+                assert get("destination", "/containers/" + writable + "/json")["State"]["ExitCode"] == 0
+                assert get("source", "/containers/" + writable + "/json")["State"]["Status"] == "exited"
+                case("container-writable-layer-preserves-added-and-deleted-files")
+
                 # A repository digest can be lost on save/load even when the config survives.
                 digest_ref = "alpine@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f"
                 digest_container = "digest-only-" + nonce
