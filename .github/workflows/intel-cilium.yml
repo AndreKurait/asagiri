@@ -9,7 +9,7 @@ permissions:
 jobs:
   cilium:
     runs-on: macos-26-intel
-    timeout-minutes: 55
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -18,8 +18,8 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: false
-      - name: Start Cilium in a kind cluster on the bundled guest
-        timeout-minutes: 45
+      - name: Prepare pinned Helm and Cilium chart
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -32,6 +32,12 @@ jobs:
           chart="$RUNNER_TEMP/cilium-1.20.2.tgz"
           curl --fail --location --retry 3 https://helm.cilium.io/cilium-1.20.2.tgz -o "$chart"
           echo "b2afd87b7f75f875f92a14559f14f59b7babbb479d968e3fd625a20bf30ec20e  $chart" | shasum -a 256 -c -
+          echo "$tools" >> "$GITHUB_PATH"
+          echo "chart=$chart" >> "$GITHUB_ENV"
+      - name: Stage the chart's container images
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
           command -v skopeo || brew install skopeo
           images="$RUNNER_TEMP/cilium-images"
           mkdir -p "$images"
@@ -49,6 +55,15 @@ jobs:
             fi
             skopeo copy --retry-times 3 --all --preserve-digests "docker://$source_ref" "oci-archive:$images/$n.tar:${ref%@*}"
           done < "$images/refs"
+          echo "images=$images" >> "$GITHUB_ENV"
+          df -h "$RUNNER_TEMP"
+      - name: Start Cilium in a kind cluster on the bundled guest
+        timeout-minutes: 45
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/cilium-tools"
           command -v kind || GOBIN="$tools" go install sigs.k8s.io/kind@v0.31.0
           command -v kubectl || brew install kubectl
           mkdir -p "$RUNNER_TEMP/build"
