@@ -59,6 +59,8 @@ jobs:
             if ($LASTEXITCODE) { throw 'Alpine pull failed' }
             # Block public fallback resolvers in the disposable WSL guest while
             # retaining the host-supplied resolver used by the bridge gateway.
+            wsl.exe -d dns123 -u root -- apk add --no-cache iptables
+            if ($LASTEXITCODE) { throw 'Installing the test firewall tool failed' }
             wsl.exe -d dns123 -u root -- sh -ec 'for ip in 8.8.8.8 8.8.4.4; do for chain in OUTPUT FORWARD; do for proto in udp tcp; do iptables -I "$chain" -d "$ip" -p "$proto" --dport 53 -j REJECT; done; done; done; cat /etc/resolv.conf'
             if ($LASTEXITCODE) { throw 'Could not create the restricted DNS environment' }
             & $docker run --rm alpine:3.21 sh -ec 'if timeout 6 nslookup dl-cdn.alpinelinux.org 8.8.8.8; then exit 1; fi; nslookup dl-cdn.alpinelinux.org'
