@@ -4,12 +4,12 @@
 // the page; a daemon that can't be reached says to start Asagiri.
 const R = [];
 const t = (name, fn) => { try { fn(); R.push("PASS " + name); } catch (e) { R.push("FAIL " + name + ": " + e.message); } };
-const mirrors = (list) => ({ type: "mirrors", mirrors: list, applies_to: "docker.io" });
+const mirrors = (list) => ({ type: "mirrors", "registry-mirrors": list, applies_to: "docker.io" });
 const pane = () => document.querySelector("#content .settings");
 const open = () => { prefs.tab = "mirrors"; show("settings"); };
 const put = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); };
 const save = () => document.querySelector("#content [data-savemirrors]");
-const sentList = () => { const m = sent.find((x) => x.type === "setmirrors"); return m ? m.value.mirrors : null; };
+const sentList = () => { const m = sent.find((x) => x.type === "setmirrors"); return m ? m.value["registry-mirrors"] : null; };
 const items = [];
 
 asagiri.on(mirrors([]));
@@ -50,6 +50,14 @@ t("removing a mirror takes it out of the list Save sends", () => {
   sent.length = 0;
   save().click();
   if (JSON.stringify(sentList()) !== JSON.stringify(["https://mirror.example.net"])) throw new Error("sent " + JSON.stringify(sent));
+});
+t("saving registry exceptions patches only the transport list", () => {
+  asagiri.on(mirrors([]));
+  put("registry-exceptions", " registry.lan:5000\n192.0.2.5:443 ");
+  sent.length = 0;
+  save().click();
+  const patch = sent.find(m => m.type === "setmirrors").value;
+  if (JSON.stringify(patch) !== JSON.stringify({"insecure-registries": ["registry.lan:5000", "192.0.2.5:443"]})) throw new Error(JSON.stringify(patch));
 });
 t("with no daemon the page says to start Asagiri", () => {
   asagiri.on({ type: "mirrors", error: "connection refused" });

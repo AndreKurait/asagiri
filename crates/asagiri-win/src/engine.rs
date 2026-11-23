@@ -1564,12 +1564,12 @@ fn proxy(set: Option<Value>) {
 /// Settings → Registry mirrors: the daemon's Docker Hub mirrors.
 fn registry_mirrors(set: Option<Value>) {
     if let Some(body) = set {
-        match expect_ok(client::request("POST", "/asagiri/registry-mirrors", Some(&body))) {
+        match expect_ok(client::request("POST", "/asagiri/daemon-config", Some(&body))) {
             Ok(()) => emit(notice("ok", &tr("Registry mirrors saved"))),
             Err(e) => emit(notice("error", &trf("Could not save the registry mirrors: {error}", &[("error", &e)]))),
         }
     }
-    let ev = match client::get("/asagiri/registry-mirrors") {
+    let ev = match client::get("/asagiri/daemon-config") {
         Ok(mut v) => {
             v["type"] = json!("mirrors");
             v
