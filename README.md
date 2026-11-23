@@ -143,7 +143,11 @@ their own identity. Data is not migrated automatically.
 
 This tree integrates additional Docker compatibility work: lifecycle races,
 HTTP and archive behavior, SDK attach, resource limits, seccomp profiles, and
-bridge, macvlan, and ipvlan networking. It also carries reviewed upstream fixes.
+bridge, macvlan, and ipvlan networking. For macvlan and ipvlan, Asagiri
+supports networks created without a parent interface. Supplying `-o parent=…`
+to attach containers to a host interface is unsupported.
+
+This tree also carries reviewed upstream fixes.
 [UPSTREAM.md](UPSTREAM.md) records sources, follow-ups, and remaining limitations.
 
 ## Lineage and attribution
