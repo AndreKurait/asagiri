@@ -1,13 +1,13 @@
-name: Verify published Windows engine on the reported WSL 2.4.13 kernel
+name: Verify published Windows engine on Windows Server 2022
 on:
   push:
-    branches: [qualification/windows-wsl2413-139]
+    branches: [qualification/windows-server-2022-237]
 permissions:
   actions: read
   contents: read
 jobs:
   terminal:
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 25
     steps:
       - name: Install the reported Microsoft WSL release on this disposable runner
