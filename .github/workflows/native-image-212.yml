@@ -19,6 +19,6 @@ jobs:
           token=$(curl -fsS 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/alpine:pull' | jq -er .token)
           curl -fsSL --retry 3 -H "Authorization: Bearer $token" "https://registry-1.docker.io/v2/library/alpine/blobs/sha256:$base" -o "blobs/sha256/$base"
           (cd blobs/sha256 && for digest in *; do echo "$digest  $digest"; done | sha256sum -c -)
-          test "$(jq -r '.manifests[0].digest' index.json)" = sha256:fce0eabc9994aedd656ccceb1f779b50dee95236bdc3395f28c5d72450b7b918
+          test "$(jq -r '.manifests[0].digest' index.json)" = sha256:e1c115bafb9e3541059bb71c049482098050b27bf1481b7fca28a0aa790504e8
           skopeo copy oci:. docker-daemon:issue212:native
           docker run --rm --network none issue212:native sh -ec 'cat /arch.txt; uname -m; test "$(cat /arch.txt)" = x86_64; test "$(uname -m)" = x86_64'
