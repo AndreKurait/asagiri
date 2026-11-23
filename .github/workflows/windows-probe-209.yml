@@ -1,7 +1,7 @@
-name: Reproduce dev.212 returning completed Windows setup to the wizard
+name: Verify dashboard selection after a delayed successful WSL response
 on:
   push:
-    branches: [qualification/windows-baseline-209]
+    branches: [qualification/windows-slow-209]
 permissions:
   contents: read
 jobs:
@@ -9,38 +9,49 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - name: Launch the actual dashboard and setup views with an unavailable WSL service
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and test the candidate launcher
+        run: |
+          cargo test --locked -p asagiri-win incomplete_setup_resumes_from_persisted_state
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --release -p asagiri-win
+      - name: Launch the actual dashboard and setup views while a real WSL distro query is delayed
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install pywinauto==0.6.9
+          python -m pip install pywinauto==0.6.9 psutil
           if ($LASTEXITCODE) { throw 'UI Automation installation failed' }
-          $asset = 'Asagiri-0.1.14-dev.212-x86_64.msi'
-          $msi = Join-Path $env:RUNNER_TEMP $asset
-          Invoke-WebRequest "https://github.com/AndreKurait/asagiri/releases/download/v0.1.14-dev.212/$asset" -OutFile $msi
-          if ((Get-FileHash $msi).Hash -ne 'f3dc09608a49494288b9dc6dd787d460aa095d862eff0e6b5dbfac3ad494cbc0') { throw 'Wrong MSI digest' }
-          $installer = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
-          if ($installer.ExitCode -notin 0,3010) { throw "Install failed: $($installer.ExitCode)" }
-          $app = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.exe'
-          Get-Process asagiri-win -ErrorAction SilentlyContinue | Stop-Process -Force
+          $app = (Resolve-Path target/release/asagiri-win.exe).Path
           $homeDir = Join-Path $env:LOCALAPPDATA Asagiri
           New-Item -Force -ItemType Directory $homeDir | Out-Null
           wsl.exe --version
           if ($LASTEXITCODE) { throw 'WSL version control failed' }
-          $svc = Get-Service WslService
-          $mode = $svc.StartType
+          $fixture = Join-Path $env:RUNNER_TEMP 'rootfs'
+          New-Item -Type Directory $fixture | Out-Null
+          Set-Content (Join-Path $fixture 'marker') 'timing control'
+          $tar = Join-Path $env:RUNNER_TEMP 'rootfs.tar'
+          tar -cf $tar -C $fixture .
+          wsl.exe --import SlowQueryControl (Join-Path $env:RUNNER_TEMP 'distro') $tar --version 2
+          if ($LASTEXITCODE) { throw 'Could not register the timing control distro' }
+          $env:WSL_UTF8 = '1'
+          if ('SlowQueryControl' -notin (wsl.exe --list --quiet)) { throw 'Control distro missing' }
+          @{done=$true;distro='SlowQueryControl'} | ConvertTo-Json | Set-Content (Join-Path $homeDir setup.json) -Encoding utf8NoBOM
+          $servicePid = (Get-CimInstance Win32_Service -Filter "Name='WslService'").ProcessId
+          python -c "import psutil,sys; psutil.Process(int(sys.argv[1])).suspend()" $servicePid
+          if ($LASTEXITCODE) { throw 'Could not suspend service' }
           try {
-            Set-Service $svc.Name -StartupType Disabled
-            Stop-Service $svc.Name -Force
-            wsl.exe --list --quiet
-            if (!$LASTEXITCODE) { throw 'WSL still returned a successful distro list' }
-            foreach ($done in $true,$false) {
-              @{done=$done;distro='asagiri'} | ConvertTo-Json | Set-Content (Join-Path $homeDir setup.json) -Encoding utf8NoBOM
-              Write-Host "Testing persisted done=$done"
-              $expected = 'Asagiri Setup'
-              $process = Start-Process $app -PassThru
-              try {
-                python -c "from pywinauto import Desktop; import sys; window = Desktop(backend='uia').window(process=int(sys.argv[1]), title='Asagiri'); doc = window.child_window(title=sys.argv[2], control_type='Document'); doc.wait('visible', timeout=90); print('Visible WebView document:', doc.window_text())" $process.Id $expected
-                if ($LASTEXITCODE) { throw "Expected WebView document '$expected' for done=$done" }
-              } finally { if (!$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() } }
-            }
-          } finally { Set-Service $svc.Name -StartupType $mode }
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            $control = Start-Process wsl.exe -ArgumentList '--list --quiet' -PassThru -RedirectStandardOutput "$fixture/control.txt"
+            $process = Start-Process $app -PassThru
+            Start-Sleep -Seconds 8
+            if ($control.HasExited) { throw 'Distro query completed before service resumed' }
+          } finally {
+            python -c "import psutil,sys; psutil.Process(int(sys.argv[1])).resume()" $servicePid
+            if ($LASTEXITCODE) { throw 'Could not resume service' }
+          }
+          if (!$control.WaitForExit(30000) -or $control.ExitCode -ne 0) { throw 'Delayed distro query failed' }
+          Write-Host "Distro query succeeded after $($timer.ElapsedMilliseconds) ms"
+          if ('SlowQueryControl' -notin (Get-Content "$fixture/control.txt")) { throw 'Delayed query omitted the registered distro' }
+          python -c "from pywinauto import Desktop; import sys; doc=Desktop(backend='uia').window(process=int(sys.argv[1]), title='Asagiri').child_window(title='Asagiri', control_type='Document'); doc.wait('visible', timeout=90); print('Visible WebView document:',doc.window_text())" $process.Id
+          if ($LASTEXITCODE) { throw 'Dashboard did not open after WSL resumed' }
