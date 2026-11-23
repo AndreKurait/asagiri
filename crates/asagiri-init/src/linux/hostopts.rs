@@ -59,6 +59,7 @@ pub struct HostOpts {
     pub seccomp: Option<String>,
     /// Share the agent's PID namespace; false creates a private one.
     pub pid_host: bool,
+    pub pid_donor: Option<String>,
     /// Buildx's shared parent, inside Asagiri's delegated cgroup tree.
     pub buildx_parent: bool,
     /// (RLIMIT_* resource, soft, hard); u64::MAX is unlimited.
@@ -80,7 +81,9 @@ pub fn parse(list: StrList<'_>) -> io::Result<HostOpts> {
         let f: Vec<&str> = line.split('\t').collect();
         match f.as_slice() {
             ["seccomp", profile] => o.seccomp = Some((*profile).into()),
-            ["pid-mode", "host"] if !o.pid_host => o.pid_host = true,
+            ["pid-mode", "host"] if !o.pid_host && o.pid_donor.is_none() => o.pid_host = true,
+            ["pid-donor", id] if !o.pid_host && o.pid_donor.is_none() && id.len() == 64
+                && id.bytes().all(|b| b.is_ascii_hexdigit()) => o.pid_donor = Some((*id).to_owned()),
             ["cgroup-parent", "/docker/buildx"] => o.buildx_parent = true,
             ["rlimit", res, soft, hard] => {
                 let n = |s: &str| s.parse::<u64>().map_err(|_| bad(line));

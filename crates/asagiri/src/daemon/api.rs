@@ -2231,7 +2231,11 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     }
     // --ulimit, --sysctl, --device, --device-cgroup-rule, --group-add:
     // refused now with Docker's error rather than at start.
-    let host_opts = super::hostopts::from_host(host);
+    let mut host_opts = super::hostopts::from_host(host);
+    if let Some(target) = host_opts["PidMode"].as_str().and_then(super::hostopts::pid_donor) {
+        let id = engine.resolve(target)?;
+        host_opts["PidMode"] = json!(format!("container:{id}"));
+    }
     super::hostopts::guest_lines(&host_opts, network_mode == "host").map_err(Error::BadRequest)?;
     super::hostopts::check_device_requests(host).map_err(Error::BadRequest)?;
     if let Some(s) = body["StopSignal"].as_str().filter(|s| !s.is_empty()) {

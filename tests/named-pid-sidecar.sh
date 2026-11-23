@@ -7,7 +7,7 @@ image=${2:?locally available image with sh, sleep and readlink required}
 docker_cli() { docker --context "$context" "$@"; }
 name=asagiri-pid-test-$(uuidgen | tr 'A-Z' 'a-z')
 cleanup() {
-    docker_cli rm -f "$name-private" "$name-sidecar" "$name" >/dev/null 2>&1 || true
+    docker_cli rm -f "$name-private" "$name-sidecar" "$name-stopped" "$name" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
@@ -23,3 +23,13 @@ joined=$(docker_cli run --rm --pull=never --network none --name "$name-sidecar" 
 test "$joined" = "$donor"
 test "$(namespace)" = "$donor"
 printf 'Sidecar joined %s and donor survived\n' "$joined"
+after=$(docker_cli run --rm --pull=never --network none --name "$name-private" "$image" readlink /proc/self/ns/pid)
+test "$after" != "$donor"
+docker_cli create --network none --name "$name-stopped" --pid "container:$name" "$image" true >/dev/null
+docker_cli stop -t 1 "$name" >/dev/null
+if output=$(docker_cli start "$name-stopped" 2>&1); then
+    echo 'Sidecar started after its donor stopped' >&2
+    exit 1
+fi
+case "$output" in *running*) ;; *) echo "$output" >&2; exit 1 ;; esac
+printf 'Subsequent private run stayed isolated and a stopped donor was rejected\n'

@@ -2388,13 +2388,31 @@ impl Engine {
         // Joining a host-network container is the host's namespace too: its
         // net.* sysctls would change the whole VM (or Linux host).
         let joined_host = joined_mode.is_some_and(|m| self.lock_networks().find(&m).is_some_and(|n| n.driver == "host"));
-        let host_opts = match spec.guest_opts(flags & run_flags::NET_HOST != 0 || joined_host) {
+        let mut host_opts = match spec.guest_opts(flags & run_flags::NET_HOST != 0 || joined_host) {
             Ok(o) => o,
             Err(e) => {
                 self.fail_start(&id, &spec, &e);
                 return Err(e);
             }
         };
+        if let Some(donor) = spec.host_opts["PidMode"].as_str().and_then(super::hostopts::pid_donor) {
+            let resolved = {
+                let st = self.lock();
+                resolve(&st, donor).and_then(|target| {
+                    if target == id || st.containers[&target].status != Status::Running {
+                        return Err(Error::Conflict(format!("PID donor {donor} must be another running container")));
+                    }
+                    Ok(target)
+                })
+            };
+            match resolved {
+                Ok(target) => host_opts.push(format!("pid-donor\t{target}")),
+                Err(e) => {
+                    self.fail_start(&id, &spec, &e);
+                    return Err(e);
+                }
+            }
+        }
         if let Err(e) = self.restore_layers(&vm, &layers) {
             self.fail_start(&id, &spec, &e);
             return Err(e);
@@ -4320,7 +4338,7 @@ fn own_name(d: &str) -> &str {
 /// Docker's container-name rule: non-empty, `[a-zA-Z0-9_.-]` only. A name
 /// is a DNS label on user networks and part of `<name>.asagiri.localhost`, so
 /// it must not carry spaces, slashes or control characters.
-fn valid_container_name(n: &str) -> bool {
+pub(super) fn valid_container_name(n: &str) -> bool {
     !n.is_empty() && n.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
