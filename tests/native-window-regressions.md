@@ -139,3 +139,23 @@ tests establish two setup failure cases, not the cause on that machine.
    position, and pending input together.
 4. Repeat while the terminal is receiving periodic output. Record the source
    commit, Windows and WebView2 versions, and each observed refresh and result.
+
+## macOS Docker context recovery after configuration loss (#98)
+
+1. In a disposable account or private test home, start the Mac daemon on a
+   private socket. Use the app's bundled Docker CLI and a temporary
+   `DOCKER_CONFIG`. Load an Alpine image into this engine for the final check.
+2. Create and select the `asagiri` context pointing to the private socket.
+   Confirm `docker ps` works. Move the temporary `DOCKER_CONFIG` directory
+   aside. Confirm `docker --context asagiri ps` reports a missing context
+   and `docker buildx version` fails in this environment.
+3. With the same socket, home and Docker configuration environment, run the
+   app bundle's `Contents/MacOS/asagiri ui --start`. Inspect the recreated
+   context with `docker context inspect asagiri`. Confirm the endpoint is
+   the private socket and run `docker --context asagiri run --rm --network
+   none alpine:3.21 echo context-recovered`. Expect `context-recovered`.
+4. Repeat with a second live engine selected in the temporary Docker config.
+   Create a uniquely named volume on that engine and remove only the
+   `asagiri` context before starting the UI. Confirm `docker context show`
+   still names the second engine, plain `docker volume ls` includes its
+   volume, and `docker --context asagiri volume ls` omits it.
