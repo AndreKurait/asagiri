@@ -20,6 +20,8 @@ jobs:
       - name: Launch the actual dashboard and setup views with an unavailable WSL service
         run: |
           $ErrorActionPreference = 'Stop'
+          python -m pip install pywinauto==0.6.9
+          if ($LASTEXITCODE) { throw 'UI Automation installation failed' }
           $app = (Resolve-Path target/release/asagiri-win.exe).Path
           $homeDir = Join-Path $env:LOCALAPPDATA Asagiri
           New-Item -Force -ItemType Directory $homeDir | Out-Null
@@ -37,14 +39,8 @@ jobs:
               $expected = if ($done) { 'Asagiri' } else { 'Asagiri Setup' }
               $process = Start-Process $app -PassThru
               try {
-                $deadline = (Get-Date).AddSeconds(90)
-                do {
-                  Start-Sleep -Milliseconds 300
-                  $process.Refresh()
-                  if ($process.HasExited) { throw 'Launcher exited before displaying its window' }
-                } until ($process.MainWindowTitle -eq $expected -or (Get-Date) -gt $deadline)
-                Write-Host "done=$done window='$($process.MainWindowTitle)' expected='$expected'"
-                if ($process.MainWindowTitle -ne $expected) { throw 'Wrong startup view' }
+                python -c "from pywinauto import Desktop; import sys; window = Desktop(backend='uia').window(process=int(sys.argv[1]), title='Asagiri'); doc = window.child_window(title=sys.argv[2], control_type='Document'); doc.wait('visible', timeout=90); print('Visible WebView document:', doc.window_text())" $process.Id $expected
+                if ($LASTEXITCODE) { throw "Expected WebView document '$expected' for done=$done" }
               } finally { if (!$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() } }
             }
           } finally { Set-Service $svc.Name -StartupType $mode }
