@@ -42,7 +42,7 @@ jobs:
           mkdir -p observations "$RUNNER_TEMP/fuse-home"
           ls -l /dev/fuse
           test -r /dev/fuse && test -w /dev/fuse
-          HOME="$RUNNER_TEMP/fuse-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s <<'SH'
+          sudo systemd-run --wait --pipe --collect --uid="$(id -un)" --property=PAMName=login --working-directory="$PWD" /usr/bin/env HOME="$RUNNER_TEMP/fuse-home" dbus-run-session -- xvfb-run -a bash -eu -o pipefail -s <<'SH'
           app="$PWD/package/Asagiri-0.0.0-x86_64.AppImage"
           "$app" >observations/direct-launch.log 2>&1 &
           app_pid=$!
