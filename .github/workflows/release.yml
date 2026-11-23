@@ -461,6 +461,13 @@ jobs:
         run: |
           python3 packaging/qemu/bundle.py install --products "$RUNNER_TEMP/asagiri-qemu" \
             --destination guest/out/qemu
+      - name: Install Docker CLI and Compose for configuration tests
+        run: |
+          brew install docker docker-compose
+          mkdir -p "$RUNNER_TEMP/docker-config/cli-plugins"
+          ln -s "$(brew --prefix docker-compose)/bin/docker-compose" "$RUNNER_TEMP/docker-config/cli-plugins/docker-compose"
+          DOCKER_CONFIG="$RUNNER_TEMP/docker-config" docker compose version
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - name: Prepare optional Developer ID signing
         env:
           ASAGIRI_APPLE_CERTIFICATE_BASE64: ${{ secrets.ASAGIRI_APPLE_CERTIFICATE_BASE64 }}
