@@ -39,8 +39,9 @@ jobs:
           trap 'tail -60 "$scratch/daemon.log"; kill "$daemon" || true' EXIT
           for i in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
           "$bin" k8s start --use
-          docker exec -i asagiri-k8s k3s ctr images import - < "$scratch/nginx.tar"
-          docker exec asagiri-k8s k3s crictl inspecti docker.io/library/nginx:alpine >/dev/null
+          docker exec asagiri-k8s mkdir -p /var/lib/rancher/k3s/agent/images
+          docker cp "$scratch/nginx.tar" asagiri-k8s:/var/lib/rancher/k3s/agent/nginx-staged.tar
+          docker exec asagiri-k8s mv /var/lib/rancher/k3s/agent/nginx-staged.tar /var/lib/rancher/k3s/agent/images/nginx.tar
           kubectl create deployment loopback-check --image=nginx:alpine
           if ! kubectl rollout status deployment/loopback-check --timeout=4m; then
             kubectl describe pods -l app=loopback-check
