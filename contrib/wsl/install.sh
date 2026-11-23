@@ -19,7 +19,8 @@ if [ "${1:-}" = --remove-boot-entry ]; then
   boot_entry > "$suffix"
   bytes=$(wc -c < "$suffix")
   if tail -c "$bytes" "$conf" | cmp -s - "$suffix"; then
-    truncate -s "-$bytes" "$conf"
+    total=$(wc -c < "$conf")
+    truncate -s "$((total - bytes))" "$conf"
   fi
   exit 0
 fi
