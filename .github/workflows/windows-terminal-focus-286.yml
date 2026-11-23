@@ -68,6 +68,7 @@ jobs:
                   time.sleep(1)
               else:
                   raise RuntimeError(f'Container absent from dashboard. Visible controls: {[c.window_text()[:120] for c in visible][:100]}')
+              print('Controls after opening the container:', [(c.element_info.control_type, c.element_info.automation_id, c.window_text()[:100]) for c in window.descendants() if c.is_visible()], flush=True)
               tab = window.child_window(control_type='Tab').child_window(title='Terminal', control_type='Button')
               tab.wait('visible enabled', timeout=60)
               tab.click_input()
