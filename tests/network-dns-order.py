@@ -88,6 +88,8 @@ def check(args):
             assert len(data) <= LIMIT, "API response exceeded the fixture limit"
             assert response.status in statuses, (method, path, response.status, data[:1000])
             return response.status, data if raw else json.loads(data) if data else None
+        except TimeoutError as error:
+            raise TimeoutError(f"{method} {path} timed out after {connection.timeout}s of socket inactivity") from error
         finally:
             connection.close()
 
