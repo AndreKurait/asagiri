@@ -7,6 +7,23 @@
 # `asagiri bridge` (see ../windows/asagiri.ps1). It is not served on TCP: WSL's
 # localhost relay drops half-closes, which `docker run` needs.
 set -eu
+boot_entry() {
+  printf '\n[boot]\ncommand = HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &\n'
+}
+
+if [ "${1:-}" = --remove-boot-entry ]; then
+  conf=/etc/wsl.conf
+  [ -f "$conf" ] || exit 0
+  suffix=$(mktemp)
+  trap 'rm -f "$suffix"' EXIT
+  boot_entry > "$suffix"
+  bytes=$(wc -c < "$suffix")
+  if tail -c "$bytes" "$conf" | cmp -s - "$suffix"; then
+    total=$(wc -c < "$conf")
+    truncate -s "$((total - bytes))" "$conf"
+  fi
+  exit 0
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 install -m 755 "$here/asagiri" "$here/asagiri-init" /usr/local/bin/
 if [ -d /run/systemd/system ]; then
@@ -33,7 +50,7 @@ UNIT
 else
   # No systemd in this distro: start Asagiri when WSL boots it.
   if ! grep -q 'asagiri daemon' /etc/wsl.conf 2>/dev/null; then
-    printf '\n[boot]\ncommand = HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &\n' >> /etc/wsl.conf
+    boot_entry >> /etc/wsl.conf
   fi
   pkill -f '/usr/local/bin/asagiri daemon' 2>/dev/null || true
   HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &
