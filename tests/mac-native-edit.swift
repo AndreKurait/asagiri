@@ -10,11 +10,19 @@ func expect(_ message: String, _ condition: () -> Bool) {
         if condition() { print("PASS \(message)"); return }
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     } while Date() < deadline
+    dumpControls(app)
     fputs("FAIL \(message)\n", stderr); exit(1)
 }
 func attr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+}
+func dumpControls(_ element: AXUIElement, depth: Int = 0) {
+    guard depth < 30 else { return }
+    let role = attr(element, "AXRole") as? String ?? ""
+    let labels = ["AXTitle", "AXDescription", "AXValue"].compactMap { attr(element, $0) as? String }.filter { !$0.isEmpty }
+    if !labels.isEmpty { print("AX", depth, role, labels.map { String($0.prefix(100)) }) }
+    for child in attr(element, "AXChildren") as? [AXUIElement] ?? [] { dumpControls(child, depth: depth + 1) }
 }
 func value() -> String? {
     guard let focus = attr(app, "AXFocusedUIElement") else { return nil }
@@ -119,8 +127,14 @@ expect("click the filtered container name") {
     guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
           AXValueGetValue(size as! AXValue, .cgSize, &extent), extent.width > 0 else { return false }
     let point = CGPoint(x: origin.x + extent.width / 2, y: origin.y + extent.height / 2)
+    print("Click container at", point)
+    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: 0.2)
     for type in [CGEventType.leftMouseDown, .leftMouseUp] {
-        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
+        event?.setIntegerValueField(.mouseEventClickState, value: 1)
+        event?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.1)
     }
     return true
 }
