@@ -111,7 +111,11 @@ jobs:
               Remove-Item Env:DOCKER_HOST, Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
               $cli = (Get-Command docker.exe).Source
               Write-Host "Fresh shell resolves docker.exe to $cli"
-              if ($cli -ne (Join-Path $env:LOCALAPPDATA 'Asagiri\bin\docker.exe')) { throw "Another Docker CLI resolved first: $cli" }
+              $expected = Join-Path $env:LOCALAPPDATA 'Asagiri\bin\docker.exe'
+              $available = @(Get-Command docker.exe -All | Select-Object -ExpandProperty Source)
+              if ($available -notcontains $expected) { throw "Bundled CLI missing from persisted PATH: $available" }
+              $bundledResult = & $expected --context asagiri run --rm alpine:3.21 echo bundled-context-98
+              if ($LASTEXITCODE -or $bundledResult -ne 'bundled-context-98') { exit 1 }
               $result = docker.exe --context asagiri run --rm alpine:3.21 echo asagiri-context-98
               if ($LASTEXITCODE -or $result -ne 'asagiri-context-98') { exit 1 }
             }
