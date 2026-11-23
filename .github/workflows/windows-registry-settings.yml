@@ -51,7 +51,8 @@ jobs:
                   for i in range(90):
                       try:
                           profile = pathlib.Path(os.environ['WEBVIEW2_USER_DATA_FOLDER'])
-                          port_file = next(profile.rglob('DevToolsActivePort'))
+                          native_profile = pathlib.Path(os.environ['LOCALAPPDATA']) / 'Asagiri' / 'WebView2'
+                          port_file = next(f for root in (profile, native_profile) for f in root.rglob('DevToolsActivePort'))
                           port, ws = port_file.read_text().splitlines()[:2]
                           browser = pw.chromium.connect_over_cdp(f'ws://127.0.0.1:{port}{ws}', timeout=3000)
                           break
@@ -80,6 +81,7 @@ jobs:
                       assert persisted == ([value] if value else []), persisted
                       print('Windows WebView2 registry exceptions reloaded:', persisted, flush=True)
           finally:
+              subprocess.run(['powershell','-NoProfile','-Command',"Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | ForEach-Object { [regex]::Matches($_.CommandLine, '--(?:remote-debugging-port|user-data-dir)=(?:\"[^\"]*\"|[^ ]+)') | ForEach-Object Value }"],check=False)
               subprocess.run(['powershell','-NoProfile','-Command',"Get-Process | Where-Object {$_.ProcessName -match 'asagiri|webview'} | Select-Object ProcessName,Id,MainWindowTitle; Get-ChildItem $env:LOCALAPPDATA/Asagiri,$env:USERPROFILE/.asagiri -Filter asagiri-win.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 30 }"],check=False)
               subprocess.run(['taskkill','/PID',str(proc.pid),'/T','/F'],check=False)
           '@ | python -
