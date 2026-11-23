@@ -277,6 +277,10 @@ def check(path, binary):
             pull(plain, "default-http-denied-" + token, False, True)
             pull(tls, "default-self-signed-denied-" + token, False)
             config({"insecure-registries": [plain]})
+            login = {**credentials, "serveraddress": plain}
+            assert json.loads(api("POST", "/auth", login))["Status"] == "Login Succeeded"
+            api("POST", "/auth", {**login, "password": "wrong"}, expected=401)
+            api("POST", "/auth", {**login, "serveraddress": tls}, expected=400)
             pull(tls, "other-port-denied-" + token, False)
 
             # A one-worker pull really serializes the layer transfers.
