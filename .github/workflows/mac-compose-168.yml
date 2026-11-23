@@ -42,7 +42,13 @@ jobs:
           daemon=$!
           trap 'kill "$daemon" || true; tail -35 engine.log' EXIT
           for _ in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 0.5; done
-          if ! docker pull alpine:3.21; then
+          pull_ready=false
+          for attempt in 1 2 3; do
+            if docker pull alpine:3.21; then pull_ready=true; break; fi
+            echo "Initial Alpine pull failed on attempt $attempt"
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          if [ "$pull_ready" != true ]; then
             find "$HOME" "$ASAGIRI_DATA_DIR" -type f -name 'guest-console.log' -exec tail -n 100 {} \;
             exit 1
           fi
