@@ -485,6 +485,7 @@ pub mod net_opts {
     /// `noipv4=1`: an IPv6-only network. The container's IPv4 address is
     /// only the name the guest keeps it by: neither it nor the bridge gets
     /// one, and DNS has no A record for it.
+    pub const GW_PRIORITY: &str = "gwpriority";
     pub const NO_IPV4: &str = "noipv4";
     /// `network=frontend`: the Docker network's name. The guest otherwise
     /// only knows bridges; DNS uses the name to order equivalent networks.

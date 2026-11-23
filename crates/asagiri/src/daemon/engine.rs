@@ -252,6 +252,8 @@ pub struct Spec {
     /// `--mac-address` on `network_mode`; empty for the kernel's choice.
     #[serde(default)]
     pub mac_address: String,
+    #[serde(default)]
+    pub gw_priority: i64,
     /// `--dns`, `--dns-search`, `--dns-option`.
     #[serde(default)]
     pub dns: Vec<String>,
@@ -345,6 +347,7 @@ impl Spec {
         self.ipv4_address = endpoint.ipv4_address;
         self.ipv6_address = endpoint.ipv6_address;
         self.mac_address = endpoint.mac_address;
+        self.gw_priority = endpoint.gw_priority;
     }
 
     /// The guest's `opts` lines for a start or an exec. `net_host`: it runs
@@ -478,6 +481,8 @@ pub struct ExtraNetwork {
     pub ipv6_address: String,
     #[serde(default)]
     pub mac_address: String,
+    #[serde(default)]
+    pub gw_priority: i64,
 }
 
 #[derive(Debug)]
@@ -2306,6 +2311,9 @@ impl Engine {
                         if n.no_ipv4 {
                             net6_opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
                         }
+                        if spec.gw_priority != 0 {
+                            net6_opts.push(format!("{}={}", asagiri_proto::net_opts::GW_PRIORITY, spec.gw_priority));
+                        }
                         net6_opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, n.name));
                         if let Some(mtu) = n.mtu() {
                             net6_opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
@@ -3079,6 +3087,9 @@ impl Engine {
         if net.no_ipv4 {
             opts.push(format!("{}=1", asagiri_proto::net_opts::NO_IPV4));
         }
+        if extra.gw_priority != 0 {
+            opts.push(format!("{}={}", asagiri_proto::net_opts::GW_PRIORITY, extra.gw_priority));
+        }
         opts.push(format!("{}={}", asagiri_proto::net_opts::NETWORK, net.name));
         if let Some(mtu) = net.mtu() {
             opts.push(format!("{}={mtu}", asagiri_proto::net_opts::MTU));
@@ -3110,7 +3121,7 @@ impl Engine {
     }
 
     /// `docker network connect`.
-    pub fn connect(&self, network: &str, key: &str, aliases: Vec<String>, ipv4_address: String, ipv6_address: String, mac_address: String) -> Result<(), Error> {
+    pub fn connect(&self, network: &str, key: &str, aliases: Vec<String>, ipv4_address: String, ipv6_address: String, mac_address: String, gw_priority: i64) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _connecting = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
@@ -3123,7 +3134,7 @@ impl Engine {
         }
         // Kept to plug in below: by then another network may have joined, and
         // the last one in the container's list is no longer this one.
-        let extra = ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address };
+        let extra = ExtraNetwork { name: net.name.clone(), aliases, ipv4_address, ipv6_address, mac_address, gw_priority };
         let (running, detached) = {
             let mut st = self.lock();
             let c = st.containers.get_mut(&id).ok_or_else(|| Error::NotFound(format!("No such container: {id}")))?;
