@@ -584,7 +584,8 @@ jobs:
           curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
           echo "$digest  $plugin" | sha256sum --check
           chmod +x "$plugin"
-          export DOCKER_CONFIG="$(cygpath -w "$config")"
+          DOCKER_CONFIG="$(cygpath -w "$config")"
+          export DOCKER_CONFIG
           test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
           echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Build the complete Windows bundle and MSI
