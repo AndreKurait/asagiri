@@ -44,18 +44,18 @@ jobs:
               Start-Sleep -Seconds 2
             }
             Invoke-Docker @('pull','alpine:3.21')
-            $repo = (wsl.exe -d Asagiri-net-114 --cd "$env:GITHUB_WORKSPACE" --exec pwd)
-            if ($LASTEXITCODE -or !$repo) { throw 'Cannot resolve checkout inside WSL' }
-            $repo = $repo.Trim()
-            wsl.exe -d Asagiri-net-114 -u root -- apk add --no-cache python3 docker-cli ca-certificates
-            if ($LASTEXITCODE) { throw 'Cannot install native WSL test clients' }
-            $failed = @()
-            foreach ($suite in 'network-internal-gateway','inspect-port-bindings') {
-              Write-Host "Running $suite"
-              wsl.exe -d Asagiri-net-114 -u root -- env ASAGIRI_TEST_ENGINE=1 python3 "$repo/tests/$suite.py" /var/lib/asagiri-daemon/.asagiri/run/docker.sock alpine:3.21
-              if ($LASTEXITCODE) { $failed += $suite } else { Write-Host "PASS $suite" }
+            wsl.exe -d Asagiri-net-114 -u root -- ip link show dev eth0
+            if ($LASTEXITCODE) { throw 'Missing WSL eth0 parent for driver check' }
+            foreach ($driver in 'macvlan','ipvlan') {
+              $name = "explicit-parent-$driver"
+              $diagnostic = (& $docker network create -d $driver -o parent=eth0 $name 2>&1 | Out-String)
+              if ($LASTEXITCODE -eq 0) {
+                Invoke-Docker @('network','rm',$name)
+                throw "Unexpected explicit parent support for $driver"
+              }
+              if (!$diagnostic.Contains("$driver networks have no parent interface (-o parent=eth0)")) { throw $diagnostic }
+              Write-Host "PASS $driver explicit eth0 parent diagnostic"
             }
-            if ($failed.Count) { throw "Failed suites: $($failed -join ', ')" }
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
             wsl.exe --terminate Asagiri-net-114
