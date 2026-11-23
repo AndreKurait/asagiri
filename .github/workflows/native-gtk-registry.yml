@@ -22,9 +22,11 @@ jobs:
           echo "e8dc0b86afc72080c0ef8f9cac958a5782ba707bd3619227392ab2a928f94be3  $app" | sha256sum -c -
           chmod +x "$app"
           "$app" --appimage-extract >/dev/null
-          export HOME="$RUNNER_TEMP/test-home" ASAGIRI_SOCKET="$RUNNER_TEMP/test-home/.asagiri/run/docker.sock" ASAGIRI_DATA_DIR="$RUNNER_TEMP/test-store"
+          export HOME="$RUNNER_TEMP/test-home" ASAGIRI_SOCKET="/run/asagiri/docker.sock" ASAGIRI_DATA_DIR="$RUNNER_TEMP/test-store"
+          test ! -e "$ASAGIRI_SOCKET"
+          sudo mkdir -p /run/asagiri
           mkdir -p "$HOME/.asagiri/run"
-          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":["docker","builds"]}' > "$HOME/.asagiri/ui.json"
           sudo env HOME="$HOME" ASAGIRI_SOCKET="$ASAGIRI_SOCKET" ASAGIRI_DATA_DIR="$ASAGIRI_DATA_DIR" "$PWD/squashfs-root/usr/bin/asagiri" daemon >daemon.log 2>&1 &
           for i in {1..40}; do test -S "$ASAGIRI_SOCKET" && break; sleep 1; done
           sudo chown "$(id -u):$(id -g)" "$ASAGIRI_SOCKET"
@@ -46,7 +48,6 @@ jobs:
                   time.sleep(1)
               raise RuntimeError((label, [(n.getRoleName(), n.name) for n in controls() if n.name][-100:]))
           press('Keep building with Docker')
-          press('Open Asagiri')
           press('Registry mirrors')
           time.sleep(2)
           print([(n.getRoleName(),n.name) for n in controls() if n.name or n.getRoleName()=='text'],flush=True)
