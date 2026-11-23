@@ -1,0 +1,50 @@
+name: Verify dashboard selection when Windows WSL cannot answer
+on:
+  push:
+    branches: [qualification/windows-probe-209]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and test the candidate launcher
+        run: |
+          cargo test --locked -p asagiri-win incomplete_setup_resumes_from_persisted_state
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --release -p asagiri-win
+      - name: Launch the actual dashboard and setup views with an unavailable WSL service
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = (Resolve-Path target/release/asagiri-win.exe).Path
+          $homeDir = Join-Path $env:LOCALAPPDATA Asagiri
+          New-Item -Force -ItemType Directory $homeDir | Out-Null
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL version control failed' }
+          $svc = Get-Service WslService
+          $mode = $svc.StartType
+          try {
+            Set-Service $svc.Name -StartupType Disabled
+            Stop-Service $svc.Name -Force
+            wsl.exe --list --quiet
+            if (!$LASTEXITCODE) { throw 'WSL still returned a successful distro list' }
+            foreach ($done in $true,$false) {
+              @{done=$done;distro='asagiri'} | ConvertTo-Json | Set-Content (Join-Path $homeDir setup.json) -Encoding utf8NoBOM
+              $expected = if ($done) { 'Asagiri' } else { 'Asagiri Setup' }
+              $process = Start-Process $app -PassThru
+              try {
+                $deadline = (Get-Date).AddSeconds(90)
+                do {
+                  Start-Sleep -Milliseconds 300
+                  $process.Refresh()
+                  if ($process.HasExited) { throw 'Launcher exited before displaying its window' }
+                } until ($process.MainWindowTitle -eq $expected -or (Get-Date) -gt $deadline)
+                Write-Host "done=$done window='$($process.MainWindowTitle)' expected='$expected'"
+                if ($process.MainWindowTitle -ne $expected) { throw 'Wrong startup view' }
+              } finally { if (!$process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit() } }
+            }
+          } finally { Set-Service $svc.Name -StartupType $mode }
