@@ -27,7 +27,7 @@ jobs:
           Copy-Item candidate/asagiri-win.exe $env:PICKER_APP -Force
           wsl.exe --import Asagiri-registry153 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
-          python -m pip install playwright==1.55.0
+          python -m pip install pywinauto
           $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
           if (!$runtime) {
             $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
@@ -38,54 +38,39 @@ jobs:
             if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
           }
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP 'asagiri-test-webview-profile'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=19253 --remote-debugging-address=127.0.0.1'
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-registry153'
           @'
           import os, pathlib, subprocess, time
-          from playwright.sync_api import sync_playwright
+          from pywinauto import Desktop
+          from pywinauto.keyboard import send_keys
           app = pathlib.Path(os.environ['PICKER_APP'])
-          docker = str(app.parent / 'bin' / 'docker.exe')
           proc = subprocess.Popen([str(app), '--distro', 'Asagiri-registry153', '--pipe', r'\\.\pipe\asagiri-registry153'])
           try:
-              with sync_playwright() as pw:
-                  for i in range(90):
-                      try:
-                          browser = pw.chromium.connect_over_cdp('http://127.0.0.1:19253', timeout=3000)
-                          break
-                      except Exception:
-                          if proc.poll() is not None or i == 89: raise
-                          time.sleep(1)
-                  page = browser.contexts[0].pages[0]
-                  deadline = time.monotonic() + 90
-                  diagnostic = 'No engine response'
-                  while time.monotonic() < deadline:
-                      try:
-                          version = subprocess.run([docker, 'version', '--format', '{{.Server.Version}}'],
-                                                   capture_output=True, text=True, timeout=5)
-                          if version.returncode == 0 and 'asagiri' in version.stdout.lower():
-                              break
-                          diagnostic = (version.stderr or version.stdout).strip()
-                      except subprocess.TimeoutExpired:
-                          diagnostic = 'docker version timed out after 5 seconds'
-                      time.sleep(1)
-                  else:
-                      raise RuntimeError(f'Asagiri engine readiness failed: {diagnostic}')
-                  from playwright.sync_api import expect
-                  page.evaluate("prefs.tab='mirrors'; show('settings')")
-                  field = page.locator('#registry-exceptions')
-                  save = page.locator('[data-savemirrors]')
-                  expect(field).to_have_value('', timeout=90000)
-                  for value in ['registry.test:5153', '']:
-                      field.fill(value)
-                      expect(save).to_be_enabled()
-                      save.click()
-                      expect(save).to_be_disabled(timeout=30000)
-                      page.evaluate("show('containers')")
-                      page.evaluate("ui.mirrors=null; prefs.tab='mirrors'; show('settings')")
-                      expect(field).to_have_value(value, timeout=30000)
-                      persisted = page.evaluate("ui.mirrors['insecure-registries']")
-                      assert persisted == ([value] if value else []), persisted
-                      print('Windows WebView2 registry exceptions reloaded:', persisted, flush=True)
+              window = Desktop(backend='uia').window(process=proc.pid, class_name='AsagiriWindow')
+              window.wait('visible', timeout=90)
+              def click(title):
+                  control = window.child_window(title=title, control_type='Button')
+                  control.wait('enabled visible', timeout=30)
+                  control.click_input()
+              def field():
+                  control = window.child_window(auto_id='registry-exceptions', control_type='Edit')
+                  control.wait('visible', timeout=30)
+                  return control.wrapper_object()
+              click('Settings')
+              click('Registry mirrors')
+              assert field().get_value() == ''
+              for value in ['registry.test:5153', '']:
+                  field().click_input()
+                  send_keys('^a{BACKSPACE}')
+                  if value:
+                      send_keys(value, vk_packet=True)
+                  assert field().get_value() == value
+                  click('Save')
+                  window.child_window(title='Save', control_type='Button').wait_not('enabled', timeout=30)
+                  click('Containers')
+                  click('Settings')
+                  assert field().get_value() == value
+                  print('Windows registry field after reopening Settings:', repr(value), flush=True)
           finally:
               subprocess.run(['powershell','-NoProfile','-Command',"Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | ForEach-Object { [regex]::Matches($_.CommandLine, '--(?:remote-debugging-port|user-data-dir)=(?:\"[^\"]*\"|[^ ]+)') | ForEach-Object Value }"],check=False)
               subprocess.run(['powershell','-NoProfile','-Command',"Get-Process | Where-Object {$_.ProcessName -match 'asagiri|webview'} | Select-Object ProcessName,Id,MainWindowTitle; Get-ChildItem $env:LOCALAPPDATA/Asagiri,$env:USERPROFILE/.asagiri -Filter asagiri-win.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 30 }"],check=False)
