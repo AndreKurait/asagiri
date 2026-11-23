@@ -95,3 +95,41 @@ key(8)
 expect("Command-A and Command-C copy rendered host shell output") {
     board.string(forType: .string)?.contains(output) == true
 }
+
+key(50, .maskControl)
+key(40)
+board.clearContents()
+board.setString("clipboard-qualification", forType: .string)
+key(0); key(9)
+Thread.sleep(forTimeInterval: 1)
+key(36, [])
+func terminalButton(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
+    let role = attr(element, "AXRole") as? String
+    if role == "AXButton", ["AXTitle", "AXDescription"].contains(where: { attr(element, $0) as? String == "Terminal" }) { return element }
+    guard depth < 24 else { return nil }
+    for child in attr(element, "AXChildren") as? [AXUIElement] ?? [] {
+        if let button = terminalButton(child, depth: depth + 1) { return button }
+    }
+    return nil
+}
+expect("open container Terminal tab") {
+    guard let button = terminalButton(app) else { return false }
+    return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+}
+let containerMarker = "container-" + UUID().uuidString
+let containerCommand = "echo " + containerMarker + " > /tmp/clipboard-result"
+board.clearContents(); board.setString(containerCommand, forType: .string)
+key(9)
+expect("paste into the container command field") { value() == containerCommand }
+key(0); board.clearContents(); key(8)
+expect("copy the selected container command") { board.string(forType: .string) == containerCommand }
+key(36, [])
+expect("pasted command executed in the running container") {
+    let process = Process(), pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["docker", "exec", "clipboard-qualification", "cat", "/tmp/clipboard-result"]
+    process.standardOutput = pipe
+    guard (try? process.run()) != nil else { return false }
+    process.waitUntilExit()
+    return process.terminationStatus == 0 && String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) == containerMarker + "\n"
+}

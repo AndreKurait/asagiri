@@ -8,8 +8,8 @@ permissions:
   actions: read
 jobs:
   native-edit:
-    runs-on: macos-26
-    timeout-minutes: 10
+    runs-on: macos-26-intel
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,10 +20,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/build"
-          gh release download v0.1.14-dev.181 -p Asagiri-0.1.14-dev.181-arm64.tar.gz -D "$RUNNER_TEMP/build"
+          gh release download v0.1.14-dev.188 -p Asagiri-0.1.14-dev.188-x86_64.tar.gz -D "$RUNNER_TEMP/build"
           cd "$RUNNER_TEMP/build"
-          echo "942f38505f144d30a6698a9ea9ad39a74752b47fa0dc01c8490ba243c47e80d7  Asagiri-0.1.14-dev.181-arm64.tar.gz" | shasum -a 256 -c -
-          tar xzf Asagiri-0.1.14-dev.181-arm64.tar.gz
+          echo "9342f8db347380c5d0971a518d5169f9233fd24f218f6b81d070a5cf51c448f2  Asagiri-0.1.14-dev.188-x86_64.tar.gz" | shasum -a 256 -c -
+          tar xzf Asagiri-0.1.14-dev.188-x86_64.tar.gz
           cd Asagiri.app/Contents/MacOS
           export HOME="$RUNNER_TEMP/edit-home" ASAGIRI_DATA_DIR="$RUNNER_TEMP/edit-store"
           scratch=$(mktemp -d /tmp/edit255.XXXXXX)
@@ -33,6 +33,10 @@ jobs:
           echo '{"lang":"de","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           ./asagiri daemon >"$scratch/daemon.log" 2>&1 &
           daemon=$!
+          export PATH="$RUNNER_TEMP/build/Asagiri.app/Contents/Resources/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+          unset DOCKER_CONTEXT
+          for attempt in {1..60}; do docker version >/dev/null 2>&1 && break; kill -0 "$daemon"; sleep 1; done
+          docker run -d --name clipboard-qualification alpine:3.21 sleep 900
           ./asagiri ui >"$scratch/ui.log" 2>&1 &
           ui_pid=$!
           trap 'kill "$ui_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/ui.log"' EXIT
