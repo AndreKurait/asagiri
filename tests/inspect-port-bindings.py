@@ -78,9 +78,14 @@ def check(path, image):
                         probe.settimeout(1)
                         assert probe.connect_ex((address, port)) != 0, ('Published outside requested loopback address', address, port)
                 # Verify the actual listener, in addition to reachability.
-                with open('/proc/net/tcp') as table:
-                    listeners = [line.split()[1] for line in table if len(line.split()) > 3 and line.split()[3] == '0A']
-                assert f'0100007F:{port:04X}' in listeners, listeners
+                if sys.platform == 'darwin':
+                    output = subprocess.check_output(['lsof', '-nP', '-a', f'-iTCP:{port}', '-sTCP:LISTEN', '-Fn'], text=True)
+                    addresses = {line[1:] for line in output.splitlines() if line.startswith('n')}
+                    assert addresses == {f'127.0.0.1:{port}'}, addresses
+                else:
+                    with open('/proc/net/tcp') as table:
+                        listeners = [line.split()[1] for line in table if len(line.split()) > 3 and line.split()[3] == '0A']
+                    assert f'0100007F:{port:04X}' in listeners, listeners
             call('rm', '-v', cid)
             owned.remove(cid)
             print('PASS requested ' + ('ephemeral' if requested == '0' else 'fixed') + ' loopback binding through create/start/stop; actual port isolated')
