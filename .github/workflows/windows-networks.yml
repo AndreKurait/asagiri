@@ -52,7 +52,7 @@ jobs:
             $failed = @()
             foreach ($suite in 'network-internal-gateway','inspect-port-bindings') {
               Write-Host "Running $suite"
-              wsl.exe -d Asagiri-net-114 -u root -- python3 "$repo/tests/$suite.py" /var/lib/asagiri-daemon/.asagiri/run/docker.sock alpine:3.21
+              wsl.exe -d Asagiri-net-114 -u root -- env ASAGIRI_TEST_ENGINE=1 python3 "$repo/tests/$suite.py" /var/lib/asagiri-daemon/.asagiri/run/docker.sock alpine:3.21
               if ($LASTEXITCODE) { $failed += $suite } else { Write-Host "PASS $suite" }
             }
             if ($failed.Count) { throw "Failed suites: $($failed -join ', ')" }
