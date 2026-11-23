@@ -22,12 +22,12 @@ env:
 
 concurrency:
   # Publication checks the release commit, so finish its active main build.
-  group: platforms-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'current' }}
+  group: platforms-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'current' }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  linux:
-    name: Linux
+  linux_build:
+    name: Linux build and proofs
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -119,6 +119,51 @@ jobs:
             ${{ runner.temp }}/bin-fixtures
           if-no-files-found: error
           retention-days: 90
+      - name: Cache Linux dependencies from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/cargo-registry
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Archive tested binaries and fixtures with executable permissions
+        run: tar -C "$RUNNER_TEMP" -cf "$RUNNER_TEMP/linux-inputs.tar" bin bin-fixtures
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-test-inputs-X64
+          path: ${{ runner.temp }}/linux-inputs.tar
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: linux-${{ runner.arch }}
+          path: ${{ runner.temp }}/bin
+          retention-days: 14
+
+  linux_packages:
+    name: Linux packaging and paired comparisons
+    needs: linux_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-test-inputs-X64
+          path: ${{ runner.temp }}
+      - name: Verify tested binaries and fixtures against this checkout
+        run: |
+          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/linux-inputs.tar"
+          for dir in bin bin-fixtures; do
+            test "$(cat "$RUNNER_TEMP/$dir/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+            (cd "$RUNNER_TEMP/$dir" && sha256sum -c SHA256SUMS)
+          done
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
       - name: Restore AppImage compiler dependencies and pinned downloads
         id: appimage_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -186,21 +231,69 @@ jobs:
         with:
           path: ${{ runner.temp }}/appimage-cache
           key: ${{ steps.appimage_cache.outputs.cache-primary-key }}
-      - name: Cache Linux dependencies from main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Summarize runner timings
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -s "$RUNNER_TEMP/runtime-spans.jsonl" ]; then
+            python3 scripts/ci/runtime-trace.py "$RUNNER_TEMP/runtime-spans.jsonl" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve Linux comparison trace
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: |
-            ${{ runner.temp }}/cargo-target
-            ${{ runner.temp }}/cargo-registry
-          key: ${{ steps.cache.outputs.cache-primary-key }}
+          name: linux-comparison-trace-${{ runner.arch }}
+          path: ${{ runner.temp }}/runtime-spans.json*
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Build and install-test the Linux packages
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm
+          mkdir -p "$RUNNER_TEMP/package-checks"
+          test "$(cat "$RUNNER_TEMP/native-bin/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+          (cd "$RUNNER_TEMP/native-bin" && sha256sum -c SHA256SUMS)
+          cp "$RUNNER_TEMP/native-bin/SOURCE_COMMIT" "$RUNNER_TEMP/native-bin/SHA256SUMS" "$RUNNER_TEMP/native-bin/native-elf.json" "$RUNNER_TEMP/package-checks/"
+          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs" "$RUNNER_TEMP/native-bin" 2>&1 | tee "$RUNNER_TEMP/package-checks/run.log"
+          (cd "$RUNNER_TEMP/packages" && sha256sum ./*.deb ./*.rpm) > "$RUNNER_TEMP/package-checks/package-sha256.txt"
+      - name: Preserve Linux package lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-checks-${{ runner.arch }}
+          path: ${{ runner.temp }}/package-checks
+          if-no-files-found: ignore
+          retention-days: 90
+
+  linux_runtime:
+    name: Linux runtime conformance
+    needs: linux_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-test-inputs-X64
+          path: ${{ runner.temp }}
+      - name: Verify tested binaries and fixtures against this checkout
+        run: |
+          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/linux-inputs.tar"
+          for dir in bin bin-fixtures; do
+            test "$(cat "$RUNNER_TEMP/$dir/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+            (cd "$RUNNER_TEMP/$dir" && sha256sum -c SHA256SUMS)
+          done
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
       - name: Live tests on a private engine
         # The build just made, run as an engine, and the conformance scripts
         # in tests/ against it: containers, archives, attach, networks,
         # limits and seccomp, on busybox and alpine.
         env:
           ASAGIRI_CI_TRACE: ${{ runner.temp }}/runtime-spans.jsonl
-        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin"
+        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin" core
       - name: Summarize runner timings
         if: ${{ !cancelled() }}
         run: |
@@ -231,6 +324,40 @@ jobs:
           path: ${{ runner.temp }}/bin-health-compose/*.json
           if-no-files-found: ignore
           retention-days: 90
+
+  linux_integrations:
+    name: Linux clients and integrations
+    needs: linux_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-test-inputs-X64
+          path: ${{ runner.temp }}
+      - name: Verify tested binaries and fixtures against this checkout
+        run: |
+          tar -C "$RUNNER_TEMP" -xf "$RUNNER_TEMP/linux-inputs.tar"
+          for dir in bin bin-fixtures; do
+            test "$(cat "$RUNNER_TEMP/$dir/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
+            (cd "$RUNNER_TEMP/$dir" && sha256sum -c SHA256SUMS)
+          done
+      - uses: ./.github/actions/container-cache # zizmor: ignore[self-repository] run the action from the exact checkout under test; supported by our actionlint
+      - name: Test MCP, browser and image import on a private engine
+        env:
+          ASAGIRI_CI_TRACE: ${{ runner.temp }}/client-spans.jsonl
+        run: sh scripts/ci/live-tests.sh "$RUNNER_TEMP/bin" clients
+      - name: Preserve client timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-client-trace-${{ runner.arch }}
+          path: ${{ runner.temp }}/client-spans.jsonl
+          retention-days: 30
       - name: Restart the daemon with orphaned container mounts
         run: python3 tests/linux-service-recovery.py "$RUNNER_TEMP/bin"
       - name: Verify registry TLS trust and actual BuildKit admission
@@ -292,37 +419,23 @@ jobs:
             ${{ runner.temp }}/ddev/*.json
             ${{ runner.temp }}/ddev/*.log
           retention-days: 90
-      - name: Build and install-test the Linux packages
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq rpm
-          mkdir -p "$RUNNER_TEMP/package-checks"
-          test "$(cat "$RUNNER_TEMP/native-bin/SOURCE_COMMIT")" = "$(git rev-parse HEAD)"
-          (cd "$RUNNER_TEMP/native-bin" && sha256sum -c SHA256SUMS)
-          cp "$RUNNER_TEMP/native-bin/SOURCE_COMMIT" "$RUNNER_TEMP/native-bin/SHA256SUMS" "$RUNNER_TEMP/native-bin/native-elf.json" "$RUNNER_TEMP/package-checks/"
-          bash scripts/ci/release-linux.sh "$RUNNER_TEMP/bin" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/linux-inputs" "$RUNNER_TEMP/native-bin" 2>&1 | tee "$RUNNER_TEMP/package-checks/run.log"
-          (cd "$RUNNER_TEMP/packages" && sha256sum ./*.deb ./*.rpm) > "$RUNNER_TEMP/package-checks/package-sha256.txt"
-      - name: Preserve Linux package lifecycle evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: package-checks-${{ runner.arch }}
-          path: ${{ runner.temp }}/package-checks
-          if-no-files-found: ignore
-          retention-days: 90
       - name: Cache verified Java SDK dependencies from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.maven_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/maven
           key: ${{ steps.maven_cache.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: linux-${{ runner.arch }}
-          path: ${{ runner.temp }}/bin
-          retention-days: 14
+
+  linux:
+    name: Linux
+    if: ${{ always() }}
+    needs: [linux_build, linux_packages, linux_runtime, linux_integrations]
+    runs-on: ubuntu-slim
+    steps:
+      - name: Require successful build, packaging and runtime tests
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: python3 -c 'import json,os,sys; sys.exit(json.loads(os.environ["RESULTS"]) != ["success"] * 4)'
 
   native_linux_arm:
     name: Native Linux ARM64
@@ -445,6 +558,13 @@ jobs:
         with:
           cache-bin: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install Docker CLI and Compose for configuration tests
+        run: |
+          brew install docker docker-compose
+          mkdir -p "$RUNNER_TEMP/docker-config/cli-plugins"
+          ln -s "$(brew --prefix docker-compose)/bin/docker-compose" "$RUNNER_TEMP/docker-config/cli-plugins/docker-compose"
+          DOCKER_CONFIG="$RUNNER_TEMP/docker-config" docker compose version
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --locked
       - name: Build
@@ -474,6 +594,22 @@ jobs:
         with:
           cache-bin: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install the Compose plugin shipped with the Windows app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
+          read -r version digest <<< "$pin"
+          test -n "$digest"
+          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
+          mkdir -p "$config/cli-plugins"
+          plugin="$config/cli-plugins/docker-compose.exe"
+          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
+          echo "$digest  $plugin" | sha256sum --check
+          chmod +x "$plugin"
+          export DOCKER_CONFIG="$(cygpath -w "$config")"
+          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --locked -p asagiri-image -p asagiri-win -p xtask
       - name: Exercise large documents in native WebView2

@@ -478,7 +478,7 @@ fn info(engine: &Engine) -> Value {
         "CgroupVersion": "2",
         "DefaultRuntime": "asagiri",
         "Runtimes": {"asagiri": {"path": "asagiri-init"}},
-        "SecurityOptions": ["name=cgroupns"],
+        "SecurityOptions": ["name=seccomp,profile=builtin", "name=cgroupns"],
         "BuilderVersion": "2",
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
         "AsagiriVmAwake": engine.is_awake(),
@@ -2172,6 +2172,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     // One endpoint per network (API 1.44+ allows several at create, which
     // Compose uses); NetworkMode or the endpoints above pick the primary.
     let mut aliases = Vec::new();
+    let mut gw_priority = 0;
     let mut extra_networks = Vec::new();
     // `--ip`, `--mac-address` (Config.MacAddress before API 1.44).
     let mut ipv4_address = String::new();
@@ -2199,6 +2200,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
                 found.check_static6(a).map_err(Error::BadRequest)?;
             }
             if canonical == network_mode {
+                gw_priority = endpoint_priority(ep)?;
                 aliases.extend(names);
                 ipv4_address = ip;
                 ipv6_address = ip6;
@@ -2206,7 +2208,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
                     mac_address = mac;
                 }
             } else if !extra_networks.iter().any(|x: &super::engine::ExtraNetwork| x.name == canonical) {
-                extra_networks.push(super::engine::ExtraNetwork { name: canonical, aliases: names, ipv4_address: ip, ipv6_address: ip6, mac_address: mac });
+                extra_networks.push(super::engine::ExtraNetwork { name: canonical, aliases: names, ipv4_address: ip, ipv6_address: ip6, mac_address: mac, gw_priority: endpoint_priority(ep)? });
             }
         }
     }
@@ -2320,6 +2322,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
         ipv4_address,
         ipv6_address,
         mac_address,
+        gw_priority,
         dns: strings(&host["Dns"]).unwrap_or_default(),
         dns_search: strings(&host["DnsSearch"]).unwrap_or_default(),
         dns_options: strings(&host["DnsOptions"]).unwrap_or_default(),
@@ -2393,6 +2396,13 @@ fn container_mode_allowed(body: &Value, target: &str) -> Result<(), Error> {
 
 /// An endpoint's `IPAMConfig.IPv4Address`, `IPv6Address` and `MacAddress`,
 /// checked for form.
+pub(super) fn endpoint_priority(endpoint: &Value) -> Result<i64, Error> {
+    match &endpoint["GwPriority"] {
+        Value::Null => Ok(0),
+        value => value.as_i64().ok_or_else(|| Error::BadRequest("GwPriority must be a signed integer".to_owned())),
+    }
+}
+
 pub(super) fn endpoint_address(ep: &Value) -> Result<(String, String, String), Error> {
     let ip = ep["IPAMConfig"]["IPv4Address"].as_str().unwrap_or_default().to_owned();
     if !ip.is_empty() && super::network::parse_ip(&ip).is_none() {
@@ -2517,7 +2527,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
     }
     let running = c.status == Status::Running;
     let mut out = serde_json::Map::new();
-    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str, mac: &str| {
+    let mut add = |name: &str, ip: Option<[u8; 4]>, ip6: Option<[u8; 16]>, aliases: &[String], want4: &str, want6: &str, mac: &str, gw_priority: i64| {
         let net = networks.iter().find(|n| n.name == name || n.id == name);
         let attached = has_endpoint(running, ip, net);
         // Before the address is hidden: an IPv6-only network's interface
@@ -2535,6 +2545,7 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
                 "Links": null,
                 "Aliases": if aliases.is_empty() { Value::Null } else { json!(aliases) },
                 "MacAddress": mac,
+                "GwPriority": gw_priority,
                 "DriverOpts": null,
                 "NetworkID": net.map(|n| n.id.clone()).unwrap_or_default(),
                 "EndpointID": if attached { endpoint_id(net.map_or(name, |n| n.id.as_str()), &c.id) } else { String::new() },
@@ -2551,10 +2562,10 @@ fn endpoints(c: &Container, networks: &[super::network::Network]) -> Value {
             }),
         );
     };
-    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address, &c.spec.mac_address);
+    add(&c.spec.network_mode, c.ip, c.ip6, &c.spec.aliases, &c.spec.ipv4_address, &c.spec.ipv6_address, &c.spec.mac_address, c.spec.gw_priority);
     for x in &c.spec.extra_networks {
         let ip6 = c.extra_ip6s.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip);
-        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address, &x.mac_address);
+        add(&x.name, c.extra_ips.iter().find(|(n, _)| *n == x.name).map(|(_, ip)| *ip), ip6, &x.aliases, &x.ipv4_address, &x.ipv6_address, &x.mac_address, x.gw_priority);
     }
     Value::Object(out)
 }

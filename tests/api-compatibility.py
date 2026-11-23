@@ -16,8 +16,8 @@ LABEL = "dev.asagiri.api-compatibility"
 
 
 class Connection(http.client.HTTPConnection):
-    def __init__(self, path):
-        super().__init__("localhost", timeout=30)
+    def __init__(self, path, timeout=30):
+        super().__init__("localhost", timeout=timeout)
         self.path = path
 
     def connect(self):
@@ -41,8 +41,8 @@ def check(args):
         "owner": nonce, "checks": [], "cleanup": [],
     }
 
-    def call(method, target, body=None, statuses=(200,), with_status=False):
-        connection = Connection(args.socket)
+    def call(method, target, body=None, statuses=(200,), with_status=False, timeout=30):
+        connection = Connection(args.socket, timeout=timeout)
         try:
             connection.request(method, "/v1.47" + target,
                                None if body is None else json.dumps(body),
@@ -221,7 +221,7 @@ def check(args):
                     assert args.reference_docker
                     cid = result["Id"]
                     status, result = call("POST", "/containers/" + cid + "/start",
-                                          statuses=(204, 400, 500), with_status=True)
+                                          statuses=(204, 400, 500), with_status=True, timeout=150)
                     info = inspect(cid)
                     outcome.update(start_status=status, rejected_at="start",
                                    running=info["State"]["Running"],

@@ -133,7 +133,16 @@ On macOS, Linux, and Windows with the Asagiri WSL distro, `asagiri scan IMAGE` s
   WSL's localhost relay drops half-closes, and `docker run` loses its
   output
 
-Kubernetes LoadBalancer services are published on `localhost`, and
+Kubernetes LoadBalancer services are published on `localhost` by default.
+On macOS, if the daemon reports permission denied for a port below 1024,
+choose an unused Service port above 1023 and keep the workload's `targetPort`.
+The domain router settings (`ASAGIRI_HTTP_PORT` and `ASAGIRI_HTTPS_PORT`)
+control the router's own listeners. Kubernetes reads its host-facing ports
+from the Service's `spec.ports`. For example, with the router on 8080 and
+8443 and Traefik listening on 8000 in its pod, set the Service's `port` to
+8444 and `targetPort` to 8000. Traefik then accepts HTTP on `127.0.0.1:8444`.
+
+
 `asagiri machine create NAME --systemd` boots systemd as the machine's init.
 
 `docker top` accepts its default columns; other `ps_args`, such as `aux` or

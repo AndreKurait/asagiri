@@ -38,6 +38,8 @@ mod lang;
 mod term;
 mod termwire;
 mod brands;
+mod compose;
+mod composetech;
 mod recheck;
 mod detail;
 mod hub;
@@ -506,7 +508,7 @@ fn trf(en: &str, vars: &[(&str, &dyn std::fmt::Display)]) -> String {
 }
 
 fn set_pref(name: &str, value: serde_json::Value) {
-    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked") {
+    if !matches!(name, "font" | "mono" | "scale" | "termH" | "termFs" | "termFont" | "domainsAsked" | "theme" | "accent" | "importSeen" | "stopEngineOnQuit" | "updateAuto" | "updateSkip" | "updateSnoozeUntil" | "columnWidths" | "crashReports" | "ctxSnooze" | "ctxBack" | "logSize" | "starAsked" | "setupSkip" | "lang" | "langAsked") {
         return;
     }
     let Some(path) = prefs_path() else { return };
@@ -557,13 +559,13 @@ fn proxy(save: Option<serde_json::Value>) {
 /// Reads (or saves, then reads) the Docker Hub registry mirrors.
 fn registry_mirrors(save: Option<serde_json::Value>) {
     if let Some(body) = save {
-        match client::request("POST", "/asagiri/registry-mirrors", Some(&body)) {
+        match client::request("POST", "/asagiri/daemon-config", Some(&body)) {
             Ok(r) if r.ok() => emit(notice("ok", &tr("Registry mirrors saved"))),
             Ok(r) => emit(notice("error", &r.error())),
             Err(e) => emit(notice("error", &e.to_string())),
         }
     }
-    match client::get("/asagiri/registry-mirrors") {
+    match client::get("/asagiri/daemon-config") {
         Ok(mut v) => {
             v["type"] = "mirrors".into();
             emit(v.to_string());
@@ -1154,6 +1156,20 @@ fn toast(kind: &str, text: &str) -> String {
     s
 }
 
+/// The docker CLI, pointed at Asagiri's engine whatever context is chosen, for
+/// Compose in the window.
+fn compose_cli() -> io::Result<std::process::Command> {
+    let docker = client::docker_cli().ok_or_else(|| io::Error::other("no docker CLI found"))?;
+    let mut cmd = std::process::Command::new(docker);
+    cmd.env("DOCKER_HOST", format!("unix://{}", client::socket()?.display())).env_remove("DOCKER_CONTEXT");
+    Ok(cmd)
+}
+
+/// The compose files opened in the window: ~/.asagiri/compose.json.
+fn compose_store() -> Option<std::path::PathBuf> {
+    state_dir().map(|d| d.join("compose.json"))
+}
+
 /// Looks up the brand logo for an image name like `bitnami/redis:7`: first by
 /// the whole repository path, then by its last component.
 fn brand(name: &str) -> Option<[&'static str; 2]> {
@@ -1420,6 +1436,12 @@ mod tests {
         let p = super::prefs();
         assert_eq!((p["font"].as_str(), p["scale"].as_f64(), p.get("script")), (Some("Georgia"), Some(1.1), None));
         assert_eq!(p["starAsked"], true);
+        // Existing profiles keep the engine running until the user opts in.
+        assert_ne!(p["stopEngineOnQuit"], true);
+        for enabled in [true, false] {
+            super::set_pref("stopEngineOnQuit", enabled.into());
+            assert_eq!(super::prefs()["stopEngineOnQuit"], enabled);
+        }
         // Check for updates automatically stays off across launches.
         super::set_pref("updateAuto", false.into());
         assert_eq!(super::prefs()["updateAuto"], false);
@@ -1983,6 +2005,17 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
         // Signing in through the registry's own page (Pull from's Sign in).
         "weblogin" | "webloginopen" | "webloginmfa" | "webloginsso" | "weblogincancel" | "awsprofiles" => {
             weblogin::handle(&msg.cmd, msg.name, &msg.value, emit, ensure_daemon, term::captured);
+            Ok(())
+        }
+        // Compose: projects, a project's file, what Apply would do, Apply, logs.
+        "composecreate" | "composeprojects" | "composefile" | "composeplan" | "composeapply" | "composelogs" | "composeforget" | "composecancel" | "composerestore" | "composeaction" => {
+            compose::handle(&msg.cmd, msg.name, &msg.value, compose_cli, compose_store, emit);
+            Ok(())
+        }
+        // Open a compose file…: the system's own dialog, on the window's
+        // thread; the path it gives stays here, the page gets the project.
+        "composeopen" => {
+            window::pick_compose_file(&tr("Open a compose file"), &[tr("Compose files"), tr("YAML files")], |path| compose::picked(path, compose_cli, compose_store, emit));
             Ok(())
         }
         // Before Run: what the image's start script won't start without.
