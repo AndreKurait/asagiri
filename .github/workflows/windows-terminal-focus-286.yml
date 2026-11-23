@@ -23,7 +23,7 @@ jobs:
           $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
           wsl.exe --import Asagiri-focus286 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
           if ($LASTEXITCODE) { throw "WSL import" }
-          python -m pip install playwright==1.55.0
+          python -m pip install pywinauto==0.6.9
           $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
           if (!$runtime) {
             $installer = Join-Path $env:RUNNER_TEMP "WebView2Setup.exe"
@@ -34,45 +34,44 @@ jobs:
             if ($install.ExitCode) { throw "WebView2 installer exited $($install.ExitCode)" }
           }
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP 'asagiri-test-webview-profile'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=0 --remote-debugging-address=127.0.0.1'
           $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-focus286'
           @'
           import os, pathlib, subprocess, time
-          from playwright.sync_api import sync_playwright
+          from pywinauto import Desktop
+          from pywinauto.keyboard import send_keys
           app = pathlib.Path(os.environ['PICKER_APP'])
           docker = str(app.parent / 'bin' / 'docker.exe')
           proc = subprocess.Popen([str(app), '--distro', 'Asagiri-focus286', '--pipe', r'\\.\pipe\asagiri-focus286'])
           try:
-              with sync_playwright() as pw:
-                  for i in range(90):
-                      try:
-                          profile = pathlib.Path(os.environ['WEBVIEW2_USER_DATA_FOLDER'])
-                          port_file = next(profile.rglob('DevToolsActivePort'))
-                          port, ws = port_file.read_text().splitlines()[:2]
-                          browser = pw.chromium.connect_over_cdp(f'ws://127.0.0.1:{port}{ws}', timeout=3000)
-                          break
-                      except Exception:
-                          if proc.poll() is not None or i == 89: raise
-                          time.sleep(1)
-                  page = browser.contexts[0].pages[0]
-                  for i in range(90):
-                      version = subprocess.run([docker,'version','--format','{{.Server.Version}}'], capture_output=True, text=True)
-                      if version.returncode == 0 and 'asagiri' in version.stdout.lower(): break
-                      time.sleep(1)
-                  cid = subprocess.check_output([docker,'run','-d','--name','focus286','alpine:3.21','sleep','300'], text=True).strip()
-                  page.evaluate("show('containers')")
-                  page.get_by_text('focus286',exact=True).first.wait_for(timeout=90000)
-                  page.evaluate("id => {openDetail(id); setTab('terminal')}", cid)
-                  prompt = page.locator('#term-in')
-                  prompt.click(); prompt.press_sequentially('echo pending'); prompt.press('Home')
-                  for _ in range(5): prompt.press('ArrowRight')
-                  for i in range(4):
-                      name = 'focus286-event-' + str(i)
-                      subprocess.run([docker,'create','--name',name,'alpine:3.21','true'], check=True)
-                      time.sleep(6)
-                      observed = prompt.evaluate('e => [document.activeElement===e,e.value,e.selectionStart,e.selectionEnd]')
-                      print(i, observed, flush=True)
-                      assert observed == [True,'echo pending',5,5], observed
+              window = Desktop(backend='uia').window(process=proc.pid, class_name='AsagiriWindow')
+              window.wait('visible', timeout=90)
+              for attempt in range(90):
+                  ready = subprocess.run([docker, 'info'], capture_output=True)
+                  if ready.returncode == 0: break
+                  time.sleep(1)
+              else:
+                  raise RuntimeError('Windows engine did not become ready')
+              subprocess.run([docker,'run','-d','--name','focus286','alpine:3.21','sleep','300'], check=True)
+              def click(title):
+                  control = window.child_window(title=title, found_index=0)
+                  control.wait('visible enabled', timeout=90)
+                  control.click_input()
+              click('Containers')
+              click('focus286')
+              click('Terminal')
+              prompt = window.child_window(auto_id='term-in', control_type='Edit')
+              prompt.wait('visible enabled', timeout=60)
+              prompt.click_input()
+              send_keys('echo pending{HOME}{RIGHT 5}', with_spaces=True)
+              for i in range(4):
+                  subprocess.run([docker,'create','--name',f'focus286-event-{i}','alpine:3.21','true'], check=True)
+                  time.sleep(6)
+                  assert prompt.has_keyboard_focus(), 'Refresh moved keyboard focus'
+                  send_keys('x')
+                  assert prompt.get_value() == 'echo xpending', prompt.get_value()
+                  send_keys('{BACKSPACE}')
+                  assert prompt.get_value() == 'echo pending'
+                  print('Focus, draft and insertion position retained after refresh', i, flush=True)
           finally:
               subprocess.run(['powershell','-NoProfile','-Command',"Get-Process | Where-Object {$_.ProcessName -match 'asagiri|webview'} | Select-Object ProcessName,Id,MainWindowTitle; Get-ChildItem $env:LOCALAPPDATA/Asagiri,$env:USERPROFILE/.asagiri -Filter asagiri-win.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 30 }"],check=False)
               subprocess.run(['taskkill','/PID',str(proc.pid),'/T','/F'],check=False)
