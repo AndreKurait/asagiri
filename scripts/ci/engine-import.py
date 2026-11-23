@@ -345,6 +345,14 @@ def main():
                 cid = docker("source", "run", "-d", "--name", writer, "--network", "none",
                              "--label", OWNER + "=" + nonce, "-v", volume + ":/data",
                              image, "sleep", "600", text=True).stdout.strip()
+                inventory = command(
+                    "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
+                    "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
+                ).stdout
+                listed = {line.strip() for line in inventory.splitlines()}
+                assert {image, volume, writer} <= listed, inventory
+                record["linux_migration_inventory"] = inventory
+                case("native-linux-migration-lists-source-image-volume-and-container")
                 for state in ("running", "paused"):
                     if state == "paused":
                         docker("source", "pause", cid)
