@@ -60,7 +60,16 @@ jobs:
                   control.wait('visible enabled', timeout=90)
                   control.click_input()
               click('Containers')
-              click('focus286')
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  visible = [c for c in window.descendants() if c.is_visible() and c.window_text()]
+                  matches = [c for c in visible if 'focus286' in c.window_text().split()]
+                  if matches:
+                      min(matches, key=lambda c: len(c.window_text())).click_input()
+                      break
+                  time.sleep(1)
+              else:
+                  raise RuntimeError(f'Container absent from dashboard. Visible controls: {[c.window_text()[:120] for c in visible][:100]}')
               click('Terminal')
               prompt = window.child_window(auto_id='term-in', control_type='Edit')
               prompt.wait('visible enabled', timeout=60)
