@@ -91,9 +91,28 @@ jobs:
                   raise
               prompt.click_input()
               send_keys('echo pending{HOME}{RIGHT 5}', with_spaces=True)
+              import ctypes
+              from ctypes import wintypes
+              class CursorInfo(ctypes.Structure):
+                  _fields_ = [('cbSize', wintypes.DWORD), ('flags', wintypes.DWORD),
+                              ('hCursor', wintypes.HANDLE), ('ptScreenPos', wintypes.POINT)]
+              def verify_pointer():
+                  info = CursorInfo()
+                  info.cbSize = ctypes.sizeof(info)
+                  if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(info)):
+                      raise ctypes.WinError()
+                  rect = prompt.rectangle()
+                  x, y = info.ptScreenPos.x, info.ptScreenPos.y
+                  assert rect.left <= x < rect.right and rect.top <= y < rect.bottom, (x, y, rect)
+                  assert info.flags == 1 and info.hCursor, ('Pointer hidden', info.flags)
+              # Restore the pointer once after typing, then leave it stationary across refreshes.
+              prompt.move_mouse_input()
+              verify_pointer()
               for i in range(4):
                   subprocess.run([docker,'create','--name',f'focus286-event-{i}','alpine:3.21','true'], check=True)
                   time.sleep(6)
+                  verify_pointer()
+                  print('Visible pointer over terminal input after refresh', i, flush=True)
                   assert prompt.has_keyboard_focus(), 'Refresh moved keyboard focus'
                   send_keys('x')
                   assert prompt.get_value() == 'echo xpending', prompt.get_value()
