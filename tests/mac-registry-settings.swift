@@ -11,4 +11,30 @@ func dumpTree(_ e: AXUIElement, _ depth: Int = 0) {
 }
 func press(_ text:String,_ roles:[String]) { for _ in 0..<60 { for role in roles { if let e=find(app,text,role), AXUIElementPerformAction(e,kAXPressAction as CFString) == .success {print("Pressed",text);return} };Thread.sleep(forTimeInterval:0.3) }; dumpTree(app); print("Missing",text);exit(1) }
 press("Registry mirrors",["AXButton","AXRadioButton"])
-for _ in 0..<60 {if let field=find(app,"Insecure registries","AXTextArea") {let result=AXUIElementSetAttributeValue(field,kAXValueAttribute as CFString,"registry.test:5153" as CFString); print("set",result.rawValue);press("Save",["AXButton"]);exit(0)};Thread.sleep(forTimeInterval:0.3)};exit(2)
+let pid = Int32(CommandLine.arguments[1])!
+let address = "registry.test:5153"
+for _ in 0..<60 {
+    if let field = find(app, "Insecure registries", "AXTextArea") {
+        guard AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else { exit(3) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(address, forType: .string)
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: down)!
+            event.flags = .maskCommand
+            event.postToPid(pid)
+        }
+        for _ in 0..<60 {
+            if attr(field, "AXValue") as? String == address,
+               let save = find(app, "Save", "AXButton"), attr(save, "AXEnabled") as? Bool == true {
+                press("Save", ["AXButton"])
+                exit(0)
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        print("Paste value or enabled Save missing")
+        dumpTree(app)
+        exit(4)
+    }
+    Thread.sleep(forTimeInterval: 0.3)
+}
+exit(2)
