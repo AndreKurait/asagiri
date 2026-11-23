@@ -23,13 +23,14 @@ jobs:
           chmod +x "$app"
           export HOME="$RUNNER_TEMP/profile" GTK_MODULES=gail:atk-bridge
           mkdir -p "$HOME/.asagiri/run"
-          export ASAGIRI_SOCKET="$HOME/.asagiri/run/docker.sock"
+          sudo install -d /run/asagiri
+          export ASAGIRI_SOCKET=/run/asagiri/docker.sock
           "$app" --appimage-extract >/dev/null
           sudo env HOME="$HOME" ASAGIRI_SOCKET="$ASAGIRI_SOCKET" ASAGIRI_DATA_DIR="$RUNNER_TEMP/engine" "$PWD/squashfs-root/usr/bin/asagiri" daemon &
           for _ in {1..50}; do [ -S "$ASAGIRI_SOCKET" ] && break; sleep .2; done
           sudo chown "$(id -u):$(id -g)" "$ASAGIRI_SOCKET"
           curl --fail --unix-socket "$ASAGIRI_SOCKET" http://localhost/_ping
-          echo '{"lang":"en"}' > "$HOME/.asagiri/ui.json"
+          echo '{"lang":"en","setupSkip":["docker","builds"]}' > "$HOME/.asagiri/ui.json"
           cat > check_compose_view.py <<'PY'
           import time
           import gi
