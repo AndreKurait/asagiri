@@ -1,0 +1,46 @@
+name: Published Windows WSL cgroup layout
+on:
+  push:
+    branches: [qualification/windows-cgroup-layout-139]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Inspect stock WSL mounts and start a container
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $asset = "Asagiri-0.1.14-dev.195-windows-x86_64.zip"
+          gh release download v0.1.14-dev.195 -R AndreKurait/asagiri -p $asset
+          if ((Get-FileHash $asset).Hash.ToLower() -ne "906a30dfdb13cdbca9625406026181c8e7b38b96b4d6a6394914488731591ccb") { throw "bundle hash" }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          wsl.exe --import Asagiri-cgroup139 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          wsl.exe --version
+          wsl.exe -d Asagiri-cgroup139 -- uname -a
+          wsl.exe -d Asagiri-cgroup139 -- cat /proc/self/mountinfo | Select-String ' - cgroup2? '
+          if ($LASTEXITCODE) { throw 'Reading mount topology failed' }
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-cgroup139'
+          $docker = Join-Path (Split-Path $env:PICKER_APP) 'bin/docker.exe'
+          $launcher = Start-Process $env:PICKER_APP -ArgumentList '--distro','Asagiri-cgroup139','--pipe','\\.\pipe\asagiri-cgroup139' -PassThru
+          try {
+            for ($i=0; $i -lt 90; $i++) {
+              & $docker info 2>$null | Out-Null
+              if ($LASTEXITCODE -eq 0) { break }
+              Start-Sleep -Seconds 2
+            }
+            if ($LASTEXITCODE) { throw 'Engine startup failed' }
+            & $docker pull alpine:3.21
+            if ($LASTEXITCODE) { throw 'Image pull failed' }
+            & $docker run --rm alpine:3.21 true
+            if ($LASTEXITCODE) { throw 'Container start failed' }
+          } finally {
+            if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id }
+          }
