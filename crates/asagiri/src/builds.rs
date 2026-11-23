@@ -394,10 +394,14 @@ fn builder_with(preferences: PreferenceErrors) -> io::Result<bool> {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
     let quiet = || std::process::Stdio::null();
+    // The bundled CLI needs its context even when plugin discovery was lost.
+    #[cfg(target_os = "macos")]
+    ensure_context(&docker)?;
     if !Command::new(&docker).args(["buildx", "version"]).stdout(quiet()).stderr(quiet()).status()?.success() {
         println!("docker build: no buildx plugin here, so docker builds with Asagiri's classic builder API (the same BuildKit, run by the daemon)");
         return Ok(false);
     }
+    #[cfg(not(target_os = "macos"))]
     ensure_context(&docker)?;
     let native = crate::client::get_background("/info")?["BuilderVersion"] == "2";
     crate::buildwith::places()?.set_builtin(native)?;
