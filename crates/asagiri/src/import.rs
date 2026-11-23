@@ -254,14 +254,16 @@ fn writable_image(ctx: &str, info: &Value) -> io::Result<Option<String>> {
             "stop the source container before importing its writable layer",
         ));
     }
-    let snapshot = run(&["commit", "--pause=false", id])?;
+    let output = run(&["commit", "--pause=false", id])?;
+    // Recent Docker clients print a flag deprecation notice before the ID.
+    let snapshot = output.lines().last().unwrap_or("");
     if !snapshot.strip_prefix("sha256:").is_some_and(anonymous) {
         return Err(io::Error::other(
             "source engine returned an invalid snapshot image ID",
         ));
     }
-    let transfer = image_with_cli(ctx, &snapshot, &cli);
-    let cleanup = run(&["image", "rm", "--no-prune", &snapshot]);
+    let transfer = image_with_cli(ctx, snapshot, &cli);
+    let cleanup = run(&["image", "rm", "--no-prune", snapshot]);
     let loaded = transfer?
         .ok_or_else(|| io::Error::other("destination did not report a snapshot image ID"))?;
     cleanup?;
