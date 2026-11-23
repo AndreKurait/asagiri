@@ -154,6 +154,15 @@ jobs:
                   ' sh "$worker_ip" "$peer_hex"
                   echo "Guest bridge control to $host using the same IPv4 peer"
                   docker run --rm --pull=never alpine:3.21 sh -c 'ip route; wget -T 8 -S --spider "https://$1/"' sh "$worker_ip" || true
+                  # Record only TCP handshake summaries for this registry peer.
+                  outbound=$(route -n get "$worker_ip" | awk '/interface:/{print $2}')
+                  bridge=$(route -n get 192.168.64.2 | awk '/interface:/{print $2}')
+                  captures=()
+                  for iface in "$bridge" "$outbound"; do
+                    sudo tcpdump -l -nn -t -i "$iface" "host $worker_ip and tcp port 443 and (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0)" > "$scratch/trace-$iface" 2>&1 &
+                    captures+=("$!")
+                  done
+                  sleep 1
                   echo "Guest host-network control to $host using the same IPv4 peer"
                   docker run --rm --pull=never --network host alpine:3.21 sh -c '
                     ip route get "$1"
@@ -165,6 +174,12 @@ jobs:
                     fi
                     wget -T 8 -S --spider "https://$1/"
                   ' sh "$worker_ip" || true
+                  for capture in "${captures[@]}"; do sudo kill -INT "$capture" || true; done
+                  for capture in "${captures[@]}"; do wait "$capture" || true; done
+                  for iface in "$bridge" "$outbound"; do
+                    echo "Guest handshake trace on $iface for $worker_ip"
+                    cat "$scratch/trace-$iface"
+                  done
                   curl --noproxy '*' --head --resolve "$host:443:$worker_ip" --max-time 8 --silent --show-error --output /dev/null --write-out 'Host peer=%{remote_ip} HTTP=%{http_code} TLS verify=%{ssl_verify_result}\n' "$endpoint" || true
                 fi
               done
