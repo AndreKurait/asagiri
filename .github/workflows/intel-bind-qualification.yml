@@ -62,22 +62,25 @@ jobs:
           test "$(docker image inspect alpine:3.20 --format '{{.Architecture}}')" = amd64
           mkdir "$scratch/project" && cd "$scratch/project"
           printf 'ARG BASE\nFROM ${BASE}\nARG EXPECTED\nRUN uname -m && test "$(uname -m)" = "$EXPECTED"\n' > Dockerfile
-          mkdir "$scratch/registry"
-          (cd "$scratch/registry" && python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-fetch.py")
-          (cd "$scratch/registry" && exec python3 "$GITHUB_WORKSPACE/tests/qualification/alpine-index-serve.py") >"$scratch/registry.log" 2>&1 &
-          registry_pid=$!
-          trap 'kill "$registry_pid" "$daemon" 2>/dev/null || true; wait || true; tail -40 "$scratch/registry.log"' EXIT
-          for attempt in {1..10}; do
-            curl --noproxy '*' --max-time 2 -fsS http://127.0.0.1:49102/v2/ && break
-            kill -0 "$registry_pid"
-            sleep 1
-          done
-          curl --noproxy '*' --max-time 2 -fsS http://127.0.0.1:49102/v2/
-          docker run --rm --pull=never alpine:3.21 wget -T 5 -qO- http://198.19.248.254:49102/v2/
-          app="$RUNNER_TEMP/Asagiri.app/Contents/MacOS/asagiri"
-          "$app" config set '{"insecure-registries":["198.19.248.254:49102"]}'
-          "$app" registry-mirror add http://198.19.248.254:49102
-          docker buildx create --name asagiri-build --driver docker-container --use
+          primary_dns=$(scutil --dns | awk '/nameserver\[0\]/{print $3; exit}')
+          resolves_registry() {
+            dig +short +time=2 +tries=1 "@$1" registry-1.docker.io A | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+          }
+          if [ -n "$primary_dns" ] && ! resolves_registry "$primary_dns"; then
+            device=$(route -n get default | awk '/interface:/{print $2}')
+            service=$(networksetup -listnetworkserviceorder | awk -v dev="$device" '/^\([0-9]+\)/ {name=$0; sub(/^\([0-9]+\) /,"",name)} index($0,"Device: " dev ")") {print name; exit}')
+            for candidate in 1.1.1.1 8.8.8.8; do
+              if [ -n "$service" ] && resolves_registry "$candidate"; then
+                echo "Hosted runner resolver $primary_dns timed out; using verified resolver $candidate on $service for this disposable job"
+                sudo networksetup -setdnsservers "$service" "$candidate"
+                scutil --dns | grep nameserver
+                break
+              fi
+            done
+          fi
+          if ! docker buildx inspect asagiri-build >/dev/null 2>&1; then
+            docker buildx create --name asagiri-build --driver docker-container
+          fi
           failed=0
           for scenario in cached forced uncached reverse; do
             platform=arm64
