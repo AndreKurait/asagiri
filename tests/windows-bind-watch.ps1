@@ -39,9 +39,18 @@ try {
     New-Item -ItemType Directory $directory | Out-Null
     $script = @'
 const fs = require('node:fs');
+let nestedWatcher;
 function snapshot() {
   const state = {};
-  for (const name of fs.readdirSync('/watched').sort()) state[name] = fs.readFileSync('/watched/'+name,'utf8');
+  for (const entry of fs.readdirSync('/watched', {withFileTypes:true})) {
+    if (entry.isFile()) state[entry.name] = fs.readFileSync('/watched/'+entry.name,'utf8');
+    if (entry.isDirectory() && entry.name === 'renamed' && !nestedWatcher) {
+      nestedWatcher = fs.watch('/watched/renamed', () => {
+        console.log('nested: ' + fs.readFileSync('/watched/renamed/child','utf8'));
+      });
+      console.log('NESTED READY');
+    }
+  }
   console.log(JSON.stringify(state));
 }
 fs.watch('/watched', snapshot);
@@ -69,6 +78,14 @@ console.log('READY');
     Move-Item "$directory\a" "$directory\b"; Await-Line '{"b":"two"}' $offset
     $offset = @(& $docker logs watch-test).Count
     Remove-Item "$directory\b"; Await-Line '{}' $offset
+    New-Item -ItemType Directory "$directory\original" | Out-Null
+    [IO.File]::WriteAllText("$directory\original\child", 'before')
+    $offset = @(& $docker logs watch-test).Count
+    Move-Item "$directory\original" "$directory\renamed"
+    Await-Line 'NESTED READY' $offset
+    $offset = @(& $docker logs watch-test).Count
+    [IO.File]::WriteAllText("$directory\renamed\child", 'after')
+    Await-Line 'nested: after' $offset
     & $docker logs watch-test
 } finally {
     if ($bridge -and !$bridge.HasExited) { Stop-Process -Id $bridge.Id }
