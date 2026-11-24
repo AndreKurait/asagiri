@@ -70,6 +70,7 @@ def project_files(image, arch, token, context, bind, project):
 
 
 def check(args):
+    build_base = os.environ.get("ASAGIRI_TEST_BUILD_BASE") or args.image
     assert sys.platform in ("linux", "darwin"), "Unsupported Compose fixture platform"
     pins = json.loads((Path(__file__).parent / "fixtures/compose/client.json").read_text())
     pinned = pins[sys.platform][platform.machine()]
@@ -161,7 +162,7 @@ def check(args):
         context.mkdir()
         (context / "built.txt").write_text(token)
         (context / "Dockerfile").write_text(
-            f"FROM {args.image}\nCOPY built.txt /built.txt\n"
+            f"FROM {build_base}\nCOPY built.txt /built.txt\n"
             f"LABEL {LABEL}={token}\n"
             'CMD ["sleep","3600"]\n'
         )

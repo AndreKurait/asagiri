@@ -981,7 +981,7 @@ def source_contract(args):
     require(pinned is not None, "Cannot bind the managed BuildKit image pin")
     references = json.loads(git("show", args.source + ":scripts/ci/reference-images.json"))
     host_image = references["docker"]
-    version = re.fullmatch(r"docker:([0-9.]+)-dind@sha256:[0-9a-f]{64}", host_image)
+    version = re.fullmatch(r"(?:mirror\.gcr\.io/library/)?docker:([0-9.]+)-dind@sha256:[0-9a-f]{64}", host_image)
     require(version is not None, "Expected a source-pinned Docker reference host image")
     require((binary / "SOURCE_COMMIT").read_text().strip() == args.source, "Binary source differs from requested source")
     sums = {}
