@@ -494,11 +494,32 @@ mod imp {
             let _ = wsl_run(&[std::ffi::OsStr::new("--terminate"), std::ffi::OsStr::new(&distro)]);
             fs::create_dir_all(&target)?;
 
+            let mut previous = None;
             if is_unavail || fresh {
                 set_phase("switching", 0, 0);
                 // Switching to a fresh store on Asagiri Linux: verify bundle before touching WSL.
                 let tar = crate::setup::verified("asagiri-linux.tar.gz")?;
-                let _ = wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(&distro)]);
+                if !is_unavail {
+                    // Unregister deletes the registered VHDX. Keep an independent export
+                    // beside the old folder, on the same drive, before unregistering.
+                    let name = current.file_name().ok_or_else(|| io::Error::other("Missing distro folder name"))?;
+                    let mut backup_name = name.to_os_string();
+                    backup_name.push(".asagiri-backup");
+                    let backup = current.with_file_name(backup_name);
+                    fs::create_dir(&backup).map_err(|e| io::Error::other(format!("Cannot create backup at {}: {e}", backup.display())))?;
+                    let archive = backup.join("distro.tar");
+                    if let Err(e) = wsl_run(&["--export".as_ref(), distro.as_ref(), archive.as_os_str()]) {
+                        let _ = fs::remove_dir_all(&backup);
+                        return Err(e);
+                    }
+                    if fs::metadata(&archive)?.len() == 0 {
+                        return Err(io::Error::other(format!("Empty distro backup at {}", archive.display())));
+                    }
+                    write_marker(&backup)?;
+                    crate::serve::log(&format!("Saved previous distro to {}", archive.display()));
+                    previous = Some(backup);
+                }
+                wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(&distro)])?;
                 wsl_run(&[
                     std::ffi::OsStr::new("--import"),
                     std::ffi::OsStr::new(&distro),
@@ -514,10 +535,10 @@ mod imp {
 
             set_phase("switching", 0, 0);
             write_marker(&target)?;
-            if same_path(&target, &default) {
+            if previous.is_none() && same_path(&target, &default) {
                 clear_at(&config_path())?;
             } else {
-                write_at(&config_path(), &Choice { path: target.clone(), previous: None })?;
+                write_at(&config_path(), &Choice { path: target.clone(), previous })?;
             }
 
             set_phase("restarting", 0, 0);
