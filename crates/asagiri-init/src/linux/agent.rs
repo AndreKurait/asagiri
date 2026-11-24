@@ -267,10 +267,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 // At most ten a second: the host reacts to the first one.
                 if last_pressure.elapsed() >= std::time::Duration::from_millis(100) {
                     last_pressure = std::time::Instant::now();
-                    let (_, mem_available_kib) = meminfo();
-                    let (mem_stall, _) = super::cgroup::memory_trouble();
                     out.clear();
-                    Msg::MemoryPressure(MemoryPressure { mem_available_kib, mem_stall }).encode(&mut out);
+                    pressure_reading().encode(&mut out);
                     conn.write_all(&out)?;
                 }
                 continue;
@@ -389,9 +387,15 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 if container::has_filesystem_teardown(&p.run) {
                     Msg::CleanupPending(&p.run.id).encode(&mut out);
                 }
+                let oom_killed = p.oom_killed.unwrap_or_else(|| container::oom_killed(&p.run));
+                // A cgroup-limited workload can OOM before the first periodic
+                // sample. Send current readings before announcing its exit.
+                if oom_killed {
+                    pressure_reading().encode(&mut out);
+                }
                 Msg::Exited(Exited { id: &p.run.id, code, setup_ns: p.cloned_ns - p.received_ns,
                     run_ns: reaped_ns - p.cloned_ns,
-                    oom_killed: p.oom_killed.unwrap_or_else(|| container::oom_killed(&p.run)) }).encode(&mut out);
+                    oom_killed }).encode(&mut out);
                 conn.write_all(&out)?;
                 p.exit_announced = true;
             }
@@ -871,6 +875,12 @@ fn wait_for_lease(dhcp: &mut Option<Dhcp>, deadline: std::time::Instant) {
         }
         let _ = d.on_timer();
     }
+}
+
+fn pressure_reading() -> Msg<'static> {
+    let (_, mem_available_kib) = meminfo();
+    let (mem_stall, _) = super::cgroup::memory_trouble();
+    Msg::MemoryPressure(MemoryPressure { mem_available_kib, mem_stall })
 }
 
 fn memory_pressure_trigger() -> Option<std::fs::File> {
