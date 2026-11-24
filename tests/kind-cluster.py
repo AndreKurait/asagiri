@@ -10,7 +10,6 @@ import platform
 import subprocess
 import sys
 import tempfile
-from urllib.request import urlopen
 import uuid
 
 
@@ -47,11 +46,13 @@ def check(path, _image):
         # Exact official v0.27.0 release binaries and the release's default
         # node image, matching the upstream Linux reports.
         url = f"https://github.com/kubernetes-sigs/kind/releases/download/{VERSION}/kind-linux-{architecture}"
-        with urlopen(url, timeout=60) as response:
-            data = response.read((32 << 20) + 1)
-        assert len(data) <= 32 << 20 and hashlib.sha256(data).hexdigest() == expected
         kind = root / "kind"
-        kind.write_bytes(data)
+        subprocess.run([
+            "curl", "--fail", "--silent", "--show-error", "--location", "--retry", "2",
+            "--connect-timeout", "60", "--max-time", "120", "--max-filesize", str(32 << 20),
+            "--output", str(kind), url,
+        ], check=True)
+        assert kind.stat().st_size <= 32 << 20 and hashlib.sha256(kind.read_bytes()).hexdigest() == expected
         kind.chmod(0o700)
         config = root / "cluster.json"
         config.write_text(json.dumps({
