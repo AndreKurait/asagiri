@@ -97,6 +97,27 @@ mod tests {
     }
 
     #[test]
+    fn readiness_recovers_when_the_second_ping_succeeds() {
+        let name = format!(r"\\.\pipe\asagiri-ready-retry-{}", std::process::id());
+        let first = Pipe::create(&name, true).unwrap();
+        let thread = std::thread::spawn({
+            let name = name.clone();
+            move || {
+                let limit = Duration::from_secs(3);
+                first.connect_within(Some(limit)).unwrap();
+                let second = Pipe::create(&name, false).unwrap();
+                first.write_client_within(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\n\r\n", limit).unwrap();
+                drop(first);
+                second.connect_within(Some(limit)).unwrap();
+                second.write_client_within(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK", limit).unwrap();
+            }
+        });
+        let ready = wait_for_ready(&name, Duration::from_secs(3));
+        thread.join().unwrap();
+        assert!(ready);
+    }
+
+    #[test]
     fn readiness_retries_share_the_stalled_pipe_deadline() {
         let (name, release, thread) = server(|_pipe, released| {
             let _ = released.recv_timeout(Duration::from_secs(3));
