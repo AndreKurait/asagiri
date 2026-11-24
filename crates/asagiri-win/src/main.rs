@@ -123,6 +123,8 @@ mod wslsync;
 mod refuse;
 #[cfg(any(windows, test))]
 mod storage;
+#[cfg(any(windows, test))]
+mod watch;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
@@ -189,6 +191,7 @@ fn main() -> std::process::ExitCode {
         serve::log(&format!("dns on 127.0.0.1:53: {e}"));
     }
     engine::start(engine::Env { distro: cfg.distro.clone(), pipe: cfg.pipe.clone() });
+    watch::start_if_enabled();
     // Its folder renamed, moved or deleted around it (Windows won't delete
     // a running program itself): docker build handed back as it was before
     // Asagiri took it, the choice kept for when Asagiri runs again, and Asagiri quits.

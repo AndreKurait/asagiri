@@ -634,3 +634,25 @@ jobs:
           name: windows-${{ runner.arch }}
           path: ${{ runner.temp }}/bin
           retention-days: 14
+
+  windows_bind_watch:
+    name: Windows drive bind notifications
+    needs: [windows, linux_build]
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: windows-X64
+          path: ${{ runner.temp }}/windows-X64
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: linux-X64
+          path: ${{ runner.temp }}/linux-X64
+      - name: Observe host creates, edits, renames and deletes in a container
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tests/windows-bind-watch.ps1

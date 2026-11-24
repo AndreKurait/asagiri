@@ -3,6 +3,7 @@
 //! drive the engine mount its socket into containers (Testcontainers' Ryuk,
 //! CI runners). Both are made into paths this daemon can mount.
 
+#[cfg(not(target_os = "macos"))]
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -171,6 +172,40 @@ fn drive(wsl: &Wsl, letter: u8, rest: &str) -> String {
     clean(&format!("{}{}/{}", wsl.root, letter.to_ascii_lowercase() as char, rest.replace('\\', "/")))
 }
 
+/// Whether `path` is under WSL's automount root (`<automount_root><drive>/...`,
+/// or `<automount_root><drive>` when `allow_drive_root` is true), with no
+/// control characters and no `.` or `..` traversal components.
+pub fn is_wsl_drive_path(path: &str, automount_root: &str, allow_drive_root: bool) -> bool {
+    if !automount_root.starts_with('/') || !automount_root.ends_with('/') {
+        return false;
+    }
+    if path.contains(['\n', '\r', '\0']) {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix(automount_root) else { return false };
+    let bytes = rest.as_bytes();
+    if bytes.is_empty() || !bytes[0].is_ascii_alphabetic() {
+        return false;
+    }
+    if bytes.len() == 1 {
+        return allow_drive_root;
+    }
+    if bytes[1] != b'/' {
+        return false;
+    }
+    let mut has_component = false;
+    for part in rest[2..].split('/') {
+        if part.is_empty() {
+            continue;
+        }
+        if part == "." || part == ".." {
+            return false;
+        }
+        has_component = true;
+    }
+    has_component || allow_drive_root
+}
+
 /// Single slashes, none at the end.
 fn clean(p: &str) -> String {
     let mut out = String::with_capacity(p.len());
@@ -197,28 +232,63 @@ const VM_ENGINE_SOCK: &str = "/run/host-services/docker.sock";
 /// mounts into Ryuk).
 const ENGINE_SOCKS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock", "/private/var/run/docker.sock"];
 
+/// Where a path really is: its links followed, and the file it leads to
+/// as device and inode, which also matches a hard link or another mount of
+/// the same file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Real {
+    pub path: String,
+    pub id: (u64, u64),
+}
+
+impl Real {
+    /// The same file as `other`, by path or by device and inode.
+    pub fn same(&self, other: &Real) -> bool {
+        self.path == other.path || self.id == other.id
+    }
+}
+
+/// [`Real`] for a path that exists, `None` for one that does not.
+pub fn real(p: &str) -> Option<Real> {
+    use std::os::unix::fs::MetadataExt;
+    let path = std::fs::canonicalize(p).ok()?;
+    let m = std::fs::metadata(&path).ok()?;
+    Some(Real { path: path.into_os_string().into_string().ok()?, id: (m.dev(), m.ino()) })
+}
+
 /// What to mount for a bind of `src`, when it is the engine's socket. On a
 /// Mac the VM's relay to this daemon, as Docker Desktop and OrbStack give
-/// the VM's engine. On a Linux host (and WSL) a socket at that path is
-/// mounted as it is, as Docker does (Docker's own, or the package's link to
-/// Asagiri); a missing `/var/run/docker.sock` is Asagiri's, rather than a new
-/// empty directory.
+/// the VM's engine. On a Linux host (and WSL) the socket Asagiri gives
+/// containers (caller.rs) for a path that is Asagiri's socket, by any name,
+/// link or hard link (the package's `/var/run/docker.sock` link among
+/// them), and for a missing `/var/run/docker.sock` rather than a new empty
+/// directory. Another engine's socket at that path (Docker's own) is
+/// mounted as it is.
 pub fn engine_socket(src: &str) -> Option<String> {
     let own = super::socket_path().ok()?;
     let own = own.to_string_lossy();
-    engine_socket_for(src, &own, |p| Path::new(p).exists())
+    engine_socket_for(src, &own, real)
 }
 
-fn engine_socket_for(src: &str, own: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
-    let src = clean(src);
+fn engine_socket_for(src: &str, own: &str, resolve: impl Fn(&str) -> Option<Real>) -> Option<String> {
+    let found = resolve(src);
+    let is_own = found.as_ref().is_some_and(|a| {
+        resolve(own).is_some_and(|b| a.same(&b))
+    });
+    let text = clean(src);
+    let matches_text = |p: &str| text == clean(p);
     #[cfg(target_os = "macos")]
     {
-        let _ = exists;
-        (ENGINE_SOCKS.contains(&src.as_str()) || src == own).then(|| VM_ENGINE_SOCK.to_owned())
+        let named = ENGINE_SOCKS.contains(&text.as_str()) || found.as_ref().is_some_and(|r| ENGINE_SOCKS.contains(&r.path.as_str()));
+        (is_own || named || matches_text(own)).then(|| VM_ENGINE_SOCK.to_owned())
     }
     #[cfg(not(target_os = "macos"))]
     {
-        (ENGINE_SOCKS.contains(&src.as_str()) && !exists(&src)).then(|| own.to_owned())
+        let given = || super::caller::container_socket(Path::new(own)).to_string_lossy().into_owned();
+        match found {
+            Some(_) => is_own.then(given),
+            None => (matches_text(own) || ENGINE_SOCKS.contains(&text.as_str())).then(given),
+        }
     }
 }
 
@@ -326,27 +396,81 @@ mod tests {
         assert!(source(r"\\server\share", &w).is_err());
     }
 
+    /// A stand-in for [`real`]: each path is itself, with an id of its own,
+    /// unless `links` sends it elsewhere.
+    fn fake<'a>(links: &'a [(&'a str, &'a str)], ids: &'a [(&'a str, u64)]) -> impl Fn(&str) -> Option<Real> + 'a {
+        move |p: &str| {
+            let path = links.iter().find(|(from, _)| *from == p).map_or(p, |(_, to)| *to);
+            if path == "-" {
+                return None;
+            }
+            let id = ids.iter().find(|(q, _)| *q == path).map_or(path.len() as u64 * 7919 + path.bytes().map(u64::from).sum::<u64>(), |(_, i)| *i);
+            Some(Real { path: path.to_owned(), id: (1, id) })
+        }
+    }
+
     #[test]
     fn engine_socket_aliases() {
-        let none = |_: &str| false;
-        let all = |_: &str| true;
+        let none = |_: &str| None;
+        let itself = fake(&[], &[]);
         #[cfg(target_os = "macos")]
         {
             let own = "/Users/me/.asagiri/run/docker.sock";
             for s in ["/var/run/docker.sock", "/private/var/run/docker.sock", "/run/docker.sock", own, "/Users/me/.asagiri/run//docker.sock"] {
-                assert_eq!(engine_socket_for(s, own, all).as_deref(), Some(VM_ENGINE_SOCK), "{s}");
+                assert_eq!(engine_socket_for(s, own, &itself).as_deref(), Some(VM_ENGINE_SOCK), "{s}");
             }
             assert_eq!(engine_socket_for("/Users/me/.orbstack/run/docker.sock", own, none), None);
+            // A socket path given with a doubled slash is the same socket.
+            assert_eq!(engine_socket_for(own, "/Users/me/.asagiri/run//docker.sock", none).as_deref(), Some(VM_ENGINE_SOCK));
+            // A link to Asagiri's socket, and /var as the Mac spells it.
+            let to_real = [("/tmp/s.sock", "/private/tmp/real.sock"), (own, "/private/tmp/real.sock")];
+            let linked = fake(&to_real, &[]);
+            assert_eq!(engine_socket_for("/tmp/s.sock", own, &linked).as_deref(), Some(VM_ENGINE_SOCK));
+            let var = fake(&[("/var/x/docker.sock", "/private/var/run/docker.sock")], &[]);
+            assert_eq!(engine_socket_for("/var/x/docker.sock", own, &var).as_deref(), Some(VM_ENGINE_SOCK));
         }
         #[cfg(not(target_os = "macos"))]
         {
             let own = "/run/asagiri/docker.sock";
-            assert_eq!(engine_socket_for("/var/run/docker.sock", own, none).as_deref(), Some(own));
-            assert_eq!(engine_socket_for("/run/docker.sock", own, none).as_deref(), Some(own));
-            // Docker's socket, or the package's link to Asagiri's: mounted as it is.
-            assert_eq!(engine_socket_for("/var/run/docker.sock", own, all), None);
-            assert_eq!(engine_socket_for(own, own, all), None);
+            let given = Some("/run/asagiri/docker.container.sock");
+            let missing = fake(&[("/var/run/docker.sock", "-"), ("/run/docker.sock", "-")], &[]);
+            // Asagiri's socket, by its own path, a missing Docker path, or a link
+            // to it: containers are given their own socket, never the daemon's.
+            assert_eq!(engine_socket_for("/var/run/docker.sock", own, &missing).as_deref(), given);
+            assert_eq!(engine_socket_for("/run/docker.sock", own, &missing).as_deref(), given);
+            assert_eq!(engine_socket_for(own, own, &itself).as_deref(), given);
+            let doubled = [("/run/asagiri//docker.sock", own)];
+            assert_eq!(engine_socket_for("/run/asagiri//docker.sock", own, fake(&doubled, &[])).as_deref(), given);
+            let to_own = [("/var/run/docker.sock", own)];
+            let link = fake(&to_own, &[]);
+            assert_eq!(engine_socket_for("/var/run/docker.sock", own, &link).as_deref(), given);
+            // Docker's own socket: mounted as it is.
+            assert_eq!(engine_socket_for("/var/run/docker.sock", own, &itself), None);
+            // A hard link to Asagiri's socket: another path, the same file.
+            let ids = [("/tmp/hard.sock", 42), (own, 42)];
+            let hard = fake(&[], &ids);
+            assert_eq!(engine_socket_for("/tmp/hard.sock", own, &hard).as_deref(), given);
+            // The path as given is what is followed, before any tidying:
+            // here only that spelling leads to Asagiri's socket.
+            let spelled = [("/tmp/l//../asagiri/docker.sock", own)];
+            let raw = fake(&spelled, &[]);
+            let raw = |p: &str| if p == "/tmp/l//../asagiri/docker.sock" || p == own { raw(p) } else { None };
+            assert_eq!(engine_socket_for("/tmp/l//../asagiri/docker.sock", own, raw).as_deref(), given);
         }
         assert_eq!(engine_socket_for("/srv/app.sock", "/x/docker.sock", none), None);
+        assert_eq!(engine_socket_for("/srv/app.sock", "/x/docker.sock", &itself), None);
+    }
+
+    #[test]
+    fn wsl_drive_path_validation() {
+        assert!(is_wsl_drive_path("/mnt/c/Users/me/app", "/mnt/", false));
+        assert!(is_wsl_drive_path("/mnt/c", "/mnt/", true));
+        assert!(!is_wsl_drive_path("/mnt/c", "/mnt/", false));
+        assert!(!is_wsl_drive_path("/mnt/c/", "/mnt/", false));
+        assert!(!is_wsl_drive_path("/mnt/mac/Users/a", "/mnt/", true));
+        assert!(!is_wsl_drive_path("/etc/passwd", "/mnt/", true));
+        assert!(!is_wsl_drive_path("/mnt/c/../etc/passwd", "/mnt/", true));
+        assert!(!is_wsl_drive_path("/mnt/c/a\nb", "/mnt/", true));
+        assert!(is_wsl_drive_path("/windows/d/proj", "/windows/", false));
     }
 }
