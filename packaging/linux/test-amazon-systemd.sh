@@ -34,9 +34,20 @@ if [ -n "${ASAGIRI_CI_PERF_IMAGE:-}" ]; then
   ids=("$ASAGIRI_CI_PERF_IMAGE" "$ASAGIRI_CI_LIVE_IMAGE" "$ASAGIRI_CI_NGINX_IMAGE")
   for id in "${ids[@]}"; do [[ $id =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1; done
   archive=$(mktemp)
-  docker image save -o "$archive" "${ids[@]}"
+  arch=$(docker image inspect --format '{{.Architecture}}' "${ids[0]}")
+  docker image save --platform "linux/$arch" -o "$archive" "${ids[@]}"
+  # The outer containerd store may identify an image by its manifest. The
+  # installed Asagiri engine identifies the loaded platform by config digest.
+  configs=$(python3 - "$here/../../scripts/ci/images.json" "$arch" <<'PYTHON'
+import json, sys
+with open(sys.argv[1]) as source:
+    images = json.load(source)
+print(*(images[name]['config'][sys.argv[2]] for name in ('perf', 'live', 'nginx')))
+PYTHON
+  )
+  read -r alpine_id cli_id nginx_id <<<"$configs"
   image_mount=(--mount "type=bind,src=$archive,dst=/package-images.tar,readonly"
-    -e ASAGIRI_PACKAGE_TEST_ARCHIVE=/package-images.tar -e ASAGIRI_CI_PERF_IMAGE -e ASAGIRI_CI_LIVE_IMAGE -e ASAGIRI_CI_NGINX_IMAGE)
+    -e ASAGIRI_PACKAGE_TEST_ARCHIVE=/package-images.tar -e "ASAGIRI_CI_PERF_IMAGE=$alpine_id" -e "ASAGIRI_CI_LIVE_IMAGE=$cli_id" -e "ASAGIRI_CI_NGINX_IMAGE=$nginx_id")
 fi
 cid=$(docker run -d --name "$name" --label asagiri.test=amazon-linux-systemd \
   --privileged --cgroupns=private --tmpfs /run --tmpfs /tmp -v /var/lib \
