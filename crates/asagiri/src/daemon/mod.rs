@@ -8,7 +8,7 @@ mod accept;
 mod address_gap;
 mod api;
 mod balloon;
-mod binds;
+pub(crate) mod binds;
 mod caller;
 #[cfg(target_os = "linux")]
 mod wsl_sockets;
