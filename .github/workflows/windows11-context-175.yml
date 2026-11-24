@@ -39,3 +39,17 @@ jobs:
               assert len(report.lines) == 13 and all(line.startswith('PASS ') for line in report.lines), report.lines
           '@ | python -X utf8 -
           exit $LASTEXITCODE
+      - name: Verify this Windows 11 host can boot a WSL2 distribution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-CimInstance Win32_Processor | Select-Object Name,VirtualizationFirmwareEnabled,SecondLevelAddressTranslationExtensions
+          wsl.exe --version
+          wsl.exe --set-default-version 2
+          if ($LASTEXITCODE) { throw 'Could not select WSL2' }
+          wsl.exe --install --distribution Ubuntu --no-launch --web-download
+          if ($LASTEXITCODE) { throw "WSL distro installation exited $LASTEXITCODE" }
+          wsl.exe -d Ubuntu -u root -- uname -r
+          if ($LASTEXITCODE) { throw "Windows 11 WSL2 boot exited $LASTEXITCODE" }
+          wsl.exe --list --verbose
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
