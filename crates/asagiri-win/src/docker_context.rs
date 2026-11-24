@@ -24,7 +24,7 @@ pub fn select(
             "--context", "default", "context", "ls", "--format", "{{.Name}}",
         ])?;
         if !names.lines().any(|existing| existing == ours) {
-            run(&[
+            let created = run(&[
                 "context",
                 "create",
                 ours,
@@ -32,7 +32,13 @@ pub fn select(
                 "Asagiri (WSL2)",
                 "--docker",
                 &format!("host={host}"),
-            ])?;
+            ]);
+            if let Err(error) = created {
+                // Another Docker client may have created the context since the list.
+                if run(&["context", "inspect", "--", ours]).is_err() {
+                    return Err(error);
+                }
+            }
         }
     }
     run(&["context", "use", name]).map(drop)
@@ -68,6 +74,40 @@ mod tests {
             })
             .unwrap();
             assert_eq!(*seen.borrow(), commands);
+        }
+    }
+
+    #[test]
+    fn uses_a_context_created_by_another_client() {
+        for exists in [false, true] {
+            let calls = Cell::new(0);
+            let result = select("asagiri", "asagiri", "npipe:////./pipe/asagiri", |args| {
+                let call = calls.get();
+                calls.set(call + 1);
+                match (call, args) {
+                    (0, ["--context", "default", "context", "ls", "--format", "{{.Name}}"]) => {
+                        Ok("default\n".to_owned())
+                    }
+                    (1, ["context", "create", "asagiri", ..]) => {
+                        Err(io::Error::other("could not create context"))
+                    }
+                    (2, ["context", "inspect", "--", "asagiri"]) if exists => {
+                        Ok(String::new())
+                    }
+                    (2, ["context", "inspect", "--", "asagiri"]) => {
+                        Err(io::Error::other("context does not exist"))
+                    }
+                    (3, ["context", "use", "asagiri"]) if exists => Ok(String::new()),
+                    _ => panic!("unexpected Docker arguments {args:?} on call {call}"),
+                }
+            });
+            if exists {
+                result.unwrap();
+                assert_eq!(calls.get(), 4);
+            } else {
+                assert_eq!(result.unwrap_err().to_string(), "could not create context");
+                assert_eq!(calls.get(), 3);
+            }
         }
     }
 
