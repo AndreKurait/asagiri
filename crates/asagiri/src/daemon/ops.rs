@@ -467,7 +467,10 @@ impl DiskUsage {
 fn system_df(engine: &Engine) -> Result<Value, Error> {
     let images = engine.store.images()?;
     let used: Vec<String> = engine.each(|c| Some(c.spec.image_id.clone()));
-    let measured = engine.vm().ok().and_then(|vm| vm.usage(std::time::Duration::from_secs(120)));
+    let measured = match engine.vm() {
+        Ok(vm) => vm.usage(std::time::Duration::from_secs(120))?,
+        Err(_) => None,
+    };
     let du = measured.as_deref().map(DiskUsage::parse);
     let layer_size = |l: &asagiri_image::Layer| du.as_ref().and_then(|d| d.layers.get(l.digest.trim_start_matches("sha256:")).copied()).unwrap_or(l.size);
     // How many images use each layer, for each image's shared size.

@@ -84,7 +84,7 @@ pub fn stat(rootfs: &Path, path: &str) -> io::Result<Meta> {
     Ok(Meta::from(&stat_fd(fd.as_raw_fd())?))
 }
 
-/// A directory's entries, sorted by name, at most `MAX_ENTRIES`.
+/// A directory's entries, sorted by name. Reject listings above `MAX_ENTRIES`.
 pub fn list(rootfs: &Path, path: &str) -> io::Result<Vec<(String, Meta)>> {
     let root = root_of(rootfs)?;
     let dir = open_in(root.as_raw_fd(), path, libc::O_RDONLY | libc::O_DIRECTORY)?;
@@ -99,20 +99,16 @@ pub fn list(rootfs: &Path, path: &str) -> io::Result<Vec<(String, Meta)>> {
         if unsafe { libc::fstatat(dir.as_raw_fd(), c.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) } != 0 {
             continue;
         }
-        if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
+        let meta = if st.st_mode & libc::S_IFMT == libc::S_IFLNK {
             // Show what the link points at, resolved inside the container.
             let target = format!("{}/{}", path.trim_end_matches('/'), name);
-            if let Ok(meta) = stat(rootfs, &target) {
-                out.push((name, meta));
-                if out.len() >= MAX_ENTRIES {
-                    break;
-                }
-                continue;
-            }
-        }
-        out.push((name, Meta::from(&st)));
-        if out.len() >= MAX_ENTRIES {
-            break;
+            stat(rootfs, &target).unwrap_or_else(|_| Meta::from(&st))
+        } else {
+            Meta::from(&st)
+        };
+        out.push((name, meta));
+        if out.len() > MAX_ENTRIES {
+            return Err(io::Error::other("directory exceeds the 5000-entry listing limit"));
         }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
