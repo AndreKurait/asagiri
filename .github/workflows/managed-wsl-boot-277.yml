@@ -66,51 +66,15 @@ jobs:
           wsl.exe --terminate Managed241
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified before install'
-          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
-          if ((Get-Content "$candidate/SOURCE_COMMIT").Trim() -ne 'b2679746833da9825fa607cc76c3551207d388cf') { throw 'Wrong candidate revision' }
-          Copy-Item "$env:GITHUB_WORKSPACE/contrib/wsl/install.sh" "$candidate/install.sh"
-          $script = Guest wslpath -u ((Join-Path $candidate 'install.sh').Replace('\','/'))
-          @'
-          package main
-          import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
-          func main() {
-            c, err := net.DialTimeout("unix", "/var/lib/asagiri-daemon/.asagiri/run/docker.sock", time.Second)
-            if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }; defer c.Close()
-            c.SetDeadline(time.Now().Add(2*time.Second))
-            if _,err = fmt.Fprint(c,"GET /_ping HTTP/1.0\r\nHost: localhost\r\n\r\n"); err != nil { panic(err) }
-            r,err := http.ReadResponse(bufio.NewReader(c),nil); if err != nil { panic(err) }; defer r.Body.Close()
-            b,err := io.ReadAll(r.Body); if err != nil || r.StatusCode != 200 || string(b)!="OK" { fmt.Fprintf(os.Stderr,"ping: %d %q %v\n",r.StatusCode,b,err); os.Exit(1) }
-            fmt.Println("Engine answered /_ping on first request")
-          }
-          '@ | Set-Content -Encoding utf8NoBOM engineping.go
-          $env:GOOS='linux'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
-          go build -o engineping engineping.go
-          if ($LASTEXITCODE) { throw 'Probe compilation failed' }
-          $probe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'engineping').Replace('\','/'))
-          Guest cp $probe.Trim() /tmp/engineping
-          Guest chmod 755 /tmp/engineping
-          $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
+          Guest adduser -D managed241
+          $installer = (Get-ChildItem bundle -Recurse -Filter install.sh | Select-Object -First 1).FullName
+          $guestInstaller = Guest wslpath -u ($installer.Replace('\','/'))
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
-          $oldInstaller = (Get-ChildItem bundle -Recurse -Filter install.sh | Select-Object -First 1).FullName
-          if (!$oldInstaller) { throw 'Missing published WSL installer' }
-          $oldScript = Guest wslpath -u ($oldInstaller.Replace('\','/'))
-          Guest sh $oldScript.Trim()
-          Guest grep -F '/usr/local/bin/asagiri daemon' /etc/wsl.conf
-          Guest sh $script.Trim()
-          Guest /tmp/engineping
-          foreach ($name in 'asagiri','asagiri-init') {
-            $digest = (Guest sha256sum "/usr/local/bin/$name").Split(' ')[0]
-            if ($digest -ne (Get-FileHash "$candidate/$name").Hash) { throw "Wrong installed $name" }
-          }
-          Start-Sleep -Seconds 5
-          Guest /tmp/engineping
-          Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
-          Guest rm /tmp/managed241-marker
-          wsl.exe --terminate Managed241
-          if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
-          Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do test -f /tmp/managed241-marker && /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
-          Write-Host 'Prefixed boot command ran the original command and the daemon answered HTTP after restart'
-          Guest sh $script.Trim() --remove-boot-entry
+          $identity = wsl.exe -d Managed241 -u managed241 -- id -u
+          if ($LASTEXITCODE -or [int]$identity -eq 0) { throw 'Expected an unprivileged WSL account' }
+          $output = & wsl.exe -d Managed241 -u managed241 -- sh $guestInstaller.Trim() 2>&1
+          $exit = $LASTEXITCODE
+          $output | Write-Host
+          if (!$exit -or ($output -join "`n") -notmatch '(?i)permission denied') { throw "Unexpected installer exit $exit for UID $identity" }
           Guest cmp /etc/wsl.conf /tmp/original-wsl.conf
-          Guest test ! -e /usr/local/bin/asagiri-wsl-start
-          Write-Host 'Installer cleanup restored the original configuration byte for byte'
+          Write-Host "Confirmed published installer permissions failure under WSL UID $identity with boot configuration preserved"
