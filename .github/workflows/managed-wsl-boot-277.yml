@@ -1,7 +1,7 @@
-name: Verify existing WSL boot configuration across reinstall and removal
+name: Verify WSL upgrade from released dev.277 with an existing boot command
 on:
   push:
-    branches: [qualification/managed-wsl-roundtrip-check]
+    branches: [qualification/managed-wsl-upgrade-277]
 permissions:
   actions: read
   contents: read
@@ -91,6 +91,11 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest cp /etc/wsl.conf /var/tmp/qualification-wsl-original.conf
+          $releasedInstaller = Join-Path (Split-Path $env:PICKER_APP) 'install.sh'
+          $releasedScript = Guest wslpath -u ($releasedInstaller.Replace('\','/'))
+          Guest sh $releasedScript.Trim()
+          Guest grep -F '/usr/local/bin/asagiri daemon' /etc/wsl.conf
+          Write-Host 'Released dev.277 boot entry installed before upgrade'
           Guest sh $script.Trim()
           Guest /tmp/engineping
           foreach ($name in 'asagiri','asagiri-init') {
