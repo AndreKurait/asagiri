@@ -100,6 +100,11 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
+          Guest cp /etc/wsl.conf /var/tmp/qualification-wsl-installed.conf
+          Guest sh $script.Trim()
+          Guest cmp /var/tmp/qualification-wsl-installed.conf /etc/wsl.conf
+          Guest /tmp/engineping
+          Write-Host 'REINSTALL_CONFIG_AND_ENGINE=passed'
           Guest rm -f /tmp/managed241-marker
           Guest test ! -e /tmp/managed241-marker
           Guest cp /tmp/engineping /usr/local/bin/qualification-engineping
