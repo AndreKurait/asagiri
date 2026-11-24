@@ -3,7 +3,9 @@
  * data survives detach/reattach. No host devices or directories are shared.
  */
 #define _GNU_SOURCE
+#include <elf.h>
 #include <errno.h>
+#include <sys/auxv.h>
 #include <fcntl.h>
 #include <linux/loop.h>
 #include <stdio.h>
@@ -28,6 +30,30 @@ static void finish(int success, const char *operation) {
 }
 
 #define CHECK(test, operation) do { if (!(test)) finish(0, operation); } while (0)
+
+#ifdef __aarch64__
+static void verify_vdso_hashes(void) {
+    const unsigned long base = getauxval(AT_SYSINFO_EHDR);
+    CHECK(base != 0, "locate arm64 vDSO");
+    const Elf64_Ehdr *header = (const Elf64_Ehdr *)base;
+    const Elf64_Phdr *segments = (const Elf64_Phdr *)(base + header->e_phoff);
+    int sysv = 0, gnu = 0;
+    for (unsigned i = 0; i < header->e_phnum; ++i) {
+        if (segments[i].p_type != PT_DYNAMIC)
+            continue;
+        const Elf64_Dyn *entries = (const Elf64_Dyn *)(base + segments[i].p_vaddr);
+        for (size_t j = 0; j < segments[i].p_memsz / sizeof(*entries) && entries[j].d_tag != DT_NULL; ++j) {
+            sysv |= entries[j].d_tag == DT_HASH;
+            gnu |= entries[j].d_tag == DT_GNU_HASH;
+        }
+    }
+    if (!sysv || !gnu) {
+        errno = ENOEXEC;
+        finish(0, "arm64 vDSO requires DT_HASH and DT_GNU_HASH");
+    }
+    puts("arm64 vDSO has DT_HASH and DT_GNU_HASH");
+}
+#endif
 
 static void verify_copy_up_birth_time(void) {
     const char *dirs[] = {"/mnt/lower", "/mnt/upper", "/mnt/work", "/mnt/merged"};
@@ -75,6 +101,9 @@ int main(void) {
     CHECK(mkdir("/mnt", 0700) == 0, "create guest mountpoint");
     int control = open("/dev/loop-control", O_RDWR);
     CHECK(control >= 0, "open loop-control");
+#ifdef __aarch64__
+    verify_vdso_hashes();
+#endif
     int number = ioctl(control, LOOP_CTL_GET_FREE);
     CHECK(number >= 0, "allocate loop device");
     close(control);
