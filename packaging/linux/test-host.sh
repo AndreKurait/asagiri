@@ -200,7 +200,14 @@ host_test() { # name full(0|1)
     if [ -n "${ASAGIRI_EXPECTED_VERSION:-}" ]; then
       check "service runs the stamped release version" "test \"\$($cli version --format '{{index (index .Server.Components 0).Details \"AsagiriVersion\"}}')\" = '$ASAGIRI_EXPECTED_VERSION'"
     fi
-    check "docker run alpine" "$cli run --rm alpine cat /etc/alpine-release | grep -q '^3\.'"
+    local alpine=alpine docker_cli_image=docker:cli nginx=nginx:alpine
+    if [ -n "${ASAGIRI_PACKAGE_TEST_ARCHIVE:-}" ]; then
+      alpine=$ASAGIRI_CI_PERF_IMAGE
+      docker_cli_image=$ASAGIRI_CI_LIVE_IMAGE
+      nginx=$ASAGIRI_CI_NGINX_IMAGE
+      check "load verified package test images" "$cli load -i /package-images.tar"
+    fi
+    check "docker run alpine" "$cli run --rm $alpine cat /etc/alpine-release | grep -q '^3\.'"
     # The Linux agent creates this directory lazily, on the first container.
     check "/var/lib/asagiri is 710, not world-readable" "test \"\$(stat -c %a /var/lib/asagiri)\" = 710"
     if [ "$fail" -gt 0 ]; then
@@ -210,7 +217,7 @@ host_test() { # name full(0|1)
       echo "         asagiri-init's cgroup: $(cat "/proc/$(pgrep -x asagiri-init | head -1)/cgroup" 2>&1)"
       journalctl -u asagiri -n 25 --no-pager 2>&1 | cut -c1-220 | sed 's/^/           /'
     fi
-    check "container has internet" "$cli run --rm alpine wget -qO- -T 20 http://example.com | grep -q 'Example Domain'"
+    check "container has internet" "$cli run --rm $alpine wget -qO- -T 20 http://example.com | grep -q 'Example Domain'"
     if [ "$sock_free" = 1 ] && [ -n "$clidir" ]; then
       check "docker through /var/run/docker.sock, no context" "$clidir/docker -H unix:///var/run/docker.sock version --format '{{.Server.Os}}' | grep -q linux"
     fi
@@ -219,8 +226,8 @@ host_test() { # name full(0|1)
     # else /run/asagiri/docker.sock (the other socket, Docker Desktop's in WSL
     # for one, is not Asagiri). The server must say it's Asagiri.
     local ksock=/var/run/docker.sock; [ "$sock_free" = 1 ] || ksock=/run/asagiri/docker.sock
-    check "container mounts Asagiri's socket and reaches Asagiri" "$cli run --rm -v $ksock:/var/run/docker.sock docker:cli docker version --format '{{.Server.Platform.Name}} {{.Server.Version}}' | grep -qi asagiri"
-    check "published port answers" "$cli rm -f asagiri-pkg-web >/dev/null 2>&1; $cli run -d --name asagiri-pkg-web -p 127.0.0.1:18083:80 nginx:alpine >/dev/null && for i in \$(seq 40); do curl -fs 127.0.0.1:18083 >/dev/null 2>&1 && break; sleep 0.5; done; curl -fs 127.0.0.1:18083 | grep -q 'Welcome to nginx'; r=\$?; $cli rm -f asagiri-pkg-web >/dev/null 2>&1; [ \$r -eq 0 ]"
+    check "container mounts Asagiri's socket and reaches Asagiri" "$cli run --rm -v $ksock:/var/run/docker.sock $docker_cli_image docker version --format '{{.Server.Platform.Name}} {{.Server.Version}}' | grep -qi asagiri"
+    check "published port answers" "$cli rm -f asagiri-pkg-web >/dev/null 2>&1; $cli run -d --name asagiri-pkg-web -p 127.0.0.1:18083:80 $nginx >/dev/null && for i in \$(seq 40); do curl -fs 127.0.0.1:18083 >/dev/null 2>&1 && break; sleep 0.5; done; curl -fs 127.0.0.1:18083 | grep -q 'Welcome to nginx'; r=\$?; $cli rm -f asagiri-pkg-web >/dev/null 2>&1; [ \$r -eq 0 ]"
   else
     echo "  [skip] docker run (pass a static docker CLI dir as the 2nd argument)"
   fi
