@@ -95,7 +95,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Wizard interaction failed' }
           $file="$env:LOCALAPPDATA\Asagiri\setup.json"
           foreach ($i in 1..120) {
-            if (Test-Path $file) { $saved=Get-Content $file -Raw | ConvertFrom-Json; if ($saved.last_error) { throw $saved.last_error }; if ($saved.done) { break } }
+            if (Test-Path $file) { $saved=Get-Content $file -Raw | ConvertFrom-Json; if ($saved.lastError) { throw $saved.lastError }; if ($saved.done) { break } }
             Start-Sleep 5
           }
           Get-Content $file
