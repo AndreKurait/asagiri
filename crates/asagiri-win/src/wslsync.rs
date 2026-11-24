@@ -240,7 +240,10 @@ pub fn wsl_enable_script(distro: &str, root: &str) -> String {
          dgid=\"\"; [ -f {etc_group} ] && dgid=$(awk -F: '$1 == \"docker\" && $3 ~ /^[0-9]+$/ {{ print $3; exit }}' {etc_group} 2>/dev/null); \
          if [ -n \"$dgid\" ]; then \
            gid=\"$dgid\"; \
-           if [ -n \"$uname\" ] && command -v usermod >/dev/null 2>&1; then usermod -aG docker \"$uname\" 2>/dev/null || true; fi; \
+           if [ -n \"$uname\" ] && ! id -G \"$uname\" 2>/dev/null | grep -Fwq \"$gid\"; then \
+             if command -v usermod >/dev/null 2>&1; then usermod -aG docker \"$uname\" >&2 || exit 1; \
+             else addgroup \"$uname\" docker >&2 || exit 1; fi; \
+           fi; \
          elif [ -n \"$ugid\" ]; then \
            gid=\"$ugid\"; \
          else \
