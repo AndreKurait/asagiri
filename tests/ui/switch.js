@@ -22,6 +22,15 @@ t("progress counts each finished item",()=>{reset();ctxDialog();click("[data-ctx
 t("Switch back restores the previous engine",()=>{reset();ctxDialog();click("[data-ctxgo]");confirmSwitch();sent.length=0;click("#ctxcard [data-ctxback]");eq(used()[0].name,"orbstack","back to orbstack");eq(ctx.card,null,"card gone");});
 t("switch success waits for the effective context",()=>{reset();ctxDialog();click("[data-ctxgo]");eq(document.getElementById("ctxcard").hidden,true,"awaiting host");asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"override still selects another context");const feedback=document.querySelector("#toasts .toast:last-child .txt")?.textContent || "";eq(["asagiri-dev","orbstack","DOCKER_CONTEXT"].every(word=>feedback.includes(word)),true,"names both contexts and the setting to check");});
 t("failed switches dismiss the pending success card",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({type:"usedcontext",name:ui.status.ours,error:"could not save"});eq(ctx.card,null,"failed");});
+t("return preference changes only after Docker confirms the switch",()=>{
+  reset(); setPref("ctxBack","desktop-linux");
+  ctxDialog(); click("[data-ctxgo]");
+  eq(prefs.ctxBack,"desktop-linux","preserved while pending");
+  asagiri.on({type:"usedcontext",name:ui.status.ours,error:"could not save"});
+  eq(prefs.ctxBack,"desktop-linux","preserved after error");
+  ctxDialog(); click("[data-ctxgo]"); confirmSwitch();
+  eq(prefs.ctxBack,"orbstack","confirmed return context");
+});
 t("failed context probe reports an unknown selection",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({...ui.status,context:null});asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"no success card");eq(document.querySelector("#statusbar [data-ctxswitch]"),null,"no invented engine to switch from");eq(document.querySelector("#statusbar .ctx-ok"),null,"no confirmed engine");eq(document.querySelector("#toasts .toast:last-child .txt")?.textContent.includes("couldn't verify"),true,"probe failure explained");});
 t("unknown context can select the owned context without importing or inventing a previous engine",()=>{
   reset(); asagiri.on({...ui.status,context:null});

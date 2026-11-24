@@ -3911,7 +3911,6 @@ function ctxChoose(from) {
 
 /* docker now uses Asagiri; `total` items are on their way over. */
 function ctxUse(from, total) {
-  if (from) setPref("ctxBack", from);
   ctx.card = { from, total, target: ui.status.ours, confirmed: false, done: 0, failed: 0, finished: false };
   send("usecontext", { name: ui.status.ours });
   drawCtxCard();
@@ -8035,8 +8034,10 @@ window.asagiri = {
       case "usedcontext":
         if (ctx.card && e.name === ctx.card.target) {
           if (!e.error && ui.status?.context === e.name) {
-            if (ctx.card.from) ctx.card.confirmed = true;
-            else ctx.card = null;
+            if (ctx.card.from) {
+              ctx.card.confirmed = true;
+              setPref("ctxBack", ctx.card.from);
+            } else ctx.card = null;
           }
           else {
             ctx.card = null;
