@@ -733,7 +733,10 @@ mod imp {
     }
 
     pub fn retry(restart_wsl: bool) {
-        std::thread::spawn(move || {
+        std::thread::spawn(move || retry_sync(restart_wsl));
+    }
+
+    fn retry_sync(restart_wsl: bool) {
             match retry_engine(|| {
                 if restart_wsl {
                     wsl_run(&["--shutdown".as_ref()])?;
@@ -755,9 +758,26 @@ mod imp {
                         emit(notice("error", &message));
                     }
                     emit_report();
+                    if restart_wsl { panic!("Settings restart failed: {message}"); }
                 }
             }
-        });
+    }
+
+    #[cfg(test)]
+    #[test]
+    #[ignore = "requires disposable Windows runner with a detachable storage drive"]
+    fn native_offline_drive_status() {
+        let detached = std::env::var("ASAGIRI_TEST_DRIVE_STATE").unwrap() == "detached";
+        let path = PathBuf::from(r"R:\store");
+        assert_eq!(read().unwrap().path, path);
+        assert_eq!(report()["state"], if detached { "unavailable" } else { "ok" });
+        retry_sync(!detached);
+        if detached {
+            assert!(!path.exists());
+        } else {
+            let marker = wsl_run(&["-d".as_ref(), "Offline166".as_ref(), "--".as_ref(), "cat".as_ref(), "/root/offline-proof".as_ref()]).unwrap();
+            assert_eq!(marker.trim(), "persisted");
+        }
     }
 
     #[cfg(test)]
