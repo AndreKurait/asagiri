@@ -749,10 +749,12 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 Ok(Msg::SetUplink { ip, prefix, gateway, dns: dns_ip }) => match dhcp.as_mut() {
                     _ if host_process => Msg::Error("set uplink is only for the VM").encode(&mut out),
                     Some(d) => match d.apply_static(ip, prefix, gateway, dns_ip) {
-                        Ok(applied) => {
-                            if applied {
-                                eprintln!("asagiri-init: DHCP did not answer; configured {} statically as {}/{} via {} from host", net::UPLINK, net::ip_str(ip), prefix, net::ip_str(gateway));
-                            }
+                        Ok(false) => {
+                            let lease = d.lease.as_ref().expect("existing uplink lease");
+                            Msg::Uplink { ip: lease.ip, gateway: lease.gateway }.encode(&mut out);
+                        }
+                        Ok(true) => {
+                            eprintln!("asagiri-init: DHCP did not answer; configured {} statically as {}/{} via {} from host", net::UPLINK, net::ip_str(ip), prefix, net::ip_str(gateway));
                             Msg::Ack.encode(&mut out);
                         }
                         Err(e) => Msg::Error(&format!("set uplink: {e}")).encode(&mut out),

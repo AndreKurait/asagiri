@@ -1007,9 +1007,12 @@ impl Engine {
         }
         let udp67 = super::vmnet::udp67_holder();
         let status = match super::vmnet::discover_uplink(self.store.root())
-            .and_then(|(b, ip, reservation)| vm.set_uplink(reservation, ip, b.prefix, b.gateway, b.gateway).map(|()| (b, ip)).map_err(|e| e.to_string()))
+            .and_then(|(b, ip, reservation)| vm.set_uplink(reservation, ip, b.prefix, b.gateway, b.gateway).map(|lease| (b, ip, lease)).map_err(|e| e.to_string()))
         {
-            Ok((b, addr)) => {
+            Ok((_, _, Some((ip, gateway)))) => serde_json::json!({
+                "mode": "dhcp", "ip": std::net::Ipv4Addr::from(ip), "gateway": std::net::Ipv4Addr::from(gateway),
+            }),
+            Ok((b, addr, None)) => {
                 let (ip, gw) = (format!("{}/{}", std::net::Ipv4Addr::from(addr), b.prefix), std::net::Ipv4Addr::from(b.gateway).to_string());
                 crate::diag::warn!("VM DHCP did not answer; configured VM uplink directly from Mac", bridge = b.name, ip = ip, gateway = gw, dns = gw, udp67 = udp67.as_deref().unwrap_or("none visible"));
                 serde_json::json!({"mode": "static-fallback", "bridge": b.name, "ip": ip, "gateway": gw, "dns": gw, "udp67": udp67})

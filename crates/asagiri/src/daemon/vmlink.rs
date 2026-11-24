@@ -613,9 +613,18 @@ impl VmLink {
     /// Configures the VM's uplink (`eth0`) directly when macOS DHCP did not
     /// answer. Ignored by the guest if it already obtained a DHCP lease.
     #[cfg(target_os = "macos")]
-    pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<()> {
+    pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<Option<([u8; 4], [u8; 4])>> {
+        let reply = self.call(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o), None);
+        if let Ok(Reply::Uplink(actual, gateway)) = reply {
+            return Ok(Some((actual, gateway)));
+        }
+        // Keep the reservation if the guest applied the address but its reply was lost.
         *self.uplink_reservation.lock().unwrap_or_else(|e| e.into_inner()) = Some(reservation);
-        self.ack(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o))
+        match reply? {
+            Reply::Ack => Ok(None),
+            Reply::Error(e) => Err(io::Error::other(e)),
+            other => Err(io::Error::other(format!("unexpected SetUplink response: {other:?}"))),
+        }
     }
 
     /// Forwards a published port in the kernel (on a Linux host; in the VM,
