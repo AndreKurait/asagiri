@@ -152,10 +152,10 @@ mod memory_tests {
     }
 }
 
-/// Whether the kernel killed a process in the cgroup (or below it) for
-/// memory: its own limit, or the whole VM running out.
+/// Whether the kernel OOM-killed a process in this container’s cgroup.
+/// A nested pod has its own cgroup and must not mark the node OOM-killed.
 pub fn oom_killed(dir: &Path) -> bool {
-    fs::read_to_string(dir.join("memory.events")).is_ok_and(|e| keyed(&e, "oom_kill") > 0)
+    fs::read_to_string(dir.join("memory.events.local")).is_ok_and(|e| keyed(&e, "oom_kill") > 0)
 }
 
 /// How starved of memory the guest is: PSI's "full avg10" (the share of the
@@ -341,6 +341,18 @@ mod tests {
         let psi = "some avg10=100.00 avg60=100.00 avg300=98.32 total=1712105326\nfull avg10=91.73 avg60=94.09 avg300=81.92 total=1200142082\n";
         assert_eq!(full_avg10(psi), Some(9173));
         assert_eq!(full_avg10("some avg10=1.00 avg60=0 avg300=0 total=1\n"), None, "no full line");
+    }
+
+    #[test]
+    fn nested_pod_oom_does_not_mark_its_node() {
+        let dir = std::env::temp_dir().join(format!("asagiri-oom-local-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("memory.events"), "oom_kill 1\n").unwrap();
+        fs::write(dir.join("memory.events.local"), "oom_kill 0\n").unwrap();
+        assert!(!oom_killed(&dir));
+        fs::write(dir.join("memory.events.local"), "oom_kill 1\n").unwrap();
+        assert!(oom_killed(&dir));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

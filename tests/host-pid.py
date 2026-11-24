@@ -240,7 +240,24 @@ def check(args):
                      "while [ ! -e /tmp/oom-go ]; do sleep 0.05; done; exec tail /dev/zero"))
         execute(oom, "touch", "/tmp/oom-go")
         assert cli("wait", oom) == "137"
-        assert inspect(oom)["State"]["OOMKilled"] is True
+        info = inspect(oom)
+        assert info["State"]["OOMKilled"] is True
+        if args.daemon_log:
+            name = info["Name"].lstrip("/")
+            def kernel_event():
+                for line in reversed(args.daemon_log.read_text().splitlines()):
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    fields = event.get("fields", {})
+                    if event.get("msg") == "container killed for memory" and fields.get("name") == name:
+                        return fields
+            fields = until(kernel_event, f"missing OOM diagnostic for {name}")
+            assert fields["killed_by"] == "kernel" and int(fields["exit_code"]) == 137, fields
+            assert int(fields["mem_available_mib"]) > 0 and int(fields["psi_full_avg10"]) >= 0, fields
+            assert "balloon_mib" not in fields, fields
+            record["kernel_oom_event"] = fields
         remove(oom)
         passed("host-mode cleanup retains the real cgroup OOM result")
         record["status"] = "passed"
@@ -292,4 +309,5 @@ if __name__ == "__main__":
     parser.add_argument("socket")
     parser.add_argument("image")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--daemon-log", type=Path)
     check(parser.parse_args())

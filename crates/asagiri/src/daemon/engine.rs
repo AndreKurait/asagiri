@@ -720,6 +720,9 @@ pub struct Engine {
     /// What the guest last used, in bytes (0 while asleep): the balloon's
     /// measure, without the pages the balloon itself holds.
     memory_used: std::sync::atomic::AtomicU64,
+    /// The guest's last MemAvailable from /proc/meminfo, in KiB (0 while
+    /// asleep): the figure behind a memory kill's log line.
+    mem_available_kib: std::sync::atomic::AtomicU64,
     /// How starved of memory the guest is: PSI "full avg10" in hundredths
     /// of a percent (0 while asleep), and processes killed for memory since it booted.
     memory_stall: std::sync::atomic::AtomicU64,
@@ -729,6 +732,11 @@ pub struct Engine {
     cpu_permyriad: std::sync::atomic::AtomicU32,
     /// `docker events`: recent ones for `--since`, and who is listening.
     events: Mutex<Events>,
+    /// The op under which each container is being stopped (a restartvm, a
+    /// recreate, `asagiri k8s set`), so its exit is attributed to that
+    /// operation instead of a memory kill. Cleared on exit, destroy, restart
+    /// or VM loss.
+    stopping_ops: Mutex<HashMap<String, String>>,
     /// Kubernetes LoadBalancer services published on the Mac's localhost:
     /// (port, protocol) → its forward.
     k8s_lb: Mutex<HashMap<(u16, String), super::ports::Forwards>>,
@@ -770,6 +778,26 @@ const EVENT_QUEUE: usize = 256;
 struct Events {
     recent: VecDeque<serde_json::Value>,
     listeners: Vec<std::sync::mpsc::SyncSender<serde_json::Value>>,
+}
+
+/// Diagnostic classification for a container exit (`Engine::classify_exit`).
+#[derive(Debug, PartialEq, Eq)]
+enum ExitLog {
+    MemoryKill {
+        name: String,
+        exit_code: i32,
+        mem_available_mib: u64,
+        psi_full_avg10: u64,
+        /// `(target_mib, ceiling_mib)` on macOS after balloon relief; `None` on
+        /// hosts without an active balloon device.
+        balloon: Option<(u64, u64)>,
+    },
+    OpStop {
+        kind: String,
+        name: String,
+        exit_code: i32,
+        op: String,
+    },
 }
 
 impl std::fmt::Debug for Engine {
@@ -851,10 +879,12 @@ impl Engine {
             cpus: std::sync::atomic::AtomicUsize::new(vm_cpus()),
             uplink: Mutex::new(serde_json::Value::Null),
             memory_target: Mutex::new(super::balloon::Balloon::new(ceiling, std::time::Instant::now())),
+            mem_available_kib: std::sync::atomic::AtomicU64::new(0),
             memory_used: std::sync::atomic::AtomicU64::new(0),
             memory_stall: std::sync::atomic::AtomicU64::new(0),
             oom_kills: std::sync::atomic::AtomicU64::new(0),
             cpu_permyriad: std::sync::atomic::AtomicU32::new(0),
+            stopping_ops: Mutex::new(HashMap::new()),
             events: Mutex::new(Events::default()),
             k8s_lb: Mutex::new(HashMap::new()),
             k8s_routes: Mutex::new(None),
@@ -1340,6 +1370,7 @@ impl Engine {
         self.when_idle(idle_timer, || {
             let Some(vm) = self.link.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return false };
             self.sleeping.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.mem_available_kib.store(0, std::sync::atomic::Ordering::Relaxed);
             self.memory_used.store(0, std::sync::atomic::Ordering::Relaxed);
             self.memory_stall.store(0, std::sync::atomic::Ordering::Relaxed);
             vm.shutdown();
@@ -1811,6 +1842,7 @@ impl Engine {
                 let mut restart_in = None;
                 let mut persist = false;
                 let mut closed_ports = None;
+                let exited_name = st.containers.get(id).map(|c| c.name.clone());
                 let actor = st.containers.get(id).and_then(|c| container_attrs(c).map(|attrs| (c.spec.image.clone(), attrs)));
                 // Docker stops a container's healthcheck when it exits.
                 if let Some(h) = st.health.get_mut(id) {
@@ -1824,9 +1856,6 @@ impl Engine {
                         c.oom_killed = oom;
                         // Stopped by the daemon's shutdown, not by the app.
                         c.vm_stopped = SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst);
-                        if oom {
-                            crate::diag::warn!("container killed for memory", name = c.name.clone(), exit_code = code);
-                        }
                         c.exits += 1;
                         c.in_guest = false;
                         c.live = false;
@@ -1877,6 +1906,11 @@ impl Engine {
                     note_removed(&mut st, id, code);
                 }
                 drop(st);
+                if let Some(name) = exited_name {
+                    self.log_exit(id, &name, code, oom);
+                } else {
+                    self.clear_stopping_op(id);
+                }
                 self.release_image_blobs(&removed_blobs);
                 if let Some((image, attrs)) = actor {
                     self.emit_container_with("die", id, &image, attrs.clone(), &[("exitCode", code.to_string())]);
@@ -1914,7 +1948,11 @@ impl Engine {
                     });
                 }
             }
-            Event::Pressure => self.grow_memory(),
+            Event::Pressure { mem_available_kib, mem_stall } => {
+                self.mem_available_kib.store(mem_available_kib, std::sync::atomic::Ordering::Relaxed);
+                self.memory_stall.store(mem_stall, std::sync::atomic::Ordering::Relaxed);
+                self.grow_memory();
+            }
             Event::Lost => {
                 let mut st = self.lock();
                 let mut closed = Vec::new();
@@ -1959,6 +1997,7 @@ impl Engine {
                 }
                 drop(st);
                 drop(closed);
+                self.stopping_ops.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 self.k8s_lb.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 self.k8s_fwd.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 self.k8s_routes.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -2018,6 +2057,7 @@ impl Engine {
                     let apparent = stats.mem_total_kib.saturating_sub(stats.mem_available_kib).saturating_mul(1024);
                     apparent.saturating_sub(ceiling.saturating_sub(target.target))
                 };
+                engine.mem_available_kib.store(stats.mem_available_kib, std::sync::atomic::Ordering::Relaxed);
                 engine.memory_used.store(used, std::sync::atomic::Ordering::Relaxed);
                 engine.memory_stall.store(stats.mem_stall, std::sync::atomic::Ordering::Relaxed);
                 engine.oom_kills.store(stats.oom_kills, std::sync::atomic::Ordering::Relaxed);
@@ -2037,11 +2077,79 @@ impl Engine {
     }
 
     fn grow_memory(&self) {
+        let vm = self.awake();
         let mut target = self.memory_target.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(next) = target.pressure(self.ceiling(), std::time::Instant::now()) {
-            if let Some(vm) = self.awake() {
+            if let Some(vm) = vm {
                 vm.set_memory_target(next);
             }
+        }
+    }
+
+    /// Request the full guest memory target after a kernel OOM. The device
+    /// reports its previous target; physical reclamation is asynchronous.
+    fn relieve_memory(&self) -> Option<(u64, u64)> {
+        let vm = self.awake()?;
+        let ceiling = self.ceiling();
+        let mut target = self.memory_target.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = vm.set_memory_target(ceiling)?;
+        target.relieve(ceiling, std::time::Instant::now());
+        drop(target);
+        if previous != ceiling {
+            crate::diag::info!("requested full guest memory after kernel OOM", target_mib_old = previous >> 20, target_mib = ceiling >> 20);
+        }
+        Some((previous >> 20, ceiling >> 20))
+    }
+
+    /// Classifies a container exit for diagnostic logging, consuming any
+    /// tracked stopping op and relieving the balloon first on a macOS memory
+    /// kill. Must not be called while holding `self.state`.
+    fn classify_exit(&self, id: &str, name: &str, code: i32, oom: bool) -> Option<ExitLog> {
+        let stopping_op = self.stopping_ops.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        if oom {
+            let balloon = self.relieve_memory();
+            let mem_available_mib = self.mem_available_kib.load(std::sync::atomic::Ordering::Relaxed) >> 10;
+            let psi_full_avg10 = self.memory_stall.load(std::sync::atomic::Ordering::Relaxed);
+            Some(ExitLog::MemoryKill { name: name.to_owned(), exit_code: code, mem_available_mib, psi_full_avg10, balloon })
+        } else if let Some(op) = stopping_op {
+            // A stop Asagiri issued under an operation (a restartvm, a recreate,
+            // `asagiri k8s set`): logged as that operation, not as a memory kill.
+            let kind = op.split('-').next().filter(|k| !k.is_empty()).unwrap_or("op").to_owned();
+            Some(ExitLog::OpStop { kind, name: name.to_owned(), exit_code: code, op })
+        } else {
+            None
+        }
+    }
+
+    fn log_exit(&self, id: &str, name: &str, code: i32, oom: bool) {
+        match self.classify_exit(id, name, code, oom) {
+            Some(ExitLog::MemoryKill { name, exit_code, mem_available_mib, psi_full_avg10, balloon: Some((target_mib, ceiling_mib)) }) => {
+                crate::diag::warn!(
+                    "container killed for memory",
+                    name = name,
+                    exit_code = exit_code,
+                    mem_available_mib = mem_available_mib,
+                    target_mib = target_mib,
+                    ceiling_mib = ceiling_mib,
+                    balloon_mib = ceiling_mib.saturating_sub(target_mib),
+                    psi_full_avg10 = psi_full_avg10,
+                    killed_by = "kernel",
+                );
+            }
+            Some(ExitLog::MemoryKill { name, exit_code, mem_available_mib, psi_full_avg10, balloon: None }) => {
+                crate::diag::warn!(
+                    "container killed for memory",
+                    name = name,
+                    exit_code = exit_code,
+                    mem_available_mib = mem_available_mib,
+                    psi_full_avg10 = psi_full_avg10,
+                    killed_by = "kernel",
+                );
+            }
+            Some(ExitLog::OpStop { kind, name, exit_code, op }) => {
+                crate::diag::info!(format!("container stopped by {kind}"), name = name, exit_code = exit_code, killed_by = "asagiri", op = op);
+            }
+            None => {}
         }
     }
 
@@ -2396,6 +2504,7 @@ impl Engine {
             }
             (id, c.layers.clone(), argv, c.spec.clone(), c.size.or(c.spec.console_size))
         };
+        self.clear_stopping_op(&id);
         // A bind source that is a link is followed again at every start, as
         // Docker does: re-pointing it between runs (a `current` release
         // link) mounts the new target.
@@ -3696,7 +3805,8 @@ impl Engine {
         };
         let vm = self.awake();
         if let Some(vm) = &vm {
-            vm.kill(&id, sig)?;
+            self.note_stopping_op(&[&id]);
+            vm.kill(&id, sig).inspect_err(|_| self.clear_stopping_op(&id))?;
         }
         let deadline = std::time::Instant::now() + timeout;
         let mut st = self.lock();
@@ -3788,7 +3898,15 @@ impl Engine {
         }
         self.emit_container("kill", &id, &[("signal", signal.to_string())]);
         if let Some(vm) = self.awake() {
-            vm.kill(&id, signal)?;
+            if signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32 {
+                self.note_stopping_op(&[&id]);
+            }
+            if let Err(error) = vm.kill(&id, signal) {
+                if signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32 {
+                    self.clear_stopping_op(&id);
+                }
+                return Err(error.into());
+            }
         }
         // Like Docker: a SIGKILL returns only once the exit is recorded, so
         // an immediate inspect, start or rm sees the container stopped.
@@ -3821,7 +3939,8 @@ impl Engine {
             self.mark_stopped(&id);
             let vm = self.awake();
             if let Some(vm) = &vm {
-                vm.kill(&id, libc::SIGKILL as u32)?;
+                self.note_stopping_op(&[&id]);
+                vm.kill(&id, libc::SIGKILL as u32).inspect_err(|_| self.clear_stopping_op(&id))?;
             }
             // The guest drops a kill for a process it does not have yet, as
             // when the start was accepted a moment ago: send it again for as
@@ -3866,6 +3985,7 @@ impl Engine {
         }
         st.execs.retain(|_, e| e.container_id != id);
         drop(st);
+        self.clear_stopping_op(&id);
         if let Some(c) = &removed && let Some(attrs) = container_attrs(c) {
             self.emit_container_with("destroy", &id, &c.spec.image, attrs, &[]);
         }
@@ -4084,6 +4204,31 @@ impl Engine {
 
     fn is_running(&self, id: &str) -> bool {
         self.lock().containers.get(id).is_some_and(|c| c.status == Status::Running)
+    }
+
+    /// Remembers the op under which these containers are being stopped, so
+    /// their exits are attributed to that operation (a restartvm, a recreate,
+    /// `asagiri k8s set`) rather than a memory kill. Clears any earlier op when
+    /// stopped outside an op, so a stale entry cannot misattribute a later
+    /// exit.
+    fn note_stopping_op(&self, ids: &[&str]) {
+        let mut ops = self.stopping_ops.lock().unwrap_or_else(|e| e.into_inner());
+        match crate::diag::op() {
+            Some(op) => {
+                for id in ids {
+                    ops.insert((*id).to_owned(), op.clone());
+                }
+            }
+            None => {
+                for id in ids {
+                    ops.remove(*id);
+                }
+            }
+        }
+    }
+
+    fn clear_stopping_op(&self, id: &str) {
+        self.stopping_ops.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
     /// Records a stop asked for by the user. True when that cancelled a
@@ -4700,6 +4845,8 @@ impl Engine {
     fn stop_together(&self, vm: &VmLink, ids: &[String], how: Stopping) -> Vec<String> {
         let engine = how == Stopping::Engine;
         let t0 = std::time::Instant::now();
+        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        self.note_stopping_op(&id_refs);
         // (id, when to SIGKILL it, when it was SIGKILLed)
         let mut pending: Vec<(String, std::time::Instant, Option<std::time::Instant>)> = Vec::new();
         for id in ids {
@@ -5979,5 +6126,31 @@ mod builder_trust_tests {
         assert_eq!(engine.boot_attempts.load(std::sync::atomic::Ordering::SeqCst), 0);
         drop(engine);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod exit_attribution_tests {
+    use super::*;
+
+    #[test]
+    fn requested_stop_and_bare_sigkill_have_distinct_diagnostics() {
+        let root = std::env::temp_dir().join(format!("asagiri-exit-log-{}", random_hex(16)));
+        let engine = Engine::boot(Store::open(&root).unwrap()).unwrap();
+        let op = "restartvm-a1b2";
+        {
+            let _guard = crate::diag::enter_op(op.into());
+            engine.note_stopping_op(&["id"]);
+        }
+        assert_eq!(engine.classify_exit("id", "node", 137, false), Some(ExitLog::OpStop {
+            kind: "restartvm".into(), name: "node".into(), exit_code: 137, op: op.into(),
+        }));
+        assert_eq!(engine.classify_exit("id", "node", 137, false), None);
+        engine.on_event(Event::Pressure { mem_available_kib: 65536, mem_stall: 842 });
+        assert_eq!(engine.classify_exit("id", "node", 137, true), Some(ExitLog::MemoryKill {
+            name: "node".into(), exit_code: 137, mem_available_mib: 64, psi_full_avg10: 842, balloon: None,
+        }));
+        drop(engine);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

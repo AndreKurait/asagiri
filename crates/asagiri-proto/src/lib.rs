@@ -54,8 +54,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 12 adds the private, framed BuildKit Unix-socket relay.
 /// 13 updates embedded DNS when a container is renamed.
 /// 14 carries attached networks in Run so the guest configures them before exec.
+/// 15 includes guest MemAvailable and PSI in memory-pressure notifications.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 14;
+pub const PROTOCOL: u16 = 15;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -153,7 +154,7 @@ pub enum Msg<'a> {
     FsData(&'a [u8]),
     /// Guest → host: memory is tight right now (a PSI trigger fired); grow
     /// the VM's memory. No reply.
-    MemoryPressure,
+    MemoryPressure(MemoryPressure),
     /// Host → guest: delete a named volume's data. No reply.
     RemoveVolume { name: &'a str },
     /// Host → guest, first frame on a connection to [`COPY_PORT`]: copy
@@ -690,6 +691,16 @@ pub struct Exited<'a> {
     pub oom_killed: bool,
 }
 
+/// What the guest sends with [`Msg::MemoryPressure`]: the readings behind a
+/// memory kill, so the host can log the numbers in the same event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryPressure {
+    /// MemAvailable from /proc/meminfo, in KiB.
+    pub mem_available_kib: u64,
+    /// PSI "full avg10" in hundredths of a percent (see `Stats::mem_stall`).
+    pub mem_stall: u64,
+}
+
 /// A list of strings borrowed from a frame. Iterate it; it never allocates.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct StrList<'a> {
@@ -1118,7 +1129,10 @@ impl Msg<'_> {
                 put_u32(o, len);
             }),
             Msg::FsData(d) => frame(out, kind::FS_DATA, |o| put_bytes(o, d)),
-            Msg::MemoryPressure => frame(out, kind::MEMORY_PRESSURE, |_| {}),
+            Msg::MemoryPressure(p) => frame(out, kind::MEMORY_PRESSURE, |o| {
+                put_u64(o, p.mem_available_kib);
+                put_u64(o, p.mem_stall);
+            }),
             Msg::RemoveVolume { name } => frame(out, kind::REMOVE_VOLUME, |o| put_str(o, name)),
             Msg::RemoveBridge { bridge } => frame(out, kind::REMOVE_BRIDGE, |o| put_str(o, bridge)),
             Msg::Copy(c) => frame(out, kind::COPY, |o| {
@@ -1452,7 +1466,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         }
         kind::FS_READ => Msg::FsRead { id: r.str()?, path: r.str()?, offset: r.u64()?, len: r.u32()? },
         kind::FS_DATA => Msg::FsData(r.bytes()?),
-        kind::MEMORY_PRESSURE => Msg::MemoryPressure,
+        kind::MEMORY_PRESSURE => Msg::MemoryPressure(MemoryPressure { mem_available_kib: r.u64()?, mem_stall: r.u64()? }),
         kind::REMOVE_VOLUME => Msg::RemoveVolume { name: r.str()? },
         kind::REMOVE_BRIDGE => Msg::RemoveBridge { bridge: r.str()? },
         kind::COPY => Msg::Copy(CopySpec { op: r.u8()?, id: r.str()?, path: r.str()?, flags: r.u32()?, layers: r.list()?, user: r.str()?, mounts: r.list()? }),
@@ -1649,7 +1663,13 @@ mod tests {
         round(Msg::FsStat(FsEntry { name: "etc", mode: 0o40755, size: 4096, mtime: 1_700_000_000, mtime_nsec: 5, ino: 77 }));
         round(Msg::FsRead { id: "c1", path: "/etc/os-release", offset: 10, len: 4096 });
         round(Msg::FsData(b"NAME=Alpine"));
-        round(Msg::MemoryPressure);
+        round(Msg::MemoryPressure(MemoryPressure { mem_available_kib: 524_288, mem_stall: 1234 }));
+        let mut bare = Vec::new();
+        frame(&mut bare, kind::MEMORY_PRESSURE, |_| {});
+        assert_eq!(decode(&bare), Err(DecodeError::Truncated));
+        let mut partial = Vec::new();
+        frame(&mut partial, kind::MEMORY_PRESSURE, |o| put_u64(o, 4096));
+        assert_eq!(decode(&partial), Err(DecodeError::Truncated));
         round(Msg::RemoveVolume { name: "pgdata" });
         round(Msg::RemoveBridge { bridge: "asagiri3" });
         round(Msg::CopyStat { entry: FsEntry { name: "hosts", mode: 0o100644, size: 9, mtime: 3, mtime_nsec: 4, ino: 5 }, link: "" });

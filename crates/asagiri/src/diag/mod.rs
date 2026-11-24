@@ -164,9 +164,7 @@ pub(crate) use {debug, error, event, info, warn_ as warn};
 // ---------------------------------------------------------------- ops
 
 mod ops;
-#[cfg_attr(target_os = "linux", cfg(any(test, feature = "window")))]
-pub use ops::new_op;
-pub use ops::{enter_op, op, op_header, valid_op};
+pub use ops::{enter_op, new_op, op, op_header, valid_op};
 #[allow(unused_imports)]
 pub use ops::OpScope;
 

@@ -39,6 +39,11 @@ impl Balloon {
         Some(next)
     }
 
+    pub fn relieve(&mut self, ceiling: u64, now: Instant) {
+        self.target = ceiling;
+        self.quiet_until = now + QUIET;
+    }
+
     pub fn pressure(&mut self, ceiling: u64, now: Instant) -> Option<u64> {
         self.quiet_until = now + QUIET;
         self.change(self.target.saturating_add(GROW).min(ceiling))
