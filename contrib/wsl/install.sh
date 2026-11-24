@@ -21,6 +21,25 @@ if [ "${1:-}" = --remove-boot-entry ]; then
   if tail -c "$bytes" "$conf" | cmp -s - "$suffix"; then
     total=$(wc -c < "$conf")
     truncate -s "$((total - bytes))" "$conf"
+  else
+    # Later settings may belong to this boot section. Keep the section and
+    # remove only our exact command immediately beneath its generated header.
+    command=$(tail -n 1 "$suffix")
+    offset=$(LC_ALL=C awk -v command="$command" '
+      previous == "[boot]" && $0 == command { print bytes; exit }
+      { previous = $0; bytes += length($0) + 1 }
+    ' "$conf")
+    if [ -n "$offset" ]; then
+      conf=$(readlink -f "$conf")
+      updated=$(mktemp "${conf}.XXXXXX")
+      trap 'rm -f "$suffix" "$updated"' EXIT
+      cp -p "$conf" "$updated"
+      {
+        head -c "$offset" "$conf"
+        tail -c "+$((offset + ${#command} + 2))" "$conf"
+      } > "$updated"
+      mv -f "$updated" "$conf"
+    fi
   fi
   exit 0
 fi
