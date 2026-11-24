@@ -1,0 +1,189 @@
+name: Windows WSL restart preservation 189
+on:
+  push:
+    branches: [qualification/restart-preservation-189]
+    paths: [.github/workflows/restart-preservation-189.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3c858f06719cb328428977ce36b47aaff5e245a0
+          persist-credentials: false
+      - name: Prepare WSL for the engine rollback test
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Exercise outbound traffic from host, default and Compose networks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $imported = $false
+          foreach ($build in '195','205','195') {
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          if (!(Test-Path $asset)) {
+            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
+
+          }
+          $digest = gh release view "v$version" --repo AndreKurait/asagiri --json assets | ConvertFrom-Json | ForEach-Object { ($_.assets | Where-Object name -eq $asset).digest }
+          if ($digest -notmatch "^sha256:[0-9a-f]{64}$" -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw "Invalid release digest for $asset" }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          $rollback = $imported -and $build -eq '195'
+          if (!$imported) {
+            python -m pip install pywinauto
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            wsl.exe --import asagiri "$env:RUNNER_TEMP\asagiri-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+            if ($LASTEXITCODE) { throw 'Could not import the distro from the published MSI' }
+            # This case begins with a previously configured persistent distro.
+            @{ done=$true; distro='asagiri' } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'setup.json')
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
+            $imported = $true
+          }
+          $bridgeArgs = @('--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test')
+          if ($rollback) {
+            $bridge = Start-Process $app -ArgumentList $bridgeArgs -PassThru
+          } else {
+            $bridge = Start-Process $app -ArgumentList (@('--background') + $bridgeArgs) -PassThru
+          }
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            if ($rollback) {
+              for ($attempt = 0; $attempt -lt 45; $attempt++) {
+                $response = & $docker version --format '{{json .Server.Components}}' 2>$null
+                if ($LASTEXITCODE -eq 0 -and $response) { break }
+                Start-Sleep -Seconds 2
+              }
+              $before = $response | ConvertFrom-Json
+              $beforeVersion = ($before | Where-Object Name -eq 'Engine').Details.AsagiriVersion
+              if ($beforeVersion -ne '0.1.14-dev.205') { throw "Expected dev.205 before explicit restart, got $beforeVersion" }
+              @'
+          import sys, time
+          from comtypes import COMError
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          # Deliver the tray's context-menu notification, then select the visible menu item.
+          import win32api, win32con
+          win32api.PostMessage(window.handle, win32con.WM_APP + 2, 1, win32con.WM_CONTEXTMENU)
+          import win32gui, win32process
+          from pywinauto import mouse
+          from ctypes.wintypes import RECT
+          deadline = time.monotonic() + 30
+          while time.monotonic() < deadline:
+              menus = []
+              def collect(hwnd, _):
+                  if win32gui.GetClassName(hwnd) == '#32768' and win32process.GetWindowThreadProcessId(hwnd)[1] == int(sys.argv[1]):
+                      menus.append(hwnd)
+              win32gui.EnumWindows(collect, None)
+              if menus:
+                  break
+              time.sleep(0.2)
+          else:
+              raise RuntimeError('Native tray popup did not appear')
+          import ctypes
+          native_menu = win32gui.SendMessage(menus[0], 0x01E1, 0, 0)  # MN_GETHMENU
+          count = ctypes.windll.user32.GetMenuItemCount(ctypes.c_void_p(native_menu))
+          labels = []
+          for pos in range(count):
+              label = ctypes.create_unicode_buffer(256)
+              ctypes.windll.user32.GetMenuStringW(ctypes.c_void_p(native_menu), pos, label, len(label), 0x400)
+              labels.append(label.value)
+          print('Native tray entries:', labels, flush=True)
+          if labels[-2:] != ['Check for Updates…', 'Quit Asagiri']:
+              raise RuntimeError('Unexpected tray menu layout')
+          rect = RECT()
+          if not ctypes.windll.user32.GetMenuItemRect(None, ctypes.c_void_p(native_menu), count - 2, ctypes.byref(rect)):
+              raise RuntimeError('Cannot locate the update menu item on screen')
+          mouse.click(coords=((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2))
+          print('Invoked tray menu Check for Updates', flush=True)
+          for label in ['Restart engine']:
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  try:
+                      button = next((c for c in window.descendants(control_type='Button') if c.window_text() == label and c.is_enabled()), None)
+                      if button:
+                          button.invoke()
+                          print('Invoked ' + label, flush=True)
+                          break
+                  except COMError as error:
+                      if error.hresult != -2147220991:
+                          raise
+                  time.sleep(1)
+              else:
+                  raise RuntimeError('Missing desktop control: ' + label)
+          '@ | python - $bridge.Id
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
+            $running = $null
+            for ($i = 0; $i -lt 45; $i++) {
+              $server = & $docker version --format '{{json .Server.Components}}' 2>$null
+              if ($LASTEXITCODE -eq 0 -and $server) {
+                $engine = ($server | ConvertFrom-Json) | Where-Object Name -eq 'Engine'
+                $running = $engine.Details.AsagiriVersion
+                if ($running -eq $version) { break }
+              }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+            Write-Host "Installed launcher $((Get-Item $app).VersionInfo.ProductVersion), expected $version"
+            Get-FileHash $app,(Join-Path $bundle 'asagiri') | Format-Table -AutoSize
+            wsl.exe -d asagiri -u root -- sha256sum /usr/local/bin/asagiri
+            wsl.exe -d asagiri -u root -- /usr/local/bin/asagiri --version
+            Get-ChildItem $env:LOCALAPPDATA\Asagiri -Recurse -Filter asagiri-win.log | ForEach-Object { Get-Content $_.FullName -Tail 100 }
+            if ($running -ne $version) { throw "Expected serving daemon $version, got $running" }
+            Write-Host "Confirmed serving daemon $running through the Windows pipe"
+            $installed = wsl.exe -d asagiri -u root -- asagiri --version
+            if ($LASTEXITCODE -or ($installed -join ' ') -notmatch [regex]::Escape($version)) { throw "Expected $version, found $installed" }
+            Write-Host "Engine binary in persistent WSL installation: $installed"
+            if ($savedId) {
+              $project = Invoke-Docker @('inspect','--format','{{.Id}} {{index .Config.Labels "com.docker.compose.project"}}','egress97-probe-1')
+              if ($project -ne "$savedId egress97") { throw "Compose identity changed: $project" }
+              $current = Invoke-Docker @('inspect','--format','{{.Id}}','preserve189')
+              if ($current -ne $standalone) { throw 'Standalone container changed' }
+              wsl.exe -d asagiri -u root -- test -f /root/preserve189
+              if ($LASTEXITCODE) { throw 'Distro sentinel disappeared' }
+              Write-Host "PASS preserved project $savedId, standalone $standalone and distro sentinel on $version"
+              continue
+            }
+            Invoke-Docker @('pull','alpine:3.21')
+            $compose = Join-Path $bundle 'bin/cli-plugins/docker-compose.exe'
+            @'
+          services:
+            probe:
+              image: alpine:3.21
+              command: ["sleep", "300"]
+          '@ | Set-Content -Encoding utf8 'compose.yaml'
+            & $compose --project-name egress97 up -d --pull never
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $savedId = Invoke-Docker @('inspect','--format','{{.Id}}','egress97-probe-1')
+            Invoke-Docker @('create','--name','preserve189','alpine:3.21','true')
+            $standalone = Invoke-Docker @('inspect','--format','{{.Id}}','preserve189')
+            wsl.exe -d asagiri -u root -- touch /root/preserve189
+            if ($LASTEXITCODE) { throw 'Cannot create distro sentinel' }
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate asagiri
+          }
+          }
