@@ -201,6 +201,7 @@ pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
     const ACTION_RENAMED_NEW: u32 = 5;
 
     let mut out = Vec::new();
+    let mut previous_rename_old = false;
     let mut offset = 0usize;
     while offset + 12 <= buf.len() {
         let next_offset = u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]) as usize;
@@ -217,11 +218,20 @@ pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
             ACTION_MODIFIED => Some('M'),
             _ => None,
         };
+        let paired_rename = previous_rename_old && action == ACTION_RENAMED_NEW;
+        previous_rename_old = false;
         if let Some(op) = op && name_bytes > 0 {
             let units: Vec<u16> = buf[name_start..name_end].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
             let name = String::from_utf16_lossy(&units);
             if !name.is_empty() && !name.contains('\0') {
                 out.push((op, name));
+                if paired_rename {
+                    // Pin the destination before deleting the old name wakes a
+                    // parent watcher that can immediately watch the new path.
+                    let end = out.len();
+                    out.swap(end - 2, end - 1);
+                }
+                previous_rename_old = action == ACTION_RENAMED_OLD;
             }
         }
         if next_offset == 0 {
@@ -714,8 +724,8 @@ mod tests {
                 ('C', r"src\new.ts".into()),
                 ('D', r"src\old.ts".into()),
                 ('M', r"src\app.ts".into()),
-                ('D', r"src\before.ts".into()),
                 ('C', r"src\after.ts".into()),
+                ('D', r"src\before.ts".into()),
                 ('M', "src\\caf\u{00e9}.js".into()),
             ]
         );
