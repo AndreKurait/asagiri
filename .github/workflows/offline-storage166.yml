@@ -42,6 +42,10 @@ jobs:
           DiskCommands @("select vdisk file=`"$disk`"", 'detach vdisk')
           foreach ($state in 'detached','reattached') {
             if ($state -eq 'reattached') { DiskCommands @("select vdisk file=`"$disk`"", 'attach vdisk') }
+            if ($state -eq 'reattached') {
+              if (!(Test-Path R:\store\ext4.vhdx)) { throw 'Original VHDX unavailable after reattach' }
+              wsl --shutdown
+            }
             $env:ASAGIRI_TEST_DRIVE_STATE = $state
             $result = cargo test --locked -p asagiri-win native_offline_drive_status -- --ignored --nocapture
             $result | Write-Host
