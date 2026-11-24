@@ -72,7 +72,13 @@ pub fn read() -> io::Result<Option<Choice>> {
     read_at(&config_path()?)
 }
 
-fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// A successful rename makes the new contents visible even if syncing the
+/// directory then fails. Callers decide whether it is still safe to roll back.
+struct Published {
+    directory_sync: io::Result<()>,
+}
+
+fn replace(path: &Path, bytes: &[u8]) -> io::Result<Published> {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let parent = path.parent().unwrap_or(Path::new("."));
     #[cfg(unix)]
@@ -95,19 +101,25 @@ fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if result.is_err() { let _ = fs::remove_file(tmp); }
     result?;
     #[cfg(unix)]
-    parent_dir.sync_all()?;
-    Ok(())
+    let directory_sync = parent_dir.sync_all();
+    #[cfg(not(unix))]
+    let directory_sync = Ok(());
+    Ok(Published { directory_sync })
 }
 
-/// Writes `choice` to `file` whole: a temporary file renamed over it and
-/// synced, so a crash leaves the old choice or the new one. This write is
-/// a move's commit point.
+/// Renames the complete choice into place, committing the move. A subsequent
+/// directory sync failure leaves crash durability uncertain.
 pub fn write_at(file: &Path, choice: &Choice) -> io::Result<()> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir)?;
     }
     let bytes = serde_json::to_vec_pretty(choice).map_err(io::Error::other)?;
-    replace(file, &bytes)
+    let published = replace(file, &bytes)?;
+    // Rolling back the destination now would strand the visible choice.
+    if let Err(error) = published.directory_sync {
+        eprintln!("Asagiri published {} but could not confirm its durability: {error}", file.display());
+    }
+    Ok(())
 }
 
 /// Writes `~/.asagiri/storage.json`.
@@ -131,7 +143,7 @@ pub fn has_marker(dir: &Path) -> bool {
 
 /// Writes the marker into `dir`.
 pub fn write_marker(dir: &Path) -> io::Result<()> {
-    replace(&dir.join(MARKER), b"{\"asagiri\":1}\n")
+    replace(&dir.join(MARKER), b"{\"asagiri\":1}\n")?.directory_sync
 }
 
 /// The data folder `choice` gives, where `default` is the one without
