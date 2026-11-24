@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Įdiegta",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Naujus pavadinimus reikia patvirtinti. Jei jūsų pavadinimas dar nepasiekiamas, „Asagiri“ naudoja laikiną adresą.",
   "Share with a name": "Bendrinti su pavadinimu",
-  "This name is waiting for review. You can use this link in the meantime.": "Šis pavadinimas laukia patvirtinimo. Kol kas galite naudoti šią nuorodą."
+  "This name is waiting for review. You can use this link in the meantime.": "Šis pavadinimas laukia patvirtinimo. Kol kas galite naudoti šią nuorodą.",
+  "No other WSL distros installed.": "Kitų WSL distribucijų neįdiegta.",
+  "WSL integration": "WSL integracija"
 }

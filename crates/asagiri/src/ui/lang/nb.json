@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Installert",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nye navn må godkjennes. Hvis navnet ditt ikke er klart ennå, bruker Asagiri en midlertidig adresse.",
   "Share with a name": "Del med et navn",
-  "This name is waiting for review. You can use this link in the meantime.": "Dette navnet venter på godkjenning. Du kan bruke denne lenken i mellomtiden."
+  "This name is waiting for review. You can use this link in the meantime.": "Dette navnet venter på godkjenning. Du kan bruke denne lenken i mellomtiden.",
+  "No other WSL distros installed.": "Ingen andre WSL-distribusjoner er installert.",
+  "WSL integration": "WSL-integrering"
 }

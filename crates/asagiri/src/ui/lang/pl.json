@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Zainstalowano",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nowe nazwy wymagają zatwierdzenia. Jeśli nazwa nie jest jeszcze dostępna, Asagiri używa tymczasowego adresu.",
   "Share with a name": "Udostępnij z nazwą",
-  "This name is waiting for review. You can use this link in the meantime.": "Ta nazwa czeka na sprawdzenie. W międzyczasie możesz używać tego linku."
+  "This name is waiting for review. You can use this link in the meantime.": "Ta nazwa czeka na sprawdzenie. W międzyczasie możesz używać tego linku.",
+  "No other WSL distros installed.": "Brak innych zainstalowanych dystrybucji WSL.",
+  "WSL integration": "Integracja z WSL"
 }

@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Εγκαταστάθηκε",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Τα νέα ονόματα χρειάζονται έγκριση. Αν το όνομά σας δεν είναι ακόμα διαθέσιμο, το Asagiri χρησιμοποιεί προσωρινή διεύθυνση.",
   "Share with a name": "Κοινοποίηση με όνομα",
-  "This name is waiting for review. You can use this link in the meantime.": "Αυτό το όνομα εκκρεμεί για έλεγχο. Στο μεταξύ, μπορείτε να χρησιμοποιήσετε αυτόν τον σύνδεσμο."
+  "This name is waiting for review. You can use this link in the meantime.": "Αυτό το όνομα εκκρεμεί για έλεγχο. Στο μεταξύ, μπορείτε να χρησιμοποιήσετε αυτόν τον σύνδεσμο.",
+  "No other WSL distros installed.": "Δεν υπάρχουν άλλες εγκατεστημένες διανομές WSL.",
+  "WSL integration": "Ενσωμάτωση WSL"
 }

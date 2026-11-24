@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ इंस्टॉल हुआ",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "नए नामों के लिए मंज़ूरी चाहिए। अगर आपका नाम अभी उपलब्ध नहीं है, तो Asagiri एक अस्थायी पता इस्तेमाल करता है।",
   "Share with a name": "नाम के साथ शेयर करें",
-  "This name is waiting for review. You can use this link in the meantime.": "यह नाम समीक्षा की प्रतीक्षा में है। इस बीच आप इस लिंक का इस्तेमाल कर सकते हैं।"
+  "This name is waiting for review. You can use this link in the meantime.": "यह नाम समीक्षा की प्रतीक्षा में है। इस बीच आप इस लिंक का इस्तेमाल कर सकते हैं।",
+  "No other WSL distros installed.": "कोई अन्य WSL डिस्ट्रो इंस्टॉल नहीं है।",
+  "WSL integration": "WSL एकीकरण"
 }

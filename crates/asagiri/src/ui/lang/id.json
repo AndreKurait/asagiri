@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Terinstal",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nama baru perlu disetujui. Jika nama Anda belum siap, Asagiri menggunakan alamat sementara.",
   "Share with a name": "Bagikan dengan nama",
-  "This name is waiting for review. You can use this link in the meantime.": "Nama ini sedang menunggu peninjauan. Sementara itu, Anda dapat menggunakan tautan ini."
+  "This name is waiting for review. You can use this link in the meantime.": "Nama ini sedang menunggu peninjauan. Sementara itu, Anda dapat menggunakan tautan ini.",
+  "No other WSL distros installed.": "Tidak ada distro WSL lain yang terinstal.",
+  "WSL integration": "Integrasi WSL"
 }

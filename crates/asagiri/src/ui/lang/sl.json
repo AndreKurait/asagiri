@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Nameščeno",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nova imena je treba odobriti. Če vaše ime še ni na voljo, Asagiri uporabi začasni naslov.",
   "Share with a name": "Deli z imenom",
-  "This name is waiting for review. You can use this link in the meantime.": "To ime čaka na pregled. Medtem lahko uporabljate to povezavo."
+  "This name is waiting for review. You can use this link in the meantime.": "To ime čaka na pregled. Medtem lahko uporabljate to povezavo.",
+  "No other WSL distros installed.": "Nameščene ni nobene druge distribucije WSL.",
+  "WSL integration": "Integracija z WSL"
 }
