@@ -126,6 +126,21 @@ fn reconcile_integration(enabled: &[String], pending: &[String], background: boo
     }
     // A failed discovery must leave the daemon's current socket list intact.
     let available = user_distros()?;
+    let mut first_err: Option<io::Error> = None;
+    // Explicit revocations have already removed these listeners. Clean up the
+    // disabled guests before setup of an unrelated enabled guest can fail.
+    for off in pending {
+        if !available.iter().any(|name| name.eq_ignore_ascii_case(off)) {
+            continue;
+        }
+        let script = crate::wslsync::wsl_disable_script(off, "");
+        if let Err(e) = run_distro_script(off, &script) {
+            crate::serve::log(&format!("wsl integration disable ({off}): {e}"));
+            if first_err.is_none() {
+                first_err = Some(e);
+            }
+        }
+    }
     let mut active = Vec::new();
     for want in enabled {
         let Some(name) = available.iter().find(|a| a.eq_ignore_ascii_case(want)) else {
@@ -141,19 +156,6 @@ fn reconcile_integration(enabled: &[String], pending: &[String], background: boo
     }
     let res = crate::client::request_with("POST", "/asagiri/wsl", Some(&json!({"distros": active})), background);
     crate::engine::expect_ok(res)?;
-    let mut first_err: Option<io::Error> = None;
-    for off in pending {
-        if !available.iter().any(|name| name.eq_ignore_ascii_case(off)) {
-            continue;
-        }
-        let script = crate::wslsync::wsl_disable_script(off, "");
-        if let Err(e) = run_distro_script(off, &script) {
-            crate::serve::log(&format!("wsl integration disable ({off}): {e}"));
-            if first_err.is_none() {
-                first_err = Some(e);
-            }
-        }
-    }
     match first_err {
         Some(e) => Err(e),
         None if !pending.is_empty() => save_enabled_distros(enabled, &[]),
