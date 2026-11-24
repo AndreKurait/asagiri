@@ -261,7 +261,7 @@ fn merge_op(prev: char, next: char) -> char {
 /// (`P`) or unpin (`U`) is kept apart from changes to the same path; the
 /// later of the two wins.
 pub fn coalesce_events(events: &[(char, String)]) -> Vec<String> {
-    let mut changes: Vec<(char, &str)> = Vec::new();
+    let mut changes: Vec<Option<(char, &str)>> = Vec::new();
     let mut latest: HashMap<(bool, &str), usize> = HashMap::new();
     for (op, path) in events {
         if !matches!(op, 'C' | 'M' | 'A' | 'D' | 'P' | 'U') || path.is_empty() {
@@ -269,16 +269,19 @@ pub fn coalesce_events(events: &[(char, String)]) -> Vec<String> {
         }
         let key = (matches!(op, 'P' | 'U'), path.as_str());
         if let Some(&index) = latest.get(&key) {
-            let prev = changes[index].0;
-            if (prev, *op) != ('D', 'C') {
-                changes[index].0 = if key.0 { *op } else { merge_op(prev, *op) };
+            let (prev, _) = changes[index].expect("latest points to a live change");
+            if *op == 'D' && prev != 'D' {
+                // Keep the delete at its arrival position, after any rename destination.
+                changes[index] = None;
+            } else if (prev, *op) != ('D', 'C') {
+                changes[index] = Some((if key.0 { *op } else { merge_op(prev, *op) }, path));
                 continue;
             }
         }
         latest.insert(key, changes.len());
-        changes.push((*op, path));
+        changes.push(Some((*op, path)));
     }
-    changes.into_iter().map(|(op, path)| format!("{op}\t{path}")).collect()
+    changes.into_iter().flatten().map(|(op, path)| format!("{op}\t{path}")).collect()
 }
 
 /// The WSL path of a watched Windows directory (`C:\Users\me\app` ->
@@ -732,6 +735,12 @@ mod tests {
         // Truncated buffer does not panic.
         assert!(decode_notify_buffer(&buf[..5]).is_empty());
         assert!(decode_notify_buffer(&[]).is_empty());
+    }
+
+    #[test]
+    fn earlier_metadata_does_not_move_rename_delete_before_destination() {
+        let events = [('M', "old".into()), ('C', "new".into()), ('D', "old".into())];
+        assert_eq!(coalesce_events(&events), ["C\tnew", "D\told"]);
     }
 
     #[test]
