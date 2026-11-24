@@ -209,9 +209,10 @@ pub enum Msg<'a> {
     UplinkQuery,
     Uplink { ip: [u8; 4], gateway: [u8; 4] },
     /// Host → guest, in the VM: configure the uplink (`eth0`) directly when
-    /// DHCP did not answer. Ignored (still answered `Ack`) if the guest
-    /// already obtained a DHCP lease. `dns` of `[0; 4]` leaves DNS unset.
-    /// Answered by `Ack` or `Error`; an older agent answers `Error`.
+    /// DHCP did not answer. Replies with `Ack` after applying the settings
+    /// or `Uplink` with the current address and gateway if a lease is active.
+    /// `dns` of `[0; 4]` leaves DNS unset. On failure, or with an older agent,
+    /// the reply is `Error`.
     SetUplink { ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4] },
     /// Host → guest: a network was removed; delete its bridge, and with it
     /// the bridge's addresses and routes, its DNS server and, with the last
