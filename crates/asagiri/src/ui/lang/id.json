@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Mengubahnya akan me-restart cluster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Mengubah ini meminta persetujuan administrator di Windows, karena menambahkan atau menghapus aturan DNS untuk {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Mengubah ini butuh hak admin (kata sandi administrator), karena menambahkan atau menghapus {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Periksa atribut tambahan pada berkas di luar volume sebelum menghapus kontainer sumber.",
   "Check for Updates…": "Periksa Pembaruan…",
   "Check for updates automatically": "Periksa pembaruan secara otomatis",
   "Check now": "Periksa sekarang",

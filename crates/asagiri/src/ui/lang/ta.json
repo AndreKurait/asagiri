@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "இதை மாற்றினால் க்ளஸ்டர் மறுதொடக்கமாகும்.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "{local}-க்கான DNS விதியைச் சேர்ப்பதால் அல்லது அகற்றுவதால், இதை மாற்ற Windows நிர்வாகி ஒப்புதல் கேட்கும்.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "{path}-ஐச் சேர்ப்பதால் அல்லது அகற்றுவதால், இதை மாற்ற நிர்வாக உரிமைகள் (நிர்வாகி கடவுச்சொல்) தேவை.",
+  "Check extended attributes on files outside volumes before removing the source container.": "மூலக் கொள்கலனை அகற்றும் முன், வால்யூம்களுக்கு வெளியே உள்ள கோப்புகளின் நீட்டிக்கப்பட்ட பண்புகளைச் சரிபார்க்கவும்.",
   "Check for Updates…": "புதுப்பிப்புகளைச் சரிபார்…",
   "Check for updates automatically": "புதுப்பிப்புகளைத் தானாகச் சரிபார்",
   "Check now": "இப்போது சரிபார்",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "تغییر آن کلاستر را دوباره راه‌اندازی می‌کند.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "تغییر این گزینه از Windows تأیید مدیر سیستم می‌خواهد، چون یک قاعدهٔ DNS برای {local} می‌افزاید یا حذف می‌کند.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "تغییر این گزینه دسترسی مدیر (گذرواژهٔ مدیر سیستم) می‌خواهد، چون {path} را می‌افزاید یا حذف می‌کند.",
+  "Check extended attributes on files outside volumes before removing the source container.": "پیش از حذف کانتینر مبدأ، ویژگی‌های توسعه‌یافتهٔ فایل‌های خارج از والیوم‌ها را بررسی کنید.",
   "Check for Updates…": "بررسی به‌روزرسانی‌ها…",
   "Check for updates automatically": "بررسی خودکار به‌روزرسانی‌ها",
   "Check now": "بررسی اکنون",

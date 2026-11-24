@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "تغييره يعيد تشغيل العنقود.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "تغيير هذا يطلب من Windows موافقة مسؤول، لأنه يضيف قاعدة DNS لـ {local} أو يزيلها.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "تغيير هذا يتطلب صلاحيات المسؤول (كلمة مرور مسؤول)، لأنه يضيف {path} أو يزيله.",
+  "Check extended attributes on files outside volumes before removing the source container.": "تحقّق من السمات الموسّعة للملفات خارج وحدات التخزين قبل إزالة الحاوية المصدر.",
   "Check for Updates…": "البحث عن تحديثات…",
   "Check for updates automatically": "البحث عن التحديثات تلقائيًا",
   "Check now": "التحقق الآن",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "దీన్ని మారిస్తే క్లస్టర్ రీస్టార్ట్ అవుతుంది.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "{local} కోసం DNS నియమాన్ని జోడిస్తుంది లేదా తీసివేస్తుంది కాబట్టి, దీన్ని మార్చడానికి Windows అడ్మినిస్ట్రేటర్ ఆమోదం అడుగుతుంది.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "{path}ను జోడిస్తుంది లేదా తీసివేస్తుంది కాబట్టి, దీన్ని మార్చడానికి అడ్మిన్ హక్కులు (అడ్మినిస్ట్రేటర్ పాస్‌వర్డ్) కావాలి.",
+  "Check extended attributes on files outside volumes before removing the source container.": "మూల కంటెయినర్‌ను తొలగించే ముందు వాల్యూమ్‌ల వెలుపల ఉన్న ఫైళ్ల విస్తరిత లక్షణాలను తనిఖీ చేయండి.",
   "Check for Updates…": "అప్‌డేట్‌ల కోసం చెక్ చేయి…",
   "Check for updates automatically": "అప్‌డేట్‌ల కోసం ఆటోమేటిక్‌గా చెక్ చేయి",
   "Check now": "ఇప్పుడే చెక్ చేయి",

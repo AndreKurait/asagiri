@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "इसे बदलने से क्लस्टर रीस्टार्ट होता है।",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "इसे बदलने के लिए Windows एडमिनिस्ट्रेटर की मंज़ूरी माँगता है, क्योंकि यह {local} के लिए DNS नियम जोड़ता या हटाता है।",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "इसे बदलने के लिए एडमिन अधिकार (एडमिनिस्ट्रेटर पासवर्ड) चाहिए, क्योंकि यह {path} जोड़ता या हटाता है।",
+  "Check extended attributes on files outside volumes before removing the source container.": "स्रोत कंटेनर हटाने से पहले वॉल्यूम के बाहर की फ़ाइलों के विस्तारित एट्रिब्यूट जाँचें।",
   "Check for Updates…": "अपडेट देखें…",
   "Check for updates automatically": "अपडेट अपने आप देखें",
   "Check now": "अभी देखें",

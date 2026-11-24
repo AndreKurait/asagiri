@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Změna cluster restartuje.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Změna vyžaduje schválení správcem ve Windows, protože přidává nebo odebírá pravidlo DNS pro {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Změna vyžaduje oprávnění správce (heslo správce), protože přidává nebo odebírá {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Před odstraněním zdrojového kontejneru zkontrolujte rozšířené atributy souborů mimo svazky.",
   "Check for Updates…": "Vyhledat aktualizace…",
   "Check for updates automatically": "Automaticky vyhledávat aktualizace",
   "Check now": "Zkontrolovat",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "變更此項會重新啟動叢集。",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "變更此項需要 Windows 系統管理員核准，因為它會新增或移除 {local} 的 DNS 規則。",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "變更此項需要系統管理員權限（系統管理員密碼），因為它會新增或移除 {path}。",
+  "Check extended attributes on files outside volumes before removing the source container.": "移除來源容器前，請檢查磁碟區外檔案的延伸屬性。",
   "Check for Updates…": "檢查更新…",
   "Check for updates automatically": "自動檢查更新",
   "Check now": "立即檢查",

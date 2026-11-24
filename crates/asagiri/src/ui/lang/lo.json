@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "ການປ່ຽນມັນຈະເລີ່ມຄລັສເຕີໃໝ່.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "ການປ່ຽນອັນນີ້ຕ້ອງຂໍການອະນຸມັດຈາກຜູ້ເບິ່ງແຍງລະບົບ Windows, ເພາະມັນເພີ່ມ ຫຼື ລຶບກົດ DNS ສຳລັບ {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "ການປ່ຽນອັນນີ້ຕ້ອງມີສິດຜູ້ເບິ່ງແຍງ (ລະຫັດຜ່ານຜູ້ເບິ່ງແຍງລະບົບ), ເພາະມັນເພີ່ມ ຫຼື ລຶບ {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "ກວດສອບຄຸນລັກສະນະຂະຫຍາຍຂອງໄຟລ໌ທີ່ຢູ່ນອກໂວລຸມ ກ່ອນລຶບຄອນເທນເນີຕົ້ນທາງ.",
   "Check for Updates…": "ກວດຫາອັບເດດ…",
   "Check for updates automatically": "ກວດຫາອັບເດດອັດຕະໂນມັດ",
   "Check now": "ກວດດຽວນີ້",

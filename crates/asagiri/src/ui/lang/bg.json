@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Промяната рестартира клъстера.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Промяната изисква одобрение от администратор в Windows, тъй като добавя или премахва правило за DNS за {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Промяната изисква администраторски права (парола на администратор), тъй като добавя или премахва {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Преди да премахнете изходния контейнер, проверете разширените атрибути на файловете извън томовете.",
   "Check for Updates…": "Проверка за актуализации…",
   "Check for updates automatically": "Автоматична проверка за актуализации",
   "Check now": "Проверка сега",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Muutos käynnistää klusterin uudelleen.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Muutos vaatii Windowsissa järjestelmänvalvojan hyväksynnän, koska se lisää tai poistaa DNS-säännön: {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Muutos vaatii järjestelmänvalvojan oikeudet (järjestelmänvalvojan salasanan), koska se lisää tai poistaa tiedoston {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Tarkista taltioiden ulkopuolisten tiedostojen laajennetut attribuutit ennen lähdekontin poistamista.",
   "Check for Updates…": "Tarkista päivitykset…",
   "Check for updates automatically": "Tarkista päivitykset automaattisesti",
   "Check now": "Tarkista nyt",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Փոփոխելիս կլաստերը կվերագործարկվի։",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Սա փոխելու համար Windows-ը կպահանջի ադմինիստրատորի թույլտվություն, քանի որ ավելացվում կամ հեռացվում է DNS կանոն {local} դոմենի համար։",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Սա փոխելու համար անհրաժեշտ են ադմինիստրատորի իրավունքներ (ադմինիստրատորի գաղտնաբառ), քանի որ ավելացվում կամ հեռացվում է {path} ֆայլը։",
+  "Check extended attributes on files outside volumes before removing the source container.": "Նախքան սկզբնաղբյուր կոնտեյները հեռացնելը ստուգեք հատորներից դուրս գտնվող ֆայլերի ընդլայնված հատկանիշները։",
   "Check for Updates…": "Ստուգել թարմացումները…",
   "Check for updates automatically": "Ավտոմատ ստուգել թարմացումները",
   "Check now": "Ստուգել հիմա",

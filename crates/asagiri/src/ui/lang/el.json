@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Η αλλαγή του επανεκκινεί το cluster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Η αλλαγή αυτή ζητά έγκριση διαχειριστή από τα Windows, αφού προσθέτει ή αφαιρεί έναν κανόνα DNS για το {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Η αλλαγή αυτή χρειάζεται δικαιώματα διαχειριστή (κωδικό διαχειριστή), αφού προσθέτει ή αφαιρεί το {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Ελέγξτε τα εκτεταμένα χαρακτηριστικά των αρχείων εκτός τόμων πριν αφαιρέσετε το κοντέινερ προέλευσης.",
   "Check for Updates…": "Έλεγχος για ενημερώσεις…",
   "Check for updates automatically": "Αυτόματος έλεγχος για ενημερώσεις",
   "Check now": "Έλεγχος τώρα",
