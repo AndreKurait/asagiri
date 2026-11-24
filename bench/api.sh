@@ -20,7 +20,10 @@ cat > "$API_BENCH_DIR/api-run.sh" <<R
 set -euo pipefail
 c() { curl -fsS --unix-socket "$S" "\$@"; }
 id=\$(c -X POST -H 'Content-Type: application/json' -d '{"Image":"alpine","Cmd":["true"]}' http://x/containers/create | jq -er .Id)
+# If start, wait, or deletion fails, the measured helper still owns this ID.
+trap 'c -X DELETE "http://x/containers/\$id?force=true" >/dev/null || :' EXIT
 c -X POST http://x/containers/\$id/start >/dev/null; c -X POST http://x/containers/\$id/wait >/dev/null; c -X DELETE http://x/containers/\$id >/dev/null
+trap - EXIT
 R
 id=$(c -X POST -H 'Content-Type: application/json' -d '{"Image":"alpine","Cmd":["sleep","600"]}' http://x/containers/create | jq -er .Id); c -X POST "http://x/containers/$id/start" >/dev/null
 cat > "$API_BENCH_DIR/api-exec.sh" <<R
