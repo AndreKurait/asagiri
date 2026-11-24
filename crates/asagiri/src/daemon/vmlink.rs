@@ -635,7 +635,8 @@ impl VmLink {
     /// answer. Ignored by the guest if it already obtained a DHCP lease.
     #[cfg(target_os = "macos")]
     pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<Option<([u8; 4], [u8; 4])>> {
-        let reply = self.call(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o), None);
+        let reply = self.request_reply(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o), None)
+            .and_then(|rx| wait_set_uplink(rx, std::time::Duration::from_secs(5)));
         finish_set_uplink(reply, reservation, &self.uplink_reservation)
     }
 
@@ -798,7 +799,14 @@ impl VmLink {
     }
 }
 
-/// The PID a `Run` or `Exec` was answered with.
+#[cfg(target_os = "macos")]
+fn wait_set_uplink(rx: mpsc::Receiver<Reply>, wait: std::time::Duration) -> io::Result<Reply> {
+    rx.recv_timeout(wait).map_err(|e| match e {
+        mpsc::RecvTimeoutError::Timeout => io::Error::new(io::ErrorKind::TimedOut, "guest did not confirm the static uplink before the deadline"),
+        mpsc::RecvTimeoutError::Disconnected => io::Error::other("the VM stopped"),
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn finish_set_uplink(reply: io::Result<Reply>, reservation: File, held: &Mutex<Option<File>>) -> io::Result<Option<([u8; 4], [u8; 4])>> {
     if let Ok(Reply::Uplink(actual, gateway)) = reply {
@@ -813,6 +821,7 @@ fn finish_set_uplink(reply: io::Result<Reply>, reservation: File, held: &Mutex<O
     }
 }
 
+/// The PID a `Run` or `Exec` was answered with.
 fn started(r: Reply) -> io::Result<u32> {
     match r {
         Reply::Started(pid) => Ok(pid),
@@ -849,6 +858,25 @@ mod tests {
         let actual = finish_set_uplink(Ok(Reply::Uplink(lease.0, lease.1)), reservation, &held).unwrap();
         assert_eq!(actual, Some(lease));
         contender.try_lock().unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn unconfirmed_uplink_keeps_address_reserved() {
+        let path = std::env::temp_dir().join(format!("asagiri-unconfirmed-uplink-{}", std::process::id()));
+        let file = File::create_new(&path).unwrap();
+        let contender = File::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        file.try_lock().unwrap();
+        let held = Mutex::new(None);
+        let (sender, receiver) = mpsc::channel();
+        let reply = wait_set_uplink(receiver, std::time::Duration::ZERO);
+        let error = finish_set_uplink(reply, file, &held).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        drop(held);
+        contender.try_lock().unwrap();
+        assert!(sender.send(Reply::Ack).is_err());
     }
 
     fn dense_seccomp_options() -> Vec<String> {

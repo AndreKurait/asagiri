@@ -1007,7 +1007,8 @@ impl Engine {
         }
         let udp67 = super::vmnet::udp67_holder();
         let status = match super::vmnet::discover_uplink(self.store.root())
-            .and_then(|(b, ip, reservation)| vm.set_uplink(reservation, ip, b.prefix, b.gateway, b.gateway).map(|lease| (b, ip, lease)).map_err(|e| e.to_string()))
+            .map_err(io::Error::other)
+            .and_then(|(b, ip, reservation)| vm.set_uplink(reservation, ip, b.prefix, b.gateway, b.gateway).map(|lease| (b, ip, lease)))
         {
             Ok((_, _, Some((ip, gateway)))) => serde_json::json!({
                 "mode": "dhcp", "ip": std::net::Ipv4Addr::from(ip), "gateway": std::net::Ipv4Addr::from(gateway),
@@ -1017,7 +1018,11 @@ impl Engine {
                 crate::diag::warn!("VM DHCP did not answer; configured VM uplink directly from Mac", bridge = b.name, ip = ip, gateway = gw, dns = gw, udp67 = udp67.as_deref().unwrap_or("none visible"));
                 serde_json::json!({"mode": "static-fallback", "bridge": b.name, "ip": ip, "gateway": gw, "dns": gw, "udp67": udp67})
             }
-            Err(reason) => {
+            Err(e) if e.kind() == io::ErrorKind::TimedOut => serde_json::json!({
+                "mode": "fallback-unconfirmed", "warning": e.to_string(), "udp67": udp67,
+            }),
+            Err(e) => {
+                let reason = e.to_string();
                 crate::diag::warn!("VM DHCP did not answer and static uplink fallback failed", error = reason, udp67 = udp67.as_deref().unwrap_or("none visible"));
                 let holder = udp67.as_deref().map(|h| format!(" (UDP port 67 held by {h})")).unwrap_or_default();
                 let warning = format!("VM has no IPv4 uplink: DHCP did not answer and static fallback failed: {reason}{holder}");
