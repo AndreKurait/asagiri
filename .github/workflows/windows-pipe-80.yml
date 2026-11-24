@@ -107,6 +107,23 @@ jobs:
           '''
               import sys
               subprocess.run([sys.executable, "-c", probe, name], timeout=12, check=True)
+              import pathlib
+              project = pathlib.Path("start-probe")
+              subprocess.run(["dotnet", "new", "console", "-o", str(project)], check=True)
+              subprocess.run(["dotnet", "add", "package", "Testcontainers", "--version", "4.11.0"], cwd=project, check=True)
+              (project / "Program.cs").write_text('''
+          using DotNet.Testcontainers.Builders;
+          using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+          await using var container = new ContainerBuilder()
+              .WithImage("alpine:3.21")
+              .WithCommand("sh", "-c", "echo asagiri-ready && sleep 120")
+              .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("asagiri-ready"))
+              .Build();
+          await container.StartAsync(timeout.Token);
+          Console.WriteLine("PASS Testcontainers start and log readiness: " + container.Id);
+          ''', encoding="utf-8")
+              env = dict(os.environ, DOCKER_HOST="npipe://./pipe/asagiri-qualification80")
+              subprocess.run(["dotnet", "run"], cwd=project, env=env, timeout=360, check=True)
           finally:
               app.terminate()
               app.wait(timeout=30)
