@@ -223,18 +223,39 @@ pub fn current_bridge() -> Option<Bridge> {
     None
 }
 
+/// Directory locks coordinate separate daemons, including separate data roots.
+/// Keep the directory after unlocking so every process locks the same inode.
+#[cfg(any(target_os = "macos", test))]
+fn reserve_ip(dir: &Path, gateway: [u8; 4], prefix: u8, mac: Option<[u8; 6]>, mut leases: Vec<([u8; 4], Option<[u8; 6]>)>) -> std::io::Result<([u8; 4], std::fs::File)> {
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::fs::OpenOptionsExt;
+    loop {
+        let ip = pick_ip(gateway, prefix, mac, &leases).ok_or_else(|| Error::new(ErrorKind::AddrNotAvailable, "no available VM uplink address"))?;
+        let path = dir.join(format!("asagiri-vmnet-{}.lock", Ipv4Addr::from(ip)));
+        match std::fs::create_dir(&path) {
+            Err(e) if e.kind() != ErrorKind::AlreadyExists => return Err(e),
+            _ => {}
+        }
+        let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(path)?;
+        match file.try_lock() {
+            Ok(()) => return Ok((ip, file)),
+            Err(std::fs::TryLockError::WouldBlock) => leases.push((ip, None)),
+            Err(std::fs::TryLockError::Error(e)) => return Err(e),
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
-pub fn discover_uplink(store_root: &Path) -> Result<(Bridge, [u8; 4]), String> {
+pub fn discover_uplink(store_root: &Path) -> Result<(Bridge, [u8; 4], std::fs::File), String> {
     let bridge = current_bridge().ok_or_else(|| "no macOS vmnet bridge interface (bridge100) found".to_owned())?;
     let vm_mac = std::fs::read_to_string(store_root.join("vm/mac")).ok().and_then(|s| parse_mac(&s));
     let leases = std::fs::read_to_string("/var/db/dhcpd_leases").map(|t| parse_dhcpd_leases(&t)).unwrap_or_default();
-    let ip = pick_ip(bridge.gateway, bridge.prefix, vm_mac, &leases)
-        .ok_or_else(|| format!("no free IPv4 address left on {} ({}/{})", bridge.name, Ipv4Addr::from(bridge.gateway), bridge.prefix))?;
-    Ok((bridge, ip))
+    let (ip, reservation) = reserve_ip(Path::new("/private/tmp"), bridge.gateway, bridge.prefix, vm_mac, leases).map_err(|e| e.to_string())?;
+    Ok((bridge, ip, reservation))
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn discover_uplink(_store_root: &Path) -> Result<(Bridge, [u8; 4]), String> {
+pub fn discover_uplink(_store_root: &Path) -> Result<(Bridge, [u8; 4], std::fs::File), String> {
     Err("vmnet uplink discovery is only available on macOS".into())
 }
 
@@ -290,6 +311,19 @@ mod tests {
         assert_eq!(pick_ip([192, 168, 64, 1], 24, Some(our_mac), &leases), Some([192, 168, 64, 28]));
         assert_eq!(pick_ip([192, 168, 64, 1], 24, None, &leases[..1]), Some([192, 168, 64, 3]));
         assert_eq!(pick_ip([192, 168, 64, 1], 30, None, &leases[..1]), None);
+    }
+
+    #[test]
+    fn simultaneous_fallbacks_reserve_distinct_addresses_until_release() {
+        let root = std::env::temp_dir().join(format!("asagiri-uplink-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let reserve = || reserve_ip(&root, [192,168,64,1], 24, None, Vec::new()).unwrap();
+        let (first, lock) = reserve();
+        let (second, _other) = reserve();
+        assert_ne!(first, second);
+        drop(lock);
+        assert_eq!(reserve().0, first);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

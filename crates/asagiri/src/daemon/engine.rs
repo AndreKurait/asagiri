@@ -1007,7 +1007,7 @@ impl Engine {
         }
         let udp67 = super::vmnet::udp67_holder();
         let status = match super::vmnet::discover_uplink(self.store.root())
-            .and_then(|(b, ip)| vm.set_uplink(ip, b.prefix, b.gateway, b.gateway).map(|()| (b, ip)).map_err(|e| e.to_string()))
+            .and_then(|(b, ip, reservation)| vm.set_uplink(reservation, ip, b.prefix, b.gateway, b.gateway).map(|()| (b, ip)).map_err(|e| e.to_string()))
         {
             Ok((b, addr)) => {
                 let (ip, gw) = (format!("{}/{}", std::net::Ipv4Addr::from(addr), b.prefix), std::net::Ipv4Addr::from(b.gateway).to_string());

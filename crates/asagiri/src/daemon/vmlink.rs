@@ -89,6 +89,8 @@ pub struct VmLink {
     cleanup: Arc<CleanupBarrier>,
     /// Owns the VM until retirement has confirmed shutdown and cleanup.
     _vm: Mutex<Vm>,
+    #[cfg(target_os = "macos")]
+    uplink_reservation: Mutex<Option<File>>,
     /// Opens vsock streams without that mutex, so connects run side by side.
     connector: asagiri_vmm::Connector,
 }
@@ -398,6 +400,8 @@ impl VmLink {
             usage,
             connector: vm.connector(),
             _vm: Mutex::new(vm),
+            #[cfg(target_os = "macos")]
+            uplink_reservation: Mutex::new(None),
         })
     }
 
@@ -608,7 +612,9 @@ impl VmLink {
 
     /// Configures the VM's uplink (`eth0`) directly when macOS DHCP did not
     /// answer. Ignored by the guest if it already obtained a DHCP lease.
-    pub fn set_uplink(&self, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<()> {
+        *self.uplink_reservation.lock().unwrap_or_else(|e| e.into_inner()) = Some(reservation);
         self.ack(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o))
     }
 
