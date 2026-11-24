@@ -9115,7 +9115,7 @@ mod tests {
     fn read_development138_compose_file() {
         crate::client::set_pipe(r"\\.\pipe\asagiri-watch-test");
         let event: Value = serde_json::from_str(&file_event("wslpathproof", || None)).unwrap();
-        assert_eq!(event["text"], "services: {}\n", "{event}");
+        assert_eq!(event["text"], "services: {test: {image: docker:28-cli, command: sleep 120}}\n", "{event}");
         let expected = Path::new(r"\\wsl.localhost\Development138\home\builder\compose.yaml");
         assert!(same_file_path(Path::new(event["path"].as_str().unwrap()), expected));
     }
