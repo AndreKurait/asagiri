@@ -7,6 +7,7 @@ use std::io::{self, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::reference::Reference;
 use crate::registry::Platform;
@@ -85,6 +86,28 @@ pub fn load_with_platform(store: &Store, archive: impl Read, platform: Option<&P
                 index = Some(buf);
             }
             continue;
+        }
+        // A hard link keeps a verified blob available throughout this load,
+        // even if another process removes its image from the live store.
+        if let Some(hex) = path.strip_prefix("blobs/sha256/") {
+            let digest = format!("sha256:{hex}");
+            let size = entry.size();
+            if store.has_blob(&digest, size)
+                && std::fs::hard_link(store.blob_path(&digest)?, stage.0.blob_path(&digest)?).is_ok()
+            {
+                let mut hash = Sha256::new();
+                let mut buffer = [0; 32768];
+                loop {
+                    let count = entry.read(&mut buffer)?;
+                    if count == 0 { break; }
+                    hash.update(&buffer[..count]);
+                }
+                if crate::store::hex(&hash.finalize()) != hex {
+                    return Err(invalid(format!("archive blob {digest} is damaged")));
+                }
+                files.insert(path, (digest, size));
+                continue;
+            }
         }
         // In the classic layout the image config can be a top-level JSON file.
         let mut w = stage.0.ingest()?;
@@ -726,6 +749,40 @@ mod tests {
         assert!(images[0].layers[0].media_type.ends_with("tar"));
         assert_eq!(other.find("demo/oci:1").unwrap().unwrap().config_digest, images[0].config_digest);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repeated_oci_load_links_the_cached_layer_while_reading() {
+        use std::os::unix::fs::MetadataExt;
+
+        struct ObserveLayer<'a> {
+            input: &'a [u8],
+            layer: std::path::PathBuf,
+            linked: bool,
+        }
+        impl Read for ObserveLayer<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.linked |= std::fs::metadata(&self.layer)?.nlink() > 1;
+                self.input.read(buf)
+            }
+        }
+
+        let dir = scratch();
+        let source = Store::open(dir.join("source")).unwrap();
+        let target = Store::open(dir.join("target")).unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        let descriptor = add_image(&mut builder, &source, "arm64");
+        add_index(&mut builder, vec![descriptor]);
+        let archive = builder.into_inner().unwrap();
+        let first = load(&target, archive.as_slice()).unwrap();
+        let layer = target.blob_path(&first[0].layers[0].digest).unwrap();
+        let mut reader = ObserveLayer { input: &archive, layer, linked: false };
+        let second = load(&target, &mut reader).unwrap();
+        assert!(reader.linked);
+        assert_eq!(std::fs::metadata(&reader.layer).unwrap().nlink(), 1);
+        assert_eq!(second[0].config_digest, first[0].config_digest);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
