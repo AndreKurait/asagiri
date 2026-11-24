@@ -99,14 +99,10 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
-          # Isolate WSL boot command composition before changing installer and uninstall logic.
-          Guest sh -c 'printf "%s\n" "#!/bin/sh" "touch /tmp/managed241-marker" "export HOME=/var/lib/asagiri-daemon" "export ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock" "nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &" > /usr/local/bin/managed241-start'
-          Guest chmod 755 /usr/local/bin/managed241-start
-          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=/usr/local/bin/managed241-start\n" > /etc/wsl.conf'
-          Guest rm /tmp/managed241-marker
-          wsl.exe --terminate Managed241
-          if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
-          Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do test -f /tmp/managed241-marker && break; sleep 1; done; test -f /tmp/managed241-marker'
-          Write-Host 'Original boot command recreated the marker on restart'
-          Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
-          Write-Host 'Engine served HTTP after distro restart without a separate launcher'
+          Guest sh -c 'printf "\n[network]\ngenerateHosts=false\n" >> /etc/wsl.conf'
+          Guest sh $script.Trim() --remove-boot-entry
+          Guest cat /etc/wsl.conf
+          Guest grep -Fx 'command=touch /tmp/managed241-marker' /etc/wsl.conf
+          Guest grep -Fx 'generateHosts=false' /etc/wsl.conf
+          $remaining = Guest cat /etc/wsl.conf
+          if ($remaining -match '/usr/local/bin/asagiri daemon') { throw 'Cleanup left the Asagiri boot command after a user configuration edit' }
