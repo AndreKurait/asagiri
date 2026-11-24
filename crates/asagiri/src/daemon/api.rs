@@ -434,7 +434,8 @@ fn version() -> Value {
 fn info(engine: &Engine) -> Value {
     let states = engine.each(|c| (!c.spec.engine_service).then_some(c.status));
     let running = states.iter().filter(|s| **s == Status::Running).count();
-    let mut warnings = Vec::new();
+    let uplink = engine.uplink_info();
+    let mut warnings: Vec<String> = uplink["warning"].as_str().map(str::to_owned).into_iter().collect();
     let images = match engine.store.images() {
         Ok(images) => images.len(),
         Err(error) => {
@@ -481,6 +482,7 @@ fn info(engine: &Engine) -> Value {
         "SecurityOptions": ["name=seccomp,profile=builtin", "name=cgroupns"],
         "BuilderVersion": "2",
         "AsagiriAgentMemory": engine.agent_rss().unwrap_or(0),
+        "AsagiriVmUplink": uplink,
         "AsagiriVmAwake": engine.is_awake(),
         "AsagiriStopped": engine.is_stopped(),
         "AsagiriMemoryCeiling": memory_ceiling,

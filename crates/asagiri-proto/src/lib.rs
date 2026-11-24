@@ -208,6 +208,11 @@ pub enum Msg<'a> {
     /// or `Error` with no lease yet; an older agent answers `Error`.
     UplinkQuery,
     Uplink { ip: [u8; 4], gateway: [u8; 4] },
+    /// Host → guest, in the VM: configure the uplink (`eth0`) directly when
+    /// DHCP did not answer. Ignored (still answered `Ack`) if the guest
+    /// already obtained a DHCP lease. `dns` of `[0; 4]` leaves DNS unset.
+    /// Answered by `Ack` or `Error`; an older agent answers `Error`.
+    SetUplink { ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4] },
     /// Host → guest: a network was removed; delete its bridge, and with it
     /// the bridge's addresses and routes, its DNS server and, with the last
     /// IPv6 network, the IPv6 NAT table. No reply; an older agent ignores it.
@@ -784,6 +789,7 @@ mod kind {
     pub const FS_EVENTS: u16 = 80;
     pub const START_REJECTED: u16 = 81;
     pub const DNS_RENAME: u16 = 82;
+    pub const SET_UPLINK: u16 = 83;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1193,6 +1199,12 @@ impl Msg<'_> {
                 o.extend_from_slice(&ip);
                 o.extend_from_slice(&gateway);
             }),
+            Msg::SetUplink { ip, prefix, gateway, dns } => frame(out, kind::SET_UPLINK, |o| {
+                o.extend_from_slice(&ip);
+                o.push(prefix);
+                o.extend_from_slice(&gateway);
+                o.extend_from_slice(&dns);
+            }),
             Msg::Ack => frame(out, kind::ACK, |_| {}),
             Msg::InputConsumed { id, bytes } => frame(out, kind::INPUT_CONSUMED, |o| {
                 put_str(o, id);
@@ -1483,6 +1495,12 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::NET_DETACH => Msg::NetDetach { id: r.str()?, ifname: r.str()?, bridge: r.str()?, ip: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)? },
         kind::UPLINK_QUERY => Msg::UplinkQuery,
         kind::UPLINK => Msg::Uplink { ip: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?, gateway: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)? },
+        kind::SET_UPLINK => Msg::SetUplink {
+            ip: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+            prefix: r.u8()?,
+            gateway: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+            dns: r.take(4)?.try_into().map_err(|_| DecodeError::Truncated)?,
+        },
         kind::ACK => Msg::Ack,
         kind::INPUT_CONSUMED => Msg::InputConsumed { id: r.str()?, bytes: r.u32()? },
         kind::PUBLISH => Msg::Publish(Publish {
@@ -1677,6 +1695,7 @@ mod tests {
         assert!(net.opts.is_empty());
         round(Msg::Route { dst: [10, 43, 0, 0], prefix: 16, via: [172, 17, 0, 4], add: true });
         round(Msg::UplinkQuery);
+        round(Msg::SetUplink { ip: [192, 168, 64, 2], prefix: 24, gateway: [192, 168, 64, 1], dns: [192, 168, 64, 1] });
         round(Msg::Uplink { ip: [192, 168, 64, 18], gateway: [192, 168, 64, 1] });
         round(Msg::Ack);
         let mut buf = Vec::new();
