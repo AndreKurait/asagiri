@@ -141,6 +141,8 @@ pub struct RestartPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_distro: Option<String>,
     /// Owned by the engine, not a user workload. Only internal creation can
     /// set this; Docker request labels and fields never grant this status.
     #[serde(default)]
