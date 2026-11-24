@@ -8246,6 +8246,7 @@ $("statusbar").addEventListener("click", (ev) => {
   if (ev.target.closest("[data-htterm]")) return htToggle();
   if (ev.target.closest("[data-shstatus]")) return $("sh-modal") ? shCard(null) : shCard("list");
   if (ev.target.closest("[data-ctxrepair]") && ui.status?.ours && !ui.status.context) {
+    if (ctx.card?.target === ui.status.ours && !ctx.card.confirmed) return;
     ctxUse(null, 0);
     return;
   }

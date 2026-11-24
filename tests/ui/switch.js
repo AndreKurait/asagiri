@@ -46,4 +46,13 @@ t("unknown context can select the owned context without importing or inventing a
   confirmSwitch(); eq(ctx.card,null,"no switch-back card");
   eq(!!document.querySelector("#statusbar .ctx-ok"),true,"confirmed by host status");
 });
+t("repair ignores repeated clicks until Docker replies and permits retry after failure",()=>{
+  reset(); asagiri.on({...ui.status,context:null});
+  const repair = "#statusbar [data-ctxrepair]";
+  click(repair); click(repair);
+  eq(used().length,1,"one pending repair");
+  asagiri.on({type:"usedcontext",name:ui.status.ours,error:"save failed"});
+  click(repair); eq(used().length,2,"retry submitted");
+  confirmSwitch(); eq(ctx.card,null,"retry confirmed");
+});
 report(R);
