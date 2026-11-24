@@ -29,6 +29,8 @@ mod client;
 mod detail;
 #[cfg(windows)]
 mod dns;
+#[cfg(any(windows, test))]
+mod docker_context;
 #[cfg(windows)]
 mod engine;
 #[cfg(any(windows, test))]

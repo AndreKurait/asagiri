@@ -736,8 +736,18 @@ fn about() {
 /// to by default, as `docker context show` says (it knows DOCKER_CONTEXT,
 /// DOCKER_HOST and wherever Docker Desktop keeps the CLI config).
 fn status_event() -> String {
-    let context = docker(&["context", "show"]).ok().map(|s| s.trim().to_owned()).filter(|c| !c.is_empty());
-    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": "asagiri", "context": context.unwrap_or_else(|| "default".into())}).to_string()
+    // `context show` can return a name whose metadata was removed.
+    let selected = docker(&["context", "show"])
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|c| !c.is_empty());
+    let endpoint = selected.as_deref().and_then(|name| {
+        docker(&["context", "inspect", "--format", "{{.Endpoints.docker.Host}}", "--", name]).ok()
+    });
+    let context = selected.filter(|_| endpoint.as_ref().is_some_and(|s| !s.trim().is_empty()));
+    let custom_endpoint = context.as_deref() == Some(crate::flavor::CONTEXT.get())
+        && !crate::docker_context::uses_pipe(endpoint.as_deref().unwrap_or_default(), &crate::client::pipe());
+    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context, "customEndpoint": custom_endpoint}).to_string()
 }
 
 /// The docker CLI on Asagiri's context, without a console window, for Compose
@@ -756,8 +766,15 @@ fn compose_store() -> Option<std::path::PathBuf> {
 
 /// Runs the docker CLI without a console window: its output, or why it failed.
 fn docker(args: &[&str]) -> io::Result<String> {
+    docker_command(args, false)
+}
+
+fn docker_command(args: &[&str], selecting: bool) -> io::Result<String> {
     let mut cmd = crate::win::tool(&crate::detail::docker_cli());
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+    if selecting {
+        cmd.env_remove("DOCKER_HOST").env_remove("DOCKER_CONTEXT");
+    }
     let out = cmd.args(args).output()?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -804,7 +821,8 @@ fn build_with() {
 
 /// Which engine plain `docker` uses: Asagiri, or back to the one before.
 fn use_context(name: &str) {
-    let result = if name.is_empty() { Err(io::Error::other("no context named")) } else { docker(&["context", "use", name]).map(drop) };
+    let host = format!("npipe://{}", crate::client::pipe().replace('\\', "/"));
+    let result = crate::docker_context::select(name, crate::flavor::CONTEXT.get(), &host, |args| docker_command(args, true));
     emit(status_event());
     emit(json!({"type": "usedcontext", "name": name, "error": result.as_ref().err().map(|e| e.to_string())}).to_string());
 }
