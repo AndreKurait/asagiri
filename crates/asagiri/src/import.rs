@@ -263,6 +263,64 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
         "volume {name} was copied, but the source is no longer confirmed idle: {e}; stop the source users and inspect the destination before retrying")))
 }
 
+/// Docker Desktop inspect may express macOS paths relative to its VM's /host_mnt.
+#[cfg(target_os = "macos")]
+fn desktop_bind_source(source: &str) -> io::Result<&str> {
+    let path = source.strip_prefix("/host_mnt").filter(|p| p.starts_with('/')).unwrap_or(source);
+    if path.starts_with('/') {
+        std::fs::metadata(path).map_err(|e| io::Error::new(e.kind(), format!("cannot import bind source {path}: {e}")))?;
+    }
+    Ok(path)
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_binds(host: &mut Value, resolved: &Value) -> io::Result<()> {
+    // Inspect may retain the original create options for only some targets.
+    let mut binds = Vec::new();
+    for mount in resolved.as_array().into_iter().flatten().filter(|m| m["Type"] == "bind") {
+        let invalid = || io::Error::new(io::ErrorKind::InvalidData, "incomplete resolved bind mount in source inspection");
+        let source = mount["Source"].as_str().filter(|s| !s.is_empty()).ok_or_else(invalid)?;
+        let target = mount["Destination"].as_str().filter(|s| s.starts_with('/')).ok_or_else(invalid)?;
+        let covered = host["Binds"].as_array().into_iter().flatten().filter_map(Value::as_str).any(|bind| {
+            let mut parts = bind.split(':');
+            let source = parts.next().unwrap_or("");
+            parts.next().unwrap_or(source) == target
+        }) || host["Mounts"].as_array().into_iter().flatten().any(|m| m["Target"] == target);
+        if covered { continue; }
+        let writable = mount["RW"].as_bool().ok_or_else(invalid)?;
+        let mut options: Vec<_> = mount["Mode"].as_str().unwrap_or("").split(',').filter(|m| !matches!(*m, "" | "ro" | "rw")).collect();
+        options.push(if writable { "rw" } else { "ro" });
+        if let Some(propagation) = mount["Propagation"].as_str().filter(|p| !p.is_empty() && !options.contains(p)) {
+            options.push(propagation);
+        }
+        if source.contains(':') || target.contains(':') {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "ambiguous colon in resolved bind mount path"));
+        }
+        binds.push(format!("{source}:{target}:{}", options.join(",")));
+    }
+    if !binds.is_empty() {
+        if host["Binds"].is_null() { host["Binds"] = json!([]); }
+        host["Binds"].as_array_mut().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid source Binds array"))?.extend(binds.into_iter().map(Value::String));
+    }
+    if let Some(binds) = host["Binds"].as_array_mut() {
+        for bind in binds {
+            if let Some((source, rest)) = bind.as_str().and_then(|s| s.split_once(':')) {
+                *bind = json!(format!("{}:{rest}", desktop_bind_source(source)?));
+            }
+        }
+    }
+    if let Some(mounts) = host["Mounts"].as_array_mut() {
+        for mount in mounts {
+            if mount["Type"] == "bind" {
+                if let Some(source) = mount["Source"].as_str() {
+                    mount["Source"] = json!(desktop_bind_source(source)?);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Transfer changed filesystem layers through the engine, including whiteouts.
 /// Neither the diff nor the snapshot needs an executable inside the container.
 fn writable_image(ctx: &str, info: &Value) -> io::Result<Option<String>> {
@@ -309,6 +367,33 @@ fn writable_image(ctx: &str, info: &Value) -> io::Result<Option<String>> {
 pub fn container(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let info = json_lines(ctx, &["inspect", "--type", "container", "--format", "{{json .}}", name])?.into_iter().next().ok_or_else(|| io::Error::other(format!("{name}: not found in {ctx}")))?;
+    let source_mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default");
+    let shared_target = source_mode.strip_prefix("container:");
+    let mode = if let Some(target) = shared_target {
+        let names = json_lines(ctx, &["container", "inspect", "--format", "{{json .Name}}", target])?;
+        let target_name = names.first().and_then(Value::as_str).map(|n| n.trim_start_matches('/')).filter(|n| !n.is_empty())
+            .ok_or_else(|| io::Error::other(format!("missing source network target {target}")))?;
+        // Destination creation resolves the imported peer's name to its local ID.
+        format!("container:{target_name}")
+    } else {
+        source_mode.to_owned()
+    };
+    let hc = &info["HostConfig"];
+    let mut host = json!({
+        "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
+        "CgroupnsMode": hc["CgroupnsMode"],
+        "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
+        "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
+        "Devices": hc["Devices"], "GroupAdd": hc["GroupAdd"], "Dns": hc["Dns"], "PidMode": hc["PidMode"],
+        "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
+    });
+    #[cfg(target_os = "macos")]
+    if ctx == "desktop-linux" {
+        desktop_binds(&mut host, &info["Mounts"])?;
+    }
+    if let Some(o) = host.as_object_mut() {
+        o.retain(|_, v| !v.is_null());
+    }
     let cfg = &info["Config"];
     let mut image = cfg["Image"].as_str().unwrap_or("").to_owned();
     if let Some(snapshot) = writable_image(ctx, &info)? {
@@ -325,17 +410,6 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
         }
     }
     let mut networks = serde_json::Map::new();
-    let source_mode = info["HostConfig"]["NetworkMode"].as_str().unwrap_or("default");
-    let shared_target = source_mode.strip_prefix("container:");
-    let mode = if let Some(target) = shared_target {
-        let names = json_lines(ctx, &["container", "inspect", "--format", "{{json .Name}}", target])?;
-        let target_name = names.first().and_then(Value::as_str).map(|n| n.trim_start_matches('/')).filter(|n| !n.is_empty())
-            .ok_or_else(|| io::Error::other(format!("missing source network target {target}")))?;
-        // Destination creation resolves the imported peer's name to its local ID.
-        format!("container:{target_name}")
-    } else {
-        source_mode.to_owned()
-    };
     for (net, ep) in info["NetworkSettings"]["Networks"].as_object().into_iter().flatten() {
         if !["bridge", "host", "none", "default"].contains(&net.as_str()) {
             let _ = cli()?.args(["--context", crate::flavor::CONTEXT.get(), "network", "create", net]).stdout(Stdio::null()).stderr(Stdio::null()).status();
@@ -344,18 +418,6 @@ pub fn container(source: &str, name: &str) -> io::Result<()> {
         let short = info["Id"].as_str().unwrap_or("").get(..12).unwrap_or("").to_owned();
         let aliases: Vec<&Value> = ep["Aliases"].as_array().into_iter().flatten().filter(|a| a.as_str() != Some(short.as_str())).collect();
         networks.insert(net.clone(), json!({"Aliases": aliases}));
-    }
-    let hc = &info["HostConfig"];
-    let mut host = json!({
-        "Binds": hc["Binds"], "PortBindings": hc["PortBindings"], "RestartPolicy": hc["RestartPolicy"], "Mounts": hc["Mounts"],
-        "CgroupnsMode": hc["CgroupnsMode"],
-        "NetworkMode": mode, "Privileged": hc["Privileged"], "CapAdd": hc["CapAdd"], "CapDrop": hc["CapDrop"], "ExtraHosts": hc["ExtraHosts"],
-        "Tmpfs": hc["Tmpfs"], "ReadonlyRootfs": hc["ReadonlyRootfs"], "SecurityOpt": hc["SecurityOpt"], "Memory": hc["Memory"],
-        "Devices": hc["Devices"], "GroupAdd": hc["GroupAdd"], "Dns": hc["Dns"], "PidMode": hc["PidMode"],
-        "NanoCpus": hc["NanoCpus"], "ShmSize": hc["ShmSize"], "PublishAllPorts": hc["PublishAllPorts"],
-    });
-    if let Some(o) = host.as_object_mut() {
-        o.retain(|_, v| !v.is_null());
     }
     let mut body = json!({
         "Healthcheck": cfg["Healthcheck"], "Image": image, "Cmd": cfg["Cmd"], "Entrypoint": cfg["Entrypoint"], "Env": cfg["Env"], "Labels": cfg["Labels"],
@@ -505,6 +567,41 @@ pub fn run(args: &[String]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_mixed_bind_sources() {
+        let mut host = serde_json::json!({
+            "Binds": ["/host_mnt/tmp:/project:ro", "cache:/cache"],
+            "Mounts": [{"Type":"bind", "Source":"/etc/hosts", "Target":"/hosts"}]
+        });
+        super::desktop_binds(&mut host, &serde_json::Value::Null).unwrap();
+        assert_eq!(host["Binds"], serde_json::json!(["/tmp:/project:ro", "cache:/cache"]));
+        assert_eq!(host["Mounts"][0]["Source"], "/etc/hosts");
+        host["Mounts"][0]["Source"] = serde_json::json!("/host_mnt/dev/null/missing");
+        assert!(super::desktop_binds(&mut host, &serde_json::Value::Null).unwrap_err().to_string().contains("/dev/null/missing"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desktop_recreates_resolved_read_only_bind() {
+        use serde_json::json;
+        let resolved = json!([
+            {"Type":"bind", "Source":"/host_mnt/etc/hosts", "Destination":"/marker", "RW":false, "Propagation":"rprivate"},
+            {"Type":"volume", "Name":"cache", "Destination":"/cache"}
+        ]);
+        let mut host = json!({"Binds":null, "Mounts":null});
+        super::desktop_binds(&mut host, &resolved).unwrap();
+        assert_eq!(host["Binds"], json!(["/etc/hosts:/marker:ro,rprivate"]));
+        let mut mixed = json!({"Binds":["cache:/cache"], "Mounts":[{"Type":"bind", "Source":"/etc/hosts", "Target":"/existing"}]});
+        let mut mounts = resolved.clone();
+        mounts.as_array_mut().unwrap().push(json!({"Type":"bind", "Source":"/etc/hosts", "Destination":"/existing", "RW":true}));
+        super::desktop_binds(&mut mixed, &mounts).unwrap();
+        assert_eq!(mixed["Binds"], json!(["cache:/cache", "/etc/hosts:/marker:ro,rprivate"]));
+        let mut incomplete = resolved.clone();
+        incomplete[0].as_object_mut().unwrap().remove("RW");
+        assert!(super::desktop_binds(&mut json!({}), &incomplete).is_err());
+    }
+
     #[test]
     fn inventory_names_tagged_and_digest_only_images() {
         let digest = format!("sha256:{}", "a".repeat(64));
