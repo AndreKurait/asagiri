@@ -50,7 +50,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Update card interaction failed' }
           $deadline = (Get-Date).AddMinutes(3)
           do {
-            $product = Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -like '*Asagiri*' -and $_.DisplayVersion -eq '0.1.14' }
+            $product = Get-ItemProperty -ErrorAction SilentlyContinue -Path 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/*','HKLM:/Software/Microsoft/Windows/CurrentVersion/Uninstall/*','HKLM:/Software/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -like '*Asagiri*' -and $_.DisplayVersion -eq '0.1.14' }
             if ($product -and (Get-Process asagiri-win -ErrorAction SilentlyContinue)) { break }
             Start-Sleep 2
           } while ((Get-Date) -lt $deadline)
