@@ -615,16 +615,7 @@ impl VmLink {
     #[cfg(target_os = "macos")]
     pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<Option<([u8; 4], [u8; 4])>> {
         let reply = self.call(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o), None);
-        if let Ok(Reply::Uplink(actual, gateway)) = reply {
-            return Ok(Some((actual, gateway)));
-        }
-        // Keep the reservation if the guest applied the address but its reply was lost.
-        *self.uplink_reservation.lock().unwrap_or_else(|e| e.into_inner()) = Some(reservation);
-        match reply? {
-            Reply::Ack => Ok(None),
-            Reply::Error(e) => Err(io::Error::other(e)),
-            other => Err(io::Error::other(format!("unexpected SetUplink response: {other:?}"))),
-        }
+        finish_set_uplink(reply, reservation, &self.uplink_reservation)
     }
 
     /// Forwards a published port in the kernel (on a Linux host; in the VM,
@@ -787,6 +778,20 @@ impl VmLink {
 }
 
 /// The PID a `Run` or `Exec` was answered with.
+#[cfg(target_os = "macos")]
+fn finish_set_uplink(reply: io::Result<Reply>, reservation: File, held: &Mutex<Option<File>>) -> io::Result<Option<([u8; 4], [u8; 4])>> {
+    if let Ok(Reply::Uplink(actual, gateway)) = reply {
+        return Ok(Some((actual, gateway)));
+    }
+    // Keep the reservation if the guest applied the address but its reply was lost.
+    *held.lock().unwrap_or_else(|e| e.into_inner()) = Some(reservation);
+    match reply? {
+        Reply::Ack => Ok(None),
+        Reply::Error(e) => Err(io::Error::other(e)),
+        other => Err(io::Error::other(format!("unexpected SetUplink response: {other:?}"))),
+    }
+}
+
 fn started(r: Reply) -> io::Result<u32> {
     match r {
         Reply::Started(pid) => Ok(pid),
@@ -808,6 +813,22 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn late_dhcp_reply_releases_fallback_reservation() {
+        let path = std::env::temp_dir().join(format!("asagiri-late-dhcp-{}", std::process::id()));
+        let reservation = File::create_new(&path).unwrap();
+        let contender = File::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        reservation.try_lock().unwrap();
+        assert!(matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        let held = Mutex::new(None);
+        let lease = ([192, 168, 64, 42], [192, 168, 64, 1]);
+        let actual = finish_set_uplink(Ok(Reply::Uplink(lease.0, lease.1)), reservation, &held).unwrap();
+        assert_eq!(actual, Some(lease));
+        contender.try_lock().unwrap();
+    }
 
     fn dense_seccomp_options() -> Vec<String> {
         // The Docker-valid 2,997-rule profile: three syscall families, a hole
