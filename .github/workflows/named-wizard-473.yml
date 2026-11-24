@@ -75,9 +75,11 @@ jobs:
           if (!page) throw Error('Wizard WebView unavailable');
           let ws = new WebSocket(page.webSocketDebuggerUrl);
           await new Promise((resolve,reject) => { ws.onopen=resolve; ws.onerror=reject; });
-          for (let id=1; id<=120; id++) {
+          for (let id=1; id<=900; id++) {
             const reply = new Promise(resolve => {ws.onmessage = event => {let msg=JSON.parse(event.data); if(msg.id===id) resolve(msg);};});
             ws.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression:`(() => {
+              const open=document.querySelector('[data-cmd="setup-open"]');
+              if(open) { open.click(); return 'finished'; }
               const radio=document.querySelector('input[value="existing:Managed241"]');
               if(radio) { radio.click(); document.querySelector('#chooseBtn').click(); return 'selected'; }
               const btn=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Continue');
@@ -86,8 +88,8 @@ jobs:
             })()`}}));
             const state=(await reply).result?.result?.value;
             if(id%10===0 || state==='selected') console.log(state);
-            if(state==='selected') { ws.close(); break; }
-            if(id===120) throw Error('Registered distro picker unavailable');
+            if(state==='finished') { ws.close(); break; }
+            if(id===900) throw Error('Wizard did not reach Open Asagiri');
             await delay(1000);
           }
           '@ | Set-Content wizard.mjs
