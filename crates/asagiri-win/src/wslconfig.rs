@@ -105,6 +105,25 @@ fn reconcile_integration(enabled: &[String], pending: &[String], background: boo
     } else if !crate::client::alive_quick() {
         return Ok(());
     }
+    // Apply explicit revocations before touching any guest. An unavailable
+    // enabled distro can otherwise indefinitely delay an unrelated disable.
+    if !pending.is_empty() {
+        let current = if background {
+            crate::client::get_background("/asagiri/wsl")?
+        } else {
+            crate::client::get("/asagiri/wsl")?
+        };
+        let listeners = current["distros"].as_array()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing WSL listener list"))?;
+        let retained: Vec<_> = listeners.iter().filter(|entry| {
+            !entry["name"].as_str().is_some_and(|name| pending.iter().any(|off| off.eq_ignore_ascii_case(name)))
+        }).collect();
+        if retained.len() != listeners.len() {
+            crate::engine::expect_ok(crate::client::request_with(
+                "POST", "/asagiri/wsl", Some(&json!({"distros": retained})), background,
+            ))?;
+        }
+    }
     // A failed discovery must leave the daemon's current socket list intact.
     let available = user_distros()?;
     let mut active = Vec::new();
