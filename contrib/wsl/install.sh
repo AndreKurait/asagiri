@@ -30,14 +30,8 @@ start_helper=/usr/local/bin/asagiri-wsl-start
 managed_helper() {
   [ ! -L "$start_helper" ] && [ -f "$start_helper" ] && helper_contents | cmp -s - "$start_helper"
 }
-if [ "${1:-}" = --remove-boot-entry ]; then
-  conf=/etc/wsl.conf
-  [ -f "$conf" ] || exit 0
-  line=$(boot_command_line "$conf")
-  if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
-    sed -i "${line}s|=$start_helper; |=|" "$conf"
-    if managed_helper; then rm -f "$start_helper"; fi
-  fi
+remove_legacy_entry() (
+  conf=$1
   suffix=$(mktemp)
   trap 'rm -f "$suffix"' EXIT
   boot_entry > "$suffix"
@@ -65,6 +59,16 @@ if [ "${1:-}" = --remove-boot-entry ]; then
       mv -f "$updated" "$conf"
     fi
   fi
+)
+if [ "${1:-}" = --remove-boot-entry ]; then
+  conf=/etc/wsl.conf
+  [ -f "$conf" ] || exit 0
+  line=$(boot_command_line "$conf")
+  if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
+    sed -i "${line}s|=$start_helper; |=|" "$conf"
+    if managed_helper; then rm -f "$start_helper"; fi
+  fi
+  remove_legacy_entry "$conf"
   exit 0
 fi
 here=$(cd "$(dirname "$0")" && pwd)
@@ -92,9 +96,12 @@ UNIT
   systemctl restart asagiri
 else
   # No systemd in this distro: start Asagiri when WSL boots it.
-  if ! grep -q 'asagiri daemon' /etc/wsl.conf 2>/dev/null; then
-    line=
-    if [ -f /etc/wsl.conf ]; then line=$(boot_command_line /etc/wsl.conf); fi
+  conf=/etc/wsl.conf
+  line=
+  if [ -f "$conf" ]; then line=$(boot_command_line "$conf"); fi
+  current=
+  if [ -n "$line" ]; then current=$(sed -n "${line}p" "$conf"); fi
+  if ! printf '%s\n' "$current" | grep -Fq 'asagiri daemon'; then
     if [ -n "$line" ]; then
       if [ -L "$start_helper" ] || [ -e "$start_helper" ]; then
         if ! managed_helper; then
@@ -110,6 +117,11 @@ else
         rm -f "$staged"
       fi
       if ! sed -n "${line}p" /etc/wsl.conf | grep -Fq "=$start_helper; "; then
+        # Migrate the exact entry appended by previous installers after the
+        # distro's original command. Its removal leaves the earlier line intact.
+        if grep -Fxq "$(boot_entry | tail -n 1)" "$conf"; then
+          remove_legacy_entry "$conf"
+        fi
         sed -i "${line}s|=|=$start_helper; |" /etc/wsl.conf
       fi
     else
