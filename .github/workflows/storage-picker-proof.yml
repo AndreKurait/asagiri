@@ -15,9 +15,9 @@ jobs:
       - run: cargo build --locked -p asagiri
       - name: Exercise native Settings and folder chooser
         run: |
-          export HOME="$RUNNER_TEMP/picker-home" CFFIXED_USER_HOME="$RUNNER_TEMP/picker-home" ASAGIRI_SOCKET="$RUNNER_TEMP/docker.sock"
+          export HOME="$RUNNER_TEMP/picker-home" CFFIXED_USER_HOME="$RUNNER_TEMP/picker-home" ASAGIRI_SOCKET="$RUNNER_TEMP/picker-home/.asagiri/run/docker.sock"
           destination="$RUNNER_TEMP/picker-destination"
-          mkdir -p "$HOME/.asagiri" "$destination"
+          mkdir -p "$HOME/.asagiri/run" "$destination"
           echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
           target/debug/asagiri daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
           daemon=$!
