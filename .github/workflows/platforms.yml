@@ -27,26 +27,7 @@ concurrency:
 
 jobs:
   scope:
-    name: Check platform build inputs
-    runs-on: ubuntu-slim
-    outputs:
-      roadmap_only: ${{ steps.diff.outputs.roadmap_only }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'pull_request'
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - id: diff
-        if: github.event_name == 'pull_request'
-        run: |
-          python3 - <<'PYTHON'
-          import os, subprocess
-          paths = subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'])
-          if paths == b'docs/implementation-roadmap.md\0':
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-                  print('roadmap_only=true', file=out)
-          PYTHON
+    uses: $/.github/workflows/roadmap-scope.yml
   linux_build:
     needs: scope
     if: needs.scope.outputs.roadmap_only != 'true'
