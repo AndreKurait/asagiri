@@ -693,21 +693,23 @@ mod imp {
         assert!(!staging.exists());
     }
 
+    fn retry_engine(restart: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        // Hold the move lock until both bridge renewal and daemon startup finish.
+        let _operation = STORAGE_OPERATION.try_lock().map_err(|_| {
+            io::Error::new(io::ErrorKind::WouldBlock, tr("Asagiri's data is moving already"))
+        })?;
+        if let Some(missing) = unavailable() {
+            return Err(io::Error::other(unavailable_message(&missing)));
+        }
+        restart()
+    }
+
     pub fn retry() {
         std::thread::spawn(|| {
-            // Retrying renews the bridge and starts the daemon. Keep both outside
-            // the interval where a move stops and unregisters the WSL distro.
-            let Ok(_operation) = STORAGE_OPERATION.try_lock() else {
-                emit(notice("error", &tr("Asagiri's data is moving already")));
-                return;
-            };
-            if let Some(missing) = unavailable() {
-                emit(notice("error", &unavailable_message(&missing)));
-                emit_report();
-                return;
-            }
-            crate::serve::renew_bridge();
-            match crate::engine::ensure_daemon() {
+            match retry_engine(|| {
+                crate::serve::renew_bridge();
+                crate::engine::ensure_daemon()
+            }) {
                 Ok(()) => {
                     emit(notice("ok", &tr("Storage is available again")));
                     emit_report();
@@ -719,6 +721,15 @@ mod imp {
                 }
             }
         });
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn retry_during_storage_move_leaves_engine_alone() {
+        let _moving = STORAGE_OPERATION.lock().unwrap();
+        let error = std::thread::spawn(|| retry_engine(|| panic!("engine restart during migration")))
+            .join().unwrap().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
     }
 
     pub fn reset() {
