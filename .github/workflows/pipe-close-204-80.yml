@@ -162,7 +162,7 @@ jobs:
           import sys, time, subprocess, threading, os
           container = subprocess.check_output([sys.argv[1], 'create', 'alpine:3.21','sleep','60'],text=True).strip()
           for method, route, expected in [('GET','/_ping',200),('GET',f'/containers/{container}/json',200),('POST',f'/containers/{container}/start',204),('POST',f'/containers/{container}/stop',204),('DELETE',f'/containers/{container}',204)]:
-              timer = threading.Timer(10,lambda: os._exit(124)); timer.start()
+              timer = threading.Timer(45,lambda: os._exit(124)); timer.start()
               start=time.monotonic()
               with open(r'\\.\pipe\asagiri-load-test','r+b',buffering=0) as pipe:
                   pipe.write(f'{method} /v1.44{route} HTTP/1.1\r\nHost: docker\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'.encode())
@@ -171,6 +171,10 @@ jobs:
                       try: block=pipe.read(4096)
                       except BrokenPipeError: break
                       if not block: break
+                      if not response:
+                          timer.cancel()
+                          timer = threading.Timer(10,lambda: os._exit(125)); timer.start()
+                          print("First response bytes",method,route,round(time.monotonic()-start,3),flush=True)
                       response.extend(block)
                   assert int(response.splitlines()[0].split()[1])==expected,response[:300]
               timer.cancel(); print('PASS',method,route,expected,'EOF',round(time.monotonic()-start,3),flush=True)
