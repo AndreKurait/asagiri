@@ -1,0 +1,35 @@
+name: Verify Windows context recreation with Docker CLI
+on:
+  push:
+    branches: [qualification/native-windows-context-428]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustc +stable --edition=2024 tests/qualification-428/select.rs -o select.exe
+          $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'isolated-contexts'
+          $env:DOCKER_CONTEXT = 'default'
+          .\select.exe asagiri
+          Remove-Item Env:DOCKER_CONTEXT
+          function Assert-Selected($name, $pipe) {
+            $actual = docker.exe context show
+            $hostUri = docker.exe context inspect $actual --format '{{.Endpoints.docker.Host}}'
+            if ($actual -ne $name -or $hostUri -ne $pipe) { throw "Unexpected context $actual at $hostUri" }
+            Write-Host "Selected $actual at $hostUri"
+          }
+          Assert-Selected 'asagiri' 'npipe:////./pipe/asagiri'
+          docker.exe context update asagiri --docker 'host=npipe:////./pipe/custom'
+          .\select.exe asagiri
+          Assert-Selected 'asagiri' 'npipe:////./pipe/custom'
+          docker.exe context create 'team+dev' --docker 'host=npipe:////./pipe/team'
+          .\select.exe 'team+dev'
+          Assert-Selected 'team+dev' 'npipe:////./pipe/team'
