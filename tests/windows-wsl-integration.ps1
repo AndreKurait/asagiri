@@ -48,8 +48,22 @@ try {
     wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock && ! grep -Fq " /mnt/wsl/asagiri/roots/Development138 " /proc/mounts'
     Set-Integration on
     Read-DistroBind
-    Set-Integration off
-    wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock'
+    # Check independent selections through Settings using two real WSL distros.
+    $second = 'Build138'
+    wsl.exe --import $second "$Root\build138" "$Root\development.tar" --version 2
+    try {
+        Set-Integration second-on
+        $secondSocket = '/mnt/wsl/asagiri/sockets/Build138/docker.sock'
+        $before = (wsl.exe -d $second -u root -- stat -c '%i:%g:%a' $secondSocket).Trim()
+        Set-Integration off
+        wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock'
+        $after = (wsl.exe -d $second -u root -- stat -c '%i:%g:%a' $secondSocket).Trim()
+        if ($before -ne $after) { throw "Second listener changed from $before to $after" }
+        wsl.exe -d $second -u root -- docker -H "unix://$secondSocket" info --format '{{.ServerVersion}}'
+        Set-Integration second-off
+    } finally {
+        wsl.exe --unregister $second
+    }
 } finally {
     wsl.exe --unregister $distro
 }

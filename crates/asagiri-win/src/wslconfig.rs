@@ -428,6 +428,10 @@ mod native_integration {
         let on = match std::env::var("ASAGIRI_TEST_DISTRO_SETTING").as_deref() {
             Ok("on") => true,
             Ok("off") => false,
+            Ok(mode @ ("second-on" | "second-off")) => {
+                super::toggle_distro("Build138", mode == "second-on").unwrap();
+                return;
+            }
             Ok("interrupt-off") => {
                 let (_, pending) = super::record_distro_selection("Development138", false).unwrap();
                 assert!(pending.contains(&"Development138".to_owned()));
