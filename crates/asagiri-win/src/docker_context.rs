@@ -12,7 +12,7 @@ pub fn select(
         || name.starts_with('-')
         || !name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            .all(|b| b.is_ascii_alphanumeric() || b"_.+-".contains(&b))
         || matches!(name, "." | "..")
     {
         return Err(io::Error::other("not a Docker context name"));
@@ -45,6 +45,7 @@ mod tests {
             ("asagiri-dev", "default\n", vec!["ls", "create", "use"]),
             ("asagiri-dev", "default\nasagiri-dev\n", vec!["ls", "use"]),
             ("desktop-linux", "", vec!["use"]),
+            ("team+dev", "", vec!["use"]),
         ] {
             let seen = RefCell::new(Vec::new());
             select(name, "asagiri-dev", "npipe:////./pipe/dev", |args| {
