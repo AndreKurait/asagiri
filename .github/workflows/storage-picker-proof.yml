@@ -1,0 +1,71 @@
+name: Native storage picker qualification
+on:
+  push:
+    branches: [qualification/storage-picker-166]
+permissions:
+  contents: read
+jobs:
+  picker:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: cargo build --locked -p asagiri
+      - name: Exercise native Settings and folder chooser
+        run: |
+          export HOME="$RUNNER_TEMP/picker-home" CFFIXED_USER_HOME="$RUNNER_TEMP/picker-home" ASAGIRI_SOCKET="$RUNNER_TEMP/docker.sock"
+          destination="$RUNNER_TEMP/picker-destination"
+          mkdir -p "$HOME/.asagiri" "$destination"
+          echo '{"lang":"en","langAsked":true,"domainsAsked":true,"setupSkip":true}' > "$HOME/.asagiri/ui.json"
+          target/debug/asagiri daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          daemon=$!
+          target/debug/asagiri ui --view settings > "$RUNNER_TEMP/ui.log" 2>&1 &
+          app=$!
+          trap 'kill "$app" "$daemon" 2>/dev/null || true' EXIT
+          osascript - "$app" "$destination" <<'APPLESCRIPT'
+          on pressButton(p, labelText)
+            tell application "System Events"
+              repeat 30 times
+                try
+                  set controls to entire contents of front window of p
+                  repeat with ctl in controls
+                    if role of ctl is "AXButton" then
+                      if (description of ctl as text) is labelText or (name of ctl as text) is labelText then
+                        perform action "AXPress" of ctl
+                        return
+                      end if
+                    end if
+                  end repeat
+                end try
+                delay 1
+              end repeat
+              error "Missing control: " & labelText
+            end tell
+          end pressButton
+          on run argv
+            tell application "System Events"
+              set p to first application process whose unix id is ((item 1 of argv) as integer)
+              set frontmost of p to true
+            end tell
+            my pressButton(p, "Storage")
+            my pressButton(p, "Change…")
+            delay 1
+            tell application "System Events"
+              keystroke "g" using {command down, shift down}
+              delay 1
+              keystroke (item 2 of argv)
+              key code 36
+              delay 1
+              key code 36
+            end tell
+            my pressButton(p, "Move data")
+          end run
+          APPLESCRIPT
+          for attempt in {1..60}; do
+            if find "$destination" -mindepth 1 -print -quit | grep -q .; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/daemon.log" "$RUNNER_TEMP/ui.log"
+          exit 1
