@@ -263,6 +263,7 @@ mod imp {
     }
 
     static MOVE: Mutex<Moving> = Mutex::new(Moving { to: None, phase: "", done: 0, total: 0, error: None });
+    static STORAGE_OPERATION: Mutex<()> = Mutex::new(());
     static ACTIVE: AtomicBool = AtomicBool::new(false);
 
     fn state() -> std::sync::MutexGuard<'static, Moving> {
@@ -455,6 +456,10 @@ mod imp {
     }
 
     fn run_move(path: Option<String>, fresh: bool) {
+        let Ok(_operation) = STORAGE_OPERATION.try_lock() else {
+            emit(notice("error", &tr("Asagiri's data is moving already")));
+            return;
+        };
         let default = default_root();
         let current = current_root();
         let distro = distro_name();
@@ -470,10 +475,7 @@ mod imp {
             return;
         }
         let target = PathBuf::from(&target_str);
-        if ACTIVE.swap(true, Ordering::SeqCst) {
-            emit(notice("error", &tr("Asagiri's data is moving already")));
-            return;
-        }
+        ACTIVE.store(true, Ordering::SeqCst);
         *state() = Moving { to: Some(target.clone()), phase: "stopping", done: 0, total: used, error: None };
         emit_report();
 
@@ -723,10 +725,10 @@ mod imp {
 
     pub fn remove_old() {
         std::thread::spawn(|| {
-            if moving() {
+            let Ok(_operation) = STORAGE_OPERATION.try_lock() else {
                 emit(notice("error", &tr("Asagiri's data is moving already")));
                 return;
-            }
+            };
             let Some(mut choice) = read() else { return };
             let Some(old) = choice.previous.clone() else { return };
             let current = current_root();
@@ -745,7 +747,12 @@ mod imp {
                 }
             }
             choice.previous = None;
-            let _ = if same_path(&choice.path, &default_root()) { clear_at(&config_path()) } else { write_at(&config_path(), &choice) };
+            let result = if same_path(&choice.path, &default_root()) { clear_at(&config_path()) } else { write_at(&config_path(), &choice) };
+            if let Err(error) = result {
+                emit(notice("error", &error.to_string()));
+                emit_report();
+                return;
+            }
             emit(notice("ok", &tr("Old data removed")));
             emit_report();
         });
