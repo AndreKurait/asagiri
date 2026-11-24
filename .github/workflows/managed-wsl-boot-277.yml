@@ -1,0 +1,99 @@
+name: Verify managed WSL startup on released dev.277
+on:
+  push:
+    branches: [qualification/wsl-managed-boot-277]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Install the reported Microsoft WSL release on this disposable runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP 'wsl.2.4.13.0.x64.msi'
+          Invoke-WebRequest 'https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi' -OutFile $msi
+          $signature = Get-AuthenticodeSignature $msi
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft WSL signature' }
+          Get-FileHash $msi
+          wsl.exe --shutdown
+          $installed = Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -eq 'Windows Subsystem for Linux' -and $_.WindowsInstaller -eq 1 }
+          foreach ($entry in $installed) {
+            $remove = Start-Process msiexec -ArgumentList "/x $($entry.PSChildName) /qn /norestart" -Wait -PassThru
+            if ($remove.ExitCode -ne 0) { throw "WSL uninstall exited $($remove.ExitCode)" }
+          }
+          $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "WSL install exited $($install.ExitCode)" }
+          $env:WSL_UTF8 = '1'
+          $version = wsl.exe --version | Out-String
+          Write-Host $version
+          if ($version -notmatch '2\.4\.13\.0') { throw 'Reported WSL version was not installed' }
+      - name: Verify existing boot command before and after packaged installation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $tag = 'v0.1.14-dev.277'
+          $asset = 'Asagiri-0.1.14-dev.277-windows-x86_64.zip'
+          $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($ref.object.sha -ne '51e026d86e120bd8054247c68729478ebc70c5b2') { throw 'Release revision mismatch' }
+          $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
+          if ($release.isDraft) { throw 'Release is still a draft' }
+          $digest = ($release.assets | Where-Object name -eq $asset).digest
+          if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Missing release asset digest' }
+          gh release download $tag -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw 'Release archive verification failed' }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          wsl.exe --import Managed241 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          $env:WSL_UTF8 = '1'
+          function Guest { & wsl.exe -d Managed241 -u root -- @args; if ($LASTEXITCODE) { throw "Guest command failed: $args" } }
+          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=touch /tmp/managed241-marker\n" > /etc/wsl.conf'
+          wsl.exe --terminate Managed241
+          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+          Write-Host 'Existing boot command verified before install'
+          $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
+          @'
+          package main
+          import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
+          func main() {
+            var last error
+            for i := 0; i < 15; i++ {
+              c, err := net.DialTimeout("unix", "/var/lib/asagiri-daemon/.asagiri/run/docker.sock", time.Second)
+              if err == nil {
+                c.SetDeadline(time.Now().Add(2*time.Second)); fmt.Fprint(c,"GET /_ping HTTP/1.0\r\nHost: localhost\r\n\r\n")
+                r,e := http.ReadResponse(bufio.NewReader(c),nil); if e == nil { b,e := io.ReadAll(r.Body); r.Body.Close(); if e == nil && r.StatusCode == 200 && string(b)=="OK" {fmt.Println("Engine answered /_ping"); c.Close(); return} }; c.Close()
+              }; last=err;time.Sleep(time.Second)
+            };fmt.Println("Engine did not answer",last); os.Exit(1)
+          }
+          '@ | Set-Content -Encoding utf8NoBOM engineping.go
+          $env:GOOS='linux'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
+          go build -o engineping engineping.go
+          if ($LASTEXITCODE) { throw 'Probe compilation failed' }
+          $probe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'engineping').Replace('\','/'))
+          Guest cp $probe.Trim() /tmp/engineping
+          Guest chmod 755 /tmp/engineping
+          $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
+          Guest sh $script.Trim()
+          try { Guest /tmp/engineping } catch {
+            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
+            Write-Host 'Installer launch unavailable; starting foreground control'
+            $control = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','root','--','env','HOME=/var/lib/asagiri-daemon','ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock','/usr/local/bin/asagiri','daemon' -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/control.out" -RedirectStandardError "$env:RUNNER_TEMP/control.err"
+            try { Guest /tmp/engineping } finally {
+              Get-Content "$env:RUNNER_TEMP/control.err" -Tail 40
+              Write-Host "Foreground launcher exited=$($control.HasExited)"
+            }
+          }
+          Guest cat /etc/wsl.conf
+          Guest rm /tmp/managed241-marker
+          wsl.exe --terminate Managed241
+          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+          Write-Host 'Existing boot command verified after install'
+          try { Guest /tmp/engineping } catch {
+            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
+            throw
+          }
