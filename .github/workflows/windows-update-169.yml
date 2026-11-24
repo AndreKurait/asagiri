@@ -27,7 +27,13 @@ jobs:
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "AsagiriUpdateWebView"
           $exe = (Get-ChildItem "$env:LOCALAPPDATA/Asagiri" -Recurse -Filter asagiri-win.exe | Select-Object -First 1).FullName
           if (!$exe) { throw 'Installed launcher missing' }
-          Start-Process $exe -ArgumentList '--distro','Asagiri'
+          $bundle = Split-Path $exe
+          $guest = (Get-ChildItem $bundle -Recurse -Filter asagiri-linux.tar.gz | Select-Object -First 1).FullName
+          wsl.exe --import Asagiri "$env:RUNNER_TEMP/Asagiri-distro" $guest --version 2
+          if ($LASTEXITCODE) { throw 'Could not import the published WSL distro' }
+          # Model an existing install that has already completed onboarding.
+          @{done=$true; linux='asagiri'; distro='Asagiri'} | ConvertTo-Json | Set-Content "$env:LOCALAPPDATA/Asagiri/setup.json" -Encoding utf8NoBOM
+          Start-Process $exe
           @'
           from playwright.sync_api import sync_playwright
           import time, urllib.request
