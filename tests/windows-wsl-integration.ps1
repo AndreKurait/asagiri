@@ -60,6 +60,20 @@ try {
         $after = (wsl.exe -d $second -u root -- stat -c '%i:%g:%a' $secondSocket).Trim()
         if ($before -ne $after) { throw "Second listener changed from $before to $after" }
         wsl.exe -d $second -u root -- docker -H "unix://$secondSocket" info --format '{{.ServerVersion}}'
+        Set-Integration on
+        wsl.exe --import Fault138 "$Root\fault138" "$Root\development.tar" --version 2
+        try {
+            # A regular file blocks creation of the third guest's shared root directory.
+            wsl.exe -d Fault138 -u root -- touch /mnt/wsl/asagiri/roots/Fault138
+            Set-Integration failed-peer-off
+            wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock && ! grep -Fq " /mnt/wsl/asagiri/roots/Development138 " /proc/mounts'
+            if ((wsl.exe -d $second -u root -- stat -c '%i:%g:%a' $secondSocket).Trim() -ne $before) { throw 'Healthy peer listener changed after failed setup' }
+            wsl.exe -d $second -u root -- docker -H "unix://$secondSocket" info --format '{{.ServerVersion}}'
+            wsl.exe -d Fault138 -u root -- rm /mnt/wsl/asagiri/roots/Fault138
+            Set-Integration forget-failed-peer
+        } finally {
+            wsl.exe --unregister Fault138
+        }
         Set-Integration second-off
     } finally {
         wsl.exe --unregister $second
