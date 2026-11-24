@@ -64,7 +64,9 @@ for _ in 0..<80 {
        let window = (attribute(app, "AXWindows") as? [AXUIElement])?.first,
        let before = position(window) {
         Thread.sleep(forTimeInterval: 1)
-        let start = CGPoint(x: before.x + 255, y: before.y + 17)
+        let inset: CGFloat = CommandLine.arguments.contains("--top-border") ? 1 : 17
+        print("Testing pointer press at top inset \(inset) points")
+        let start = CGPoint(x: before.x + 255, y: before.y + inset)
         if CommandLine.arguments.contains("--foreign-press") {
             exit(verifyForeignPress(window, before, start) ? 0 : 1)
         }

@@ -40,3 +40,4 @@ jobs:
           swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid" --reverse || reverse=$?
           swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid" --foreign-press || foreign=$?
           test "$reverse" -eq 0 && test "$foreign" -eq 0
+          swift "$GITHUB_WORKSPACE/tests/mac-native-drag.swift" "$ui_pid" --top-border
