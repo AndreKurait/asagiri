@@ -24,6 +24,7 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "Installer exited $($install.ExitCode)" }
           $env:ASAGIRI_UPDATE_URL = 'https://github.com/AndreKurait/asagiri/releases/download/v0.1.14/latest-windows-x86_64.json'
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "AsagiriUpdateWebView"
           $exe = (Get-ChildItem "$env:LOCALAPPDATA/Asagiri" -Recurse -Filter asagiri-win.exe | Select-Object -First 1).FullName
           if (!$exe) { throw 'Installed launcher missing' }
           Start-Process $exe -ArgumentList '--distro','Asagiri'
@@ -31,9 +32,9 @@ jobs:
           from playwright.sync_api import sync_playwright
           import time, urllib.request
           with sync_playwright() as p:
-              for _ in range(90):
+              for _ in range(45):
                   try:
-                      with urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=2): break
+                      with urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=1): break
                   except OSError: time.sleep(1)
               browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222')
               page = browser.contexts[0].pages[0]
@@ -69,3 +70,11 @@ jobs:
               print('Relaunched dashboard checked its feed, reported 0.1.14 up to date, and displayed no restart prompt.')
           '@ | python -
           if ($LASTEXITCODE) { throw 'Relaunched dashboard verification failed' }
+      - name: Inspect launcher startup after failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-Process asagiri-win,msedgewebview2 -ErrorAction SilentlyContinue | Select-Object Name,Id,SessionId,MainWindowTitle
+          Get-NetTCPConnection -LocalPort 9222 -ErrorAction SilentlyContinue | Select-Object State,OwningProcess
+          $log = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.log'
+          if (Test-Path $log) { Get-Content $log -Tail 60 }
