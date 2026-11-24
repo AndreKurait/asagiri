@@ -89,11 +89,7 @@ jobs:
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','managed241','--','sleep','120' -PassThru
           function UserGuest { & wsl.exe -d Managed241 -u managed241 -- @args; if ($LASTEXITCODE) { throw "User command failed: $args" } }
           UserGuest id
-          curl.exe -fsSL --retry 3 https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz -o cli.tgz
-          if ($LASTEXITCODE -or (Get-FileHash cli.tgz).Hash.ToLower() -ne '9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb') { throw 'Linux Docker CLI archive mismatch' }
-          $cliArchive = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'cli.tgz').Replace('\','/'))
           UserGuest mkdir -p /home/managed241/bin /home/managed241/data
-          UserGuest tar -xzf $cliArchive.Trim() -C /home/managed241/bin --strip-components=1 docker/docker
           UserGuest cp /usr/local/bin/asagiri /usr/local/bin/asagiri-init /home/managed241/bin/
           Invoke-WebRequest 'https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz' -OutFile docker-cli.tgz
           if ((Get-FileHash docker-cli.tgz).Hash.ToLowerInvariant() -ne '9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb') { throw 'Linux Docker CLI archive digest mismatch' }
