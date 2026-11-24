@@ -16,6 +16,9 @@ import tempfile
 import time
 import uuid
 
+# Registry-qualified build inputs follow libracoder/kiri#593. Pin the index
+# so the cross-platform export resolves the same BusyBox release as the build.
+BUSYBOX_INDEX = "mirror.gcr.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
 
 class Connection(http.client.HTTPConnection):
     def __init__(self, path):
@@ -122,7 +125,7 @@ def check(path):
             context = Path(temp) / "context"
             context.mkdir()
             (context / "Dockerfile").write_text(
-                'FROM busybox:stable\nRUN echo asagiri-buildx-ok > /result\nCMD ["cat", "/result"]\n')
+                f'FROM {BUSYBOX_INDEX}\nRUN echo asagiri-buildx-ok > /result\nCMD ["cat", "/result"]\n')
             tag = prefix + ":build"
             images.append(tag)
             cli("buildx", "build", "--builder", managed, "--progress=plain",
@@ -149,7 +152,7 @@ def check(path):
             # an exporter can label native layers with the requested platform.
             native = cli("image", "inspect", "busybox:stable", "--format", "{{.Architecture}}").stdout.strip()
             other, machine = ("arm64", 183) if native == "amd64" else ("amd64", 62)
-            (context / "Dockerfile").write_text("FROM busybox:stable\n")
+            (context / "Dockerfile").write_text(f"FROM {BUSYBOX_INDEX}\n")
             archive = Path(temp) / "other-platform.tar"
             cli("buildx", "build", "--builder", managed, "--progress=plain",
                 "--platform", "linux/" + other, "--pull", "--provenance=false",
