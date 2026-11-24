@@ -91,6 +91,11 @@ jobs:
           UserGuest id
           UserGuest mkdir -p /home/managed241/bin /home/managed241/data
           UserGuest cp /usr/local/bin/asagiri /usr/local/bin/asagiri-init /home/managed241/bin/
+          Invoke-WebRequest 'https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz' -OutFile docker-cli.tgz
+          if ((Get-FileHash docker-cli.tgz).Hash.ToLowerInvariant() -ne '9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb') { throw 'Linux Docker CLI archive digest mismatch' }
+          $archive = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'docker-cli.tgz').Replace('\','/'))
+          UserGuest tar -xzf $archive.Trim() -C /home/managed241/bin --strip-components=1 docker/docker
+          UserGuest /home/managed241/bin/docker --version
           @'
           set -eu
           export HOME=/home/managed241 ASAGIRI_SOCKET=/home/managed241/user.sock ASAGIRI_DATA_DIR=/home/managed241/data
@@ -101,8 +106,8 @@ jobs:
               trap 'cat "$HOME/engine.log"' EXIT
               export PATH="$HOME/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
               image=mirror.gcr.io/library/alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
-              "$HOME/bin/asagiri" pull "$image"
-              output=$("$HOME/bin/asagiri" run --rm "$image" echo managed241-workload)
+              "$HOME/bin/docker" pull "$image"
+              output=$("$HOME/bin/docker" run --rm "$image" echo managed241-workload)
               printf '%s\n' "$output"
               test "$output" = managed241-workload
               exit 0
