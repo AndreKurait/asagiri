@@ -178,6 +178,7 @@ jobs:
           Console.WriteLine($"PASS StopAsync {container.Id} {watch.Elapsed}");
           '@ | Set-Content -Encoding utf8 Program.cs
             $env:TESTCONTAINERS_RYUK_DISABLED = 'true'
+            $env:DOCKER_HOST = 'npipe://./pipe/asagiri-load-test'
             dotnet run
             if ($LASTEXITCODE) { throw 'Client lifecycle failed' }
             Pop-Location
