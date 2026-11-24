@@ -169,6 +169,10 @@ jobs:
               docker = sys.argv[1]
               subprocess.run([docker, 'image', 'rm', 'alpine:3.21'], check=True)
               import time
+              def archive_stages():
+                  command = ['wsl.exe', '-d', 'asagiri', '-u', 'root', '--', 'find', '/var/lib/asagiri-daemon', '-type', 'd', '-name', 'archive.*']
+                  return set(subprocess.check_output(command, timeout=10).decode('utf-8').splitlines())
+              initial_stages = archive_stages()
               started = time.monotonic()
               with open(r'\\.\pipe\asagiri-load-test', 'r+b', buffering=0) as interrupted:
                   header = f'Content-Length: {len(archive)}' if framing == 'fixed' else 'Transfer-Encoding: chunked'
@@ -177,6 +181,18 @@ jobs:
                   if framing == 'chunked':
                       interrupted.write(f'{len(prefix):x}\r\n'.encode())
                   interrupted.write(prefix)
+                  active_stages = set()
+                  for attempt in range(30):
+                      active_stages = archive_stages() - initial_stages
+                      if active_stages: break
+                      time.sleep(0.2)
+                  assert active_stages, 'Guest archive staging directory never observed during upload'
+              for attempt in range(30):
+                  if active_stages.isdisjoint(archive_stages()): break
+                  time.sleep(0.2)
+              else:
+                  raise RuntimeError(f'Guest retained interrupted staging directories: {active_stages}')
+              print('Guest removed interrupted staging directories', sorted(active_stages), flush=True)
               subprocess.run([docker, 'version'], check=True, timeout=30)
               tags = subprocess.check_output([docker, 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}'], text=True, timeout=30).splitlines()
               assert 'alpine:3.21' not in tags, tags
