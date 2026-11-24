@@ -1,0 +1,41 @@
+name: Windows 11 dashboard context verification
+on:
+  push:
+    branches: [qualification/windows11-context-175]
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Exercise the dashboard switch in Windows Edge
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,OSArchitecture
+          Write-Host "Docker Desktop installed: $(Test-Path "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe")"
+          @'
+          import os, pathlib, runpy, subprocess, tempfile
+          from html.parser import HTMLParser
+          class Results(HTMLParser):
+              reading = False
+              def handle_starttag(self, tag, attrs):
+                  if dict(attrs).get('id') == 'results': self.reading = True
+              def handle_endtag(self, tag):
+                  if tag == 'pre': self.reading = False
+              def handle_data(self, data):
+                  if self.reading: self.lines.extend(data.splitlines())
+          edge = next(p for env in ('ProgramFiles(x86)', 'ProgramFiles') if (p := pathlib.Path(os.environ[env]) / 'Microsoft/Edge/Application/msedge.exe').is_file())
+          page = runpy.run_path('scripts/ui-test.py')['page']('tests/ui/switch.js', 'windows')
+          with tempfile.TemporaryDirectory() as d:
+              path = pathlib.Path(d) / 'switch.html'
+              path.write_text(page, encoding='utf-8')
+              result = subprocess.run([str(edge), '--headless', '--disable-gpu', '--no-first-run', '--user-data-dir='+d+'/profile', '--dump-dom', path.as_uri()], capture_output=True, timeout=90, check=True)
+              report = Results(); report.lines = []; report.feed(result.stdout.decode('utf-8', errors='replace'))
+              print('\n'.join(report.lines))
+              assert len(report.lines) == 12 and all(line.startswith('PASS ') for line in report.lines), report.lines
+          '@ | python -
+          exit $LASTEXITCODE
