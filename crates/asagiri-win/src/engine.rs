@@ -753,7 +753,10 @@ fn status_event() -> String {
     let context = selected.filter(|_| endpoint.as_ref().is_some_and(|s| !s.trim().is_empty()));
     let custom_endpoint = context.as_deref() == Some(crate::flavor::CONTEXT.get())
         && !crate::docker_context::uses_pipe(endpoint.as_deref().unwrap_or_default(), &crate::client::pipe());
-    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context, "customEndpoint": custom_endpoint}).to_string()
+    let context_override = ["DOCKER_CONTEXT", "DOCKER_HOST"]
+        .into_iter()
+        .find(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context, "contextOverride": context_override, "customEndpoint": custom_endpoint}).to_string()
 }
 
 /// The docker CLI on Asagiri's context, without a console window, for Compose
