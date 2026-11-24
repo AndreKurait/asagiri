@@ -102,11 +102,24 @@ jobs:
           Guest rm -f /tmp/managed241-marker
           Guest test ! -e /tmp/managed241-marker
           Guest cp /tmp/engineping /usr/local/bin/qualification-engineping
+          # In this disposable distro only, record whether WSL invokes the
+          # verified binary. exec preserves the daemon's PID and exit status.
+          Guest mv /usr/local/bin/asagiri /usr/local/bin/asagiri-qualified
+          @'
+          #!/bin/sh
+          if [ "$1" = daemon ]; then echo daemon >> /var/tmp/qualification-boot-invocations; fi
+          exec /usr/local/bin/asagiri-qualified "$@"
+          '@ | Set-Content -Encoding utf8NoBOM boot-trace.sh
+          $wrapper = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'boot-trace.sh').Replace('\','/'))
+          Guest sh -c 'tr -d "\r" < "$1" > /usr/local/bin/asagiri && chmod 755 /usr/local/bin/asagiri' sh $wrapper.Trim()
+          Guest env ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock /usr/local/bin/asagiri daemon-ping
+          Guest rm -f /var/tmp/qualification-boot-invocations
           wsl.exe --terminate Managed241
           if ($LASTEXITCODE) { throw 'Failed to terminate test distro' }
           $after = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           try {
             Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/managed241-marker && break; sleep 1; done; if test -f /tmp/managed241-marker; then echo BOOT_COMMAND=passed; else echo BOOT_COMMAND=failed; fi; for i in 1 2 3 4 5 6 7 8 9 10; do /usr/local/bin/qualification-engineping && break; sleep 1; done; if /usr/local/bin/qualification-engineping; then echo ENGINE_RESTART=passed; else echo ENGINE_RESTART=failed; exit 1; fi; test -f /tmp/managed241-marker'
           } finally {
+            Guest sh -c 'if test -s /var/tmp/qualification-boot-invocations; then echo DAEMON_INVOKED=yes; else echo DAEMON_INVOKED=no; fi; cat /etc/wsl.conf; tail -20 /var/log/asagiri.log'
             wsl.exe --terminate Managed241
           }
