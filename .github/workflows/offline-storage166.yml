@@ -1,0 +1,49 @@
+name: Windows offline storage recovery
+on:
+  push:
+    branches: [qualification/offline-windows-166]
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Detach and recover a drive containing the WSL distro
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if (Test-Path R:\) { throw 'Fixture drive letter occupied' }
+          $disk = Join-Path $env:RUNNER_TEMP 'offline166.vhdx'
+          function DiskCommands($commands) {
+            $file = Join-Path $env:RUNNER_TEMP 'offline166.diskpart'
+            $commands | Set-Content -Encoding ascii $file
+            diskpart /s $file
+          }
+          DiskCommands @("create vdisk file=`"$disk`" maximum=8192 type=expandable", "select vdisk file=`"$disk`"", 'attach vdisk', 'create partition primary', 'format fs=ntfs quick', 'assign letter=R')
+          $asset = 'Asagiri-0.1.14-dev.205-x86_64.msi'
+          gh release download v0.1.14-dev.205 --repo AndreKurait/asagiri --pattern $asset --dir $env:RUNNER_TEMP
+          $msi = Join-Path $env:RUNNER_TEMP $asset
+          if ((Get-FileHash $msi).Hash -ne '1592852ad8ae07a8b903592ec868164697ba49a38629e47de55127da646dc8b2') { throw 'Unexpected base MSI' }
+          $extract = Start-Process msiexec -ArgumentList "/a `"$msi`" /qn TARGETDIR=`"$env:RUNNER_TEMP\bundle`"" -Wait -PassThru
+          if ($extract.ExitCode) { throw 'MSI extraction failed' }
+          $tar = Get-ChildItem "$env:RUNNER_TEMP\bundle" -Recurse -Filter asagiri-linux.tar.gz
+          wsl --import Offline166 R:\store $tar.FullName --version 2
+          wsl -d Offline166 -u root -- sh -ec 'echo persisted > /root/offline-proof'
+          wsl --terminate Offline166
+          New-Item R:\store\.asagiri-storage -ItemType File
+          New-Item "$env:LOCALAPPDATA\Asagiri" -ItemType Directory -Force
+          @{path='R:\store'} | ConvertTo-Json | Set-Content "$env:LOCALAPPDATA\Asagiri\storage.json"
+          DiskCommands @("select vdisk file=`"$disk`"", 'detach vdisk')
+          foreach ($state in 'detached','reattached') {
+            if ($state -eq 'reattached') { DiskCommands @("select vdisk file=`"$disk`"", 'attach vdisk') }
+            $env:ASAGIRI_TEST_DRIVE_STATE = $state
+            $result = cargo test --locked -p asagiri-win native_offline_drive_status -- --ignored --nocapture
+            $result | Write-Host
+            if (($result -join ' ') -notmatch '1 passed; 0 failed') { throw "Missing $state test" }
+          }

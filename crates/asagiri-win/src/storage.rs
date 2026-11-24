@@ -721,6 +721,26 @@ mod imp {
             "sh".as_ref(), "-ec".as_ref(), "test ! -e /root/storage-proof".as_ref()]).unwrap();
     }
 
+    #[test]
+    #[ignore = "requires the disposable Windows storage qualification drive"]
+    fn native_offline_drive_status() {
+        let detached = std::env::var("ASAGIRI_TEST_DRIVE_STATE").unwrap() == "detached";
+        let path = PathBuf::from(r"R:\store");
+        assert_eq!(read().unwrap().path, path);
+        assert_eq!(report()["state"], if detached { "unavailable" } else { "ok" });
+        if detached {
+            retry_engine(|| panic!("attempted restart on missing drive")).unwrap_err();
+            assert!(!path.exists());
+        } else {
+            retry_engine(|| {
+                let marker = wsl_run(&["-d".as_ref(), "Offline166".as_ref(), "--".as_ref(),
+                    "cat".as_ref(), "/root/offline-proof".as_ref()])?;
+                assert_eq!(marker.trim(), "persisted");
+                Ok(())
+            }).unwrap();
+        }
+    }
+
     fn retry_engine(restart: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
         // Hold the move lock until both bridge renewal and daemon startup finish.
         let _operation = STORAGE_OPERATION.try_lock().map_err(|_| {
