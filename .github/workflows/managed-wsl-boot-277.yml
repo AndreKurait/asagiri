@@ -1,4 +1,4 @@
-name: Compare detached and foreground managed WSL startup
+name: Check managed WSL startup with the packaged nohup and readiness wait
 on:
   push:
     branches: [qualification/wsl-managed-detach-241]
@@ -84,7 +84,7 @@ jobs:
             Write-Host 'Packaged background launch already serves HTTP; detached control unnecessary'
           } catch {
             Write-Host 'Packaged background launch unavailable; checking session-detached control'
-            Guest sh -c 'command -v setsid; HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock setsid /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 & /tmp/engineping || exit 1; echo "Daemon answered inside launch session"; ps; cat /tmp/detached.log'
+            Guest sh -c 'command -v nohup; HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 & /tmp/engineping || exit 1; echo "Daemon answered inside launch session"; ps; cat /tmp/detached.log'
             try {
               Guest /tmp/engineping
               Start-Sleep -Seconds 5
