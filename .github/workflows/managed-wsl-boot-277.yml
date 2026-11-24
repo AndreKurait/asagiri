@@ -91,5 +91,18 @@ jobs:
           UserGuest id
           UserGuest mkdir -p /home/managed241/bin /home/managed241/data
           UserGuest cp /usr/local/bin/asagiri /usr/local/bin/asagiri-init /home/managed241/bin/
-          UserGuest sh -c 'HOME=/home/managed241 ASAGIRI_SOCKET=/home/managed241/user.sock ASAGIRI_DATA_DIR=/home/managed241/data nohup /home/managed241/bin/asagiri daemon </dev/null >/home/managed241/engine.log 2>&1 &'
-          UserGuest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /tmp/engineping && exit 0; sleep 1; done; cat /home/managed241/engine.log; exit 1'
+          @'
+          set -eu
+          export HOME=/home/managed241 ASAGIRI_SOCKET=/home/managed241/user.sock ASAGIRI_DATA_DIR=/home/managed241/data
+          "$HOME/bin/asagiri" daemon >"$HOME/engine.log" 2>&1 &
+          daemon_pid=$!
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if /tmp/engineping; then cat "$HOME/engine.log"; exit 0; fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then cat "$HOME/engine.log"; wait "$daemon_pid"; exit 1; fi
+            sleep 1
+          done
+          cat "$HOME/engine.log"
+          exit 1
+          '@.Replace("`r", "") | Set-Content -NoNewline -Encoding utf8NoBOM rootless-probe.sh
+          $guestProbe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'rootless-probe.sh').Replace('\','/'))
+          UserGuest sh $guestProbe.Trim()
