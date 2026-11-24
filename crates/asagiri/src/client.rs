@@ -7,7 +7,8 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -51,17 +52,96 @@ mod version_tests {
 }
 
 pub fn socket() -> io::Result<PathBuf> {
-    if let Some(s) = std::env::var_os("ASAGIRI_SOCKET") {
+    let asagiri_socket = std::env::var_os("ASAGIRI_SOCKET");
+    let home = std::env::var_os("HOME");
+    #[cfg(target_os = "linux")]
+    {
+        let wsl_distro = std::env::var_os("WSL_DISTRO_NAME");
+        let wsl_sockets_dir = PathBuf::from(crate::daemon::binds::wsl_asagiri_dir()).join("sockets");
+        socket_for(
+            asagiri_socket.as_deref(),
+            Some(&service_socket()),
+            wsl_distro.as_deref(),
+            Some(wsl_sockets_dir.as_path()),
+            &[Path::new("/var/run/docker.sock"), Path::new("/run/docker.sock")],
+            home.as_deref(),
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        socket_for(asagiri_socket.as_deref(), None, None, None, &[], home.as_deref())
+    }
+}
+
+fn safe_wsl_distro(name: &str) -> bool {
+    crate::daemon::binds::valid_distro_name(name) && !name.contains("..")
+}
+
+fn is_wsl_socket_path(target: &Path, wsl_sockets_dir: &Path) -> bool {
+    let Ok(rel) = target.strip_prefix(wsl_sockets_dir) else {
+        return false;
+    };
+    let mut comps = rel.components();
+    match (comps.next(), comps.next(), comps.next()) {
+        (Some(Component::Normal(distro)), Some(Component::Normal(file)), None) => {
+            distro.to_str().is_some_and(safe_wsl_distro) && file == "docker.sock"
+        }
+        _ => false,
+    }
+}
+
+/// Whether a socket path is present on disk, treating `EACCES` on a parent
+/// directory (such as a `0750` WSL integration socket directory) as present so
+/// `check_alive` surfaces a clear permission-denied error instead of falling
+/// back to a missing home socket.
+fn socket_present(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(_) => true,
+        Err(e) => e.kind() == io::ErrorKind::PermissionDenied,
+    }
+}
+
+fn socket_for(
+    asagiri_socket: Option<&OsStr>,
+    service_socket: Option<&Path>,
+    wsl_distro: Option<&OsStr>,
+    wsl_sockets_dir: Option<&Path>,
+    docker_sock_links: &[&Path],
+    home: Option<&OsStr>,
+) -> io::Result<PathBuf> {
+    if let Some(s) = asagiri_socket {
         return Ok(PathBuf::from(s));
     }
-    // Linux: the engine is the `asagiri` system service (contrib/linux/asagiri.service).
-    #[cfg(target_os = "linux")]
-    if service_socket().exists() {
-        return Ok(service_socket());
+    // Linux: the engine is the `asagiri` system service (contrib/linux/asagiri.service)
+    // or a root-run `sudo asagiri daemon` at `/run/asagiri/docker.sock`.
+    if let Some(service) = service_socket
+        && socket_present(service)
+    {
+        return Ok(service.to_path_buf());
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| io::Error::other("HOME is not set"))?;
+    // WSL 2 integration: Asagiri for Windows exposes per-distro sockets under
+    // `/mnt/wsl/asagiri/sockets/<distro>/docker.sock` and symlinks
+    // `/var/run/docker.sock` to them.
+    if let Some(wsl_dir) = wsl_sockets_dir {
+        if let Some(distro) = wsl_distro.and_then(|d| d.to_str()).filter(|d| safe_wsl_distro(d)) {
+            let candidate = wsl_dir.join(distro).join("docker.sock");
+            if socket_present(&candidate) {
+                return Ok(candidate);
+            }
+        }
+        for link in docker_sock_links {
+            if let Ok(target) = std::fs::read_link(link)
+                && is_wsl_socket_path(&target, wsl_dir)
+                && socket_present(&target)
+            {
+                return Ok(target);
+            }
+        }
+    }
+    let home = home.map(PathBuf::from).ok_or_else(|| io::Error::other("HOME is not set"))?;
     Ok(home.join(crate::flavor::STATE.get()).join("run/docker.sock"))
 }
+
 
 /// Where the Linux service's engine listens, for members of the `asagiri` group.
 #[cfg(target_os = "linux")]
