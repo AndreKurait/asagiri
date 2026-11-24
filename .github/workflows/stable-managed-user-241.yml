@@ -1,0 +1,112 @@
+name: Verify v0.1.15 managed-user workload on WSL 2.4.13
+on:
+  push:
+    branches: [qualification/stable-015-managed-user-241]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Install the reported Microsoft WSL release on this disposable runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP 'wsl.2.4.13.0.x64.msi'
+          Invoke-WebRequest 'https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi' -OutFile $msi
+          $signature = Get-AuthenticodeSignature $msi
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft WSL signature' }
+          Get-FileHash $msi
+          wsl.exe --shutdown
+          $installed = Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -eq 'Windows Subsystem for Linux' -and $_.WindowsInstaller -eq 1 }
+          foreach ($entry in $installed) {
+            $remove = Start-Process msiexec -ArgumentList "/x $($entry.PSChildName) /qn /norestart" -Wait -PassThru
+            if ($remove.ExitCode -ne 0) { throw "WSL uninstall exited $($remove.ExitCode)" }
+          }
+          $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "WSL install exited $($install.ExitCode)" }
+          $env:WSL_UTF8 = '1'
+          $version = wsl.exe --version | Out-String
+          Write-Host $version
+          if ($version -notmatch '2\.4\.13\.0') { throw 'Reported WSL version was not installed' }
+      - name: Run published engine and pinned Alpine workload as the managed user
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $tag = 'v0.1.15'
+          $asset = 'Asagiri-0.1.15-windows-x86_64.zip'
+          $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($ref.object.sha -ne 'd60b3edc41c628904e5cbca742096a197cc7446f') { throw 'Release revision mismatch' }
+          $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
+          if ($release.isDraft) { throw 'Release is still a draft' }
+          $digest = ($release.assets | Where-Object name -eq $asset).digest
+          if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Missing release asset digest' }
+          gh release download $tag -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw 'Release archive verification failed' }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          wsl.exe --import Managed241 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          $env:WSL_UTF8 = '1'
+          function Guest { & wsl.exe -d Managed241 -u root -- @args; if ($LASTEXITCODE) { throw "Guest command failed: $args" } }
+          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=touch /tmp/managed241-marker\n" > /etc/wsl.conf'
+          wsl.exe --terminate Managed241
+          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+          Write-Host 'Existing boot command verified before install'
+          Guest adduser -D managed241
+          @'
+          package main
+          import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
+          func main() {
+            c, err := net.DialTimeout("unix", "/home/managed241/user.sock", time.Second)
+            if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }; defer c.Close()
+            c.SetDeadline(time.Now().Add(2*time.Second))
+            if _,err = fmt.Fprint(c,"GET /_ping HTTP/1.0\r\nHost: localhost\r\n\r\n"); err != nil { panic(err) }
+            r,err := http.ReadResponse(bufio.NewReader(c),nil); if err != nil { panic(err) }; defer r.Body.Close()
+            b,err := io.ReadAll(r.Body); if err != nil || r.StatusCode != 200 || string(b)!="OK" { fmt.Fprintf(os.Stderr,"ping: %d %q %v\n",r.StatusCode,b,err); os.Exit(1) }
+            fmt.Println("Engine answered /_ping on first request")
+          }
+          '@ | Set-Content -Encoding utf8NoBOM engineping.go
+          $env:GOOS='linux'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
+          go build -o engineping engineping.go
+          if ($LASTEXITCODE) { throw 'Probe compilation failed' }
+          $probe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'engineping').Replace('\','/'))
+          Guest cp $probe.Trim() /tmp/engineping
+          Guest chmod 755 /tmp/engineping
+          $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','managed241','--','sleep','120' -PassThru
+          function UserGuest { & wsl.exe -d Managed241 -u managed241 -- @args; if ($LASTEXITCODE) { throw "User command failed: $args" } }
+          UserGuest id
+          UserGuest mkdir -p /home/managed241/bin /home/managed241/data
+          UserGuest cp /usr/local/bin/asagiri /usr/local/bin/asagiri-init /home/managed241/bin/
+          Invoke-WebRequest 'https://download.docker.com/linux/static/stable/x86_64/docker-29.9.2.tgz' -OutFile docker-cli.tgz
+          if ((Get-FileHash docker-cli.tgz).Hash.ToLowerInvariant() -ne '9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb') { throw 'Linux Docker CLI archive digest mismatch' }
+          $archive = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'docker-cli.tgz').Replace('\','/'))
+          UserGuest tar -xzf $archive.Trim() -C /home/managed241/bin --strip-components=1 docker/docker
+          UserGuest /home/managed241/bin/docker --version
+          @'
+          set -eu
+          export HOME=/home/managed241 ASAGIRI_SOCKET=/home/managed241/user.sock ASAGIRI_DATA_DIR=/home/managed241/data
+          "$HOME/bin/asagiri" daemon >"$HOME/engine.log" 2>&1 &
+          daemon_pid=$!
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if /tmp/engineping; then
+              trap 'cat "$HOME/engine.log"' EXIT
+              export PATH="$HOME/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+              image=mirror.gcr.io/library/alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+              "$HOME/bin/docker" pull "$image"
+              output=$("$HOME/bin/docker" run --rm "$image" echo managed241-workload)
+              printf '%s\n' "$output"
+              test "$output" = managed241-workload
+              exit 0
+            fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then cat "$HOME/engine.log"; wait "$daemon_pid"; exit 1; fi
+            sleep 1
+          done
+          cat "$HOME/engine.log"
+          exit 1
+          '@.Replace("`r", "") | Set-Content -NoNewline -Encoding utf8NoBOM rootless-probe.sh
+          $guestProbe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'rootless-probe.sh').Replace('\','/'))
+          UserGuest sh $guestProbe.Trim()
