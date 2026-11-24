@@ -101,6 +101,7 @@ struct State {
     linux: Option<String>,
     sizes: Value,
     existing_ubuntu: bool,
+    existing_distros: Vec<String>,
     other_docker: bool,
     /// The engine besides Asagiri, by name (crate::buildwith), for the build question.
     other_engine: Option<&'static str>,
@@ -294,13 +295,20 @@ fn resume_step(s: &Saved, wsl: bool, restarted: impl FnOnce(u64) -> bool, missin
     }
 }
 
+fn selectable_distro(name: &str) -> bool {
+    !name.eq_ignore_ascii_case(ASAGIRI_DISTRO)
+        && !matches!(name.to_ascii_lowercase().as_str(), "docker-desktop" | "docker-desktop-data")
+}
+
 fn fresh_state(step: &'static str, s: &Saved) -> State {
     let other = other_docker();
+    let registered = distros();
     State {
         step,
         linux: s.linux.clone(),
         sizes: json!({"wsl": WSL_MSI.size, "ubuntu": UBUNTU.size, "asagiri": std::fs::metadata(bundle().join("asagiri-linux.tar.gz")).map_or(0, |m| m.len())}),
-        existing_ubuntu: existing_ubuntu().is_some(),
+        existing_ubuntu: registered.iter().any(|name| name.starts_with("Ubuntu")),
+        existing_distros: registered.into_iter().filter(|name| selectable_distro(name)).collect(),
         other_docker: other,
         other_engine: crate::buildwith::other_engine(),
         make_default: !other,
@@ -591,10 +599,18 @@ fn install_linux(kind: &str) -> io::Result<()> {
         task(2, "done", "");
         ASAGIRI_DISTRO.to_owned()
     } else {
-        let existing = existing_ubuntu();
+        let existing = if let Some(name) = kind.strip_prefix("existing:") {
+            if !selectable_distro(name) || !probe_distros()?.iter().any(|registered| registered == name) {
+                return Err(io::Error::other(format!("WSL distribution is unavailable: {name}")));
+            }
+            Some(name.to_owned())
+        } else {
+            existing_ubuntu()
+        };
         let distro = match existing {
             Some(d) => {
-                update(|s| s.tasks = tasks(&[tr("Use the Ubuntu already here"), tr("Install Asagiri's engine in it"), tr("Start it")]));
+                let label = if kind == "ubuntu" { tr("Use the Ubuntu already here") } else { d.clone() };
+                update(|s| s.tasks = tasks(&[label, tr("Install Asagiri's engine in it"), tr("Start it")]));
                 task(0, "done", &d);
                 d
             }
@@ -900,9 +916,12 @@ pub fn on_message(msg: &str) {
         }
         "setup-later" => Handle.run(crate::app::Ui::hide),
         "setup-choose" => {
-            let kind = if v["value"] == "ubuntu" { "ubuntu" } else { "asagiri" };
+            let kind = match v["value"].as_str() {
+                Some(value) if value == "ubuntu" || value.starts_with("existing:") => value.to_owned(),
+                _ => "asagiri".to_owned(),
+            };
             update(|s| s.linux = Some(kind.to_owned()));
-            run("linux", move || install_linux(kind));
+            run("linux", move || install_linux(&kind));
         }
         "setup-switch" => {
             CANCEL.store(true, Ordering::SeqCst);

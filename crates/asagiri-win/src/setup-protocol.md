@@ -14,7 +14,7 @@ way the main page does: it sends JSON strings with
 | `setup-install-wsl` | | Welcome → "Install WSL" |
 | `setup-restart` | | Restart → "Restart now" |
 | `setup-later` | | Restart → "Restart later" (hides the window to the tray) |
-| `setup-choose` | `value`: `"asagiri"` or `"ubuntu"` | Choose a Linux → the primary button |
+| `setup-choose` | `value`: `"asagiri"`, `"ubuntu"`, or `"existing:<registered distro name>"` | Choose a Linux → the primary button |
 | `setup-switch` | `value`: `"asagiri"` | while Ubuntu downloads → "Use Asagiri Linux instead" |
 | `setup-cancel` | | any progress screen → "Cancel" (back to the step's start) |
 | `setup-retry` | | error → "Try again" |
@@ -37,6 +37,7 @@ One event type, sent whenever anything changes (at most ~10 a second):
   "linux": "asagiri" | "ubuntu" | null,
   "sizes": {"wsl": 367575040, "ubuntu": 418495746, "asagiri": 9000000},
   "existingUbuntu": false,
+  "existingDistros": [],
   "otherDocker": false,
   "otherEngine": null | "Docker Desktop",
   "makeDefault": true,
