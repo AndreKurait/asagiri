@@ -1,0 +1,104 @@
+name: Verify native registered-distro setup for PR 473
+on:
+  push:
+    branches: [qualification/named-wizard-473]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-2025
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3a2dac5d291fc9368552bac1eacd14538f79a283
+          persist-credentials: false
+      - name: Build the native wizard
+        run: cargo build --locked -p asagiri-win
+      - name: Install the reported Microsoft WSL release on this disposable runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Join-Path $env:RUNNER_TEMP 'wsl.2.4.13.0.x64.msi'
+          Invoke-WebRequest 'https://github.com/microsoft/WSL/releases/download/2.4.13/wsl.2.4.13.0.x64.msi' -OutFile $msi
+          $signature = Get-AuthenticodeSignature $msi
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Invalid Microsoft WSL signature' }
+          Get-FileHash $msi
+          wsl.exe --shutdown
+          $installed = Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -eq 'Windows Subsystem for Linux' -and $_.WindowsInstaller -eq 1 }
+          foreach ($entry in $installed) {
+            $remove = Start-Process msiexec -ArgumentList "/x $($entry.PSChildName) /qn /norestart" -Wait -PassThru
+            if ($remove.ExitCode -ne 0) { throw "WSL uninstall exited $($remove.ExitCode)" }
+          }
+          $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "WSL install exited $($install.ExitCode)" }
+          $env:WSL_UTF8 = '1'
+          $version = wsl.exe --version | Out-String
+          Write-Host $version
+          if ($version -notmatch '2\.4\.13\.0') { throw 'Reported WSL version was not installed' }
+      - name: Select a registered distro through the native wizard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd $env:RUNNER_TEMP
+          $tag = 'v0.1.14-dev.277'
+          $asset = 'Asagiri-0.1.14-dev.277-windows-x86_64.zip'
+          $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
+          if ($ref.object.sha -ne '51e026d86e120bd8054247c68729478ebc70c5b2') { throw 'Release revision mismatch' }
+          $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
+          if ($release.isDraft) { throw 'Release is still a draft' }
+          $digest = ($release.assets | Where-Object name -eq $asset).digest
+          if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Missing release asset digest' }
+          gh release download $tag -R AndreKurait/asagiri -p $asset
+          if ($LASTEXITCODE -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw 'Release archive verification failed' }
+          Expand-Archive $asset bundle
+          $env:PICKER_APP = (Get-ChildItem bundle -Recurse -Filter asagiri-win.exe).FullName
+          wsl.exe --import Managed241 "$env:RUNNER_TEMP\picker-distro" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw "WSL import" }
+          $env:WSL_UTF8 = '1'
+          function Guest { & wsl.exe -d Managed241 -u root -- @args; if ($LASTEXITCODE) { throw "Guest command failed: $args" } }
+          wsl.exe --import Control473 "$env:RUNNER_TEMP\control" "$(Split-Path $env:PICKER_APP)\asagiri-linux.tar.gz" --version 2
+          if ($LASTEXITCODE) { throw 'Control import failed' }
+          function ControlConfig { wsl.exe -d Control473 -- sh -c 'sha256sum /etc/wsl.conf /usr/local/bin/asagiri'; if ($LASTEXITCODE) { throw 'Control fingerprint failed' } }
+          $before = ControlConfig
+          Copy-Item "$env:GITHUB_WORKSPACE\target\debug\asagiri-win.exe" $env:PICKER_APP -Force
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-address=127.0.0.1 --remote-debugging-port=9222'
+          Start-Process $env:PICKER_APP
+          @'
+          const delay = ms => new Promise(r => setTimeout(r, ms));
+          let page;
+          for (let i=0; i<90 && !page; i++) {
+            try { page = (await (await fetch('http://127.0.0.1:9222/json/list')).json()).find(p => p.type === 'page'); } catch {}
+            await delay(1000);
+          }
+          if (!page) throw Error('Wizard WebView unavailable');
+          let ws = new WebSocket(page.webSocketDebuggerUrl);
+          await new Promise((resolve,reject) => { ws.onopen=resolve; ws.onerror=reject; });
+          for (let id=1; id<=120; id++) {
+            const reply = new Promise(resolve => {ws.onmessage = event => {let msg=JSON.parse(event.data); if(msg.id===id) resolve(msg);};});
+            ws.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression:`(() => {
+              const radio=document.querySelector('input[value="existing:Managed241"]');
+              if(radio) { radio.click(); document.querySelector('#chooseBtn').click(); return 'selected'; }
+              const btn=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Continue');
+              if(document.querySelector('#lang-title') && btn) btn.click();
+              return document.querySelector('h1')?.textContent;
+            })()`}}));
+            const state=(await reply).result?.result?.value;
+            if(id%10===0 || state==='selected') console.log(state);
+            if(state==='selected') { ws.close(); break; }
+            if(id===120) throw Error('Registered distro picker unavailable');
+            await delay(1000);
+          }
+          '@ | Set-Content wizard.mjs
+          node wizard.mjs
+          if ($LASTEXITCODE) { throw 'Wizard interaction failed' }
+          $file="$env:LOCALAPPDATA\Asagiri\setup.json"
+          foreach ($i in 1..120) {
+            if (Test-Path $file) { $saved=Get-Content $file -Raw | ConvertFrom-Json; if ($saved.last_error) { throw $saved.last_error }; if ($saved.done) { break } }
+            Start-Sleep 5
+          }
+          Get-Content $file
+          if (!$saved.done -or $saved.distro -cne 'Managed241') { throw 'Selected installation did not finish' }
+          Guest test -S /var/lib/asagiri-daemon/.asagiri/run/docker.sock
+          if (Compare-Object $before (ControlConfig)) { throw 'Control distro changed' }
