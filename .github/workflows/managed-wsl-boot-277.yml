@@ -67,18 +67,29 @@ jobs:
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified before install'
           Guest adduser -D managed241
-          $installer = (Get-ChildItem bundle -Recurse -Filter install.sh | Select-Object -First 1).FullName
-          $guestInstaller = Guest wslpath -u ($installer.Replace('\','/'))
-          Guest cp /etc/wsl.conf /tmp/original-wsl.conf
-          $identity = wsl.exe -d Managed241 -u managed241 -- id -u
-          if ($LASTEXITCODE -or [int]$identity -eq 0) { throw 'Expected an unprivileged WSL account' }
-          # The published test rootfs ships binaries. Model a first installation
-          # in the disposable managed distro by moving them out of the target.
-          Guest mv /usr/local/bin/asagiri /tmp/preinstalled-asagiri
-          Guest mv /usr/local/bin/asagiri-init /tmp/preinstalled-asagiri-init
-          $output = & wsl.exe -d Managed241 -u managed241 -- sh $guestInstaller.Trim() 2>&1
-          $exit = $LASTEXITCODE
-          $output | Write-Host
-          if (!$exit -or ($output -join "`n") -notmatch '(?i)permission denied') { throw "Unexpected installer exit $exit for UID $identity" }
-          Guest cmp /etc/wsl.conf /tmp/original-wsl.conf
-          Write-Host "Confirmed published installer permissions failure under WSL UID $identity with boot configuration preserved"
+          @'
+          package main
+          import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
+          func main() {
+            c, err := net.DialTimeout("unix", "/home/managed241/user.sock", time.Second)
+            if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }; defer c.Close()
+            c.SetDeadline(time.Now().Add(2*time.Second))
+            if _,err = fmt.Fprint(c,"GET /_ping HTTP/1.0\r\nHost: localhost\r\n\r\n"); err != nil { panic(err) }
+            r,err := http.ReadResponse(bufio.NewReader(c),nil); if err != nil { panic(err) }; defer r.Body.Close()
+            b,err := io.ReadAll(r.Body); if err != nil || r.StatusCode != 200 || string(b)!="OK" { fmt.Fprintf(os.Stderr,"ping: %d %q %v\n",r.StatusCode,b,err); os.Exit(1) }
+            fmt.Println("Engine answered /_ping on first request")
+          }
+          '@ | Set-Content -Encoding utf8NoBOM engineping.go
+          $env:GOOS='linux'; $env:GOARCH='amd64'; $env:CGO_ENABLED='0'
+          go build -o engineping engineping.go
+          if ($LASTEXITCODE) { throw 'Probe compilation failed' }
+          $probe = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'engineping').Replace('\','/'))
+          Guest cp $probe.Trim() /tmp/engineping
+          Guest chmod 755 /tmp/engineping
+          $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','managed241','--','sleep','120' -PassThru
+          function UserGuest { & wsl.exe -d Managed241 -u managed241 -- @args; if ($LASTEXITCODE) { throw "User command failed: $args" } }
+          UserGuest id
+          UserGuest mkdir -p /home/managed241/bin /home/managed241/data
+          UserGuest cp /usr/local/bin/asagiri /usr/local/bin/asagiri-init /home/managed241/bin/
+          UserGuest sh -c 'HOME=/home/managed241 ASAGIRI_SOCKET=/home/managed241/user.sock ASAGIRI_DATA_DIR=/home/managed241/data nohup /home/managed241/bin/asagiri daemon </dev/null >/home/managed241/engine.log 2>&1 &'
+          UserGuest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /tmp/engineping && exit 0; sleep 1; done; cat /home/managed241/engine.log; exit 1'
