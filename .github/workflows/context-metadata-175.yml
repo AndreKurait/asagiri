@@ -1,0 +1,44 @@
+name: Windows Docker context metadata repair
+on:
+  push:
+    branches: [qualification/context-metadata-175]
+    paths: [.github/workflows/context-metadata-175.yml]
+permissions:
+  contents: read
+jobs:
+  context:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'isolated-config'
+          New-Item -ItemType Directory $env:DOCKER_CONFIG | Out-Null
+          Remove-Item Env:DOCKER_HOST,Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          '{"currentContext":"asagiri"}' | Set-Content -Encoding utf8NoBOM "$env:DOCKER_CONFIG/config.json"
+          @'
+          #[path="crates/asagiri-win/src/docker_context.rs"] mod docker_context;
+          fn main() -> std::io::Result<()> {
+              docker_context::select("asagiri", "asagiri", "npipe:////./pipe/asagiri", |args| {
+                  let r = std::process::Command::new("docker").args(args).output()?;
+                  if !r.status.success() { return Err(std::io::Error::other(String::from_utf8_lossy(&r.stderr).into_owned())); }
+                  Ok(String::from_utf8_lossy(&r.stdout).into_owned())
+              })
+          }
+          '@ | Set-Content -Encoding utf8NoBOM context-probe.rs
+          rustc +stable --edition=2021 context-probe.rs
+          if ($LASTEXITCODE) { throw 'probe compilation failed' }
+          foreach ($pipe in 'asagiri','custom175') {
+            if ($pipe -eq 'custom175') {
+              docker context update asagiri --docker host=npipe:////./pipe/custom175
+              if ($LASTEXITCODE) { throw 'cannot set custom endpoint' }
+            }
+            ./context-probe.exe
+            if ($LASTEXITCODE) { throw 'selection failed' }
+            $hostValue = docker context inspect asagiri --format '{{.Endpoints.docker.Host}}'
+            if ($hostValue -ne "npipe:////./pipe/$pipe" -or (docker context show) -ne 'asagiri') { throw "wrong selection or endpoint: $hostValue" }
+            Write-Host "PASS persisted selection and endpoint $hostValue"
+          }
