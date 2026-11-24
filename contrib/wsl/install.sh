@@ -11,9 +11,27 @@ boot_entry() {
   printf '\n[boot]\ncommand = HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &\n'
 }
 
-if [ "${1:-}" = --remove-boot-entry ]; then
-  conf=/etc/wsl.conf
-  [ -f "$conf" ] || exit 0
+# Address only the command in a boot section. Other WSL sections may also
+# contain command keys. Keep the original command text for uninstall.
+boot_command_line() {
+  awk '
+    /^[[:space:]]*\[/ { boot = (tolower($0) ~ /^[[:space:]]*\[boot\][[:space:]]*$/) }
+    boot && tolower($0) ~ /^[[:space:]]*command[[:space:]]*=/ { print NR; exit }
+  ' "$1"
+}
+helper_contents() {
+  cat <<'START'
+#!/bin/sh
+export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
+nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &
+START
+}
+start_helper=/usr/local/bin/asagiri-wsl-start
+managed_helper() {
+  [ ! -L "$start_helper" ] && [ -f "$start_helper" ] && helper_contents | cmp -s - "$start_helper"
+}
+remove_legacy_entry() (
+  conf=$1
   suffix=$(mktemp)
   trap 'rm -f "$suffix"' EXIT
   boot_entry > "$suffix"
@@ -21,7 +39,37 @@ if [ "${1:-}" = --remove-boot-entry ]; then
   if tail -c "$bytes" "$conf" | cmp -s - "$suffix"; then
     total=$(wc -c < "$conf")
     truncate -s "$((total - bytes))" "$conf"
+  else
+    # Later settings may belong to this boot section. Keep the section and
+    # remove only our exact command immediately beneath its generated header.
+    command=$(tail -n 1 "$suffix")
+    offset=$(LC_ALL=C awk -v command="$command" '
+      previous == "[boot]" && $0 == command { print bytes; exit }
+      { previous = $0; bytes += length($0) + 1 }
+    ' "$conf")
+    if [ -n "$offset" ]; then
+      conf=$(readlink -f "$conf")
+      updated=$(mktemp "${conf}.XXXXXX")
+      trap 'rm -f "$suffix" "$updated"' EXIT
+      cp -p "$conf" "$updated"
+      {
+        head -c "$offset" "$conf"
+        tail -c "+$((offset + ${#command} + 2))" "$conf"
+      } > "$updated"
+      mv -f "$updated" "$conf"
+    fi
   fi
+)
+if [ "${1:-}" = --remove-boot-entry ]; then
+  conf=/etc/wsl.conf
+  [ -f "$conf" ] || exit 0
+  conf=$(readlink -f "$conf")
+  line=$(boot_command_line "$conf")
+  if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
+    sed -i "${line}s|=$start_helper; |=|" "$conf"
+    if managed_helper; then rm -f "$start_helper"; fi
+  fi
+  remove_legacy_entry "$conf"
   exit 0
 fi
 here=$(cd "$(dirname "$0")" && pwd)
@@ -49,8 +97,40 @@ UNIT
   systemctl restart asagiri
 else
   # No systemd in this distro: start Asagiri when WSL boots it.
-  if ! grep -q 'asagiri daemon' /etc/wsl.conf 2>/dev/null; then
-    boot_entry >> /etc/wsl.conf
+  conf=/etc/wsl.conf
+  line=
+  if [ -f "$conf" ]; then
+    conf=$(readlink -f "$conf")
+    line=$(boot_command_line "$conf")
+  fi
+  current=
+  if [ -n "$line" ]; then current=$(sed -n "${line}p" "$conf"); fi
+  if ! printf '%s\n' "$current" | grep -Fq 'asagiri daemon'; then
+    if [ -n "$line" ]; then
+      if [ -L "$start_helper" ] || [ -e "$start_helper" ]; then
+        if ! managed_helper; then
+          echo "Existing $start_helper differs from the Asagiri helper; keeping it intact" >&2
+          exit 1
+        fi
+      else
+        staged=$(mktemp "${start_helper}.XXXXXX")
+        trap 'rm -f "$staged"' EXIT
+        helper_contents > "$staged"
+        chmod 755 "$staged"
+        ln -T "$staged" "$start_helper"
+        rm -f "$staged"
+      fi
+      if ! sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
+        # Migrate the exact entry appended by previous installers after the
+        # distro's original command. Its removal leaves the earlier line intact.
+        if grep -Fxq "$(boot_entry | tail -n 1)" "$conf"; then
+          remove_legacy_entry "$conf"
+        fi
+        sed -i "${line}s|=|=$start_helper; |" "$conf"
+      fi
+    else
+      boot_entry >> "$conf"
+    fi
   fi
   pkill -f '/usr/local/bin/asagiri daemon' 2>/dev/null || true
   export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
