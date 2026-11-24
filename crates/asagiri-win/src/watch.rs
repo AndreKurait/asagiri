@@ -190,9 +190,9 @@ pub fn is_git_storm_path(rel: &str) -> bool {
 
 /// Decodes a Win32 `FILE_NOTIFY_INFORMATION` buffer (UTF-16LE filenames) into
 /// `(op, relative_path)` pairs:
-/// - `FILE_ACTION_ADDED (1)` -> `'C'`
+/// - `FILE_ACTION_ADDED (1)` / `FILE_ACTION_RENAMED_NEW_NAME (5)` -> `'C'`
 /// - `FILE_ACTION_REMOVED (2)` / `FILE_ACTION_RENAMED_OLD_NAME (4)` -> `'D'`
-/// - `FILE_ACTION_MODIFIED (3)` / `FILE_ACTION_RENAMED_NEW_NAME (5)` -> `'M'`
+/// - `FILE_ACTION_MODIFIED (3)` -> `'M'`
 pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
     const ACTION_ADDED: u32 = 1;
     const ACTION_REMOVED: u32 = 2;
@@ -212,9 +212,9 @@ pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
             break;
         }
         let op = match action {
-            ACTION_ADDED => Some('C'),
+            ACTION_ADDED | ACTION_RENAMED_NEW => Some('C'),
             ACTION_REMOVED | ACTION_RENAMED_OLD => Some('D'),
-            ACTION_MODIFIED | ACTION_RENAMED_NEW => Some('M'),
+            ACTION_MODIFIED => Some('M'),
             _ => None,
         };
         if let Some(op) = op && name_bytes > 0 {
@@ -712,7 +712,7 @@ mod tests {
                 ('D', r"src\old.ts".into()),
                 ('M', r"src\app.ts".into()),
                 ('D', r"src\before.ts".into()),
-                ('M', r"src\after.ts".into()),
+                ('C', r"src\after.ts".into()),
                 ('M', "src\\caf\u{00e9}.js".into()),
             ]
         );
