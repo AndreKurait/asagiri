@@ -1,7 +1,7 @@
-name: Verify PR 467 installer serves the engine after WSL setup
+name: Verify existing WSL boot configuration across reinstall and removal
 on:
   push:
-    branches: [qualification/wsl-install-467]
+    branches: [qualification/managed-wsl-roundtrip-check]
 permissions:
   actions: read
   contents: read
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: b2679746833da9825fa607cc76c3551207d388cf
+          ref: a01ed4960136c98dc941847d28d77c6e7aaea920
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
