@@ -47,6 +47,13 @@ def receive(proc):
     return kind, ident, data
 
 
+def client_connections(port):
+    table = subprocess.check_output(WSL + ['cat', '/proc/net/tcp'], timeout=5)
+    remote = f'0100007F:{port:04X}'.encode()
+    return {fields[1]: fields[3] for row in table.splitlines()[1:]
+            if (fields := row.split())[2] == remote}
+
+
 def exercise():
     with ExitStack() as stack:
         relay = child(stack, '/usr/local/bin/asagiri', 'hostrelay')
@@ -63,9 +70,22 @@ def exercise():
         relay.stdin.write(HEADER.pack(2, ident, 4) + b'live')
         relay.stdin.flush()
         assert read_with_deadline(client, 4, 'data delivery') == b'live'
+        sockets = client_connections(port)
+        established, = [local for local, state in sockets.items() if state == b'01']
         relay.stdin.close()
         assert relay.wait(timeout=15) == 0
-        assert read_with_deadline(client, 1, 'disconnect') == b''
+        # Netcat can keep copying stdin after receiving a TCP FIN. Check the
+        # specific guest socket before closing stdin so our cleanup cannot
+        # produce the observed disconnect.
+        for _ in range(20):
+            state = client_connections(port).get(established)
+            if state is None or state == b'08':  # removed or CLOSE_WAIT
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError(f'Guest connection remained in TCP state {state!r}')
+        client.stdin.close()
+        assert read_with_deadline(client, 1, 'netcat exit after disconnect') == b''
         assert client.wait(timeout=15) == 0
         # A new listener must be able to bind the released port immediately.
         listener = child(stack, 'busybox', 'nc', '-l', '-p', str(port), '-s', '127.0.0.1')
