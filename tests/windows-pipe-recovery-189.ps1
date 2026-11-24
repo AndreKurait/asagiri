@@ -14,15 +14,13 @@ $linux = Join-Path $env:RUNNER_TEMP linux-X64
 if ((Get-Content "$linux\SOURCE_COMMIT").Trim() -ne 'c501a37d18d1c6d5c5dc50e8531a16b66eaf26a8') { throw 'Linux binary revision mismatch' }
 wsl.exe --import asagiri "$root\distro" "$bundle\asagiri-linux.tar.gz" --version 2
 try {
-    $src = (wsl.exe -d asagiri -u root -- wslpath -a ($linux.Replace('\','/'))).Trim()
-    foreach ($name in 'asagiri','asagiri-init') {
-        # Install through a temporary pathname since the base daemon may already be running.
-        wsl.exe -d asagiri -u root -- cp "$src/$name" "/usr/local/bin/$name.new"
-        wsl.exe -d asagiri -u root -- chmod 755 "/usr/local/bin/$name.new"
-        wsl.exe -d asagiri -u root -- mv "/usr/local/bin/$name.new" "/usr/local/bin/$name"
-        $digest = (wsl.exe -d asagiri -u root -- sha256sum "/usr/local/bin/$name").Split(' ')[0]
-        if ($digest -ne (Get-FileHash "$linux\$name").Hash) { throw "Wrong installed $name" }
-    }
+    $expectedEngine = (Get-FileHash "$linux\asagiri").Hash
+    $oldEngine = (wsl.exe -d asagiri -u root -- sha256sum /usr/local/bin/asagiri).Split(' ')[0]
+    if ($oldEngine -eq $expectedEngine) { throw 'Expected an older guest engine before upgrade' }
+    foreach ($name in 'asagiri','asagiri-init') { Copy-Item "$linux\$name" "$bundle\$name" -Force }
+    @{done=$true;linux='asagiri';distro='asagiri'} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$bundle\setup.json"
+    # Start the launcher with the old guest binary installed and no daemon running.
+    wsl.exe -d asagiri -u root -- sed -i '/^command *=/d' /etc/wsl.conf
     wsl.exe --terminate asagiri
     $env:ASAGIRI_WIN_WATCH_BINDS = '1'
     $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-watch-test'
@@ -34,6 +32,11 @@ try {
         try { & $docker info --format '{{.ServerVersion}}'; $ready = $true; break } catch { Start-Sleep -Seconds 2 }
     }
     if (!$ready) { throw 'Windows pipe did not reach daemon' }
+    $actual = (wsl.exe -d asagiri -u root -- sha256sum /usr/local/bin/asagiri).Split(' ')[0]
+    if ($actual -ne $expectedEngine) { throw "Launcher did not install the new engine: $actual" }
+    $bridgeHash = (wsl.exe -d asagiri -u root -- sh -ec 'pid=$(pgrep -f "^/usr/local/bin/asagiri bridge .*docker.sock" | head -1); test -n "$pid"; sha256sum /proc/$pid/exe').Split(' ')[0]
+    if ($bridgeHash -ne $expectedEngine) { throw "Running guest bridge has the wrong revision: $bridgeHash" }
+    Write-Host "Launcher installed engine $actual over $oldEngine and the running bridge uses $bridgeHash"
     Stop-Process -Id $bridge.Id
     $bridge.WaitForExit()
     $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
