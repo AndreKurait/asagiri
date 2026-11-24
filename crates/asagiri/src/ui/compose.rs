@@ -9109,6 +9109,17 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires the running Windows WSL integration fixture"]
+    fn read_development138_compose_file() {
+        crate::client::set_pipe(r"\\.\pipe\asagiri-watch-test");
+        let event: Value = serde_json::from_str(&file_event("wslpathproof", || None)).unwrap();
+        assert_eq!(event["text"], "services: {}\n", "{event}");
+        let expected = Path::new(r"\\wsl.localhost\Development138\home\builder\compose.yaml");
+        assert!(same_file_path(Path::new(event["path"].as_str().unwrap()), expected));
+    }
+
     #[test]
     fn wsl_compose_labels_map_to_windows_paths_across_legacy_integrated_and_mounted_drives() {
         assert_eq!(wsl_automount_root(""), "/mnt/");
