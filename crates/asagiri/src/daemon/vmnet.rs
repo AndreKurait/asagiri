@@ -116,7 +116,11 @@ pub fn pick_bridge(ifaces: &[Bridge], plist: Option<([u8; 4], u8)>) -> Option<Br
     if let Some((p_gw, p_prefix)) = plist {
         let p_mask = mask_from_prefix(p_prefix);
         let p_net = u32::from_be_bytes(p_gw) & p_mask;
-        if let Some(b) = valid.iter().copied().filter(|b| (u32::from_be_bytes(b.gateway) & p_mask) == p_net).min_by_key(|b| (b.name != "bridge100", num(&b.name).unwrap_or(u32::MAX))) {
+        if let Some(b) = valid.iter().copied().filter(|b| (u32::from_be_bytes(b.gateway) & p_mask) == p_net).min_by_key(|b| {
+            // Overlapping bridges can share the plist subnet.
+            let exact = (b.gateway, b.prefix) == (p_gw, p_prefix);
+            (!exact, b.name != "bridge100", num(&b.name).unwrap_or(u32::MAX))
+        }) {
             return Some(b.clone());
         }
     }
@@ -124,6 +128,19 @@ pub fn pick_bridge(ifaces: &[Bridge], plist: Option<([u8; 4], u8)>) -> Option<Br
         .into_iter()
         .min_by_key(|b| (b.name != "bridge100", num(&b.name).unwrap_or(u32::MAX)))
         .cloned()
+}
+
+#[cfg(test)]
+#[test]
+fn pick_bridge_prefers_exact_plist_match_over_bridge100() {
+    let other = Bridge { name: "bridge100".into(), gateway: [192, 168, 64, 129], prefix: 25 };
+    let vmnet = Bridge { name: "bridge101".into(), gateway: [192, 168, 64, 1], prefix: 24 };
+    let plist = Some((vmnet.gateway, vmnet.prefix));
+    let bridges = [other.clone(), vmnet.clone()];
+
+    assert_eq!(pick_bridge(&bridges, plist), Some(vmnet));
+    assert_eq!(pick_bridge(&bridges, Some(([192, 168, 64, 2], 24))), Some(other.clone()));
+    assert_eq!(pick_bridge(&bridges, None), Some(other));
 }
 
 /// Picks an IPv4 host address inside `gateway/prefix` avoiding the network,
