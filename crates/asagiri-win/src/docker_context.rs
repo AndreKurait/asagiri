@@ -2,6 +2,15 @@
 //! Docker owns its configuration and retains existing context endpoints.
 use std::io;
 
+/// Docker accepts either slash convention in local named-pipe addresses.
+pub fn uses_pipe(host: &str, pipe: &str) -> bool {
+    let host = host.trim().replace('\\', "/").to_ascii_lowercase();
+    let pipe = pipe.replace('\\', "/");
+    host.strip_prefix("npipe://").is_some_and(|path| {
+        path.trim_start_matches('/').eq_ignore_ascii_case(pipe.trim_start_matches('/'))
+    })
+}
+
 pub fn select(
     name: &str,
     ours: &str,
@@ -48,6 +57,15 @@ pub fn select(
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn identifies_only_the_configured_pipe() {
+        let pipe = r"\\.\pipe\asagiri";
+        assert!(uses_pipe("npipe:////./pipe/ASAGIRI", pipe));
+        assert!(uses_pipe("npipe://./pipe/asagiri", pipe));
+        assert!(!uses_pipe("npipe:////./pipe/docker_engine", pipe));
+        assert!(!uses_pipe("unix:///custom.sock", pipe));
+    }
 
     #[test]
     fn recreates_only_the_missing_owned_context() {

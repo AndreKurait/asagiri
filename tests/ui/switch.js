@@ -21,6 +21,14 @@ t("a big import is not ticked for you",()=>{reset(true);ctxDialog();eq(document.
 t("progress counts each finished item",()=>{reset();ctxDialog();click("[data-ctxgo]");confirmSwitch();asagiri.on({type:"importstep",kind:"images",name:"redis:7",state:"done"});eq(ctx.card.done,1,"done");eq(document.getElementById("ctxcard").textContent.includes("1 of 2"),true,"card shows 1 of 2");});
 t("Switch back restores the previous engine",()=>{reset();ctxDialog();click("[data-ctxgo]");confirmSwitch();sent.length=0;click("#ctxcard [data-ctxback]");eq(used()[0].name,"orbstack","back to orbstack");eq(ctx.card,null,"card gone");});
 t("switch success waits for the effective context",()=>{reset();ctxDialog();click("[data-ctxgo]");eq(document.getElementById("ctxcard").hidden,true,"awaiting host");asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"override still selects another context");const feedback=document.querySelector("#toasts .toast:last-child .txt")?.textContent || "";eq(["asagiri-dev","orbstack","DOCKER_CONTEXT"].every(word=>feedback.includes(word)),true,"names both contexts and the setting to check");});
+t("an owned name on a custom endpoint never confirms an engine switch",()=>{
+  reset(); ctxDialog(); click("[data-ctxgo]");
+  asagiri.on({...ui.status,context:ui.status.ours,customEndpoint:true});
+  asagiri.on({type:"usedcontext",name:ui.status.ours});
+  eq(ctx.card,null,"no switch confirmation");
+  eq(document.querySelector("#statusbar .ctx-ok"),null,"no owned engine claim");
+  eq(document.querySelector("#statusbar .ctx-warn").textContent.includes("Custom endpoint"),true,"custom endpoint visible");
+});
 t("failed switches dismiss the pending success card",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({type:"usedcontext",name:ui.status.ours,error:"could not save"});eq(ctx.card,null,"failed");});
 t("return preference changes only after Docker confirms the switch",()=>{
   reset(); setPref("ctxBack","desktop-linux");

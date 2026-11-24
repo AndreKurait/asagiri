@@ -740,12 +740,17 @@ fn about() {
 /// DOCKER_HOST and wherever Docker Desktop keeps the CLI config).
 fn status_event() -> String {
     // `context show` can return a name whose metadata was removed.
-    let context = docker(&["context", "show"])
+    let selected = docker(&["context", "show"])
         .ok()
         .map(|s| s.trim().to_owned())
-        .filter(|c| !c.is_empty())
-        .filter(|c| docker(&["context", "inspect", "--", c]).is_ok());
-    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context}).to_string()
+        .filter(|c| !c.is_empty());
+    let endpoint = selected.as_deref().and_then(|name| {
+        docker(&["context", "inspect", "--format", "{{.Endpoints.docker.Host}}", "--", name]).ok()
+    });
+    let context = selected.filter(|_| endpoint.as_ref().is_some_and(|s| !s.trim().is_empty()));
+    let custom_endpoint = context.as_deref() == Some(crate::flavor::CONTEXT.get())
+        && !crate::docker_context::uses_pipe(endpoint.as_deref().unwrap_or_default(), &crate::client::pipe());
+    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context, "customEndpoint": custom_endpoint}).to_string()
 }
 
 /// The docker CLI on Asagiri's context, without a console window, for Compose
