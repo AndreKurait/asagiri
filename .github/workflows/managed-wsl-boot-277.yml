@@ -90,6 +90,7 @@ jobs:
           Guest cp $probe.Trim() /tmp/engineping
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
+          Guest cp /etc/wsl.conf /var/tmp/qualification-wsl-original.conf
           Guest sh $script.Trim()
           Guest /tmp/engineping
           foreach ($name in 'asagiri','asagiri-init') {
@@ -107,6 +108,14 @@ jobs:
           $after = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           try {
             Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/managed241-marker && break; sleep 1; done; if test -f /tmp/managed241-marker; then echo BOOT_COMMAND=passed; else echo BOOT_COMMAND=failed; fi; for i in 1 2 3 4 5 6 7 8 9 10; do /usr/local/bin/qualification-engineping && break; sleep 1; done; if /usr/local/bin/qualification-engineping; then echo ENGINE_RESTART=passed; else echo ENGINE_RESTART=failed; exit 1; fi; test -f /tmp/managed241-marker'
+            Guest sh $script.Trim() --remove-boot-entry
+            Guest cmp /var/tmp/qualification-wsl-original.conf /etc/wsl.conf
+            Write-Host 'BOOT_CONFIG_RESTORED=passed'
+            Guest rm -f /tmp/managed241-marker
+            wsl.exe --terminate Managed241
+            if ($LASTEXITCODE) { throw 'Failed to terminate after removing boot integration' }
+            Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
+            Write-Host 'USER_BOOT_AFTER_REMOVAL=passed'
           } finally {
             wsl.exe --terminate Managed241
           }
