@@ -10,6 +10,7 @@ pub mod mirror;
 pub mod reference;
 pub mod registry;
 pub mod settings;
+pub mod storage;
 pub mod store;
 pub mod tags;
 
