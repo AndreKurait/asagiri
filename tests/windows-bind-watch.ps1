@@ -23,6 +23,7 @@ try {
         $digest = (wsl.exe -d asagiri -u root -- sha256sum "/usr/local/bin/$name").Split(' ')[0]
         if ($digest -ne (Get-FileHash "$linux\$name").Hash) { throw "Wrong installed $name" }
     }
+    python "$PSScriptRoot/windows-hostrelay.py"
     wsl.exe --terminate asagiri
     $env:ASAGIRI_WIN_WATCH_BINDS = '1'
     $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-watch-test'
