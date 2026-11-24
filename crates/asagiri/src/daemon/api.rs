@@ -111,6 +111,10 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         http::respond_with(w, 400, "application/json", if close { "Connection: close\r\n" } else { "" }, body.as_bytes())?;
         return Ok(if close { Next::Close } else { Next::KeepAlive });
     }
+    if super::storage::moving() && !matches!(req.method.as_str(), "GET" | "HEAD") {
+        super::storage::refuse_while_moving(w)?;
+        return Ok(Next::Close);
+    }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
     }

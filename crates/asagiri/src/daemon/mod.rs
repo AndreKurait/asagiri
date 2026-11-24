@@ -207,6 +207,7 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     let store = asagiri_image::Store::open(asagiri_image::Store::default_root()?)?;
     let engine = engine::Engine::boot(store).inspect_err(|e| diag::error!("engine did not start", error = e))?;
     diag::info!("engine ready", version = env!("CARGO_PKG_VERSION"), ms = t0.elapsed().as_millis(), socket = format!("unix://{}", socket.display()));
+    storage::after_restart(&engine);
     // Crash files from earlier runs, if the person said they may go.
     diag::report::spawn_crash_sender(Duration::from_secs(30), Some(Duration::from_secs(6 * 3600)));
     // Container files in Finder, at ~/Asagiri. A Linux host has them on its
