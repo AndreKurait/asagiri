@@ -20,9 +20,9 @@ jobs:
           name: linux-X64
           path: /tmp/storage-bin
       - run: |
-          chmod +x /tmp/storage-bin/asagiri
+          chmod +x /tmp/storage-bin/asagiri /tmp/storage-bin/asagiri-init
           docker pull alpine:3.21
           docker save -o /tmp/as166-alpine.tar alpine:3.21
           sudo python3 tests/linux-active-storage166.py
       - if: failure()
-        run: sudo tail -n 100 /tmp/as166-api-*/log
+        run: sudo find /tmp -maxdepth 2 -path '/tmp/as166-api-*/log' -exec tail -n 100 {} +
