@@ -99,6 +99,10 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
+          # Isolate WSL boot command composition before changing installer and uninstall logic.
+          Guest sh -c 'printf "%s\n" "#!/bin/sh" "touch /tmp/managed241-marker" "export HOME=/var/lib/asagiri-daemon" "export ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock" "nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &" > /usr/local/bin/managed241-start'
+          Guest chmod 755 /usr/local/bin/managed241-start
+          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=/usr/local/bin/managed241-start\n" > /etc/wsl.conf'
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
           if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
