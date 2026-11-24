@@ -81,4 +81,15 @@ test("dismissing the name picker leaves the one-click share alone", () => {
   eq(share(), [["demo-auto", "", undefined]]);
 });
 
+test("resuming a pending named share reuses its temporary hostname", () => {
+  show("share");
+  asagiri.on({ type: "share", id: 92, source: "demo-auto", name: "wanted", state: "connecting" });
+  asagiri.on({ type: "share", id: 92, namePending: true, state: "live", url: "https://wanted-temp.share.example.org" });
+  document.querySelector('[data-shpause="92"]').click();
+  asagiri.on({ type: "share", id: 92, state: "ended" });
+  sent.length = 0;
+  document.querySelector('[data-shresume="92"]').click();
+  eq(share(), [["demo-auto", "wanted-temp", undefined]]);
+});
+
 report(results);
