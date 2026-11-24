@@ -8031,7 +8031,12 @@ window.asagiri = {
       case "usedcontext":
         if (ctx.card && e.name === ctx.card.target) {
           if (!e.error && ui.status?.context === e.name) ctx.card.confirmed = true;
-          else ctx.card = null;
+          else {
+            ctx.card = null;
+            if (!e.error && ui.status?.context) {
+              toast("error", tr("Saved {saved}, but Docker still uses {active}. Check DOCKER_CONTEXT and DOCKER_HOST.", { saved: e.name, active: ui.status.context }));
+            }
+          }
           drawCtxCard();
         }
         if (e.error) toast("error", tr("Couldn't switch docker: {error}", { error: e.error }));
