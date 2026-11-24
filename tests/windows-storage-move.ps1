@@ -15,11 +15,18 @@ try {
     wsl.exe -d $distro -u root -- sh -ec 'echo preserved > /root/storage-proof'
     wsl.exe --terminate $distro
     $env:ASAGIRI_WSL_STORAGE_TEST_ROOT = $root
+    $env:ASAGIRI_WSL_STORAGE_TEST_TAR = $tar[0].FullName
     $output = cargo test --locked -p asagiri-win native_wsl_storage_export_import -- --ignored --nocapture
     $output | Write-Host
     if (($output -join "`n") -notmatch '1 passed; 0 failed') { throw 'Migration test did not execute' }
-    $value = wsl.exe -d $distro -u root -- cat /root/storage-proof
-    if ($value.Trim() -ne 'preserved') { throw 'Migrated distro lost its marker' }
+    $backupDistro = 'AsagiriStorageBackup166'
+    wsl.exe --import $backupDistro "$root\restored-backup" "$root\settings-move.asagiri-backup\distro.tar" --version 2
+    try {
+        $value = wsl.exe -d $backupDistro -u root -- cat /root/storage-proof
+        if ($value.Trim() -ne 'preserved') { throw 'Fresh import backup lost its marker' }
+    } finally {
+        wsl.exe --unregister $backupDistro
+    }
 } finally {
     wsl.exe --unregister $distro
 }

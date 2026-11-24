@@ -501,41 +501,7 @@ mod imp {
                 set_phase("switching", 0, 0);
                 // Switching to a fresh store on Asagiri Linux: verify bundle before touching WSL.
                 let tar = crate::setup::verified("asagiri-linux.tar.gz")?;
-                if !is_unavail {
-                    // Unregister deletes the registered VHDX. Keep an independent export
-                    // beside the old folder, on the same drive, before unregistering.
-                    let name = current.file_name().ok_or_else(|| io::Error::other("Missing distro folder name"))?;
-                    let mut backup_name = name.to_os_string();
-                    backup_name.push(".asagiri-backup");
-                    let backup = current.with_file_name(backup_name);
-                    fs::create_dir(&backup).map_err(|e| io::Error::other(format!("Cannot create backup at {}: {e}", backup.display())))?;
-                    let archive = backup.join("distro.tar");
-                    if let Err(e) = wsl_run(&["--export".as_ref(), distro.as_ref(), archive.as_os_str()]) {
-                        let _ = fs::remove_dir_all(&backup);
-                        return Err(e);
-                    }
-                    if fs::metadata(&archive)?.len() == 0 {
-                        return Err(io::Error::other(format!("Empty distro backup at {}", archive.display())));
-                    }
-                    write_marker(&backup)?;
-                    crate::serve::log(&format!("Saved previous distro to {}", archive.display()));
-                    previous = Some(backup);
-                }
-                wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(&distro)])?;
-                let import = |dir: &Path, archive: &Path| {
-                    wsl_run(&["--import".as_ref(), distro.as_ref(), dir.as_os_str(), archive.as_os_str(), "--version".as_ref(), "2".as_ref()])
-                };
-                if let Err(error) = import(&target, &tar) {
-                    if let Some(backup) = &previous {
-                        let archive = backup.join("distro.tar");
-                        fs::create_dir_all(&current).and_then(|()| import(&current, &archive).map(drop)).map_err(|rollback| {
-                            io::Error::other(format!("Fresh import failed: {error}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display()))
-                        })?;
-                        write_marker(&current)?;
-                        return Err(io::Error::other(format!("Fresh import failed: {error}. Restored the original distro at {}. Backup: {}", current.display(), archive.display())));
-                    }
-                    return Err(error);
-                }
+                previous = fresh_import(&distro, &current, &target, &tar, is_unavail)?;
             } else {
                 set_phase("copying", 0, used);
                 move_distro(&distro, &current, &target)?;
@@ -599,6 +565,46 @@ mod imp {
     /// Moves WSL distro `distro` from `old_dir` to `target`. Tries native
     /// `wsl --manage <distro> --move <target>` first, then falls back to
     /// `--export` -> `--unregister` -> `--import` with rollback on failure.
+    fn fresh_import(distro: &str, current: &Path, target: &Path, tar: &Path, is_unavail: bool) -> io::Result<Option<PathBuf>> {
+        let mut previous = None;
+        if !is_unavail {
+            // Unregister deletes the registered VHDX. Keep an independent export
+            // beside the old folder, on the same drive, before unregistering.
+            let name = current.file_name().ok_or_else(|| io::Error::other("Missing distro folder name"))?;
+            let mut backup_name = name.to_os_string();
+            backup_name.push(".asagiri-backup");
+            let backup = current.with_file_name(backup_name);
+            fs::create_dir(&backup).map_err(|e| io::Error::other(format!("Cannot create backup at {}: {e}", backup.display())))?;
+            let archive = backup.join("distro.tar");
+            if let Err(e) = wsl_run(&["--export".as_ref(), distro.as_ref(), archive.as_os_str()]) {
+                let _ = fs::remove_dir_all(&backup);
+                return Err(e);
+            }
+            if fs::metadata(&archive)?.len() == 0 {
+                return Err(io::Error::other(format!("Empty distro backup at {}", archive.display())));
+            }
+            write_marker(&backup)?;
+            crate::serve::log(&format!("Saved previous distro to {}", archive.display()));
+            previous = Some(backup);
+        }
+        wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(&distro)])?;
+        let import = |dir: &Path, archive: &Path| {
+            wsl_run(&["--import".as_ref(), distro.as_ref(), dir.as_os_str(), archive.as_os_str(), "--version".as_ref(), "2".as_ref()])
+        };
+        if let Err(error) = import(target, tar) {
+            if let Some(backup) = &previous {
+                let archive = backup.join("distro.tar");
+                fs::create_dir_all(current).and_then(|()| import(current, &archive).map(drop)).map_err(|rollback| {
+                    io::Error::other(format!("Fresh import failed: {error}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display()))
+                })?;
+                write_marker(current)?;
+                return Err(io::Error::other(format!("Fresh import failed: {error}. Restored the original distro at {}. Backup: {}", current.display(), archive.display())));
+            }
+            return Err(error);
+        }
+        Ok(previous)
+    }
+
     fn move_distro(distro: &str, old_dir: &Path, target: &Path) -> io::Result<()> {
         let staging = target.join(MOVING);
         if staging.try_exists()? {
@@ -693,8 +699,7 @@ mod imp {
         assert!(!staging.exists());
 
         // Boot the rolled-back distro before moving it again through the same
-        // entry point as Settings. The CI fixture reads this marker once more
-        // after the final move.
+        // entry point as Settings. The CI fixture later restores its backup.
         let distro = std::ffi::OsStr::new("AsagiriStorageTest166");
         let marker = wsl_run(&["-d".as_ref(), distro, "-u".as_ref(), "root".as_ref(), "--".as_ref(),
             "cat".as_ref(), "/root/storage-proof".as_ref()]).unwrap();
@@ -705,6 +710,15 @@ mod imp {
         move_distro("AsagiriStorageTest166", &target, &destination).unwrap();
         assert!(destination.join("ext4.vhdx").is_file());
         assert!(!destination.join(MOVING).exists());
+
+        let fresh = root.join("fresh");
+        fs::create_dir(&fresh).unwrap();
+        let tar = PathBuf::from(std::env::var_os("ASAGIRI_WSL_STORAGE_TEST_TAR").unwrap());
+        let backup = fresh_import("AsagiriStorageTest166", &destination, &fresh, &tar, false).unwrap().unwrap();
+        assert!(fresh.join("ext4.vhdx").is_file());
+        assert!(backup.join("distro.tar").metadata().unwrap().len() > 0);
+        wsl_run(&["-d".as_ref(), distro, "-u".as_ref(), "root".as_ref(), "--".as_ref(),
+            "sh".as_ref(), "-ec".as_ref(), "test ! -e /root/storage-proof".as_ref()]).unwrap();
     }
 
     fn retry_engine(restart: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
