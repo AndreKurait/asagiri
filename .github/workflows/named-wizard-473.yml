@@ -64,7 +64,16 @@ jobs:
           $before = ControlConfig
           Copy-Item "$env:GITHUB_WORKSPACE\target\debug\asagiri-win.exe" $env:PICKER_APP -Force
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-address=127.0.0.1 --remote-debugging-port=9222'
-          Start-Process $env:PICKER_APP
+          $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
+          if (!$runtime) {
+            $bootstrap = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $bootstrap
+            $sig = Get-AuthenticodeSignature $bootstrap
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Unexpected WebView2 installer signature' }
+            $install = Start-Process $bootstrap -ArgumentList '/silent','/install' -Wait -PassThru
+            Write-Host "WebView2 setup exit $($install.ExitCode)"
+          }
+          $process = Start-Process $env:PICKER_APP -PassThru
           @'
           const delay = ms => new Promise(r => setTimeout(r, ms));
           let page;
@@ -94,7 +103,12 @@ jobs:
           }
           '@ | Set-Content wizard.mjs
           node wizard.mjs
-          if ($LASTEXITCODE) { throw 'Wizard interaction failed' }
+          if ($LASTEXITCODE) {
+            Write-Host "Launcher PID $($process.Id) exited=$($process.HasExited) code=$($process.ExitCode)"
+            Get-Content "$env:LOCALAPPDATA\Asagiri\asagiri-win.log" -Tail 80 -ErrorAction SilentlyContinue
+            Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Select-Object Id,SessionId,Path
+            throw 'Wizard interaction failed'
+          }
           $file="$env:LOCALAPPDATA\Asagiri\setup.json"
           foreach ($i in 1..120) {
             if (Test-Path $file) { $saved=Get-Content $file -Raw | ConvertFrom-Json; if ($saved.lastError) { throw $saved.lastError }; if ($saved.done) { break } }
