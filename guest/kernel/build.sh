@@ -41,6 +41,10 @@ if [ "$KARCH" = x86_64 ]; then
   ls -la /out/bzImage
 else
   make -s -j"$(nproc)" ARCH=arm64 CROSS_COMPILE="$cross" Image
+  vdso_tags=$(LC_ALL=C "${cross}readelf" -dW arch/arm64/kernel/vdso/vdso.so)
+  for tag in HASH GNU_HASH; do
+    printf '%s\n' "$vdso_tags" | grep -Fq "($tag)" || { echo "arm64 vDSO missing DT_$tag" >&2; exit 1; }
+  done
   cp arch/arm64/boot/Image .config /out/
   ls -la /out/Image
 fi
