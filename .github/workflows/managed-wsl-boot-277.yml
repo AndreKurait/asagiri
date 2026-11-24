@@ -72,6 +72,10 @@ jobs:
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
           $identity = wsl.exe -d Managed241 -u managed241 -- id -u
           if ($LASTEXITCODE -or [int]$identity -eq 0) { throw 'Expected an unprivileged WSL account' }
+          # The published test rootfs ships binaries. Model a first installation
+          # in the disposable managed distro by moving them out of the target.
+          Guest mv /usr/local/bin/asagiri /tmp/preinstalled-asagiri
+          Guest mv /usr/local/bin/asagiri-init /tmp/preinstalled-asagiri-init
           $output = & wsl.exe -d Managed241 -u managed241 -- sh $guestInstaller.Trim() 2>&1
           $exit = $LASTEXITCODE
           $output | Write-Host
