@@ -23,4 +23,10 @@ t("Switch back restores the previous engine",()=>{reset();ctxDialog();click("[da
 t("switch success waits for the effective context",()=>{reset();ctxDialog();click("[data-ctxgo]");eq(document.getElementById("ctxcard").hidden,true,"awaiting host");asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"override still selects another context");const feedback=document.querySelector("#toasts .toast:last-child .txt")?.textContent || "";eq(["asagiri-dev","orbstack","DOCKER_CONTEXT"].every(word=>feedback.includes(word)),true,"names both contexts and the setting to check");});
 t("failed switches dismiss the pending success card",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({type:"usedcontext",name:ui.status.ours,error:"could not save"});eq(ctx.card,null,"failed");});
 t("failed context probe reports an unknown selection",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({...ui.status,context:null});asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"no success card");eq(document.querySelector("#statusbar [data-ctxswitch]"),null,"no invented engine to switch from");eq(document.querySelector("#statusbar .ctx-ok"),null,"no confirmed engine");eq(document.querySelector("#toasts .toast:last-child .txt")?.textContent.includes("couldn't verify"),true,"probe failure explained");});
+t("unknown context can select the owned context without importing or inventing a previous engine",()=>{
+  reset(); asagiri.on({...ui.status,context:null});
+  click("#statusbar [data-ctxrepair]"); eq(used()[0].name,ui.status.ours,"owned context requested");
+  confirmSwitch(); eq(ctx.card,null,"no switch-back card");
+  eq(!!document.querySelector("#statusbar .ctx-ok"),true,"confirmed by host status");
+});
 report(R);

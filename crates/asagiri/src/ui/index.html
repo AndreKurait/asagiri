@@ -3824,7 +3824,10 @@ const ctxBytes = (v) => { const m = /^([\d.]+)\s*([kMGT]?)B$/i.exec(String(v || 
 
 function ctxStatusItem() {
   if (!ui.status) return "";
-  if (!ui.status.context) return `<span class="sep">·</span><span class="item">${tr("Docker context unavailable")}</span>`;
+  if (!ui.status.context) {
+    const repair = ui.status.ours ? `<button class="item ctx-warn" data-ctxrepair>${tr("Switch to {app}", { app: esc(ui.status.app || "Asagiri") })}</button>` : "";
+    return `<span class="sep">·</span><span class="item">${tr("Docker context unavailable")}</span>${repair}`;
+  }
   if (!ctxOther()) return `<span class="sep">·</span><span class="item ctx-ok" title="${tr("The docker command uses {app}", { app: esc(ui.status.app || "Asagiri") })}"><i></i>docker → ${esc(ui.status.app || "Asagiri")}</span>`;
   return `<span class="sep">·</span><button class="item ctx-warn" data-ctxswitch title="${tr("The docker command uses {engine}. Switch it to {app}", { engine: esc(ctxLabel(ui.status.context)), app: esc(ui.status.app || "Asagiri") })}">${ctxWarn()}docker → ${esc(rtl() ? island(ctxLabel(ui.status.context)) : ctxLabel(ui.status.context))}</button>`;
 }
@@ -3908,7 +3911,7 @@ function ctxChoose(from) {
 
 /* docker now uses Asagiri; `total` items are on their way over. */
 function ctxUse(from, total) {
-  setPref("ctxBack", from);
+  if (from) setPref("ctxBack", from);
   ctx.card = { from, total, target: ui.status.ours, confirmed: false, done: 0, failed: 0, finished: false };
   send("usecontext", { name: ui.status.ours });
   drawCtxCard();
@@ -8031,7 +8034,10 @@ window.asagiri = {
       case "build": if (ui.bl.sel?.id === e.id) { ui.bl.d = e; if (ui.view === "builds") renderBuilds(); } break;
       case "usedcontext":
         if (ctx.card && e.name === ctx.card.target) {
-          if (!e.error && ui.status?.context === e.name) ctx.card.confirmed = true;
+          if (!e.error && ui.status?.context === e.name) {
+            if (ctx.card.from) ctx.card.confirmed = true;
+            else ctx.card = null;
+          }
           else {
             ctx.card = null;
             if (!e.error && ui.status?.context) {
@@ -8234,6 +8240,10 @@ $("impstrip").addEventListener("click", (ev) => {
 $("statusbar").addEventListener("click", (ev) => {
   if (ev.target.closest("[data-htterm]")) return htToggle();
   if (ev.target.closest("[data-shstatus]")) return $("sh-modal") ? shCard(null) : shCard("list");
+  if (ev.target.closest("[data-ctxrepair]") && ui.status?.ours && !ui.status.context) {
+    ctxUse(null, 0);
+    return;
+  }
   if (ev.target.closest("[data-ctxswitch]")) return ctxDialog();
   const el = ev.target.closest("[data-upd], [data-status-go], [data-open-site]");
   if (el?.dataset.upd) return updateAction(el.dataset.upd);
