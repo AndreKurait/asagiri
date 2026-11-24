@@ -34,24 +34,34 @@ jobs:
           for delay in 0 3 8; do sleep "$delay"; docker pull alpine:3.21 && break; done
           docker image inspect alpine:3.21 >/dev/null
           unset GH_TOKEN
-          result=0
-          python3 "$GITHUB_WORKSPACE/tests/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "$PWD/client/docker-compose" --buildx-plugin "$PWD/Asagiri.app/Contents/Resources/bin/cli-plugins/docker-buildx" --output "$RUNNER_TEMP/public-build.json" || result=$?
-          builder=$(curl --fail --silent --unix-socket "$ASAGIRI_SOCKET" http://localhost/asagiri/builder | python3 -c 'import json,sys; print(json.load(sys.stdin)["container"])')
-          {
-            echo "public_build_exit=$result builder=$builder"
-            docker inspect --format '{{.HostConfig.NetworkMode}}' "$builder"
-            docker logs --tail 100 "$builder" 2>&1 | grep -Ei 'lookup|resolve|dial|request|manifest|timeout' || true
-            docker exec "$builder" sh -c '
-              cat /etc/resolv.conf
-              for name in registry-1.docker.io auth.docker.io; do
-                for rr in A AAAA; do echo "query $name $rr"; nslookup -type="$rr" "$name" || true; done
-                wget -T 8 -S -O /dev/null "https://$name/v2/" 2>&1 || true
-              done'
-          } | tee "$RUNNER_TEMP/registry-network.txt"
+          docker pull python:3.12-alpine
+          name=registry-1.docker.io
+          ip=$(python3 -c 'import socket; print(socket.getaddrinfo("registry-1.docker.io",443,socket.AF_INET,socket.SOCK_STREAM)[0][4][0])')
+          cat > probe.py <<'PYTHON'
+          import socket, ssl, sys, time
+          name, ip = sys.argv[1:]
+          print('target', name, ip, flush=True)
+          with socket.create_connection((ip,443),timeout=8) as tcp:
+              print('tcp connected', flush=True)
+              with ssl.create_default_context().wrap_socket(tcp,server_hostname=name) as tls:
+                  print('tls', tls.version(), flush=True)
+                  tls.sendall(f'GET /v2/ HTTP/1.1\r\nHost: {name}\r\nConnection: close\r\n\r\n'.encode())
+                  print(tls.makefile('rb').readline(1024).decode().strip(),flush=True)
+          PYTHON
+          probe() {
+            rc=0
+            "$@" <probe.py || rc=$?
+            echo "exit=$rc"
+          }
+          probe python3 - "$name" "$ip" >host.txt 2>&1 &
+          host_pid=$!
+          probe docker run --rm -i --network bridge python:3.12-alpine python - "$name" "$ip" >bridge.txt 2>&1 &
+          bridge_pid=$!
+          wait "$host_pid" "$bridge_pid"
+          for side in host bridge; do echo "$side"; cat "$side.txt"; done | tee "$RUNNER_TEMP/registry-network.txt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: intel-registry-network
           path: |
             ${{ runner.temp }}/registry-network.txt
-            ${{ runner.temp }}/public-build.json
