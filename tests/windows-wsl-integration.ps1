@@ -23,9 +23,17 @@ try {
         $output | Write-Host
         if (($output -join "`n") -notmatch '1 passed; 0 failed') { throw 'Settings test did not execute' }
     }
+    $clientArtifact = (Join-Path $env:RUNNER_TEMP 'linux-X64/asagiri').Replace('\','/')
+    $clientPath = (wsl.exe -d $distro -u root -- wslpath -a $clientArtifact).Trim()
+    wsl.exe -d $distro -u root -- cp $clientPath /usr/local/bin/asagiri
+    wsl.exe -d $distro -u root -- chmod 755 /usr/local/bin/asagiri
     function Read-DistroBind {
         $uid = (wsl.exe -d $distro -u builder -- id -u).Trim()
         if ($uid -ne '1001') { throw "Unexpected client uid $uid" }
+        $version = wsl.exe -d $distro -u builder -- env -u ASAGIRI_SOCKET -u DOCKER_HOST -u DOCKER_CONTEXT /usr/local/bin/asagiri version --format '{{.Server.Version}}'
+        if (($version -join "`n").Trim() -ne (& $Docker version --format '{{.Server.Version}}').Trim()) {
+            throw "The Linux client did not discover the integrated engine: $version"
+        }
         # Capture the effective WSL login groups and permissions on every socket ancestor.
         # These observations survive fixture cleanup if the following Docker command fails.
         wsl.exe -d $distro -u builder -- id
