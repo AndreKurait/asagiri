@@ -277,7 +277,8 @@ pub fn migrate_fresh(parts: &[Part], config: &Path, choice: &Choice, step: &mut 
                 chosen::write_marker(&p.from)?;
             }
             std::fs::create_dir_all(&p.to)?;
-            let mut done = Placed { to: p.to.clone(), moved_in: Vec::new(), set_aside: Vec::new(), had_marker: chosen::has_marker(&p.to) };
+            // Register the undo record before the first destination rename.
+            let done = placed.push_mut(Placed { to: p.to.clone(), moved_in: Vec::new(), set_aside: Vec::new(), had_marker: chosen::has_marker(&p.to) });
             for e in std::fs::read_dir(&p.to)? {
                 let name = e?.file_name();
                 if IGNORED.iter().any(|n| name == *n) || p.skip.iter().any(|n| name == *n) {
@@ -288,7 +289,6 @@ pub fn migrate_fresh(parts: &[Part], config: &Path, choice: &Choice, step: &mut 
                 done.set_aside.push(name);
             }
             chosen::write_marker(&p.to)?;
-            placed.push(done);
         }
         chosen::write_at(config, choice)
     })();
@@ -964,6 +964,21 @@ mod tests {
         assert!(migrate_fresh(&one(&target, &target2), &bad_cfg, &choice2, &mut |_, _| Ok(())).is_err());
         assert!(!target2.exists(), "newly made fresh folder is removed on rollback");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn start_fresh_restores_destination_when_marker_write_fails() {
+        let d = scratch("fresh-marker-failure");
+        let target = d.join("target");
+        let config = d.join("storage.json");
+        std::fs::create_dir_all(target.join(MARKER)).unwrap();
+        std::fs::write(target.join("images.json"), b"old inventory").unwrap();
+        let choice = Choice { path: target.clone(), previous: None };
+        assert!(migrate_fresh(&one(&d.join("source"), &target), &config, &choice, &mut |_, _| Ok(())).is_err());
+        assert_eq!(std::fs::read(target.join("images.json")).unwrap(), b"old inventory");
+        assert!(!target.join(REPLACED).exists());
+        assert!(!config.exists());
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// A broken symlink or regular file at the target path is refused.
