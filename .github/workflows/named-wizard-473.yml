@@ -63,7 +63,6 @@ jobs:
           function ControlConfig { wsl.exe -d Control473 -- sh -c 'sha256sum /etc/wsl.conf /usr/local/bin/asagiri'; if ($LASTEXITCODE) { throw 'Control fingerprint failed' } }
           $before = ControlConfig
           Copy-Item "$env:GITHUB_WORKSPACE\target\debug\asagiri-win.exe" $env:PICKER_APP -Force
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-address=127.0.0.1 --remote-debugging-port=9222'
           $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction SilentlyContinue
           if (!$runtime) {
             $bootstrap = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
@@ -73,36 +72,46 @@ jobs:
             $install = Start-Process $bootstrap -ArgumentList '/silent','/install' -Wait -PassThru
             Write-Host "WebView2 setup exit $($install.ExitCode)"
           }
+          python -m pip install pywinauto==0.6.9
+          if ($LASTEXITCODE) { throw 'UI Automation driver installation failed' }
           $process = Start-Process $env:PICKER_APP -PassThru
           @'
-          const delay = ms => new Promise(r => setTimeout(r, ms));
-          let page;
-          for (let i=0; i<90 && !page; i++) {
-            try { page = (await (await fetch('http://127.0.0.1:9222/json/list')).json()).find(p => p.type === 'page'); } catch {}
-            await delay(1000);
-          }
-          if (!page) throw Error('Wizard WebView unavailable');
-          let ws = new WebSocket(page.webSocketDebuggerUrl);
-          await new Promise((resolve,reject) => { ws.onopen=resolve; ws.onerror=reject; });
-          for (let id=1; id<=900; id++) {
-            const reply = new Promise(resolve => {ws.onmessage = event => {let msg=JSON.parse(event.data); if(msg.id===id) resolve(msg);};});
-            ws.send(JSON.stringify({id,method:'Runtime.evaluate',params:{expression:`(() => {
-              const open=document.querySelector('[data-cmd="setup-open"]');
-              if(open) { open.click(); return 'finished'; }
-              const radio=document.querySelector('input[value="existing:Managed241"]');
-              if(radio) { radio.click(); document.querySelector('#chooseBtn').click(); return 'selected'; }
-              const btn=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Continue');
-              if(document.querySelector('#lang-title') && btn) btn.click();
-              return document.querySelector('h1')?.textContent;
-            })()`}}));
-            const state=(await reply).result?.result?.value;
-            if(id%10===0 || state==='selected') console.log(state);
-            if(state==='finished') { ws.close(); break; }
-            if(id===900) throw Error('Wizard did not reach Open Asagiri');
-            await delay(1000);
-          }
-          '@ | Set-Content wizard.mjs
-          node wizard.mjs
+          import sys, time
+          from pywinauto import Desktop
+          from pywinauto.findwindows import ElementNotFoundError
+          from comtypes import COMError
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          window.wait('visible', timeout=90)
+          selected = False
+          continued = False
+          deadline = time.monotonic() + 900
+          while time.monotonic() < deadline:
+              try:
+                  controls = window.descendants()
+                  for c in controls:
+                      if not c.is_enabled():
+                          continue
+                      key, name, kind = c.element_info.automation_id, c.window_text(), c.element_info.control_type
+                      if key == 'lang-go':
+                          c.invoke()
+                          break
+                      if kind == 'RadioButton' and name == 'Managed241' and not selected:
+                          c.select()
+                          selected = True
+                          print('Selected Managed241', flush=True)
+                          break
+                      if selected and not continued and key == 'chooseBtn' and name == 'Continue':
+                          c.invoke()
+                          continued = True
+                          break
+                      if continued and kind == 'Button' and name == 'Open Asagiri':
+                          c.invoke()
+                          sys.exit(0)
+              except (ElementNotFoundError, COMError):
+                  pass
+              time.sleep(1)
+          raise RuntimeError([(c.element_info.control_type, c.window_text()) for c in window.descendants()][:100])
+          '@ | python - $process.Id
           if ($LASTEXITCODE) {
             Write-Host "Launcher PID $($process.Id) exited=$($process.HasExited) code=$($process.ExitCode)"
             Get-Content "$env:LOCALAPPDATA\Asagiri\asagiri-win.log" -Tail 80 -ErrorAction SilentlyContinue
