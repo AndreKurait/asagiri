@@ -207,6 +207,8 @@ run remove-responsive alpine:3.21
 run volume-remove-responsive alpine:3.21
 run api-connections alpine:3.21 --capacity 512 --connection-limit 2048
 run archive-completion alpine:3.21
+docker exec "$name" docker context create sidecar-test --docker "host=unix://$sock" >/dev/null || exit 2
+timed live/named-pid-sidecar docker exec "$name" sh /src/tests/named-pid-sidecar.sh sidecar-test alpine:3.21 || exit 1
 run shared-root alpine:3.21
 run init-descriptors alpine:3.21
 run device-filter-failure alpine:3.21

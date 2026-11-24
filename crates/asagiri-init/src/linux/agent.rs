@@ -352,11 +352,11 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
         }
 
         // A private PID 1's exit makes the kernel kill its descendants.
-        // A host-PID process has no such kernel cleanup: its orphan may
+        // A shared-PID process has no such kernel cleanup: its orphan may
         // still hold stdout/stderr open. Kill only its cgroup before waiting
         // for pipe EOF, preserving the existing output drain and per-ID
         // cleanup barrier. Execs never own this cleanup.
-        for p in procs.values_mut().filter(|p| p.run.pid_host && p.run.container.is_none()
+        for p in procs.values_mut().filter(|p| p.run.pid_shared && p.run.container.is_none()
             && p.exited.is_some() && p.cleanup.is_none() && !p.cleanup_finished) {
             if p.oom_killed.is_none() {
                 p.oom_killed = Some(container::oom_killed(&p.run));
@@ -470,6 +470,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     paths,
                     &roots,
                     NetCtx { bridges: &mut bridges, dns: &mut dns, upstream_dns: dhcp.as_ref().and_then(|d| d.lease.as_ref()).map_or(&host_dns[..], |l| &l.dns), join_pid },
+                    |id| running_pid(&procs, id),
                 )
                 } {
                     Ok(run) => {

@@ -71,9 +71,9 @@ pub struct Process {
     /// For an exec, the container it runs in.
     pub container: Option<String>,
     pub pid: libc::pid_t,
-    /// The container's initial process shares the agent's PID namespace.
+    /// The initial process runs in an existing PID namespace.
     /// False for execs, which do not own a container cgroup to tear down.
-    pub pid_host: bool,
+    pub pid_shared: bool,
     /// Pipe read end, or the pty master for a TTY.
     pub stdout: Option<OwnedFd>,
     /// None for a TTY: the terminal merges both streams.
@@ -262,11 +262,15 @@ fn finish_stdio(parent: ParentStdio, child: ChildStdio) -> io::Result<(Option<Ow
     }
 }
 
-pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net: NetCtx<'_>) -> io::Result<Process> {
+pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net: NetCtx<'_>, donor_pid: impl Fn(&str) -> Option<libc::pid_t>) -> io::Result<Process> {
     if spec.argv.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command to run"));
     }
     let mut host = super::hostopts::parse(spec.opts)?;
+    let donor_ns = host.pid_donor.as_deref().map(|id| {
+        let pid = donor_pid(id).ok_or_else(|| io::Error::other(format!("PID donor {id} is not running")))?;
+        fs::File::open(format!("/proc/{pid}/ns/pid"))
+    }).transpose()?;
     let rootfs = roots.acquire(paths, spec.id, spec.layers)?;
     let base = paths.containers.join(spec.id);
 
@@ -359,7 +363,9 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     let mut flags = (libc::CLONE_NEWNS | libc::CLONE_NEWUTS | libc::CLONE_NEWIPC | libc::CLONE_NEWCGROUP)
         as u64
         | CLONE_INTO_CGROUP;
-    let host_pid_ns = if host.pid_host {
+    let shared_pid_ns = if donor_ns.is_some() {
+        donor_ns
+    } else if host.pid_host {
         // "Host" is the agent's active namespace: the Linux host, or the
         // Linux VM on desktop platforms. Do not infer it from /proc/1 or
         // an exec's transient pid_for_children selection.
@@ -373,17 +379,25 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     }
     let args = CloneArgs { flags, exit_signal: libc::SIGCHLD as u64, cgroup: cgroup_fd.as_raw_fd() as u64, ..Default::default() };
 
-    if let Some(ns) = &host_pid_ns {
+    let restore = if host.pid_donor.is_some() {
+        Some(fs::File::open("/proc/self/ns/pid").map_err(cleanup)?)
+    } else { None };
+    if let Some(ns) = &shared_pid_ns {
         // setns for PID changes only the namespace of future children.
-        // The agent stays where it is, and this selection is already its
-        // normal state after clone; no ancestor namespace is entered.
         sys::setns(ns.as_raw_fd(), libc::CLONE_NEWPID).map_err(cleanup)?;
     }
     // SAFETY: the agent is single-threaded, as clone3 without CLONE_VM needs.
-    let pid = unsafe { sys::clone3(&args) }.map_err(cleanup)?;
-    if pid == 0 {
+    let cloned = unsafe { sys::clone3(&args) };
+    if let Ok(0) = cloned {
         container_child(&prepared, &rootfs_c, &child_io, root_ready_child.as_raw_fd());
     }
+    if let Some(ns) = restore {
+        if let Err(e) = sys::setns(ns.as_raw_fd(), libc::CLONE_NEWPID) {
+            eprintln!("cannot restore agent child PID namespace: {e}");
+            std::process::abort();
+        }
+    }
+    let pid = cloned.map_err(cleanup)?;
     drop(root_ready_child);
     if flags & libc::CLONE_NEWNET as u64 != 0 {
         netns = fs::File::open(format!("/proc/{pid}/ns/net")).map_or(0, |f| netns_inode(&f));
@@ -510,7 +524,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             id: spec.id.to_owned(),
             container: None,
             pid,
-            pid_host: host.pid_host,
+            pid_shared: shared_pid_ns.is_some(),
             stdout,
             stderr,
             stdin,
@@ -675,7 +689,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         id: spec.exec_id.to_owned(),
         container: Some(spec.container_id.to_owned()),
         pid,
-        pid_host: false,
+        pid_shared: false,
         stdout,
         stderr,
         stdin,

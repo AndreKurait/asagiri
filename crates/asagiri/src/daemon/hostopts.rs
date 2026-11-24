@@ -92,6 +92,9 @@ pub fn check_unsupported(host: &Value) -> Result<Vec<String>, String> {
             Value::String(value) => value,
             _ => return Err(format!("{key} must be a string")),
         };
+        if key == "PidMode" && pid_donor(value).is_some() {
+            continue;
+        }
         if !value.is_empty() && !same.contains(&value.as_str()) {
             return Err(format!("Asagiri does not support {flag}={value}"));
         }
@@ -154,6 +157,10 @@ pub fn resource_warnings(host: &Value) -> Result<Vec<&'static str>, String> {
     Ok(warnings)
 }
 
+pub(super) fn pid_donor(mode: &str) -> Option<&str> {
+    mode.strip_prefix("container:").filter(|name| super::engine::valid_container_name(name))
+}
+
 /// The guest's lines for `opts` (from [`from_host`]), or Docker's error for
 /// the first bad setting. `net_host`: the container shares the host's (the
 /// VM's) network namespace, so `net.*` sysctls are not its own.
@@ -163,6 +170,8 @@ pub fn guest_lines(opts: &Value, net_host: bool) -> Result<Vec<String>, String> 
         Value::Null => {}
         Value::String(mode) if mode.is_empty() => {}
         Value::String(mode) if mode == "host" => out.push("pid-mode\thost".into()),
+        // Start resolves the name to a running container ID before encoding it.
+        Value::String(mode) if pid_donor(mode).is_some() => {}
         Value::String(mode) => return Err(format!("Asagiri does not support --pid={mode}")),
         _ => return Err("PidMode must be a string".into()),
     }
@@ -323,7 +332,8 @@ mod tests {
         for default in [Value::Null, json!({}), json!({"PidMode": ""})] {
             assert!(!guest_lines(&default, false).unwrap().iter().any(|line| line.starts_with("pid-mode\t")));
         }
-        for invalid in [json!({"PidMode": "container:db"}), json!({"PidMode": "private"}), json!({"PidMode": false})] {
+        assert!(check_unsupported(&json!({"PidMode": "container:db"})).is_ok());
+        for invalid in [json!({"PidMode": "container:"}), json!({"PidMode": "private"}), json!({"PidMode": false})] {
             assert!(check_unsupported(&invalid).is_err());
             assert!(guest_lines(&invalid, false).is_err());
         }
@@ -338,7 +348,7 @@ mod tests {
             assert!(check_unsupported(&host).unwrap().is_empty(), "{host}");
         }
         for (host, reason) in [
-            (json!({"PidMode": "container:db"}), "--pid=container:db"),
+            (json!({"PidMode": "container:"}), "--pid=container:"),
             (json!({"IpcMode": "container:db"}), "--ipc=container:db"),
             (json!({"UTSMode": "host"}), "--uts=host"),
             (json!({"CgroupnsMode": "host"}), "--cgroupns=host"),
