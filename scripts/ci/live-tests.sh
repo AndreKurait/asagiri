@@ -97,7 +97,7 @@ run() { # run <script> [image] [options]
   [ "$test_script" != mcp-sdk ] || interpreter=/tmp/asagiri-mcp-sdk/bin/python
   out=$(timed "live/$test_script${*:+ $*}" docker exec "$name" "$interpreter" "/src/tests/$test_script.py" "$sock" "$@" 2>&1); rc=$?
   case "$test_script" in
-    failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|api-compatibility|healthchecks|compose-health)
+    host-pid|failed-start-veth|cleanup-responsive|remove-cleanup-retry|remove-responsive|volume-remove-responsive|volume-owner|volume-labels|shared-root|run-options|start-exec-image-user|tmpfs-inspect|network-dns-order|daemon-time|image-order|image-digest-export|image-remove|top-arguments|api-compatibility|healthchecks|compose-health)
       echo "[$rc] $test_script${*:+ $*}: structured result"
       printf '%s\n' "$out"
       ;;
@@ -171,7 +171,7 @@ run http-connection-close
 run embedded-dns-port alpine:3.21
 run inspect-port-bindings alpine:3.21
 run run-options alpine:3.21
-run host-pid alpine:3.21
+run host-pid alpine:3.21 --daemon-log /root/.asagiri/logs/daemon.log
 run tmpfs-inspect alpine:3.21
 run start-exec-image-user alpine:3.21
 run daemon-time
