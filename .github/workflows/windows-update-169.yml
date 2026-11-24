@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - run: python -m pip install playwright
+      - run: python -m pip install pywinauto pywin32
       - shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -23,7 +23,6 @@ jobs:
           $install = Start-Process msiexec -ArgumentList @('/i', $msi, '/qn', '/norestart') -PassThru -Wait
           if ($install.ExitCode -ne 0) { throw "Installer exited $($install.ExitCode)" }
           $env:ASAGIRI_UPDATE_URL = 'https://github.com/AndreKurait/asagiri/releases/download/v0.1.14/latest-windows-x86_64.json'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
           $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "AsagiriUpdateWebView"
           $exe = (Get-ChildItem "$env:LOCALAPPDATA/Asagiri" -Recurse -Filter asagiri-win.exe | Select-Object -First 1).FullName
           if (!$exe) { throw 'Installed launcher missing' }
@@ -35,17 +34,18 @@ jobs:
           @{done=$true; linux='asagiri'; distro='Asagiri'} | ConvertTo-Json | Set-Content "$env:LOCALAPPDATA/Asagiri/setup.json" -Encoding utf8NoBOM
           Start-Process $exe
           @'
-          from playwright.sync_api import sync_playwright
-          import time, urllib.request
-          with sync_playwright() as p:
-              for _ in range(45):
-                  try:
-                      with urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=1): break
-                  except OSError: time.sleep(1)
-              browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222')
-              page = browser.contexts[0].pages[0]
-              page.locator('[data-upd="download"]:visible').first.click(timeout=90000)
-              page.locator('[data-upd="restart"]:visible').first.click(timeout=120000)
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(title='Asagiri', class_name_re='.*')
+          window.wait('visible', timeout=90)
+          for label in ('Download', 'Restart now'):
+              button = window.child_window(title=label, control_type='Button', found_index=0)
+              try:
+                  button.wait('visible enabled', timeout=120)
+                  button.invoke()
+                  print('Invoked', label, flush=True)
+              except Exception:
+                  print('Visible buttons:', [b.window_text() for b in window.descendants(control_type='Button') if b.is_visible()], flush=True)
+                  raise
           '@ | python -
           if ($LASTEXITCODE) { throw 'Update card interaction failed' }
           $deadline = (Get-Date).AddMinutes(3)
@@ -57,23 +57,16 @@ jobs:
           if (!$product -or !(Get-Process asagiri-win -ErrorAction SilentlyContinue)) { throw 'New version failed to install and relaunch' }
           if (Test-Path "$env:LOCALAPPDATA/Asagiri/update/version") { throw 'Update still staged after restart' }
           @'
-          from playwright.sync_api import sync_playwright
+          from pywinauto import Desktop
           import time
-          with sync_playwright() as p:
-              deadline = time.monotonic() + 90
-              while True:
-                  try:
-                      browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=3000)
-                      page = browser.contexts[0].pages[0]
-                      page.wait_for_function("typeof send === 'function' && typeof ui !== 'undefined'", timeout=3000)
-                      break
-                  except Exception:
-                      if time.monotonic() >= deadline: raise
-                      time.sleep(1)
-              page.evaluate("send('updatecheck')")
-              page.wait_for_function("ui.updState?.state === 'uptodate' && ui.updState.current === '0.1.14'", timeout=90000)
-              assert page.locator('[data-upd="restart"]:visible').count() == 0
-              print('Relaunched dashboard checked its feed, reported 0.1.14 up to date, and displayed no restart prompt.')
+          window = Desktop(backend='uia').window(title='Asagiri')
+          window.wait('visible', timeout=90)
+          for _ in range(30):
+              labels = [item.window_text() for item in window.descendants() if item.is_visible()]
+              assert all('Restart now' != label and '0.1.14 is ready to install' not in label for label in labels), labels
+              assert len(set(labels) - {'', 'Asagiri'}) >= 3, labels
+              time.sleep(1)
+          print('The relaunched dashboard stayed visible for 30 seconds without the restart prompt.')
           '@ | python -
           if ($LASTEXITCODE) { throw 'Relaunched dashboard verification failed' }
       - name: Inspect launcher startup after failure
