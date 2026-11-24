@@ -96,7 +96,8 @@ def check(path, _image):
             # This image is pulled by the node's own containerd, and these
             # queries use Kubernetes CoreDNS from a real pod. The absolute
             # external alias avoids Kubernetes' service search suffixes.
-            kubectl("run", "registry-dns-proof", "--restart=Never", "--image=" + image,
+            pod_image = "mirror.gcr.io/library/" + image
+            kubectl("run", "registry-dns-proof", "--restart=Never", "--image=" + pod_image,
                     "--command", "--", "sh", "-ec",
                     "nslookup -type=a registry-1.docker.io; nslookup -type=a kind-registry.; echo kind-dns-ok")
             kubectl("wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/registry-dns-proof",
