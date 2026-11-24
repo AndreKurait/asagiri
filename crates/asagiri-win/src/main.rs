@@ -121,6 +121,8 @@ mod import;
 mod wslsync;
 #[cfg(any(windows, test))]
 mod refuse;
+#[cfg(any(windows, test))]
+mod storage;
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
