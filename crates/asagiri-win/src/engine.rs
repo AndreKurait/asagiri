@@ -739,7 +739,12 @@ fn about() {
 /// to by default, as `docker context show` says (it knows DOCKER_CONTEXT,
 /// DOCKER_HOST and wherever Docker Desktop keeps the CLI config).
 fn status_event() -> String {
-    let context = docker(&["context", "show"]).ok().map(|s| s.trim().to_owned()).filter(|c| !c.is_empty());
+    // `context show` can return a name whose metadata was removed.
+    let context = docker(&["context", "show"])
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|c| !c.is_empty())
+        .filter(|c| docker(&["context", "inspect", "--", c]).is_ok());
     json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context}).to_string()
 }
 
