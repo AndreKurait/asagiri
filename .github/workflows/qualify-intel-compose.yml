@@ -36,7 +36,7 @@ jobs:
           unset GH_TOKEN
           docker pull python:3.12-alpine
           name=registry-1.docker.io
-          ip=$(python3 -c 'import socket; print(socket.getaddrinfo("registry-1.docker.io",443,socket.AF_INET,socket.SOCK_STREAM)[0][4][0])')
+          ip=3.216.131.223
           cat > probe.py <<'PYTHON'
           import socket, ssl, sys, time
           name, ip = sys.argv[1:]
