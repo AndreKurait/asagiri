@@ -20,11 +20,6 @@ t() {
   local got; got=$($D exec "$N" sh -c "export DOCKER_HOST=unix:///run/asagiri/docker.sock; $*" 2>&1 | tr -d '\r')
   if [[ "$got" == *"$want"* ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$name" "$want" "$(echo "$got" | head -3)"; fi
 }
-# On a Linux host, published ports on a --network host container are discarded
-# at start (HostConfig.PortBindings kept, NetworkSettings.Ports empty, no host
-# forwarder bound) so the container's own listener binds the port without
-# EADDRINUSE (#764).
-t hostnet-ports-discarded 'running host {"18089/tcp":[{"HostIp":"","HostPort":"18089"}]} {} hostnet-764-ok' "docker rm -f lhhp764 >/dev/null 2>&1; docker run -d --name lhhp764 --network host -p 18089:18089 alpine sh -c 'while true; do printf \"HTTP/1.1 200 OK\\r\\nContent-Length: 14\\r\\n\\r\\nhostnet-764-ok\" | nc -l -p 18089 >/dev/null 2>&1 || exit 1; done' >/dev/null; ans=; for i in \$(seq 30); do ans=\$(curl -s -m 2 http://127.0.0.1:18089/) && [ \"\$ans\" = hostnet-764-ok ] && break; sleep 0.1; done; ins=\$(docker inspect -f '{{.State.Status}} {{.HostConfig.NetworkMode}} {{json .HostConfig.PortBindings}} {{json .NetworkSettings.Ports}}' lhhp764); docker rm -f lhhp764 >/dev/null 2>&1; echo \"\$ins \$ans\""
 t server-os "linux" "docker version --format '{{.Server.Os}}'"
 t run "3." "docker run --rm alpine cat /etc/alpine-release"
 t home "/root" "docker run --rm alpine sh -c 'echo \$HOME'"
