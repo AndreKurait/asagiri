@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "स्टोरेज फ़ोल्डर चुनें",
   "Asagiri's data moved to {path}": "Asagiri का डेटा {path} में ले जाया गया",
   "Storage is available again": "स्टोरेज फिर से उपलब्ध है",
-  "Old data removed": "पुराना डेटा हटा दिया गया"
+  "Old data removed": "पुराना डेटा हटा दिया गया",
+  "Asagiri's data is moving already": "Asagiri का डेटा पहले से स्थानांतरित हो रहा है"
 }

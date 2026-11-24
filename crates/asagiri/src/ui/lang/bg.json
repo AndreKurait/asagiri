@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Изберете папка за съхранение",
   "Asagiri's data moved to {path}": "Данните на Asagiri са преместени в {path}",
   "Storage is available again": "Хранилището отново е достъпно",
-  "Old data removed": "Старите данни са премахнати"
+  "Old data removed": "Старите данни са премахнати",
+  "Asagiri's data is moving already": "Данните на Asagiri вече се местят"
 }

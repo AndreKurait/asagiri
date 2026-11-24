@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Valitse tallennuskansio",
   "Asagiri's data moved to {path}": "Asagirin tiedot siirrettiin sijaintiin {path}",
   "Storage is available again": "Tallennussijainti on taas käytettävissä",
-  "Old data removed": "Vanhat tiedot poistettu"
+  "Old data removed": "Vanhat tiedot poistettu",
+  "Asagiri's data is moving already": "Asagirin tietoja siirretään jo"
 }

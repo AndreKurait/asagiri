@@ -1914,5 +1914,6 @@
   "Asagiri's data moved to {path}": "Asagiri podaci su premešteni na {path}",
   "Storage is available again": "Skladište je ponovo dostupno",
   "Old data removed": "Stari podaci su uklonjeni",
-  "Choose a storage folder": "Izaberite fasciklu za skladištenje"
+  "Choose a storage folder": "Izaberite fasciklu za skladištenje",
+  "Asagiri's data is moving already": "Premeštanje Asagiri podataka je već u toku"
 }

@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Alege un folder de stocare",
   "Asagiri's data moved to {path}": "Datele Asagiri au fost mutate în {path}",
   "Storage is available again": "Stocarea este din nou disponibilă",
-  "Old data removed": "Datele vechi au fost eliminate"
+  "Old data removed": "Datele vechi au fost eliminate",
+  "Asagiri's data is moving already": "Datele Asagiri se mută deja"
 }

@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Tria una carpeta d'emmagatzematge",
   "Asagiri's data moved to {path}": "Les dades del Asagiri s'han mogut a {path}",
   "Storage is available again": "L'emmagatzematge torna a estar disponible",
-  "Old data removed": "Dades antigues eliminades"
+  "Old data removed": "Dades antigues eliminades",
+  "Asagiri's data is moving already": "Les dades del Asagiri ja s'estan movent"
 }

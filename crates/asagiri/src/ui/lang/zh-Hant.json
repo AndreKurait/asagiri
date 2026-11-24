@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "選擇儲存資料夾",
   "Asagiri's data moved to {path}": "Asagiri 的資料已移動到 {path}",
   "Storage is available again": "儲存位置已恢復可用",
-  "Old data removed": "舊資料已移除"
+  "Old data removed": "舊資料已移除",
+  "Asagiri's data is moving already": "Asagiri 的資料已在移動中"
 }

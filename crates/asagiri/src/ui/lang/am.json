@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "የማከማቻ አቃፊ ይምረጡ",
   "Asagiri's data moved to {path}": "የAsagiri ውሂብ ወደ {path} ተዛውሯል",
   "Storage is available again": "ማከማቻው እንደገና ይገኛል",
-  "Old data removed": "የቆየ ውሂብ ተወግዷል"
+  "Old data removed": "የቆየ ውሂብ ተወግዷል",
+  "Asagiri's data is moving already": "የAsagiri ውሂብ አሁን እየተዛወረ ነው"
 }

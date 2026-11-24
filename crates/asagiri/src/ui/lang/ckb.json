@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "بوخچەی هەڵگرتن هەڵبژێرە",
   "Asagiri's data moved to {path}": "داتاکانی Asagiri گواسترانەوە بۆ {path}",
   "Storage is available again": "بیرگە دووبارە بەردەستە",
-  "Old data removed": "داتای کۆن سڕدرایەوە"
+  "Old data removed": "داتای کۆن سڕدرایەوە",
+  "Asagiri's data is moving already": "داتاکانی Asagiri ئێستا دەگوازرێنەوە"
 }

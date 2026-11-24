@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Tárhelymappa választása",
   "Asagiri's data moved to {path}": "A Asagiri adatai áthelyezve ide: {path}",
   "Storage is available again": "A tárhely újra elérhető",
-  "Old data removed": "Régi adatok eltávolítva"
+  "Old data removed": "Régi adatok eltávolítva",
+  "Asagiri's data is moving already": "A Asagiri adatai már áthelyezés alatt állnak"
 }

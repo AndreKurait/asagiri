@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Zgjidhni një dosje ruajtjeje",
   "Asagiri's data moved to {path}": "Të dhënat e Asagiri u zhvendosën në {path}",
   "Storage is available again": "Ruajtja është sërish e disponueshme",
-  "Old data removed": "Të dhënat e vjetra u hoqën"
+  "Old data removed": "Të dhënat e vjetra u hoqën",
+  "Asagiri's data is moving already": "Të dhënat e Asagiri po zhvendosen tashmë"
 }

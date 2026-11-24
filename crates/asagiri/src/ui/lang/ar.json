@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "اختر مجلد التخزين",
   "Asagiri's data moved to {path}": "تم نقل بيانات Asagiri إلى {path}",
   "Storage is available again": "التخزين متاح مرة أخرى",
-  "Old data removed": "تمت إزالة البيانات القديمة"
+  "Old data removed": "تمت إزالة البيانات القديمة",
+  "Asagiri's data is moving already": "بيانات Asagiri قيد النقل بالفعل"
 }

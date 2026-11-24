@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "یک پوشه ذخیره‌سازی انتخاب کنید",
   "Asagiri's data moved to {path}": "داده‌های Asagiri به {path} منتقل شد",
   "Storage is available again": "فضای ذخیره‌سازی دوباره در دسترس است",
-  "Old data removed": "داده‌های قدیمی حذف شد"
+  "Old data removed": "داده‌های قدیمی حذف شد",
+  "Asagiri's data is moving already": "داده‌های Asagiri همین الان در حال جابه‌جایی است"
 }

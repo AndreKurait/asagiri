@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Виберіть теку сховища",
   "Asagiri's data moved to {path}": "Дані Asagiri перенесено до {path}",
   "Storage is available again": "Сховище знову доступне",
-  "Old data removed": "Старі дані видалено"
+  "Old data removed": "Старі дані видалено",
+  "Asagiri's data is moving already": "Дані Asagiri вже переносяться"
 }

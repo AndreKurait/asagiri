@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "ເລືອກໂຟນເດີຈັດເກັບຂໍ້ມູນ",
   "Asagiri's data moved to {path}": "ຍ້າຍຂໍ້ມູນຂອງ Asagiri ໄປຍັງ {path} ແລ້ວ",
   "Storage is available again": "ບ່ອນຈັດເກັບຂໍ້ມູນພ້ອມໃຊ້ງານອີກຄັ້ງ",
-  "Old data removed": "ລຶບຂໍ້ມູນເກົ່າແລ້ວ"
+  "Old data removed": "ລຶບຂໍ້ມູນເກົ່າແລ້ວ",
+  "Asagiri's data is moving already": "ຂໍ້ມູນຂອງ Asagiri ກຳລັງຖືກຍ້າຍຢູ່ແລ້ວ"
 }

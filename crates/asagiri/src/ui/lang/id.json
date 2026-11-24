@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Pilih folder penyimpanan",
   "Asagiri's data moved to {path}": "Data Asagiri dipindahkan ke {path}",
   "Storage is available again": "Penyimpanan tersedia kembali",
-  "Old data removed": "Data lama dihapus"
+  "Old data removed": "Data lama dihapus",
+  "Asagiri's data is moving already": "Data Asagiri sedang dipindahkan"
 }

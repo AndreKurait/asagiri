@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "ストレージフォルダーを選択",
   "Asagiri's data moved to {path}": "Asagiri のデータを {path} に移動しました",
   "Storage is available again": "ストレージが再び利用可能になりました",
-  "Old data removed": "古いデータを削除しました"
+  "Old data removed": "古いデータを削除しました",
+  "Asagiri's data is moving already": "Asagiri のデータはすでに移動中です"
 }

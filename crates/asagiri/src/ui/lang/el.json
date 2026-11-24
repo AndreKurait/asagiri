@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Επιλέξτε φάκελο αποθήκευσης",
   "Asagiri's data moved to {path}": "Τα δεδομένα του Asagiri μετακινήθηκαν στο {path}",
   "Storage is available again": "Η αποθήκευση είναι ξανά διαθέσιμη",
-  "Old data removed": "Τα παλιά δεδομένα αφαιρέθηκαν"
+  "Old data removed": "Τα παλιά δεδομένα αφαιρέθηκαν",
+  "Asagiri's data is moving already": "Τα δεδομένα του Asagiri μετακινούνται ήδη"
 }

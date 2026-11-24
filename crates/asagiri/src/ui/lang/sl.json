@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Izberite mapo za shrambo",
   "Asagiri's data moved to {path}": "Podatki Asagiri so bili premaknjeni v {path}",
   "Storage is available again": "Shramba je spet na voljo",
-  "Old data removed": "Stari podatki odstranjeni"
+  "Old data removed": "Stari podatki odstranjeni",
+  "Asagiri's data is moving already": "Podatki Asagiri se že premikajo"
 }

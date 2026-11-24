@@ -557,6 +557,10 @@ mod imp {
     /// `wsl --manage <distro> --move <target>` first, then falls back to
     /// `--export` -> `--unregister` -> `--import` with rollback on failure.
     fn move_distro(distro: &str, old_dir: &Path, target: &Path) -> io::Result<()> {
+        let staging = target.join(MOVING);
+        if staging.try_exists()? {
+            return Err(io::Error::other(format!("A previous migration left files in {}. Recover or move them before retrying.", staging.display())));
+        }
         let managed = wsl_run(&[
             std::ffi::OsStr::new("--manage"),
             std::ffi::OsStr::new(distro),
@@ -567,9 +571,7 @@ mod imp {
             return Ok(());
         }
         // Fallback: export into staging folder inside target, unregister, import.
-        let staging = target.join(MOVING);
-        let _ = fs::remove_dir_all(&staging);
-        fs::create_dir_all(&staging)?;
+        fs::create_dir(&staging)?;
         let vhd_file = staging.join("distro.vhdx");
         let tar_file = staging.join("distro.tar");
         let (archive, is_vhd) = match wsl_run(&[
@@ -612,8 +614,9 @@ mod imp {
         };
         if let Err(e) = import_to(target) {
             // Roll back: restore the distro at its original folder before deleting staging.
-            let _ = fs::create_dir_all(old_dir);
-            let _ = import_to(old_dir);
+            if let Err(rollback) = fs::create_dir_all(old_dir).and_then(|()| import_to(old_dir).map(drop)) {
+                return Err(io::Error::other(format!("WSL import failed: {e}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display())));
+            }
             let _ = fs::remove_dir_all(&staging);
             return Err(e);
         }

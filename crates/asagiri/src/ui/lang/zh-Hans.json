@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "选择存储文件夹",
   "Asagiri's data moved to {path}": "Asagiri 的数据已移动到 {path}",
   "Storage is available again": "存储已重新可用",
-  "Old data removed": "旧数据已删除"
+  "Old data removed": "旧数据已删除",
+  "Asagiri's data is moving already": "Asagiri 的数据已在移动中"
 }

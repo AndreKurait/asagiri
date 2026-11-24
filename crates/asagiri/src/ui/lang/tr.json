@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Depolama klasörü seçin",
   "Asagiri's data moved to {path}": "Asagiri verileri {path} konumuna taşındı",
   "Storage is available again": "Depolama yeniden kullanılabilir",
-  "Old data removed": "Eski veriler kaldırıldı"
+  "Old data removed": "Eski veriler kaldırıldı",
+  "Asagiri's data is moving already": "Asagiri verileri zaten taşınıyor"
 }

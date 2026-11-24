@@ -1914,5 +1914,6 @@
   "Choose a storage folder": "Chọn thư mục lưu trữ",
   "Asagiri's data moved to {path}": "Đã di chuyển dữ liệu Asagiri đến {path}",
   "Storage is available again": "Lưu trữ đã khả dụng trở lại",
-  "Old data removed": "Đã xóa dữ liệu cũ"
+  "Old data removed": "Đã xóa dữ liệu cũ",
+  "Asagiri's data is moving already": "Dữ liệu Asagiri đang được di chuyển"
 }
