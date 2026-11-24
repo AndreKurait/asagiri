@@ -774,7 +774,7 @@ mod imp {
         if !detached {
             let mut cfg = crate::serve::Config::from_args();
             cfg.distro = Some("Offline166".into());
-            cfg.pipe = r"\\.\pipesagiri-offline-storage-test".into();
+            cfg.pipe = r"\\.\pipe\asagiri-offline-storage-test".into();
             crate::client::set_pipe(&cfg.pipe);
             crate::serve::start(cfg).unwrap();
         }
