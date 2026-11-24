@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+getrandom = "0.4"
 asagiri-image = { path = "../asagiri-image" }
 asagiri-proto = { path = "../asagiri-proto" }
 asagiri-share-proto = { path = "../asagiri-share-proto" }

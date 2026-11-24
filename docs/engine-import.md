@@ -68,9 +68,19 @@ An explicit volume import overwrites files with matching paths and leaves
 other destination files in place. The source volume remains available for recovery.
 
 An interrupted import can leave a stopped source helper attached to the volume.
-The helper is hidden from `asagiri import --list`, but Docker still reports the
-attachment. After all imports using that volume have exited, list the matching
-helpers on the source engine. For example, with Docker Desktop as the source,
+Retry the same volume import using the same source context, destination engine,
+and user state directory. The importer uses its journal to identify and remove
+its own stopped reader before retrying the copy. If another import still has a
+reader running, let that import finish, then retry. For a Docker Desktop source, run
+
+```sh
+asagiri import desktop-linux volume VOLUME
+```
+
+Helpers from older imports, or from an import whose journal was lost, can
+require manual recovery. Docker lists these attachments even though Asagiri
+hides helpers from its import inventory. After all imports using the volume
+have exited, list the matching helpers on the source engine. In these commands,
 replace `VOLUME` with the source volume name.
 
 ```sh

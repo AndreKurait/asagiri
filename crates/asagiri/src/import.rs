@@ -231,8 +231,46 @@ pub fn volume(source: &str, name: &str) -> io::Result<()> {
     let ctx = known(source)?;
     let journal = ImportJournal::open()?;
     let marker = journal.marker(name)?;
-    volume_with_cli(ctx, name, &cli, || std::fs::File::create(&marker)?.sync_all())?;
-    std::fs::remove_file(marker)
+    // The journal lock excludes live operations using this ownership record.
+    let record = marker.with_extension(ctx);
+    let owner = match std::fs::read_to_string(&record) {
+        Ok(owner) => {
+            if owner.len() != 32 || !owner.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(io::Error::other("invalid import helper ownership record"));
+            }
+            let filter = format!("label=dev.asagiri.import-owner={owner}");
+            let volume = format!("volume={name}");
+            let readers = json_lines(ctx, &["ps", "-a", "--no-trunc", "--filter", &filter, "--filter", "label=dev.asagiri.import-helper=1", "--filter", &volume, "--format", "{{json .ID}}"])?;
+            for reader in readers {
+                let id = reader.as_str().filter(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .ok_or_else(|| io::Error::other("invalid source helper ID"))?;
+                // No force or volume removal. A running reader must finish first.
+                let removed = cli()?.args(["--context", ctx, "rm", id]).output()?;
+                if !removed.status.success() {
+                    // AutoRemove can win the race after listing. Continue only when
+                    // the source engine confirms that this exact ID is gone.
+                    let remaining = json_lines(ctx, &["ps", "-a", "--no-trunc", "--filter", &format!("id={id}"), "--format", "{{json .ID}}"])?;
+                    if !remaining.is_empty() {
+                        return Err(io::Error::other(String::from_utf8_lossy(&removed.stderr).into_owned()));
+                    }
+                }
+            }
+            owner
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let mut bytes = [0u8; 16];
+            getrandom::fill(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
+            let owner: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            let temp = record.with_extension(format!("{ctx}.tmp"));
+            std::fs::write(&temp, &owner)?;
+            std::fs::rename(temp, &record)?;
+            owner
+        }
+        Err(e) => return Err(e),
+    };
+    volume_with_cli(ctx, name, &owner, &cli, || std::fs::File::create(&marker)?.sync_all())?;
+    std::fs::remove_file(marker)?;
+    std::fs::remove_file(record)
 }
 
 fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>) -> io::Result<Value> {
@@ -271,7 +309,7 @@ fn inspect_idle_volume(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result
     Ok(volume)
 }
 
-fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Command>, mark_pending: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+fn volume_with_cli(ctx: &str, name: &str, owner: &str, make_cli: &impl Fn() -> io::Result<Command>, mark_pending: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     inspect_idle_volume(ctx, name, make_cli)?;
     let img = helper_image(ctx, make_cli)?;
     let users = make_cli()?.args(["--context", crate::flavor::CONTEXT.get(), "ps", "--all", "--filter", &format!("volume={name}"), "--format", "{{.Names}}"]).output()?;
@@ -301,7 +339,7 @@ fn volume_with_cli(ctx: &str, name: &str, make_cli: &impl Fn() -> io::Result<Com
     let mut destination = make_cli()?;
     destination.args(["--context", crate::flavor::CONTEXT.get(), "run", "--rm", "-i", "--network", "none", "-v", &dst_mount, img, "tar", "--xattrs", "--xattrs-include=user.*", "--acls", "--numeric-owner", "-C", "/to", "-xpf", "-"]);
     let mut read = make_cli()?
-        .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "-v", &src_mount, img, "tar", "--xattrs", "--xattrs-include=user.*", "--acls", "--numeric-owner", "-C", "/from", "-cf", "-", "."])
+        .args(["--context", ctx, "run", "--rm", "--network", "none", "--label", "dev.asagiri.import-helper=1", "--label", &format!("dev.asagiri.import-owner={owner}"), "-v", &src_mount, img, "tar", "--xattrs", "--xattrs-include=user.*", "--acls", "--numeric-owner", "-C", "/from", "-cf", "-", "."])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -763,7 +801,7 @@ mod tests {
         }
 
         fn run(&self) -> std::io::Result<()> {
-            super::volume_with_cli("orbstack", "fixture-volume", &|| {
+            super::volume_with_cli("orbstack", "fixture-volume", "fixture-owner", &|| {
                 let mut command = std::process::Command::new("/bin/sh");
                 command.arg(self.0.join("docker.sh")).env("ASAGIRI_IMPORT_FIXTURE", &self.0)
                     .env("ASAGIRI_IMPORT_DESTINATION", crate::flavor::CONTEXT.get());
