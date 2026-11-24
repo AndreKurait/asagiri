@@ -58,17 +58,16 @@ jobs:
               if ($LASTEXITCODE -or $actual -ne $expected) { throw 'Image inventory mismatch' }
               Write-Host "$cli server=$server alpine=$actual"
             }
-            $saved = & $packaged create --name retained189 alpine:3.21 true
-            if ($LASTEXITCODE) { throw 'Creating the pre-restart container failed' }
-            wsl.exe --terminate Asagiri-context175
-            if ($LASTEXITCODE) { throw 'WSL termination failed' }
-            $timer = [Diagnostics.Stopwatch]::StartNew()
-            $restored = & $terminal inspect retained189 --format '{{.Id}}'
-            $elapsed = $timer.Elapsed.TotalSeconds
-            Write-Host "First inspect after WSL termination took $elapsed seconds; exit=$LASTEXITCODE"
-            if ($LASTEXITCODE -or $restored -ne $saved) { throw 'First inspect did not recover the existing container' }
-            & $terminal start -a retained189
-            if ($LASTEXITCODE) { throw 'Retained container could not start' }
+            $env:DOCKER_CONTEXT = 'default'
+            try {
+              $selected = & $terminal context show
+              $endpoint = & $terminal context inspect --format '{{.Endpoints.docker.Host}}' $selected
+              if ($LASTEXITCODE -or $selected -ne 'default' -or $endpoint -ne 'npipe:////./pipe/docker_engine') { throw 'Terminal override did not select the default pipe' }
+              Write-Host "Overridden terminal selected=$selected endpoint=$endpoint"
+            } finally { Remove-Item Env:DOCKER_CONTEXT }
+            $restored = & $terminal image inspect alpine:3.21 --format '{{.Id}}'
+            if ($LASTEXITCODE -or $restored -ne $expected) { throw 'Removing the override did not restore the selected engine inventory' }
+            Write-Host "Terminal after removing override alpine=$restored"
           } finally {
             if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id }
             wsl.exe --terminate Asagiri-context175
