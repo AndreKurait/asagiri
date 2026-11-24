@@ -691,6 +691,20 @@ mod imp {
         assert_eq!(fs::read(invalid).unwrap(), b"keep this file");
         assert!(target.join("ext4.vhdx").is_file());
         assert!(!staging.exists());
+
+        // Boot the rolled-back distro before moving it again through the same
+        // entry point as Settings. The CI fixture reads this marker once more
+        // after the final move.
+        let distro = std::ffi::OsStr::new("AsagiriStorageTest166");
+        let marker = wsl_run(&["-d".as_ref(), distro, "-u".as_ref(), "root".as_ref(), "--".as_ref(),
+            "cat".as_ref(), "/root/storage-proof".as_ref()]).unwrap();
+        assert_eq!(marker.trim(), "preserved");
+        wsl_run(&["--terminate".as_ref(), distro]).unwrap();
+        let destination = root.join("settings-move");
+        fs::create_dir(&destination).unwrap();
+        move_distro("AsagiriStorageTest166", &target, &destination).unwrap();
+        assert!(destination.join("ext4.vhdx").is_file());
+        assert!(!destination.join(MOVING).exists());
     }
 
     fn retry_engine(restart: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
