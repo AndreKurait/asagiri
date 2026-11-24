@@ -69,14 +69,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
-      fail-fast: false
       matrix:
         include:
           - arch: x86_64
             runner: ubuntu-24.04
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-    steps:
+    steps: &linux_package_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # This job is skipped for package recovery. Otherwise plan verifies
@@ -256,6 +253,19 @@ jobs:
           path: ${{ runner.temp }}/linux-inputs/*
           if-no-files-found: error
           retention-days: 7
+
+  linux-arm:
+    name: Linux packages (${{ matrix.arch }})
+    needs: plan
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.artifact_run == ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps: *linux_package_steps
 
   jammy-desktop:
     name: Build and launch the amd64 desktop deb on Ubuntu 22.04
@@ -573,14 +583,11 @@ jobs:
       run:
         shell: pwsh
     strategy:
-      fail-fast: false
       matrix:
         include:
           - arch: x86_64
             linux: x86_64
-          - arch: arm64
-            linux: aarch64
-    steps:
+    steps: &windows_package_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.commit }}
@@ -655,9 +662,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  windows-arm:
+    name: Windows packages (${{ matrix.arch }})
+    needs: [plan, linux-arm]
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            linux: aarch64
+    steps: *windows_package_steps
+
   windows-arm-install:
     name: Windows Arm installer check
-    needs: [plan, windows]
+    needs: [plan, windows-arm]
     runs-on: windows-11-arm
     timeout-minutes: 15
     defaults:
@@ -692,12 +714,12 @@ jobs:
 
   publish:
     name: Verify uploads and publish
-    needs: [plan, linux, jammy-desktop, guest, qemu, macos, windows-tests, windows, windows-arm-install]
+    needs: [plan, linux, linux-arm, jammy-desktop, guest, qemu, macos, windows-tests, windows, windows-arm, windows-arm-install]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.ready == 'true' &&
       (needs.plan.outputs.artifact_run != '' ||
-       (needs.linux.result == 'success' && needs.jammy-desktop.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
-        needs.macos.result == 'success' && needs.windows-tests.result == 'success' && needs.windows.result == 'success' &&
+       (needs.linux.result == 'success' && needs.linux-arm.result == 'success' && needs.jammy-desktop.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
+        needs.macos.result == 'success' && needs.windows-tests.result == 'success' && needs.windows.result == 'success' && needs.windows-arm.result == 'success' &&
         needs.windows-arm-install.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
