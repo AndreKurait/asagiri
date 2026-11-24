@@ -61,9 +61,11 @@ The final check verifies that the source is still idle. A writer can start
 and stop between checks, so keep writers stopped throughout the copy.
 
 If copying or the final check fails, inspect the destination before retrying.
-A partial volume can appear as already present in `--list`. An explicit
-volume import overwrites files with matching paths and leaves other destination
-files in place. The source volume remains available for recovery.
+When the importer records an unfinished copy, `--list` shows the source
+volume without the “already in Asagiri” annotation. Importing a container
+that depends on that named volume will ask you to retry the volume first.
+An explicit volume import overwrites files with matching paths and leaves
+other destination files in place. The source volume remains available for recovery.
 
 An interrupted import can leave a stopped source helper attached to the volume.
 The helper is hidden from `asagiri import --list`, but Docker still reports the
