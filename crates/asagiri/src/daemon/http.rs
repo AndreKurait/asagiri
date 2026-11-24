@@ -759,6 +759,47 @@ mod tests {
         assert_eq!(refusal(&read_request(&mut input(head.as_bytes()), |_, _| false).unwrap_err()), Some(413));
     }
 
+    #[test]
+    fn a_large_streamed_body_preserves_the_next_request() {
+        const BLOCK: usize = 8192;
+        let total = MAX_BODY + 37;
+        let payload_byte = |offset: usize| (offset % 251) as u8;
+        for chunked in [false, true] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            let writer = std::thread::spawn(move || {
+                let framing = if chunked { "Transfer-Encoding: chunked".to_owned() } else { format!("Content-Length: {total}") };
+                write!(client, "POST /images/load HTTP/1.1\r\n{framing}\r\n\r\n").unwrap();
+                let mut block = [0; BLOCK];
+                for offset in (0..total).step_by(BLOCK) {
+                    let count = BLOCK.min(total - offset);
+                    let block = &mut block[..count];
+                    for (i, byte) in block.iter_mut().enumerate() { *byte = payload_byte(offset + i); }
+                    if chunked { write!(client, "{:x}\r\n", block.len()).unwrap(); }
+                    client.write_all(block).unwrap();
+                    if chunked { client.write_all(b"\r\n").unwrap(); }
+                }
+                if chunked { client.write_all(b"0\r\n\r\n").unwrap(); }
+                client.write_all(b"GET /_ping HTTP/1.1\r\n\r\n").unwrap();
+            });
+            let mut reader = BufReader::new(server);
+            let req = read_request(&mut reader, |_, _| true).unwrap().unwrap();
+            assert!(req.body.is_empty());
+            let mut body = Body::new(&req, &mut reader);
+            let mut scratch = [0; 4096];
+            let mut received = 0;
+            loop {
+                let n = body.read(&mut scratch).unwrap();
+                if n == 0 { break; }
+                assert!(scratch[..n].iter().enumerate().all(|(i, &byte)| byte == payload_byte(received + i)));
+                received += n;
+            }
+            assert_eq!(received, total);
+            let next = read_request(&mut reader, |_, _| false).unwrap().unwrap();
+            assert_eq!(next.path, "/_ping");
+            writer.join().unwrap();
+        }
+    }
+
     /// What the client was sent once the server side is done with `r`.
     fn sent(mut client: UnixStream, r: BufReader<UnixStream>) -> Vec<u8> {
         drop(r);
