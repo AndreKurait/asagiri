@@ -60,6 +60,10 @@ pub fn resources() -> serde_json::Value {
     resources_path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(serde_json::Value::Null)
 }
 
+pub fn swap_mib() -> u64 {
+    resources()["swap_mib"].as_u64().unwrap_or(0)
+}
+
 pub fn physical_memory_bytes() -> u64 {
     physical_memory()
 }
@@ -919,6 +923,7 @@ impl Engine {
                 crate::diag::warn!("guest console log has no location", error = e);
             }).ok(),
             memory_mib: Some(ceiling >> 20),
+            swap_mib: swap_mib(),
             cpus: Some(cpus),
             ..Default::default()
         })

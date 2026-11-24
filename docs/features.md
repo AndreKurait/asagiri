@@ -101,6 +101,9 @@ On macOS, Linux, and Windows with the Asagiri WSL distro, `asagiri scan IMAGE` s
   (preview, Save to Downloads, Show in Finder); Settings for fonts, text
   size, the VM's CPUs and memory (`~/.asagiri/vm.json`, used from the VM's
   next start; `ASAGIRI_CPUS` and `ASAGIRI_MEMORY_MIB` override it) and local names
+- **Guest swap on macOS**. To allocate 512 MiB on the VM’s data disk, add
+  `"swap_mib": 512` to the existing JSON object in `~/.asagiri/vm.json`.
+  The setting takes effect on the next VM boot. Set it to `0` to disable swap.
 - **AI clients**: an [MCP server over local stdio](integrations.md), disabled
   until enabled in Settings or the CLI. Read permissions cover bounded
   container information and recent logs; starting, stopping and restarting
