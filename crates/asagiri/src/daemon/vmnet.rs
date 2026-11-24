@@ -112,7 +112,7 @@ pub fn parse_udp67_listeners(netstat: &str) -> Vec<(Option<String>, u32)> {
 /// Picks the host bridge backing Apple's shared NAT network (`bridge100+`).
 pub fn pick_bridge(ifaces: &[Bridge], plist: Option<([u8; 4], u8)>) -> Option<Bridge> {
     let num = |n: &str| n.strip_prefix("bridge")?.parse::<u32>().ok();
-    let valid: Vec<&Bridge> = ifaces.iter().filter(|b| b.name.starts_with("bridge") && (8..=30).contains(&b.prefix) && usable_gateway(b.gateway)).collect();
+    let valid: Vec<&Bridge> = ifaces.iter().filter(|b| num(&b.name).is_some_and(|n| n >= 100) && (8..=30).contains(&b.prefix) && usable_gateway(b.gateway)).collect();
     if let Some((p_gw, p_prefix)) = plist {
         let p_mask = mask_from_prefix(p_prefix);
         let p_net = u32::from_be_bytes(p_gw) & p_mask;
@@ -122,10 +122,8 @@ pub fn pick_bridge(ifaces: &[Bridge], plist: Option<([u8; 4], u8)>) -> Option<Br
     }
     valid
         .into_iter()
-        .filter(|b| num(&b.name).is_some_and(|n| n >= 100))
         .min_by_key(|b| (b.name != "bridge100", num(&b.name).unwrap_or(u32::MAX)))
         .cloned()
-        .or_else(|| plist.map(|(gateway, prefix)| Bridge { name: "bridge100".into(), gateway, prefix }))
 }
 
 /// Picks an IPv4 host address inside `gateway/prefix` avoiding the network,
@@ -302,6 +300,14 @@ mod tests {
         assert_eq!(pick_bridge(&[tb.clone(), b101.clone(), b100.clone()], None), Some(b100.clone()));
         assert_eq!(pick_bridge(std::slice::from_ref(&tb), None), None);
         assert_eq!(pick_bridge(&[b100, b101.clone()], Some(([192, 168, 65, 1], 24))), Some(b101));
+    }
+
+    #[test]
+    fn stale_preferences_cannot_supply_an_absent_bridge() {
+        let saved = Some(([192, 168, 64, 1], 24));
+        assert_eq!(pick_bridge(&[], saved), None);
+        let unrelated = Bridge { name: "bridge0".into(), gateway: [192, 168, 64, 1], prefix: 24 };
+        assert_eq!(pick_bridge(&[unrelated], saved), None);
     }
 
     #[test]
