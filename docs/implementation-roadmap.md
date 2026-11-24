@@ -266,6 +266,8 @@ Health transition PR #291 removed two sampled unit tests and kept the status/log
 
   At `ef68510a`, the same count is 1,342 declarations, 273 above the 1,069 baseline. The counts in table order are 856, 109, 230, 5, 14, 12 and 116. The three sampled tests retired in #291 and #292 are included in this net change.
 
+  The [IPAM proof](verified-ipam.md) also replaced 262,144 sampled queries and three maximum-address assertions. These are assertion counts, so they do not translate into an equal number of retired test declarations. The [Linux run on main](https://github.com/AndreKurait/asagiri/actions/runs/45373484237/job/138373481706) passed the retained iterator merge and early-stop test, the IPv4/IPv6 allocator comparison against membership search, and the exhaustion and reuse test.
+
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [x] Inventory the production callers, requirements and test assertions for the first two verification issues. Source inspected at `23ff537e`.
 
