@@ -378,3 +378,18 @@ mod tests {
         assert_eq!(set("[boot]\r\nx=1\r\n", "memory", "4GB"), "[boot]\r\nx=1\r\n\r\n[wsl2]\r\nmemory=4GB\r\n");
     }
 }
+
+#[cfg(test)]
+mod native_integration {
+    #[test]
+    #[ignore = "requires the disposable engine and Development138 WSL2 distros"]
+    fn change_development138_setting() {
+        crate::client::set_pipe(r"\\.\pipe\asagiri-watch-test");
+        let on = match std::env::var("ASAGIRI_TEST_DISTRO_SETTING").as_deref() {
+            Ok("on") => true,
+            Ok("off") => false,
+            _ => panic!("set ASAGIRI_TEST_DISTRO_SETTING to on or off"),
+        };
+        super::toggle_distro("Development138", on).unwrap();
+    }
+}
