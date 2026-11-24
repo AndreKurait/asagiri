@@ -1,0 +1,101 @@
+name: Compare Windows dashboard and CLI image inventory
+on:
+  push:
+    branches: [qualification/dashboard-image-inventory-175]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 97e5728284a18ba664c98cfd20bc1459e427213f
+          persist-credentials: false
+      - name: Prepare WSL for the engine rollback test
+        run: |
+          wsl.exe --status
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL setup exited with $LASTEXITCODE" }
+          }
+          wsl.exe --version
+          if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
+      - name: Build the PR launcher
+        run: cargo build --release --locked -p asagiri-win
+      - name: Repair the context from the desktop and query its engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $launcher = Resolve-Path target/release/asagiri-win.exe
+          Set-Location $env:RUNNER_TEMP
+          $build = '205'
+          $version = "0.1.14-dev.$build"
+          $asset = "Asagiri-$version-x86_64.msi"
+          if (!(Test-Path $asset)) {
+            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
+
+          }
+          $digest = gh release view "v$version" --repo AndreKurait/asagiri --json assets | ConvertFrom-Json | ForEach-Object { ($_.assets | Where-Object name -eq $asset).digest }
+          if ($digest -notmatch "^sha256:[0-9a-f]{64}$" -or "sha256:$((Get-FileHash $asset).Hash.ToLower())" -ne $digest) { throw "Invalid release digest for $asset" }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+            python -m pip install pywinauto
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            wsl.exe --import asagiri "$env:RUNNER_TEMP\asagiri-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+            if ($LASTEXITCODE) { throw 'Could not import the distro from the published MSI' }
+            # This case begins with a previously configured persistent distro.
+            @{ done=$true; distro='asagiri' } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'setup.json')
+            @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
+          Copy-Item $launcher $app -Force
+          $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'isolated-cli'
+          New-Item -ItemType Directory -Path $env:DOCKER_CONFIG | Out-Null
+          @{currentContext='asagiri'} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $env:DOCKER_CONFIG 'config.json')
+          Remove-Item Env:DOCKER_HOST,Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          $bridge = Start-Process $app -ArgumentList @('--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test') -PassThru
+          @'
+          import sys,time
+          from pywinauto import Desktop
+          window=Desktop(backend='uia').window(process=int(sys.argv[1]),class_name='AsagiriWindow')
+          window.wait('visible',timeout=90)
+          button=window.child_window(title='Switch to Asagiri',control_type='Button')
+          button.wait('enabled visible',timeout=120)
+          button.invoke()
+          window.child_window(title='docker → Asagiri',control_type='Text').wait('visible',timeout=60)
+          '@ | python - $bridge.Id
+          if ((& $docker context show) -ne 'asagiri') { throw 'CLI context mismatch' }
+          if ((& $docker context inspect asagiri --format '{{.Endpoints.docker.Host}}') -ne 'npipe:////./pipe/asagiri-load-test') { throw 'CLI pipe mismatch' }
+          $components = & $docker version --format '{{json .Server.Components}}' | ConvertFrom-Json
+          $version = ($components | Where-Object Name -eq 'Engine').Details.AsagiriVersion
+          if ($version -ne '0.1.14-dev.205') { throw "Unexpected effective engine $version" }
+          Write-Host "Dashboard selection reached Asagiri $version through the repaired context"
+          & $docker pull alpine:3.21
+          & $docker tag alpine:3.21 asagiri-inventory-175:verified
+          $terminalDocker = "$env:SystemRoot\System32\docker.exe"
+          $rows = & $terminalDocker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}'
+          $rows | Write-Host
+          if (!($rows -match '^asagiri-inventory-175:verified sha256:[0-9a-f]{64}$')) { throw 'Fresh terminal Docker image ls did not show the marker' }
+          @'
+          import re, sys, time
+          from pywinauto import Desktop
+          window = Desktop(backend='uia').window(process=int(sys.argv[1]), class_name='AsagiriWindow')
+          images = window.child_window(title_re=r'^Images(?:\s*\d+)?$', control_type='Button')
+          images.wait('visible enabled', timeout=60)
+          images.invoke()
+          deadline = time.monotonic() + 90
+          while time.monotonic() < deadline:
+              labels = [item.window_text() for item in window.descendants()]
+              matches = [label for label in labels if 'asagiri-inventory-175' in label]
+              if matches:
+                  print('Visible dashboard inventory marker:', matches, flush=True)
+                  break
+              time.sleep(1)
+          else:
+              raise RuntimeError('Image marker missing in dashboard: ' + repr(labels)[:4000])
+          '@ | python - $bridge.Id
