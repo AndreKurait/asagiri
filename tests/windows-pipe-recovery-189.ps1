@@ -40,7 +40,9 @@ try {
         Start-Sleep -Seconds 1
     }
     if ($actual -ne $expectedEngine) { throw "Launcher did not install the new engine: $actual" }
-    $bridgeHash = (wsl.exe -d asagiri -u root -- sh -ec 'pid=$(pgrep -f "^/usr/local/bin/asagiri bridge .*docker.sock" | head -1); test -n "$pid"; sha256sum /proc/$pid/exe').Split(' ')[0]
+    $probeScript = (Resolve-Path tests/wsl-bridge-process-189.sh).Path.Replace('\','/')
+    $probePath = (wsl.exe -d asagiri -u root -- wslpath -a $probeScript).Trim()
+    $bridgeHash = (wsl.exe -d asagiri -u root -- sh $probePath).Trim()
     if ($bridgeHash -ne $expectedEngine) { throw "Running guest bridge has the wrong revision: $bridgeHash" }
     Write-Host "Launcher installed engine $actual over $oldEngine and the running bridge uses $bridgeHash"
 } finally {
