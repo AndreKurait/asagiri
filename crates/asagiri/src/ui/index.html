@@ -3816,7 +3816,7 @@ const CTX_NAMES = { orbstack: "OrbStack", "desktop-linux": "Docker Desktop", def
 /* i18n */ void [tr("OrbStack"), tr("Docker Desktop"), tr("Docker's default engine")];
 const CTX_SNOOZE = 7 * 864e5;
 const ctx = { card: null };
-const ctxOther = () => !!ui.status && ui.status.context !== ui.status.ours;
+const ctxOther = () => !!ui.status?.context && ui.status.context !== ui.status.ours;
 const ctxLabel = (c) => (CTX_NAMES[c] ? tr(CTX_NAMES[c]) : c);
 const ctxWarn = (cls = "") => `<svg class="${cls}" viewBox="0 0 256 256" aria-hidden="true"><path d="${PH.warning}"/></svg>`;
 // "1.2GB", "187MB", "5.6kB" (docker's image sizes) in bytes.
@@ -3824,6 +3824,7 @@ const ctxBytes = (v) => { const m = /^([\d.]+)\s*([kMGT]?)B$/i.exec(String(v || 
 
 function ctxStatusItem() {
   if (!ui.status) return "";
+  if (!ui.status.context) return `<span class="sep">·</span><span class="item">${tr("Docker context unavailable")}</span>`;
   if (!ctxOther()) return `<span class="sep">·</span><span class="item ctx-ok" title="${tr("The docker command uses {app}", { app: esc(ui.status.app || "Asagiri") })}"><i></i>docker → ${esc(ui.status.app || "Asagiri")}</span>`;
   return `<span class="sep">·</span><button class="item ctx-warn" data-ctxswitch title="${tr("The docker command uses {engine}. Switch it to {app}", { engine: esc(ctxLabel(ui.status.context)), app: esc(ui.status.app || "Asagiri") })}">${ctxWarn()}docker → ${esc(rtl() ? island(ctxLabel(ui.status.context)) : ctxLabel(ui.status.context))}</button>`;
 }
@@ -8035,6 +8036,8 @@ window.asagiri = {
             ctx.card = null;
             if (!e.error && ui.status?.context) {
               toast("error", tr("Saved {saved}, but Docker still uses {active}. Check DOCKER_CONTEXT and DOCKER_HOST.", { saved: e.name, active: ui.status.context }));
+            } else if (!e.error) {
+              toast("error", tr("Saved {saved}, but couldn't verify the active Docker context.", { saved: e.name }));
             }
           }
           drawCtxCard();
