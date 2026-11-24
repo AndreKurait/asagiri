@@ -314,7 +314,7 @@ pub fn expect_ok(r: io::Result<client::Response>) -> io::Result<()> {
 /// A container action's answer, as on the Mac and Linux: Docker's 304 is
 /// "already so" (Stop on a stopped container, Start on a running one), so
 /// done, not an empty red toast.
-fn expect_done(r: io::Result<client::Response>) -> io::Result<()> {
+pub(crate) fn expect_done(r: io::Result<client::Response>) -> io::Result<()> {
     let r = r?;
     if r.ok() || r.status == 304 { Ok(()) } else { Err(io::Error::other(r.error())) }
 }
@@ -348,6 +348,10 @@ pub(crate) fn ensure_daemon() -> io::Result<()> {
 /// Called with the startup guard held, after checking that the daemon is
 /// absent. Settings, explicit Start and background recovery share the guard.
 fn start_daemon() -> io::Result<()> {
+    if let Some(missing) = crate::storage::unavailable() {
+        crate::storage::emit_report();
+        return Err(io::Error::other(crate::storage::unavailable_message(&missing)));
+    }
     crate::serve::log("engine: not answering; starting it in WSL");
     // The engine this app installed, not one an update left behind.
     match crate::update::sync_engine() {
@@ -366,19 +370,29 @@ fn start_daemon() -> io::Result<()> {
     }
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
     // Each killed after WSL_LIMIT: a wsl.exe right after Windows wakes can hang.
-    let started = crate::update::output_within(cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]), crate::update::WSL_LIMIT);
-    if !started.is_ok_and(|o| o.status.success()) {
+    let mut started = crate::update::output_within(cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]), crate::update::WSL_LIMIT);
+    if !started.as_ref().is_ok_and(|o| o.status.success()) {
         let mut cmd = crate::win::tool("wsl.exe");
         if let Some(d) = &distro {
             cmd.args(["-d", d]);
         }
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-        let _ = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
+        started = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
     }
     if client::wait_for_ready(Duration::from_secs(30)) {
         return Ok(());
     }
-    Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
+    let detail = match started {
+        Err(error) => error.to_string(),
+        Ok(output) if !output.status.success() => crate::setup::wsl_output(&output.stdout, &output.stderr),
+        Ok(_) => String::new(),
+    };
+    let detail = detail.trim();
+    if detail.is_empty() {
+        Err(io::Error::other("Asagiri's engine did not become ready in WSL"))
+    } else {
+        Err(io::Error::other(format!("Asagiri's engine did not start in WSL: {detail}")))
+    }
 }
 
 /// Share Mac/Linux registration and preference restoration after both
@@ -1077,6 +1091,7 @@ pub fn on_message(msg: &str) {
                 emit(r#"{"type":"starprompt"}"#.to_owned());
             }
             emit(domains_event());
+            std::thread::spawn(crate::storage::emit_report);
             emit(status_event());
             ask_language();
             // The first time, offer <name>.asagiri.local, as the Mac does.
@@ -1398,6 +1413,32 @@ pub fn on_message(msg: &str) {
                 emit(builds_event());
             });
         }
+        // Settings → Storage: where WSL keeps Asagiri's VHDX, and moving it.
+        "storage" => {
+            std::thread::spawn(crate::storage::emit_report);
+        }
+        "storagepick" => {
+            crate::app::pick_folder(&tr("Choose a storage folder"), |path| {
+                if let Some(p) = path {
+                    crate::storage::check_and_emit(Some(p.to_string_lossy().into_owned()), false, false);
+                }
+            });
+        }
+        "storagecheck" => {
+            let path = (!c.path.trim().is_empty()).then(|| c.path.clone());
+            let fresh = c.value["fresh"] == true;
+            let reset = c.value["reset"] == true;
+            std::thread::spawn(move || crate::storage::check_and_emit(path, fresh, reset));
+        }
+        "storagemove" => {
+            let path = (!c.path.trim().is_empty()).then(|| c.path.clone());
+            let fresh = c.value["fresh"] == true;
+            crate::storage::start_move(path, fresh);
+        }
+        "storagereset" => crate::storage::reset(),
+        "storageretry" => crate::storage::retry(false),
+        "storagerestartwsl" => crate::storage::retry(true),
+        "storageremoveold" => crate::storage::remove_old(),
         // Settings → Diagnostics and an error's Details: crate::diag.
         cmd @ ("diaglogs" | "diagreport" | "diagsend" | "diagcrashes" | "diagsendcrash" | "diagfolder") => {
             crate::diag::handle(cmd, c.name, c.id, &c.value);

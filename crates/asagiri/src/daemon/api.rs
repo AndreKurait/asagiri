@@ -18,6 +18,8 @@ use super::filters::Filters;
 use super::http::{self, Request};
 use super::time;
 
+pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Serves one client connection until it closes.
 #[cfg(test)]
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
@@ -29,7 +31,6 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
     let mut r = BufReader::new(stream);
     // Bound an idle connection's next request. Streams, hijacked execs and
     // uploads clear the timeout before the route reads their bodies.
-    const HEADER_TIMEOUT: Duration = Duration::from_secs(300);
     let _ = r.get_ref().set_read_timeout(Some(HEADER_TIMEOUT));
     loop {
         let req = match http::read_request(&mut r, streams_body) {
@@ -115,6 +116,14 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         let body = if req.method == "HEAD" { String::new() } else { json!({"message": message}).to_string() };
         http::respond_with(w, 400, "application/json", if close { "Connection: close\r\n" } else { "" }, body.as_bytes())?;
         return Ok(if close { Next::Close } else { Next::KeepAlive });
+    }
+    if (req.path == "/asagiri/storage" || req.path.starts_with("/asagiri/storage/")) && !matches!(caller, super::caller::Caller::Host) {
+        http::error(w, 403, "host connection required")?;
+        return Ok(Next::Close);
+    }
+    if super::storage::moving() && !matches!(req.method.as_str(), "GET" | "HEAD") {
+        super::storage::refuse_while_moving(w)?;
+        return Ok(Next::Close);
     }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
@@ -210,6 +219,11 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         ("POST", "/build") => return super::builder::build(req, engine, w, r),
         ("POST", "/build/cancel") => return reply(w, super::builder::cancel(req, engine), 200),
         ("POST", "/build/prune") => return reply(w, super::builder::prune(req, engine), 200),
+        ("GET", "/asagiri/storage") => return reply(w, Ok(super::storage::report(engine)), 200),
+        ("POST", "/asagiri/storage/check") => return reply(w, super::storage::check_request(req, engine), 200),
+        ("POST", "/asagiri/storage") => return reply(w, super::storage::start(req, engine), 202),
+        ("POST", "/asagiri/storage/reset") => return reply(w, super::storage::start_reset(engine), 202),
+        ("DELETE", "/asagiri/storage/old") => return reply(w, super::storage::remove_old(engine), 200),
         ("GET", "/asagiri/builder") => return reply(w, Ok(super::builder::settings_report(engine)), 200),
         ("POST", "/asagiri/builder") => return reply(w, super::builder::set_settings(req).map(|()| super::builder::settings_report(engine)), 200),
         #[cfg(target_os = "linux")]
@@ -434,7 +448,7 @@ fn parse_release(raw: &str) -> Option<String> {
 // compatibility version separate from Asagiri's own release numbering.
 const DOCKER_COMPAT_VERSION: &str = "27.5.1-asagiri";
 
-fn version() -> Value {
+pub(super) fn version() -> Value {
     let v = env!("CARGO_PKG_VERSION");
     json!({
         "Platform": {"Name": "Asagiri"},

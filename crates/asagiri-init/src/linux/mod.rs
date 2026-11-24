@@ -175,6 +175,9 @@ fn host_dirs() -> io::Result<container::Paths> {
     // SAFETY: umask only changes this process's file-creation mask.
     unsafe { libc::umask(0o022) };
     let root = PathBuf::from(DATA);
+    if let Some(data) = std::env::var_os("ASAGIRI_AGENT_DATA").map(PathBuf::from).filter(|p| p.is_absolute() && p != &root) {
+        mount_agent_data(&data, &root)?;
+    }
     let mkdir = |p: &std::path::Path, mode: u32| -> io::Result<()> {
         std::fs::create_dir_all(p)?;
         std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode))
@@ -199,6 +202,31 @@ fn host_dirs() -> io::Result<container::Paths> {
     std::env::set_current_dir(&paths.layers)?;
     Ok(paths)
 }
+
+/// Bind-mounts `src` (the chosen folder's `agent` directory, from
+/// `ASAGIRI_AGENT_DATA`) onto `/var/lib/asagiri` so every agent path stays under
+/// `/var/lib/asagiri` while living on the chosen disk. No-op when `src` is
+/// already mounted there; detaches any other mount on `target` first.
+fn mount_agent_data(src: &std::path::Path, target: &std::path::Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    std::fs::create_dir_all(src)?;
+    std::fs::create_dir_all(target)?;
+    let (sm, tm) = (std::fs::metadata(src)?, std::fs::metadata(target)?);
+    if (sm.dev(), sm.ino()) == (tm.dev(), tm.ino()) {
+        return Ok(());
+    }
+    let c_target = CString::new(target.as_os_str().as_bytes()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    if volmount::mounted(DATA) {
+        // SAFETY: valid NUL-terminated path; detaches a stale mount at `target`.
+        check(unsafe { libc::umount2(c_target.as_ptr(), libc::MNT_DETACH) } as _, "detach previous agent data mount")?;
+    }
+    let c_src = CString::new(src.as_os_str().as_bytes()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    // SAFETY: valid NUL-terminated paths for a bind mount (fstype and data unused).
+    check(unsafe { libc::mount(c_src.as_ptr(), c_target.as_ptr(), std::ptr::null(), libc::MS_BIND, std::ptr::null()) } as _, "bind-mount ASAGIRI_AGENT_DATA").map(drop)
+}
+
 
 /// The lock on a Linux host's data directory, held while the agent runs.
 static AGENT_LOCK: std::sync::OnceLock<File> = std::sync::OnceLock::new();

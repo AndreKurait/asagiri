@@ -1383,6 +1383,59 @@ impl Engine {
         }
     }
 
+    /// Settings → Storage, before the data folder is copied: every container
+    /// stopped and the VM off, as for a Stop, but without the file that
+    /// keeps a Stop across restarts; nothing boots the VM again until
+    /// `resume_after_move`. The container list is written and synced, so
+    /// the copy has it as it stands. Returns the containers that were
+    /// running, and whether Asagiri was stopped already.
+    pub fn park_for_move(&self) -> Result<(Vec<String>, bool), Error> {
+        let running = self.each(|c| (c.status == Status::Running).then(|| c.id.clone()));
+        let was_stopped = self.stopped.swap(true, std::sync::atomic::Ordering::SeqCst);
+        if let Err(e) = self.sleep_now() {
+            self.resume_after_move(was_stopped, running);
+            return Err(e);
+        }
+        if let Err(e) = self.save_records().and_then(|()| std::fs::File::open(&self.records)?.sync_all()) {
+            self.resume_after_move(was_stopped, running);
+            return Err(Error::Io(e));
+        }
+        Ok((running, was_stopped))
+    }
+
+    /// A move that did not finish: Asagiri carries on where it was, and the
+    /// containers that were running start again, held ones first (in the
+    /// order that starts joined containers after the ones they join).
+    pub fn resume_after_move(&self, was_stopped: bool, running: Vec<String>) {
+        if was_stopped {
+            return;
+        }
+        self.stopped.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut ids = std::mem::take(&mut *self.held_restarts.lock().unwrap_or_else(|e| e.into_inner()));
+        for id in running {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        if let Some(me) = self.me.get().and_then(Weak::upgrade) {
+            std::thread::spawn(move || me.start_again(&ids));
+        }
+    }
+
+    /// Starts `ids` that aren't running: after a move, the containers that
+    /// ran before it (a restart policy may have started some already).
+    pub fn start_again(&self, ids: &[String]) {
+        for id in ids {
+            let running = self.lock().containers.get(id).is_some_and(|c| c.status == Status::Running);
+            if running {
+                continue;
+            }
+            if let Err(e) = self.start(id) {
+                crate::diag::warn!("container did not start again after the move", id = &id[..id.len().min(12)], error = format!("{e:?}"));
+            }
+        }
+    }
+
     /// Starts the held containers (`held_restarts`), one at a time, each
     /// taken from the list as it starts: Start, or `retry_held` once the VM
     /// boots. A Stop meanwhile ends it: the rest stay held for the next
@@ -1684,6 +1737,12 @@ impl Engine {
 
     /// Writes `containers.json`. `--rm` containers are left out.
     fn save(&self) {
+        if let Err(e) = self.save_records() {
+            crate::diag::error!("saving containers failed", error = e);
+        }
+    }
+
+    fn save_records(&self) -> std::io::Result<()> {
         // Snapshot and replacement must follow the same writer order.
         let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
         let json = {
@@ -1712,11 +1771,10 @@ impl Engine {
                 .collect();
             serde_json::to_vec(&saved)
         };
-        let Ok(json) = json else { return };
+        let json = json.map_err(std::io::Error::other)?;
         let tmp = self.records.with_extension("json.tmp");
-        if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.records)) {
-            crate::diag::error!("saving containers failed", error = e);
-        }
+        std::fs::write(&tmp, &json)?;
+        std::fs::rename(tmp, &self.records)
     }
 
     fn on_event(&self, ev: Event<'_>) {

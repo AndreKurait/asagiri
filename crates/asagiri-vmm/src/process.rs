@@ -133,6 +133,11 @@ impl Vm {
         control.set_nonblocking(true)?;
         let mut cmd = Command::new(&cfg.initrd);
         cmd.env("ASAGIRI_AGENT_DIR", &dir).env_remove("ASAGIRI_SOCKET");
+        if let Some(data) = &cfg.disk {
+            cmd.env("ASAGIRI_AGENT_DATA", data);
+        } else {
+            cmd.env_remove("ASAGIRI_AGENT_DATA");
+        }
         if let Some(fd) = cfg.console {
             cmd.stderr(std::process::Stdio::from(fd.try_clone()?)).stdout(std::process::Stdio::from(fd));
         } else {
