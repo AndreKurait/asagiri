@@ -35,6 +35,14 @@ try {
     }
     Set-Integration on
     Read-DistroBind
+    $compose = @('-d', $distro, '-u', 'builder', '--cd', '/home/builder', '--', 'docker', '--context', 'asagiri', 'compose', '-p', 'wslpathproof')
+    wsl.exe -d $distro -u builder -- sh -ec 'echo "services: {test: {image: docker:28-cli, command: sleep 120}}" > /home/builder/compose.yaml'
+    try {
+        wsl.exe @compose up -d
+        $result = & $test read_development138_compose_file --ignored --nocapture
+        $result | Write-Host
+        if (($result -join "`n") -notmatch '1 passed; 0 failed') { throw 'WSL Compose dashboard file read did not execute' }
+    } finally { wsl.exe @compose down }
     wsl.exe --shutdown
     $restored = $false
     for ($i = 0; $i -lt 35; $i++) {
