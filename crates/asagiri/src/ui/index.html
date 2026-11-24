@@ -8002,6 +8002,10 @@ window.asagiri = {
       case "buildwith": ui.bw = e; if (ui.view === "settings") render(); break;
       case "status":
         ui.status = e;
+        if (e.contextOverride) {
+          $("ctx-dlg")?.remove();
+          if (ctx.pending) closeImportModal();
+        }
         document.body.classList.toggle("dev", !!e.dev);
         document.body.classList.toggle("share", !!(e.share ?? e.dev));
         // The context docker uses for this Asagiri: asagiri, or an Asagiri Dev's own.
