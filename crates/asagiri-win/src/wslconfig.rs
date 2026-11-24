@@ -40,16 +40,14 @@ fn save_enabled_distros(distros: &[String]) -> io::Result<()> {
 
 /// User WSL distros discovered by `wsl.exe --list --quiet` (excluding `asagiri`
 /// and `docker-desktop*`).
-fn user_distros() -> Vec<String> {
+fn user_distros() -> io::Result<Vec<String>> {
     let mut cmd = crate::win::tool("wsl.exe");
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-    let Ok(out) = crate::update::output_within(cmd.args(["-l", "-q"]), std::time::Duration::from_secs(15)) else {
-        return Vec::new();
-    };
+    let out = crate::update::output_within(cmd.args(["-l", "-q"]), std::time::Duration::from_secs(15))?;
     if !out.status.success() {
-        return Vec::new();
+        return Err(io::Error::other(format!("could not list WSL distros: wsl.exe exited with {}", out.status)));
     }
-    crate::wslsync::parse_wsl_distros(&out.stdout, crate::engine::distro().as_deref())
+    Ok(crate::wslsync::parse_wsl_distros(&out.stdout, crate::engine::distro().as_deref()))
 }
 
 fn run_distro_script(distro: &str, script: &str) -> io::Result<String> {
@@ -89,7 +87,8 @@ pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Re
     } else if !crate::client::alive_quick() {
         return Ok(());
     }
-    let available = user_distros();
+    // A failed discovery must leave the daemon's current socket list intact.
+    let available = user_distros()?;
     let mut active = Vec::new();
     let mut first_err: Option<io::Error> = None;
     for want in &enabled {
@@ -270,6 +269,7 @@ fn event() -> Value {
     let now = running();
     let enabled = enabled_distros();
     let wsl_distros: Vec<Value> = user_distros()
+        .unwrap_or_default()
         .into_iter()
         .map(|name| {
             let on = enabled.iter().any(|e| e.eq_ignore_ascii_case(&name));
