@@ -1,0 +1,45 @@
+name: Qualify dev.253 Compose on Intel macOS
+on:
+  push:
+    branches: [qualification/intel-dev253-compose-168]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: macos-26-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compare public and local tags on one engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d /private/tmp/ak168.XXXXXX)"
+          test "$(uname -m)" = x86_64
+          asset=Asagiri-0.1.14-dev.253-x86_64.tar.gz
+          gh release download v0.1.14-dev.253 -R AndreKurait/asagiri -p "$asset"
+          echo "4d8d0f6d17d7b88084fb544e22de4338b96ffa050d42f54015ddfb0894759d65  $asset" | shasum -a 256 -c -
+          tar xzf "$asset"
+          codesign --verify --deep --strict Asagiri.app
+          python3 "$GITHUB_WORKSPACE/scripts/ci/compose-health-client.py" "$PWD/client"
+          export HOME="$PWD/home" CFFIXED_USER_HOME="$PWD/home" ASAGIRI_DATA_DIR="$PWD/engine-data" ASAGIRI_SOCKET="$PWD/docker.sock" DOCKER_HOST="unix://$PWD/docker.sock" PATH="$PWD/Asagiri.app/Contents/Resources/bin:$PATH"
+          mkdir "$HOME"
+          Asagiri.app/Contents/MacOS/asagiri daemon >engine.log 2>&1 &
+          daemon=$!
+          trap 'kill "$daemon" || true; wait "$daemon" || true' EXIT
+          for _ in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
+          docker pull alpine:3.21
+          docker tag alpine:3.21 local-compose-proof:3.21
+          result=0
+          for base in alpine local-compose-proof; do
+            python3 "$GITHUB_WORKSPACE/tests/compose-health.py" "$ASAGIRI_SOCKET" "$base:3.21" --compose-plugin "$PWD/client/docker-compose" --buildx-plugin "$PWD/Asagiri.app/Contents/Resources/bin/cli-plugins/docker-buildx" --output "$RUNNER_TEMP/compose-$base.json" || result=1
+          done
+          exit "$result"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: intel-compose-results
+          path: ${{ runner.temp }}/compose-*.json
