@@ -14,7 +14,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Verify released bridge replacement during upgrade
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./tests/windows-pipe-recovery-189.ps1
+      - name: Check command dispatch while the engine pipe accepts without replying
+        run: |
+          $output = cargo test --locked -p asagiri-win start_with_stalled_pipe_dispatches_next_command -- --ignored --nocapture
+          $output | Write-Host
+          if ($LASTEXITCODE -ne 0 -or ($output -join ' ') -notmatch '1 passed; 0 failed') { throw 'Stalled Start regression failed' }

@@ -51,6 +51,8 @@ static LISTED: std::sync::LazyLock<std::sync::Mutex<std::time::Instant>> = std::
 
 #[derive(Debug, Clone)]
 pub(crate) enum Cmd {
+    #[cfg(test)]
+    CheckDispatch(Sender<()>),
     Start,
     Stop,
     /// Restore daemon availability after WSL goes away, preserving Stop.
@@ -193,6 +195,8 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
             None => rx.recv_timeout(TICK),
         };
         match cmd {
+            #[cfg(test)]
+            Ok(Cmd::CheckDispatch(reply)) => { let _ = reply.send(()); }
             Ok(Cmd::Start) => {
                 emit(state("booting", None));
                 match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
@@ -1689,4 +1693,19 @@ pub fn on_tray(cmd: &str) {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "runs in a dedicated Windows process with a deliberately stalled pipe"]
+fn start_with_stalled_pipe_dispatches_next_command() {
+    let name = format!(r"\\.\pipe\asagiri-stalled-start-{}", std::process::id());
+    let pipe = crate::pipe::Pipe::create(&name, true).unwrap();
+    client::set_pipe(&name);
+    start(Env { distro: Some("AsagiriStall189".into()), pipe: name });
+    on_message(r#"{"cmd":"start"}"#);
+    pipe.connect_within(Some(Duration::from_secs(10))).unwrap();
+    let (notify, received) = mpsc::channel();
+    send(Cmd::CheckDispatch(notify));
+    received.recv_timeout(Duration::from_secs(5)).expect("launcher command loop stalled during Start");
 }
