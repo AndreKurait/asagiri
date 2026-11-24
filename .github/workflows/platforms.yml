@@ -647,6 +647,8 @@ jobs:
           echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --locked -p asagiri-image -p asagiri-win -p xtask
+      - name: Check launcher dispatch during a stalled Start
+        run: cargo test --locked -p asagiri-win start_with_stalled_pipe_dispatches_next_command -- --ignored
       - name: Exercise large documents in native WebView2
         run: cargo test --locked -p asagiri-win webview2_shows_the_page_at_its_largest_and_only_it -- --ignored --nocapture
       - name: Verify WSL storage export and import
