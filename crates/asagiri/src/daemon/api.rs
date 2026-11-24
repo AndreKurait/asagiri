@@ -1553,7 +1553,7 @@ fn volumes_from_mounts(guest: &[String], info: &[Value], ro: bool) -> Vec<(Strin
 }
 
 /// `-v`, `--mount`, `--tmpfs`, `-v /path` and the image's VOLUME lines.
-fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Error> {
+fn mounts_for(body: &Value, engine: &Engine, image_cfg: &Value, wsl_distro: Option<&str>) -> Result<Mounts, Error> {
     let host = &body["HostConfig"];
     let mut out = Mounts { guest: Vec::new(), info: Vec::new(), volumes: Vec::new(), anon: Vec::new() };
     let check_target = |t: &str| -> Result<(), Error> {
@@ -1575,7 +1575,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
         };
         // The engine's own socket (Testcontainers' Ryuk, CI runners): the VM's
         // relay to this daemon on a Mac, or Asagiri's socket on a Linux host.
-        let engine_sock = if kind == "bind" { super::binds::engine_socket(src) } else { None };
+        let engine_sock = if kind == "bind" { super::binds::engine_socket_for_distro(src, wsl_distro) } else { None };
         match kind {
             "bind" if engine_sock.is_some() => {
                 out.guest.push(format!("{}\t{dst}\t{}", engine_sock.as_deref().unwrap_or_default(), flag("")));
@@ -1658,7 +1658,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     // From the docker CLI on Windows (into WSL), `C:\src:/app` and the like.
     let wsl = super::binds::wsl();
     for b in strings(&host["Binds"]).unwrap_or_default() {
-        let (src, dst, opts) = super::binds::split(&b, wsl)?;
+        let (src, dst, opts) = super::binds::split_for(&b, wsl, wsl_distro)?;
         let (src, dst, opts) = (src.as_str(), dst.as_str(), opts.as_str());
         let ro = opts.split(',').any(|o| o == "ro");
         let kind = if src.starts_with('/') { "bind" } else { "volume" };
@@ -1668,8 +1668,9 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     for m in host["Mounts"].as_array().into_iter().flatten() {
         let kind = m["Type"].as_str().unwrap_or("bind");
         let src = m["Source"].as_str().unwrap_or("");
-        let src = match wsl {
-            Some(w) if kind == "bind" => super::binds::source(src, w)?,
+        let src = match (wsl, wsl_distro) {
+            (_, Some(d)) if kind == "bind" => super::binds::distro_source(src, d, wsl)?,
+            (Some(w), None) if kind == "bind" => super::binds::source(src, w)?,
             _ => src.to_owned(),
         };
         let src = src.as_str();
@@ -2198,14 +2199,18 @@ pub(super) fn validate_isolation(host: &Value) -> Result<(), Error> {
 }
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
-    create_with_kind(req, engine, false)
+    create_for(req, engine, None)
+}
+
+pub(super) fn create_for(req: &Request, engine: &Engine, wsl_distro: Option<&str>) -> Result<Value, Error> {
+    create_with_kind(req, engine, false, wsl_distro)
 }
 
 pub(super) fn create_service(req: &Request, engine: &Engine) -> Result<Value, Error> {
-    create_with_kind(req, engine, true)
+    create_with_kind(req, engine, true, None)
 }
 
-fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Result<Value, Error> {
+fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_distro: Option<&str>) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let image_name = body["Image"].as_str().unwrap_or_default();
     if image_name.is_empty() {
@@ -2340,7 +2345,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
-    let mounts = mounts(&body, engine, &image_cfg)?;
+    let mounts = mounts_for(&body, engine, &image_cfg, wsl_distro)?;
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
     let given = strings(&body["Env"]).unwrap_or_default();
