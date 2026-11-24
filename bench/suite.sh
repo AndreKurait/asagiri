@@ -28,9 +28,10 @@ rm -rf "$vol"
 $CLI run -d --name "$name-iperf" -p 127.0.0.1:15201:5201 networkstatic/iperf3 -s >/dev/null 2>&1; sleep 2
 net=$(iperf3 -c 127.0.0.1 -p 15201 -t 5 -J 2>/dev/null | jq -r '.end.sum_received.bits_per_second // 0 | . / 1e9 | . * 100 | round / 100')
 $CLI rm -f "$name-iperf" >/dev/null 2>&1
-ctx=$(mktemp -d); printf 'FROM alpine\nRUN echo one > /one\nRUN echo two > /two\nRUN echo three > /three\n' > "$ctx/Dockerfile"
-hfs build "$CLI build --no-cache -q -t bench-build $ctx >/dev/null"
-$CLI rmi -f bench-build >/dev/null 2>&1; rm -rf "$ctx"
+ctx=$(mktemp -d); build_tag="asagiri-bench:$(basename "$ctx" | tr A-Z a-z)"
+printf 'FROM alpine\nRUN echo one > /one\nRUN echo two > /two\nRUN echo three > /three\n' > "$ctx/Dockerfile"
+hfs build "$CLI build --no-cache -q -t $build_tag $ctx >/dev/null"
+$CLI rmi "$build_tag" >/dev/null 2>&1; rm -rf "$ctx"
 hfs pull "$CLI rmi -f alpine >/dev/null 2>&1; $CLI pull -q alpine"
 $CLI rm -f "$name" >/dev/null 2>&1
 med() { [ -f "$J.$1.json" ] && jq -L "$bench_dir" -r 'include "hyperfine"; hyperfine_wall_clock | .median * 1000 | round' "$J.$1.json" || echo -; }
