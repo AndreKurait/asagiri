@@ -293,6 +293,10 @@ pub fn vm_network_summary(info: Option<&Value>, bridge: Option<&crate::daemon::v
                 let (br, dns) = (u["bridge"].as_str().unwrap_or("bridge100"), u["dns"].as_str().unwrap_or("?"));
                 lines.push(format!("VM uplink: static fallback on {br} ({ip} via {gw}, dns {dns}) — DHCP did not answer"));
             }
+            "fallback-unconfirmed" => {
+                dhcp_failed = true;
+                lines.push(format!("VM uplink: static fallback unconfirmed — {}", u["warning"].as_str().unwrap_or("guest acknowledgement pending")));
+            }
             "fallback-failed" => {
                 dhcp_failed = true;
                 lines.push(format!("VM uplink: no uplink — DHCP did not answer and fallback failed ({})", u["reason"].as_str().unwrap_or("unknown")));
@@ -1045,6 +1049,8 @@ mod tests {
 
         let fail = vm_network_summary(Some(&json!({"AsagiriVmUplink": {"mode": "fallback-failed", "reason": "no bridge100"}})), None, None).unwrap();
         assert!(fail.contains("DHCP did not answer and fallback failed (no bridge100)") && fail.contains("Host UDP port 67: none visible"), "{fail}");
+        let unknown = vm_network_summary(Some(&json!({"AsagiriVmUplink": {"mode": "fallback-unconfirmed", "warning": "guest reply timed out", "udp67": "bootpd"}})), None, None).unwrap();
+        assert!(unknown.contains("static fallback unconfirmed — guest reply timed out") && unknown.contains("Host UDP port 67: bootpd"), "{unknown}");
         assert_eq!(vm_network_summary(None, None, None), None);
 
         let home = temp_home("vm-net");
