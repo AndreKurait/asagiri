@@ -275,11 +275,14 @@ fn replies(id: u32, mut s: UnixStream, out: &Out, window: Option<&Window>, start
 /// connections the kernel queues for it, and is not started again on each.
 /// Until then, a start whose daemon took the connection is held as failed,
 /// with NO_ANSWER as its reason.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StartOutcome { SocketCreated, Starting }
+
 struct Starter {
     socket: PathBuf,
     /// Starts the daemon, by the deadline given; Err when it cannot start.
     /// Ok when it may be starting: the wait for its socket then decides.
-    start: Box<dyn Fn(Instant) -> Result<(), String> + Send + Sync>,
+    start: Box<dyn Fn(Instant) -> Result<StartOutcome, String> + Send + Sync>,
     /// Where starts and their outcomes are logged.
     log: PathBuf,
     /// The most one start takes (START_LIMIT).
@@ -304,7 +307,7 @@ struct StartState {
 }
 
 impl Starter {
-    fn new(socket: PathBuf, start: Box<dyn Fn(Instant) -> Result<(), String> + Send + Sync>, log: PathBuf) -> Starter {
+    fn new(socket: PathBuf, start: Box<dyn Fn(Instant) -> Result<StartOutcome, String> + Send + Sync>, log: PathBuf) -> Starter {
         Starter { socket, start, log, limit: START_LIMIT, state: Mutex::new(StartState { backoff: RETRY_AFTER, ..StartState::default() }), cv: Condvar::new() }
     }
 
@@ -366,9 +369,12 @@ impl Starter {
             }
             Err(why)
         };
-        if let Err(why) = (self.start)(until) {
-            return failed(why);
-        }
+        let outcome = match (self.start)(until) {
+            Ok(outcome) => outcome,
+            Err(why) => return failed(why),
+        };
+        // The script can observe bind just before listen. Allow that transition.
+        let mut refused_since = None;
         loop {
             match UnixStream::connect(&self.socket) {
                 Ok(s) => {
@@ -378,7 +384,16 @@ impl Starter {
                     return Ok(s);
                 }
                 Err(e) if Instant::now() >= until => return failed(format!("it did not answer within {} s ({e}); see {LOG}", self.limit.as_secs())),
-                Err(_) => std::thread::sleep(Duration::from_millis(100)),
+                Err(e) => {
+                    if outcome == StartOutcome::SocketCreated && e.kind() == std::io::ErrorKind::ConnectionRefused {
+                        if refused_since.get_or_insert_with(Instant::now).elapsed() >= Duration::from_secs(1) {
+                            return failed(format!("the engine socket refused connections after startup; see {LOG}"));
+                        }
+                    } else {
+                        refused_since = None;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
             }
         }
     }
@@ -438,7 +453,7 @@ fn gone(e: &io::Error) -> bool {
 /// systemd's `asagiri` service in a distro with systemd (contrib/wsl/install.sh).
 /// Killed at `until`. asagiri-start's exit 1 (no socket yet) may still end
 /// with the daemon up, so it is not a failure here.
-fn start_engine(until: Instant) -> Result<(), String> {
+fn start_engine(until: Instant) -> Result<StartOutcome, String> {
     let asagiri_start = Path::new(ASAGIRI_START).exists();
     let mut cmd = if asagiri_start {
         Command::new(ASAGIRI_START)
@@ -477,8 +492,11 @@ fn start_engine(until: Instant) -> Result<(), String> {
             Err(e) => return Err(format!("{what}: {e}")),
         }
     };
+    if asagiri_start && status.success() {
+        return Ok(StartOutcome::SocketCreated);
+    }
     if status.success() || (asagiri_start && status.code() == Some(1)) {
-        return Ok(());
+        return Ok(StartOutcome::Starting);
     }
     // Within the deadline too: a child it left may hold stderr open.
     let said = rx.recv_timeout(until.saturating_duration_since(Instant::now()).min(Duration::from_secs(1))).unwrap_or_default();
@@ -670,7 +688,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(300));
                 let _ = std::fs::remove_file(&s);
                 echo_daemon(&s);
-                Ok(())
+                Ok(StartOutcome::SocketCreated)
             }),
             dir.join("log"),
         ));
@@ -752,13 +770,55 @@ mod tests {
     #[test]
     fn a_start_with_no_daemon_ends_at_the_deadline() {
         let dir = temp("nodaemon");
-        let mut starter = Starter::new(dir.join("none.sock"), Box::new(|_| Ok(())), dir.join("log"));
-        starter.limit = Duration::from_secs(1);
+        let mut starter = Starter::new(dir.join("none.sock"), Box::new(|_| Ok(StartOutcome::SocketCreated)), dir.join("log"));
+        starter.limit = Duration::from_secs(2);
         let began = Instant::now();
         let why = starter.connect().unwrap_err();
-        assert!(why.starts_with("it did not answer within 1 s"), "{why}");
+        assert!(why.starts_with("it did not answer within 2 s"), "{why}");
         assert!(began.elapsed() >= starter.limit && began.elapsed() < starter.limit + Duration::from_secs(1));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_refused_socket_after_successful_start_fails_promptly() {
+        let dir = temp("refused-socket");
+        let socket = dir.join("engine.sock");
+        let target = socket.clone();
+        let starts = Arc::new(AtomicUsize::new(0));
+        let attempts = starts.clone();
+        let starter = Starter::new(socket, Box::new(move |_| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            drop(std::os::unix::net::UnixListener::bind(&target).unwrap());
+            Ok(StartOutcome::SocketCreated)
+        }), dir.join("log"));
+        let start = Instant::now();
+        let why = starter.connect().unwrap_err();
+        assert!(why.contains("refused connections after startup"), "{why}");
+        assert!((Duration::from_secs(1)..Duration::from_secs(5)).contains(&start.elapsed()));
+        assert_eq!(starter.connect().unwrap_err(), why);
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_engine_still_starting_can_replace_a_stale_socket() {
+        let dir = temp("slow-start");
+        let socket = dir.join("engine.sock");
+        drop(UnixListener::bind(&socket).unwrap());
+        let (started, wait_for_start) = std::sync::mpsc::channel();
+        let starter = Starter::new(socket.clone(), Box::new(move |_| {
+            started.send(()).unwrap();
+            Ok(StartOutcome::Starting)
+        }), dir.join("log"));
+        let daemon = std::thread::spawn(move || {
+            wait_for_start.recv_timeout(Duration::from_secs(3)).unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            std::fs::remove_file(&socket).unwrap();
+            UnixListener::bind(socket).unwrap()
+        });
+        starter.connect().unwrap();
+        drop(daemon.join().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Failed starts in a row wait longer each time, 5 s doubling to 5 min,
@@ -767,7 +827,7 @@ mod tests {
     #[test]
     fn failed_starts_back_off_and_are_logged_boundedly() {
         let dir = temp("backoff");
-        let why = Arc::new(Mutex::new(Err::<(), String>("asagiri daemon exited as it started".to_owned())));
+        let why = Arc::new(Mutex::new(Err::<StartOutcome, String>("asagiri daemon exited as it started".to_owned())));
         let (w, sock) = (why.clone(), dir.join("d.sock"));
         let s = sock.clone();
         let mut starter = Starter::new(
@@ -810,7 +870,7 @@ mod tests {
         assert!(starter.connect().is_err());
         assert!(std::fs::read_to_string(dir.join("log")).unwrap().contains("engine did not start: could not run asagiri-start"));
         // A start that works resets the back-off once the engine answers.
-        *why.lock().unwrap() = Ok(());
+        *why.lock().unwrap() = Ok(StartOutcome::SocketCreated);
         retry(&starter);
         assert!(starter.connect().is_ok());
         assert!(starter.state.lock().unwrap().failed.as_ref().is_some_and(|(_, w)| w == NO_ANSWER));
@@ -866,7 +926,7 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(200));
                     drop(l);
                 });
-                Ok(())
+                Ok(StartOutcome::SocketCreated)
             }),
             dir.join("log"),
         ));
