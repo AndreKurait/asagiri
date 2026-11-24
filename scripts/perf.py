@@ -126,12 +126,19 @@ class Engine:
     def run_once(self):
         """docker run --rm alpine true, as its API calls: create, start,
         wait for the exit, remove."""
+        marks = [time.perf_counter_ns()]
         cid = json.loads(self.call("POST", "/containers/create", {"Image": IMAGE, "Cmd": ["true"]}))["Id"]
+        marks.append(time.perf_counter_ns())
         self.call("POST", f"/containers/{cid}/start")
+        marks.append(time.perf_counter_ns())
         status = json.loads(self.call("POST", f"/containers/{cid}/wait"))["StatusCode"]
+        marks.append(time.perf_counter_ns())
         if status != 0:
             raise RuntimeError(f"Benchmark container exited with {status}")
         self.call("DELETE", f"/containers/{cid}?force=1")
+        marks.append(time.perf_counter_ns())
+        return [(b - a) / 1e6 for a, b in zip(marks, marks[1:])]
+
 
     def create_once(self):
         """Create/remove with a large OCI history, without starting a process."""
@@ -241,13 +248,14 @@ def bench(a):
     for name, e in (("base", base), ("head", head)):
         res[name]["rss_idle"] = e.rss_kib()
     samples = {k: {"base": [], "head": []} for k in TIMINGS}
+    phases = {"base": [], "head": []}
     for i in range(a.runs):
         # Alternate which goes first, so neither always gets the warmer turn.
         order = ((("base", base), ("head", head)) if i % 2 == 0 else (("head", head), ("base", base)))
         for name, e in order:
             samples["ping"][name].append(timed(lambda: e.call("GET", "/_ping")))
             samples["list"][name].append(timed(lambda: e.call("GET", "/containers/json?all=1")))
-            samples["run"][name].append(timed(e.run_once))
+            samples["run"][name].append(timed(lambda: phases[name].append(e.run_once())))
             samples["create"][name].append(timed(e.create_once))
             samples["copy"][name].append(timed(e.copy_once))
     for k, v in samples.items():
@@ -258,6 +266,9 @@ def bench(a):
     if a.strace:
         for name, e in (("base", base), ("head", head)):
             res[name]["syscalls"] = syscalls_per_run(e, 20)
+    res["run_phase_ms_create_start_wait_remove"] = phases
+    for side, rows in phases.items():
+        print(side, {phase: summary(values) for phase, values in zip(("create", "start", "wait", "remove"), zip(*rows))})
     res["samples_ms"] = samples
     with open(a.out, "w") as f:
         json.dump(res, f, indent=2)
