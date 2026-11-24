@@ -3908,8 +3908,8 @@ function ctxChoose(from) {
 /* docker now uses Asagiri; `total` items are on their way over. */
 function ctxUse(from, total) {
   setPref("ctxBack", from);
+  ctx.card = { from, total, target: ui.status.ours, confirmed: false, done: 0, failed: 0, finished: false };
   send("usecontext", { name: ui.status.ours });
-  ctx.card = { from, total, done: 0, failed: 0, finished: false };
   drawCtxCard();
 }
 
@@ -3921,7 +3921,7 @@ function ctxStep(e) {
 
 function drawCtxCard() {
   const el = $("ctxcard"), c = ctx.card;
-  if (!c) { el.hidden = true; el.innerHTML = ""; renderImportStrip(); return; }
+  if (!c?.confirmed) { el.hidden = true; el.innerHTML = ""; renderImportStrip(); return; }
   const label = esc(ctxLabel(c.from)), app = esc(ui.status?.app || "Asagiri"), n = c.done + c.failed;
   const body = !c.total ? `<div class="sub">${tr("Your {engine} images stay there. Bring them over any time from Settings → Import.", { engine: label })}</div>`
     : c.finished ? `<div class="sub">${c.failed ? trn(c.done, "Brought {n} item over from {engine}; {failed} failed (Settings → Import says why).", "Brought {n} items over from {engine}; {failed} failed (Settings → Import says why).", { engine: label, failed: c.failed }) : trn(c.done, "Brought {n} item over from {engine}.", "Brought {n} items over from {engine}.", { engine: label })}</div>`
@@ -8028,7 +8028,14 @@ window.asagiri = {
       case "imagelayers": if (ui.imgd?.name === e.name) { ui.imgd.layers = e; if (ui.view === "images") render(); } break;
       case "buildlayers": if (ui.bl.sel?.id === e.id) { ui.bl.layers = e; if (ui.view === "builds") renderBuilds(); } break;
       case "build": if (ui.bl.sel?.id === e.id) { ui.bl.d = e; if (ui.view === "builds") renderBuilds(); } break;
-      case "usedcontext": if (e.error) toast("error", tr("Couldn't switch docker: {error}", { error: e.error })); break;
+      case "usedcontext":
+        if (ctx.card && e.name === ctx.card.target) {
+          if (!e.error && ui.status?.context === e.name) ctx.card.confirmed = true;
+          else ctx.card = null;
+          drawCtxCard();
+        }
+        if (e.error) toast("error", tr("Couldn't switch docker: {error}", { error: e.error }));
+        break;
       case "importsources": ui.imp.sources = e.sources; { const s = e.sources.find((x) => x.id === ui.imp.source) || e.sources.find((x) => x.running && x.id === ui.status?.context) || e.sources.find((x) => x.running) || e.sources[0]; if (s) { ui.imp.source = s.id; if (s.running) send("inventory", { name: s.id }); } } if (ui.view === "settings") render(); break;
       case "inventory": ui.imp.inv = e; if (ui.view === "settings") render(); renderImportStrip(); drawImportModal(); break;
       case "importstep": ctxStep(e); ui.imp.steps[`${e.kind}/${e.name}`] = e; if (e.state !== "running") ui.imp.picked[e.kind].delete(e.name); if (ui.view === "settings") render(); drawImportModal(); break;

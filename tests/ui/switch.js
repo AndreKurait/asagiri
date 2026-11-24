@@ -6,6 +6,7 @@ const reset=(big=false)=>{sent.length=0;ctx.card=null;ctx.pending=null;document.
   asagiri.on({type:"importsources",sources:[{id:"orbstack",label:"OrbStack",running:true}]});asagiri.on(inv(big));sent.length=0;};
 const click=(sel)=>{const el=document.querySelector(sel);if(!el)throw new Error("no "+sel);el.click();};
 const used=()=>sent.filter(x=>x.type==="usecontext");
+const confirmSwitch=()=>{asagiri.on({...ui.status,context:ui.status.ours});asagiri.on({type:"usedcontext",name:ui.status.ours});};
 const R=[];const t=(name,fn)=>{try{fn();R.push("PASS "+name)}catch(e){R.push("FAIL "+name+": "+e.message)}};
 const eq=(a,b,m)=>{if(JSON.stringify(a)!==JSON.stringify(b))throw new Error(m+": got "+JSON.stringify(a)+" want "+JSON.stringify(b))};
 show("containers");
@@ -17,6 +18,8 @@ t("importing from the chooser switches, after the import starts",()=>{reset();ct
 t("Switch with the box ticked brings every image",()=>{reset();ctxDialog();eq(document.getElementById("ctx-bring").checked,true,"ticked when small");click("[data-ctxgo]");const im=sent.find(x=>x.type==="import");eq(im.value.images,["grafana/grafana:latest","redis:7"],"images");eq(used()[0].name,"asagiri-dev","switched");});
 t("Switch with the box unticked only switches",()=>{reset();ctxDialog();document.getElementById("ctx-bring").checked=false;click("[data-ctxgo]");eq(sent.some(x=>x.type==="import"),false,"no import");eq(used().length,1,"switched");eq(ctx.card.total,0,"card without import");});
 t("a big import is not ticked for you",()=>{reset(true);ctxDialog();eq(document.getElementById("ctx-bring").checked,false,"unticked over 10 GB");});
-t("progress counts each finished item",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({type:"importstep",kind:"images",name:"redis:7",state:"done"});eq(ctx.card.done,1,"done");eq(document.getElementById("ctxcard").textContent.includes("1 of 2"),true,"card shows 1 of 2");});
-t("Switch back restores the previous engine",()=>{reset();ctxDialog();click("[data-ctxgo]");sent.length=0;click("#ctxcard [data-ctxback]");eq(used()[0].name,"orbstack","back to orbstack");eq(ctx.card,null,"card gone");});
+t("progress counts each finished item",()=>{reset();ctxDialog();click("[data-ctxgo]");confirmSwitch();asagiri.on({type:"importstep",kind:"images",name:"redis:7",state:"done"});eq(ctx.card.done,1,"done");eq(document.getElementById("ctxcard").textContent.includes("1 of 2"),true,"card shows 1 of 2");});
+t("Switch back restores the previous engine",()=>{reset();ctxDialog();click("[data-ctxgo]");confirmSwitch();sent.length=0;click("#ctxcard [data-ctxback]");eq(used()[0].name,"orbstack","back to orbstack");eq(ctx.card,null,"card gone");});
+t("switch success waits for the effective context",()=>{reset();ctxDialog();click("[data-ctxgo]");eq(document.getElementById("ctxcard").hidden,true,"awaiting host");asagiri.on({type:"usedcontext",name:ui.status.ours});eq(ctx.card,null,"override still selects another context");});
+t("failed switches dismiss the pending success card",()=>{reset();ctxDialog();click("[data-ctxgo]");asagiri.on({type:"usedcontext",name:ui.status.ours,error:"could not save"});eq(ctx.card,null,"failed");});
 report(R);
