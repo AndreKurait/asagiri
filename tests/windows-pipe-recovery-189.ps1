@@ -56,6 +56,23 @@ try {
     $clock.Stop()
     if (!$version -or $clock.Elapsed.TotalSeconds -ge 5) { throw "Recovery exceeded initial backoff: $version $($clock.Elapsed)" }
     Write-Host "Repaired guest socket served Docker $version within $($clock.ElapsedMilliseconds) ms through the same launcher"
+    # Preserve the old socket inode when the real daemon unlinks and rebinds its path.
+    wsl.exe -d asagiri -u root -- ln "$socketDir/docker.sock" "$socketDir/stale189.sock"
+    wsl.exe -d asagiri -u root -- /usr/local/bin/asagiri-start --restart
+    $old = (wsl.exe -d asagiri -u root -- stat -c '%d:%i' "$socketDir/stale189.sock").Trim()
+    $new = (wsl.exe -d asagiri -u root -- stat -c '%d:%i' "$socketDir/docker.sock").Trim()
+    if ($old -eq $new) { throw 'Daemon restart did not replace the socket inode' }
+    wsl.exe -d asagiri -u root -- ln -sfn "$socketDir/stale189.sock" $probe
+    $clock.Restart()
+    $PSNativeCommandUseErrorActionPreference = $false
+    $reply = (& $docker info 2>&1 | Out-String)
+    $exitCode = $LASTEXITCODE
+    $PSNativeCommandUseErrorActionPreference = $true
+    $clock.Stop()
+    if (!$exitCode -or $reply -notmatch 'socket refused connections after startup' -or $clock.Elapsed.TotalSeconds -ge 10) {
+        throw "Unexpected stale socket response in $($clock.ElapsedMilliseconds) ms: $reply"
+    }
+    Write-Host "Stale guest socket returned the startup refusal in $($clock.ElapsedMilliseconds) ms"
 } finally {
     if ($bridge -and !$bridge.HasExited) { Stop-Process -Id $bridge.Id }
     wsl.exe --unregister asagiri
