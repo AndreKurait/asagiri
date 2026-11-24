@@ -3974,6 +3974,7 @@ function drawImportModal() {
       <div><h3 id="imp-title">${tr("Bring your {name} things to Asagiri", { name: esc(src.label) })}</h3>
       <p>${n.total ? trn(n.total, "{n} item isn't in Asagiri yet. Pick what to copy over.", "{n} items aren't in Asagiri yet. Pick what to copy over.") : tr("Everything is in Asagiri.")}</p></div></div>
     ${importColumns()}
+    ${im.inv.containers?.some(c => !c.have) ? `<p class="imp-metadata-note">${tr("Check extended attributes on files outside volumes before removing the source container.")}</p>` : ""}
     <p class="imp-note">${im.summary ? esc(im.summary) : tr("{name} stays as it is: Asagiri only copies. Containers arrive stopped.", { name: esc(src.label) })}</p>
     <div class="row-end"><button class="btn" data-impclose>${im.summary && !im.running ? tr("Done") : tr("Close")}</button>${importGo()}</div>
   </div>`;

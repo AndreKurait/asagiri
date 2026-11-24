@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "گۆڕینی ئەمە کلەستەرەکە دەستپێدەکاتەوە.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "گۆڕینی ئەمە داوای ڕەزامەندی بەڕێوەبەر لە Windows دەکات، چونکە یاسایەکی DNS بۆ {local} زیاد یان لادەبات.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "گۆڕینی ئەمە مافی بەڕێوەبەری پێویستە (وشەی نهێنیی بەڕێوەبەر)، چونکە {path} زیاد یان لادەبات.",
+  "Check extended attributes on files outside volumes before removing the source container.": "پێش لابردنی کۆنتەینەری سەرچاوە، تایبەتمەندییە فراوانکراوەکانی فایلەکانی دەرەوەی ڤۆڵیومەکان بپشکنە.",
   "Check for Updates…": "پشکنین بۆ نوێکارییەکان…",
   "Check for updates automatically": "پشکنینی خۆکارانە بۆ نوێکارییەکان",
   "Check now": "ئێستا بپشکنە",

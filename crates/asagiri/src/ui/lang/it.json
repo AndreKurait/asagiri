@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Modificarlo riavvia il cluster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Modificare questa opzione richiede l'approvazione di un amministratore a Windows, perché aggiunge o rimuove una regola DNS per {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Modificare questa opzione richiede i diritti di amministratore (una password di amministratore), perché aggiunge o rimuove {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Verifica gli attributi estesi dei file esterni ai volumi prima di rimuovere il container di origine.",
   "Check for Updates…": "Controlla aggiornamenti…",
   "Check for updates automatically": "Controlla automaticamente gli aggiornamenti",
   "Check now": "Controlla ora",

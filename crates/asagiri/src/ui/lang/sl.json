@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Sprememba znova zažene gručo.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Sprememba zahteva odobritev skrbnika v sistemu Windows, ker doda ali odstrani pravilo DNS za {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Sprememba zahteva skrbniške pravice (skrbniško geslo), ker doda ali odstrani {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Pred odstranitvijo izvornega vsebnika preverite razširjene atribute datotek zunaj nosilcev.",
   "Check for Updates…": "Preveri posodobitve …",
   "Check for updates automatically": "Samodejno preverjaj posodobitve",
   "Check now": "Preveri zdaj",

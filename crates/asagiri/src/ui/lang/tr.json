@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Bunu değiştirmek kümeyi yeniden başlatır.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Bunu değiştirmek Windows'tan yönetici onayı ister, çünkü şunun için bir DNS kuralı ekler veya kaldırır: {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Bunu değiştirmek yönetici yetkisi (yönetici parolası) gerektirir, çünkü şunu ekler veya kaldırır: {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Kaynak konteyneri kaldırmadan önce birimlerin dışındaki dosyaların genişletilmiş özniteliklerini kontrol edin.",
   "Check for Updates…": "Güncellemeleri Denetle…",
   "Check for updates automatically": "Güncellemeleri otomatik olarak denetle",
   "Check now": "Şimdi denetle",

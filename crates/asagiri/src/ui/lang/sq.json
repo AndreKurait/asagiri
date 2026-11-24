@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Ndryshimi i tij rinis klasterin.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Ndryshimi i kësaj kërkon miratimin e një administratori në Windows, sepse shton ose heq një rregull DNS për {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Ndryshimi i kësaj kërkon të drejta administratori (një fjalëkalim administratori), sepse shton ose heq {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Kontrolloni atributet e zgjeruara të skedarëve jashtë vëllimeve para se të hiqni kontejnerin burimor.",
   "Check for Updates…": "Kontrollo për përditësime…",
   "Check for updates automatically": "Kontrollo automatikisht për përditësime",
   "Check now": "Kontrollo tani",

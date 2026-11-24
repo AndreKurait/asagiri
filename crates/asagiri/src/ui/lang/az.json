@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Bunu dəyişmək klasteri yenidən başladır.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Bu tənzimləmə dəyişdirildikdə Windows administrator təsdiqi istəyir, çünki {local} üçün DNS qaydası əlavə olunur və ya silinir.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Bu tənzimləməni dəyişmək administrator hüquqları (administrator şifrəsi) tələb edir, çünki {path} faylı əlavə olunur və ya silinir.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Mənbə konteynerini silməzdən əvvəl saxlama həcmlərindən kənardakı faylların genişləndirilmiş atributlarını yoxlayın.",
   "Check for Updates…": "Yeniləmələri yoxla…",
   "Check for updates automatically": "Yeniləmələri avtomatik yoxla",
   "Check now": "İndi yoxla",

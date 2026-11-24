@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "A módosítás újraindítja a fürtöt.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "A módosításhoz rendszergazdai jóváhagyás kell a Windowsban, mert DNS-szabályt ad hozzá vagy töröl ehhez: {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "A módosításhoz rendszergazdai jogok (rendszergazdai jelszó) kellenek, mert hozzáadja vagy törli ezt: {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "A forráskonténer eltávolítása előtt ellenőrizze a köteteken kívüli fájlok kiterjesztett attribútumait.",
   "Check for Updates…": "Frissítések keresése…",
   "Check for updates automatically": "Frissítések automatikus keresése",
   "Check now": "Ellenőrzés most",

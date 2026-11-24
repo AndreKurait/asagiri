@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Schimbarea repornește clusterul.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Schimbarea cere aprobarea unui administrator în Windows, deoarece adaugă sau elimină o regulă DNS pentru {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Schimbarea necesită drepturi de administrator (o parolă de administrator), deoarece adaugă sau elimină {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Verificați atributele extinse ale fișierelor din afara volumelor înainte de a elimina containerul sursă.",
   "Check for Updates…": "Caută actualizări…",
   "Check for updates automatically": "Caută actualizări automat",
   "Check now": "Verifică acum",

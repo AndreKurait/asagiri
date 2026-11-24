@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Endring starter klyngen på nytt.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Endring ber Windows om godkjenning fra en administrator, siden den legger til eller fjerner en DNS-regel for {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Endring krever administratorrettigheter (et administratorpassord), siden den legger til eller fjerner {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Kontroller de utvidede attributtene til filer utenfor volumene før du fjerner kildecontaineren.",
   "Check for Updates…": "Se etter oppdateringer…",
   "Check for updates automatically": "Se etter oppdateringer automatisk",
   "Check now": "Sjekk nå",

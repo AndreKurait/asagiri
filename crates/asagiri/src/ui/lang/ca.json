@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Canviar-ho reinicia el clúster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Canviar això demana a Windows l'aprovació d'un administrador, ja que afegeix o elimina una regla DNS per a {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Canviar això requereix permisos d'administrador (una contrasenya d'administrador), ja que afegeix o elimina {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Comproveu els atributs estesos dels fitxers fora dels volums abans de suprimir el contenidor d’origen.",
   "Check for Updates…": "Cerca actualitzacions…",
   "Check for updates automatically": "Cerca actualitzacions automàticament",
   "Check now": "Comprova ara",

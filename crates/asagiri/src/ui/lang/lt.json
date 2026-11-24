@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Pakeitus klasteris paleidžiamas iš naujo.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Norint tai pakeisti, Windows paprašys administratoriaus patvirtinimo, nes pridedama arba šalinama {local} DNS taisyklė.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Norint tai pakeisti, reikia administratoriaus teisių (administratoriaus slaptažodžio), nes pridedamas arba šalinamas {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Prieš pašalindami šaltinio konteinerį patikrinkite išplėstinius failų, esančių už tomų ribų, atributus.",
   "Check for Updates…": "Ieškoti naujinimų…",
   "Check for updates automatically": "Naujinimų ieškoti automatiškai",
   "Check now": "Tikrinti dabar",

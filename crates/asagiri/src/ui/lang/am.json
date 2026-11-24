@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "መቀየሩ ክላስተሩን ዳግም ያስጀምረዋል።",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "ይህን መቀየር Windowsን የአስተዳዳሪ ፈቃድ ይጠይቃል፣ ምክንያቱም ለ{local} የDNS ደንብ ያክላል ወይም ያስወግዳል።",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "ይህን መቀየር የአስተዳዳሪ መብቶችን (የአስተዳዳሪ የይለፍ ቃል) ይፈልጋል፣ ምክንያቱም {path}ን ያክላል ወይም ያስወግዳል።",
+  "Check extended attributes on files outside volumes before removing the source container.": "የምንጭ ኮንቴነሩን ከማስወገድዎ በፊት ከቮልዩሞች ውጭ ያሉ ፋይሎችን የተራዘሙ ባህሪያት ያረጋግጡ።",
   "Check for Updates…": "ዝማኔዎችን ፈልግ…",
   "Check for updates automatically": "ዝማኔዎችን በራስ-ሰር ፈልግ",
   "Check now": "አሁን ፈትሽ",

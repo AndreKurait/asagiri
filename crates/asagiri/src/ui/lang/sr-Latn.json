@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Promena ponovo pokreće klaster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Promena ovoga traži odobrenje administratora u Windowsu, jer dodaje ili uklanja DNS pravilo za {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Promena ovoga traži administratorska prava (lozinku administratora), jer dodaje ili uklanja {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Pre uklanjanja izvornog kontejnera proverite proširene atribute datoteka izvan volumena.",
   "Check for Updates…": "Proveri ažuriranja…",
   "Check for updates automatically": "Automatski proveravaj ažuriranja",
   "Check now": "Proveri sada",

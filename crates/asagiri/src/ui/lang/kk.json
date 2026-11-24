@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Өзгерту кластерді қайта іске қосады.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Өзгерту үшін Windows әкімшісінің рұқсаты керек, себебі ол {local} үшін DNS ережесін қосады немесе жояды.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Өзгерту үшін әкімші құқықтары (әкімші құпиясөзі) керек, себебі ол {path} файлын қосады немесе жояды.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Бастапқы контейнерді жоймас бұрын томдардан тыс файлдардың кеңейтілген атрибуттарын тексеріңіз.",
   "Check for Updates…": "Жаңартуларды тексеру…",
   "Check for updates automatically": "Жаңартуларды автоматты түрде тексеру",
   "Check now": "Қазір тексеру",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "変更するとクラスタが再起動します。",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "{local} の DNS ルールを追加または削除するため、変更には Windows の管理者の承認が必要です。",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "{path} を追加または削除するため、変更には管理者権限（管理者パスワード）が必要です。",
+  "Check extended attributes on files outside volumes before removing the source container.": "元のコンテナを削除する前に、ボリューム外のファイルの拡張属性を確認してください。",
   "Check for Updates…": "アップデートを確認…",
   "Check for updates automatically": "アップデートを自動的に確認",
   "Check now": "今すぐ確認",

@@ -214,6 +214,7 @@
   "Changing it restarts the cluster.": "Thay đổi sẽ khởi động lại cluster.",
   "Changing this asks Windows for an administrator's approval, since it adds or removes a DNS rule for {local}.": "Thay đổi mục này cần quản trị viên Windows phê duyệt, vì nó thêm hoặc xóa một quy tắc DNS cho {local}.",
   "Changing this needs admin rights (an administrator password), since it adds or removes {path}.": "Thay đổi mục này cần quyền quản trị (mật khẩu quản trị viên), vì nó thêm hoặc xóa {path}.",
+  "Check extended attributes on files outside volumes before removing the source container.": "Kiểm tra các thuộc tính mở rộng của tệp nằm ngoài các volume trước khi xóa container nguồn.",
   "Check for Updates…": "Kiểm tra cập nhật…",
   "Check for updates automatically": "Tự động kiểm tra cập nhật",
   "Check now": "Kiểm tra ngay",
