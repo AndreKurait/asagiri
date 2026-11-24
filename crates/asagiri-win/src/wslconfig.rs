@@ -108,31 +108,21 @@ fn reconcile_integration(enabled: &[String], pending: &[String], background: boo
     // A failed discovery must leave the daemon's current socket list intact.
     let available = user_distros()?;
     let mut active = Vec::new();
-    let mut first_err: Option<io::Error> = None;
     for want in enabled {
         let Some(name) = available.iter().find(|a| a.eq_ignore_ascii_case(want)) else {
             continue;
         };
         let script = crate::wslsync::wsl_enable_script(name, "");
-        match run_distro_script(name, &script) {
-            Ok(out) => {
-                let gid = out.lines().next_back().and_then(|l| l.trim().parse::<u32>().ok()).unwrap_or(0);
-                active.push(json!({"name": name, "gid": gid}));
-            }
-            Err(e) => {
-                crate::serve::log(&format!("wsl integration ({name}): {e}"));
-                if first_err.is_none() {
-                    first_err = Some(e);
-                }
-            }
-        }
+        // The daemon replaces its entire socket list. A partial discovery
+        // must not remove an existing listener or change its group to root.
+        let out = run_distro_script(name, &script)?;
+        let gid = out.lines().next_back().and_then(|line| line.trim().parse::<u32>().ok())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("{name}: missing numeric socket group")))?;
+        active.push(json!({"name": name, "gid": gid}));
     }
     let res = crate::client::request_with("POST", "/asagiri/wsl", Some(&json!({"distros": active})), background);
-    if let Err(e) = crate::engine::expect_ok(res)
-        && first_err.is_none()
-    {
-        first_err = Some(e);
-    }
+    crate::engine::expect_ok(res)?;
+    let mut first_err: Option<io::Error> = None;
     for off in pending {
         if !available.iter().any(|name| name.eq_ignore_ascii_case(off)) {
             continue;
