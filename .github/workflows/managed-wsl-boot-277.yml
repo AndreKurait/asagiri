@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: a01ed4960136c98dc941847d28d77c6e7aaea920
+          ref: cbf7f15959302b309f090409b978ed7e17b83d43
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -91,6 +91,11 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
+          $oldInstaller = (Get-ChildItem bundle -Recurse -Filter install.sh | Select-Object -First 1).FullName
+          if (!$oldInstaller) { throw 'Missing published WSL installer' }
+          $oldScript = Guest wslpath -u ($oldInstaller.Replace('\','/'))
+          Guest sh $oldScript.Trim()
+          Guest grep -F '/usr/local/bin/asagiri daemon' /etc/wsl.conf
           Guest sh $script.Trim()
           Guest /tmp/engineping
           foreach ($name in 'asagiri','asagiri-init') {
