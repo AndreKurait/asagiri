@@ -40,3 +40,36 @@ archive tests' timestamp-based temporary paths; those paths now include an
 atomic sequence number. The complete platform run must pass before merge.
 Enabling features and completing a real Windows 10 reboot have not been
 exercised on this Mac.
+
+## PowerShell shows different images from the dashboard
+
+Compare the engine used by plain `docker` with the Asagiri engine in the same
+PowerShell window where the images differ.
+
+```powershell
+docker context show
+docker version --format '{{.Server.Version}}'
+docker image ls
+docker --context asagiri version --format '{{.Server.Version}}'
+docker --context asagiri image ls
+$env:DOCKER_CONTEXT
+$env:DOCKER_HOST
+```
+
+If the explicit Asagiri context shows the expected images, check the value of
+`DOCKER_CONTEXT`. A terminal override such as `default` takes precedence over
+the context selected in the dashboard. To use the saved context in this shell,
+clear the override and check the image list again.
+
+```powershell
+Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+docker context show
+docker image ls
+```
+
+If `DOCKER_HOST` is also set, plain `docker` can still use that endpoint. If
+it is an unwanted override, run `Remove-Item Env:DOCKER_HOST` in the same
+window, then repeat `docker context show` and `docker image ls`.
+
+Removing an environment variable here affects the current PowerShell process. If the value
+returns in a new terminal, check the environment or profile that sets it.
