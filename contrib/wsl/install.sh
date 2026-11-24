@@ -63,6 +63,7 @@ remove_legacy_entry() (
 if [ "${1:-}" = --remove-boot-entry ]; then
   conf=/etc/wsl.conf
   [ -f "$conf" ] || exit 0
+  conf=$(readlink -f "$conf")
   line=$(boot_command_line "$conf")
   if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
     sed -i "${line}s|=$start_helper; |=|" "$conf"
@@ -98,7 +99,10 @@ else
   # No systemd in this distro: start Asagiri when WSL boots it.
   conf=/etc/wsl.conf
   line=
-  if [ -f "$conf" ]; then line=$(boot_command_line "$conf"); fi
+  if [ -f "$conf" ]; then
+    conf=$(readlink -f "$conf")
+    line=$(boot_command_line "$conf")
+  fi
   current=
   if [ -n "$line" ]; then current=$(sed -n "${line}p" "$conf"); fi
   if ! printf '%s\n' "$current" | grep -Fq 'asagiri daemon'; then
@@ -116,16 +120,16 @@ else
         ln -T "$staged" "$start_helper"
         rm -f "$staged"
       fi
-      if ! sed -n "${line}p" /etc/wsl.conf | grep -Fq "=$start_helper; "; then
+      if ! sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
         # Migrate the exact entry appended by previous installers after the
         # distro's original command. Its removal leaves the earlier line intact.
         if grep -Fxq "$(boot_entry | tail -n 1)" "$conf"; then
           remove_legacy_entry "$conf"
         fi
-        sed -i "${line}s|=|=$start_helper; |" /etc/wsl.conf
+        sed -i "${line}s|=|=$start_helper; |" "$conf"
       fi
     else
-      boot_entry >> /etc/wsl.conf
+      boot_entry >> "$conf"
     fi
   fi
   pkill -f '/usr/local/bin/asagiri daemon' 2>/dev/null || true
