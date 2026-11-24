@@ -11,9 +11,23 @@ boot_entry() {
   printf '\n[boot]\ncommand = HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &\n'
 }
 
+# Address only the command in a boot section. Other WSL sections may also
+# contain command keys. Keep the original command text for uninstall.
+boot_command_line() {
+  awk '
+    /^[[:space:]]*\[/ { boot = (tolower($0) ~ /^[[:space:]]*\[boot\][[:space:]]*$/) }
+    boot && tolower($0) ~ /^[[:space:]]*command[[:space:]]*=/ { print NR; exit }
+  ' "$1"
+}
+start_helper=/usr/local/bin/asagiri-wsl-start
 if [ "${1:-}" = --remove-boot-entry ]; then
   conf=/etc/wsl.conf
   [ -f "$conf" ] || exit 0
+  line=$(boot_command_line "$conf")
+  if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
+    sed -i "${line}s|=$start_helper; |=|" "$conf"
+    rm -f "$start_helper"
+  fi
   suffix=$(mktemp)
   trap 'rm -f "$suffix"' EXIT
   boot_entry > "$suffix"
@@ -69,7 +83,21 @@ UNIT
 else
   # No systemd in this distro: start Asagiri when WSL boots it.
   if ! grep -q 'asagiri daemon' /etc/wsl.conf 2>/dev/null; then
-    boot_entry >> /etc/wsl.conf
+    line=
+    if [ -f /etc/wsl.conf ]; then line=$(boot_command_line /etc/wsl.conf); fi
+    if [ -n "$line" ]; then
+      cat > "$start_helper" <<'START'
+#!/bin/sh
+export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
+nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &
+START
+      chmod 755 "$start_helper"
+      if ! sed -n "${line}p" /etc/wsl.conf | grep -Fq "=$start_helper; "; then
+        sed -i "${line}s|=|=$start_helper; |" /etc/wsl.conf
+      fi
+    else
+      boot_entry >> /etc/wsl.conf
+    fi
   fi
   pkill -f '/usr/local/bin/asagiri daemon' 2>/dev/null || true
   export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
