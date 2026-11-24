@@ -369,11 +369,13 @@ fn start_daemon() -> io::Result<()> {
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
         let _ = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
     }
-    for _ in 0..100 {
-        if client::alive() {
+    // Share one response deadline across retries when the pipe accepts but WSL stalls.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) {
+        if client::probe("/_ping", remaining).is_ok_and(|reply| reply.ok()) {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(100).min(deadline.saturating_duration_since(std::time::Instant::now())));
     }
     Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
 }
