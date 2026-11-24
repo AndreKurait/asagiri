@@ -264,6 +264,8 @@ Health transition PR #291 removed two sampled unit tests and kept the status/log
 
   Merged `main` at `cfbeab94` has 1,081 declarations, twelve above the baseline. The net increases are six each in `asagiri` and `asagiri-win`. The total includes the removal of two sampled health tests in #291 and one sampled HTTP numeric parsing test in #292.
 
+  At `ef68510a`, the same count is 1,342 declarations, 273 above the 1,069 baseline. The counts in table order are 856, 109, 230, 5, 14, 12 and 116. The three sampled tests retired in #291 and #292 are included in this net change.
+
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
 - [x] Inventory the production callers, requirements and test assertions for the first two verification issues. Source inspected at `23ff537e`.
 
