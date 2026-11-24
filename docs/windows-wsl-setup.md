@@ -49,9 +49,11 @@ PowerShell window where the images differ.
 ```powershell
 docker context show
 docker version --format '{{.Server.Version}}'
+docker image ls
 docker --context asagiri version --format '{{.Server.Version}}'
 docker --context asagiri image ls
 $env:DOCKER_CONTEXT
+$env:DOCKER_HOST
 ```
 
 If the explicit Asagiri context shows the expected images, check the value of
@@ -65,5 +67,9 @@ docker context show
 docker image ls
 ```
 
-This clears the variable for the current PowerShell process. If the value
+If `DOCKER_HOST` is also set, plain `docker` can still use that endpoint. If
+it is an unwanted override, run `Remove-Item Env:DOCKER_HOST` in the same
+window, then repeat `docker context show` and `docker image ls`.
+
+Removing an environment variable here affects the current PowerShell process. If the value
 returns in a new terminal, check the environment or profile that sets it.
