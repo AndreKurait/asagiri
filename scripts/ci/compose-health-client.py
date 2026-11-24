@@ -14,10 +14,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
-    assert sys.platform == "linux", "This client is for private Linux CI engines."
+    assert sys.platform in ("linux", "darwin"), "Unsupported Compose client platform"
     source = Path(__file__).resolve().parents[2] / "tests/fixtures/compose/client.json"
     pins = json.loads(source.read_text())
-    asset = pins["linux"][platform.machine()]
+    asset = pins[sys.platform][platform.machine()]
     output = args.output.resolve()
     output.mkdir(mode=0o755, parents=False, exist_ok=False)
     binary = output / "docker-compose"

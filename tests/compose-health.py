@@ -70,9 +70,9 @@ def project_files(image, arch, token, context, bind, project):
 
 
 def check(args):
-    assert sys.platform == "linux", "This build and bind fixture runs in private Linux CI."
+    assert sys.platform in ("linux", "darwin"), "Unsupported Compose fixture platform"
     pins = json.loads((Path(__file__).parent / "fixtures/compose/client.json").read_text())
-    pinned = pins["linux"][platform.machine()]
+    pinned = pins[sys.platform][platform.machine()]
     plugin_sha = hashlib.sha256(args.compose_plugin.read_bytes()).hexdigest()
     assert plugin_sha == pinned["sha256"] and args.compose_plugin.stat().st_size == pinned["size"]
     token = uuid.uuid4().hex[:16]
@@ -116,7 +116,12 @@ def check(args):
         return "/images/" + urllib.parse.quote(tag, safe="")
 
     version = api("GET", "/version")
-    if args.reference_docker:
+    if sys.platform == "darwin":
+        assert not args.reference_docker and version.get("AsagiriVersion"), "Use a disposable Asagiri engine"
+        assert Path(args.socket) == Path.cwd() / "docker.sock" and os.environ.get("ASAGIRI_SOCKET") == args.socket
+        assert os.environ.get("ASAGIRI_DATA_DIR") == str(Path.cwd() / "engine-data")
+        assert args.buildx_plugin and args.buildx_plugin.is_file(), "Pass the packaged macOS Buildx plugin"
+    elif args.reference_docker:
         assert not version.get("AsagiriVersion") and "Podman" not in json.dumps(version), version
     else:
         assert (version.get("AsagiriVersion") and Path("/.dockerenv").exists()
@@ -141,6 +146,8 @@ def check(args):
         plugins.mkdir(mode=0o700)
         shutil.copyfile(args.compose_plugin, plugins / "docker-compose")
         (plugins / "docker-compose").chmod(0o755)
+        if args.buildx_plugin:
+            shutil.copy2(args.buildx_plugin, plugins / "docker-buildx")
         bind = root / "bind"
         bind.mkdir(mode=0o777)
         bind.chmod(0o777)
@@ -221,7 +228,8 @@ def check(args):
             status = cli("exec", app["Id"], "cat", "/proc/self/status").stdout
             fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
             assert int(fields["CapEff"].strip(), 16) == 0 and fields["NoNewPrivs"].strip() == "1", status
-            assert cli("exec", app["Id"], "ls", "/sys/class/net").stdout.split() == ["lo"]
+            interfaces = cli("exec", app["Id"], "cat", "/proc/net/dev").stdout.splitlines()[2:]
+            assert [line.split(":", 1)[0].strip() for line in interfaces] == ["lo"], interfaces
             assert cli("exec", app["Id"], "stat", "-c", "%u:%g:%a", "/tmp").stdout.strip() == "65534:65534:700"
             assert cli("exec", app["Id"], "sh", "-ec", "echo writable > /tmp/proof; cat /tmp/proof").stdout.strip() == "writable"
             root_write = cli("exec", "--user", "0", app["Id"], "touch", "/readonly-proof", ok=False)
@@ -287,6 +295,7 @@ if __name__ == "__main__":
     parser.add_argument("image")
     parser.add_argument("--reference-docker", action="store_true")
     parser.add_argument("--compose-plugin", type=Path, required=True)
+    parser.add_argument("--buildx-plugin", type=Path, help="Buildx executable from the macOS release bundle")
     parser.add_argument("--output", type=Path)
     options = parser.parse_args()
     if options.output:
