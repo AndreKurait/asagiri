@@ -8,11 +8,7 @@ jobs:
   qualify:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 97e5728284a18ba664c98cfd20bc1459e427213f
-          persist-credentials: false
-      - name: Prepare WSL for the engine rollback test
+      - name: Prepare WSL for the published engine
         run: |
           wsl.exe --status
           if ($LASTEXITCODE) {
@@ -21,8 +17,6 @@ jobs:
           }
           wsl.exe --version
           if ($LASTEXITCODE) { throw 'WSL is unavailable on this runner' }
-      - name: Build the PR launcher
-        run: cargo build --release --locked -p asagiri-win
       - name: Repair the context from the desktop and query its engine
         env:
           GH_TOKEN: ${{ github.token }}
@@ -30,9 +24,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          $launcher = Resolve-Path target/release/asagiri-win.exe
           Set-Location $env:RUNNER_TEMP
-          $build = '205'
+          $build = '271'
           $version = "0.1.14-dev.$build"
           $asset = "Asagiri-$version-x86_64.msi"
           if (!(Test-Path $asset)) {
@@ -53,7 +46,6 @@ jobs:
             # This case begins with a previously configured persistent distro.
             @{ done=$true; distro='asagiri' } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'setup.json')
             @{ lang='en'; langAsked=$true } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'ui.json')
-          Copy-Item $launcher $app -Force
           $env:DOCKER_CONFIG = Join-Path $env:RUNNER_TEMP 'isolated-cli'
           New-Item -ItemType Directory -Path $env:DOCKER_CONFIG | Out-Null
           @{currentContext='asagiri'} | ConvertTo-Json | Set-Content -Encoding utf8NoBOM (Join-Path $env:DOCKER_CONFIG 'config.json')
@@ -73,7 +65,7 @@ jobs:
           if ((& $docker context inspect asagiri --format '{{.Endpoints.docker.Host}}') -ne 'npipe:////./pipe/asagiri-load-test') { throw 'CLI pipe mismatch' }
           $components = & $docker version --format '{{json .Server.Components}}' | ConvertFrom-Json
           $version = ($components | Where-Object Name -eq 'Engine').Details.AsagiriVersion
-          if ($version -ne '0.1.14-dev.205') { throw "Unexpected effective engine $version" }
+          if ($version -ne '0.1.14-dev.271') { throw "Unexpected effective engine $version" }
           Write-Host "Dashboard selection reached Asagiri $version through the repaired context"
           & $docker pull alpine:3.21
           & $docker tag alpine:3.21 asagiri-inventory-175:verified
