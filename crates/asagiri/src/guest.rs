@@ -144,7 +144,7 @@ impl Guest {
             cmdline: String::new(),
             console: console_output(opts)?,
             agent_port: asagiri_proto::HOST_PORT,
-            disk: None,
+            disk: if opts.data_disk { linux_agent_data()? } else { None },
             share: None,
             emulator: None,
             rosetta_tag: None,
@@ -385,6 +385,19 @@ impl Guest {
 
 fn unexpected(wanted: &str, got: &Msg<'_>) -> io::Error {
     io::Error::other(format!("expected {wanted}, got {got:?}"))
+}
+
+/// The agent's data folder on a Linux host when Settings → Storage moved it
+/// off the default location: `<root>/agent`, which `asagiri-init` bind-mounts
+/// onto `/var/lib/asagiri`. None when using the default folder or `ASAGIRI_DATA_DIR`.
+#[cfg(target_os = "linux")]
+fn linux_agent_data() -> io::Result<Option<PathBuf>> {
+    if std::env::var_os("ASAGIRI_DATA_DIR").is_some() {
+        return Ok(None);
+    }
+    let root = asagiri_image::Store::default_root()?;
+    let default = asagiri_image::Store::os_default_root()?;
+    Ok((root != default).then(|| root.join("agent")))
 }
 
 /// The agent on a Linux host: `ASAGIRI_AGENT`, else `asagiri-init` beside `asagiri`.
