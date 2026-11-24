@@ -76,6 +76,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             }
         }
     };
+    // DHCP continues in the event loop after the initial uplink grace period.
+    let uplink_deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     // On a Linux host, SIGTERM or SIGINT stops the agent as Shutdown does.
     let term = if host_process { Some(term_signals()?) } else { None };
     let mut bridges = Bridges::default();
@@ -461,8 +463,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     // A container that wants the network must not start before the
                     // VM has it: right after boot the DHCP lease can be a few
                     // hundred milliseconds away.
-                    if spec.flags & (asagiri_proto::run_flags::NET_NONE | asagiri_proto::run_flags::NET_HOST) == 0 {
-                        wait_for_lease(&mut dhcp, std::time::Duration::from_secs(3));
+                    if spec.flags & (asagiri_proto::run_flags::NET_NONE | asagiri_proto::run_flags::NET_HOST) == 0
+                        && std::time::Instant::now() < uplink_deadline
+                    {
+                        wait_for_lease(&mut dhcp, uplink_deadline);
                     }
                     let join_pid = asagiri_proto::net_opts::values(spec.net.opts, asagiri_proto::net_opts::NETNS).next().and_then(|t| running_pid(&procs, t));
                     container::spawn(
@@ -843,10 +847,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
 /// A PSI trigger: readable (POLLPRI) when tasks stall on memory for 50 ms
 /// within any 500 ms window. None if the kernel has no PSI.
-/// Runs the DHCP client alone until it has a lease or `max` passes.
-fn wait_for_lease(dhcp: &mut Option<Dhcp>, max: std::time::Duration) {
+/// Runs the DHCP client alone until it has a lease or the startup deadline passes.
+fn wait_for_lease(dhcp: &mut Option<Dhcp>, deadline: std::time::Instant) {
     let Some(d) = dhcp.as_mut() else { return };
-    let deadline = std::time::Instant::now() + max;
     while d.lease.is_none() {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
