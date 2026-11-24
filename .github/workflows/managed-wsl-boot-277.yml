@@ -12,12 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: d9838a8376347db544f965b0159dd224f3f738d6
+          ref: b2679746833da9825fa607cc76c3551207d388cf
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           github-token: ${{ github.token }}
-          run-id: 45379609443
+          run-id: 45379833466
           name: linux-X64
           path: ${{ runner.temp }}/candidate
       - name: Install the reported Microsoft WSL release on this disposable runner
@@ -67,7 +67,7 @@ jobs:
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified before install'
           $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
-          if ((Get-Content "$candidate/SOURCE_COMMIT").Trim() -ne 'd9838a8376347db544f965b0159dd224f3f738d6') { throw 'Wrong candidate revision' }
+          if ((Get-Content "$candidate/SOURCE_COMMIT").Trim() -ne 'b2679746833da9825fa607cc76c3551207d388cf') { throw 'Wrong candidate revision' }
           Copy-Item "$env:GITHUB_WORKSPACE/contrib/wsl/install.sh" "$candidate/install.sh"
           $script = Guest wslpath -u ((Join-Path $candidate 'install.sh').Replace('\','/'))
           @'
