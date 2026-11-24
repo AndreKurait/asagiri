@@ -8,6 +8,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 image=${ASAGIRI_CI_AL2023_IMAGE:-public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:5c6ed3b38335b2aa424a045f1e564c8c508409ead0ff3f8bf5e62c31b94082cb}
 name="asagiri-al2023-systemd-$$"
 cid=''
+archive=''
 key_mount=()
 if [ -n "${3:-}" ]; then
   key=$(cd "$(dirname "$3")" && pwd)/$(basename "$3")
@@ -18,6 +19,7 @@ fi
 }
 cleanup() {
   result=$?
+  [ -z "$archive" ] || rm -f "$archive"
   [ -n "$cid" ] || return "$result"
   if [ "$result" -ne 0 ]; then
     docker logs --tail 60 "$cid" || true
@@ -27,12 +29,32 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
+image_mount=()
+if [ -n "${ASAGIRI_CI_PERF_IMAGE:-}" ]; then
+  ids=("$ASAGIRI_CI_PERF_IMAGE" "$ASAGIRI_CI_LIVE_IMAGE" "$ASAGIRI_CI_NGINX_IMAGE")
+  for id in "${ids[@]}"; do [[ $id =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1; done
+  archive=$(mktemp)
+  arch=$(docker image inspect --format '{{.Architecture}}' "${ids[0]}")
+  docker image save --platform "linux/$arch" -o "$archive" "${ids[@]}"
+  # The outer containerd store may identify an image by its manifest. The
+  # installed Asagiri engine identifies the loaded platform by config digest.
+  configs=$(python3 - "$here/../../scripts/ci/images.json" "$arch" <<'PYTHON'
+import json, sys
+with open(sys.argv[1]) as source:
+    images = json.load(source)
+print(*(images[name]['config'][sys.argv[2]] for name in ('perf', 'live', 'nginx')))
+PYTHON
+  )
+  read -r alpine_id cli_id nginx_id <<<"$configs"
+  image_mount=(--mount "type=bind,src=$archive,dst=/package-images.tar,readonly"
+    -e ASAGIRI_PACKAGE_TEST_ARCHIVE=/package-images.tar -e "ASAGIRI_CI_PERF_IMAGE=$alpine_id" -e "ASAGIRI_CI_LIVE_IMAGE=$cli_id" -e "ASAGIRI_CI_NGINX_IMAGE=$nginx_id")
+fi
 cid=$(docker run -d --name "$name" --label asagiri.test=amazon-linux-systemd \
   --privileged --cgroupns=private --tmpfs /run --tmpfs /tmp -v /var/lib \
   --mount "type=bind,src=$packages,dst=/packages,readonly" \
   --mount "type=bind,src=$cli,dst=/opt/docker,readonly" \
   --mount "type=bind,src=$here,dst=/checks,readonly" \
-  "${key_mount[@]}" \
+  "${key_mount[@]}" "${image_mount[@]}" \
   -e container=docker -e "ASAGIRI_EXPECTED_VERSION=${ASAGIRI_EXPECTED_VERSION:-}" \
   "$image" bash /checks/test-amazon-systemd-container.sh)
 ready=no

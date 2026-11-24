@@ -11,6 +11,30 @@ const R=[];const t=(name,fn)=>{try{fn();R.push("PASS "+name)}catch(e){R.push("FA
 const eq=(a,b,m)=>{if(JSON.stringify(a)!==JSON.stringify(b))throw new Error(m+": got "+JSON.stringify(a)+" want "+JSON.stringify(b))};
 show("containers");
 t("strip and status pill offer the switch",()=>{reset();render();eq(!!document.querySelector("#impstrip [data-ctxswitch]"),true,"strip");eq(!!document.querySelector("#statusbar [data-ctxswitch]"),true,"pill");});
+t("Windows Docker environment overrides disable ineffective switches", () => {
+  for (const contextOverride of ["DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_CONTEXT, DOCKER_HOST"]) {
+    for (const context of ["orbstack", null]) {
+      reset();
+      asagiri.on({...ui.status, context, contextOverride});
+      render();
+      eq(document.querySelector("#statusbar [data-ctxswitch], #statusbar [data-ctxrepair], #impstrip [data-ctxswitch]"), null, "no switch or repair");
+      eq(document.querySelector("#statusbar").textContent.includes(contextOverride), true, "names the override");
+      ctxDialog();
+      eq(document.querySelector("#ctx-dlg"), null, "no switch dialog");
+    }
+  }
+});
+t("a refreshed override dismisses outstanding switch choices", () => {
+  for (const choose of [false, true]) {
+    reset(); ctxDialog();
+    if (choose) click("[data-ctxchoose]");
+    asagiri.on({...ui.status, contextOverride: "DOCKER_HOST"});
+    eq(!!document.querySelector("#ctx-dlg"), false, "switch dialog dismissed");
+    eq(!!impModal, false, "switch-and-import chooser dismissed");
+    eq(ctx.pending, null, "no pending switch");
+    eq(sent.filter(x => x.type === "import" || x.type === "usecontext").length, 0, "no side effects");
+  }
+});
 t("Not now switches nothing",()=>{reset();ctxDialog();click("#ctx-dlg [data-close]");eq(used().length,0,"usecontext");eq(!!document.getElementById("ctx-dlg"),false,"dialog closed");});
 t("Choose what to bring does not switch",()=>{reset();ctxDialog();click("[data-ctxchoose]");eq(used().length,0,"usecontext");eq(!!impModal,true,"import window open");eq(impModal.querySelector("[data-impgo]").textContent.startsWith("Switch and import"),true,"button says Switch and import");});
 t("closing the chooser switches nothing",()=>{reset();ctxDialog();click("[data-ctxchoose]");closeImportModal();eq(used().length,0,"usecontext");eq(ctx.pending,null,"pending cleared");eq(ctx.card,null,"no card");});

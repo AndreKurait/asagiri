@@ -26,6 +26,15 @@
     "env": "ASAGIRI_CI_PERF_IMAGE",
     "groups": ["ci", "release"]
   },
+  "nginx": {
+    "image": "nginx:alpine@sha256:b50897d5c7b1aa08067c3d90c5e8b3e47ec4e3c91c91446f67820228f7b41e34",
+    "config": {
+      "amd64": "sha256:ad0c3809e9f90cc9fd46313d8580b6d41c776ffb54861dab70bc4737c839daa2",
+      "arm64": "sha256:7f2d42982b61384c4808f31f7215d19db7ceed3056dc680b84be5790b0cb4c39"
+    },
+    "env": "ASAGIRI_CI_NGINX_IMAGE",
+    "groups": ["ci", "release"]
+  },
   "guest": {
     "image": "debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6",
     "config": {

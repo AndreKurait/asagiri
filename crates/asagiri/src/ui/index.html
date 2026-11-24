@@ -3850,6 +3850,10 @@ const ctxBytes = (v) => { const m = /^([\d.]+)\s*([kMGT]?)B$/i.exec(String(v || 
 
 function ctxStatusItem() {
   if (!ui.status) return "";
+  if (ui.status.contextOverride) {
+    const target = ui.status.context ? esc(ctxLabel(ui.status.context)) : tr("Docker context unavailable");
+    return `<span class="sep">·</span><span class="item ctx-warn">${ctxWarn()}docker → ${target} (${esc(ui.status.contextOverride)})</span>`;
+  }
   if (!ui.status.context) {
     const repair = ui.status.ours ? `<button class="item ctx-warn" data-ctxrepair>${tr("Switch to {app}", { app: esc(ui.status.app || "Asagiri") })}</button>` : "";
     return `<span class="sep">·</span><span class="item">${tr("Docker context unavailable")}</span>${repair}`;
@@ -3861,7 +3865,7 @@ function ctxStatusItem() {
 
 function renderCtxStrip() {
   const el = $("impstrip");
-  if (!ctxOther() || !["containers", "images"].includes(ui.view) || Date.now() < (prefs.ctxSnooze || 0) || ctx.card) return false;
+  if (!ctxOther() || ui.status.contextOverride || !["containers", "images"].includes(ui.view) || Date.now() < (prefs.ctxSnooze || 0) || ctx.card) return false;
   el.innerHTML = `${ctxWarn("is-warn")}
     <span class="is-text">${tr("<b>docker still uses {engine}</b>, so what you run in the terminal won't show up here. Your images can come along.", { engine: esc(ctxLabel(ui.status.context)) })}</span>
     <button class="btn sm primary" data-ctxswitch>${tr("Switch to {app}", { app: esc(ui.status.app || "Asagiri") })}</button>
@@ -3878,8 +3882,7 @@ function ctxImages(from) {
 }
 
 function ctxDialog() {
-  if (ui.status.customEndpoint) return `<span class="sep">·</span><span class="item ctx-warn">${ctxWarn()}docker → ${esc(ui.status.context)} (${tr("Custom endpoint")})</span>`;
-  if (!ctxOther()) return;
+  if (!ctxOther() || ui.status.contextOverride || ui.status.customEndpoint) return;
   $("ctx-dlg")?.remove();
   const from = ui.status.context, label = ctxLabel(from), app = ui.status.app || "Asagiri";
   const src = ui.imp.sources?.find((s) => s.id === from), imgs = ctxImages(from), inv = ui.imp.inv;
@@ -8142,6 +8145,10 @@ window.asagiri = {
       case "buildwith": ui.bw = e; if (ui.view === "settings") render(); break;
       case "status":
         ui.status = e;
+        if (e.contextOverride) {
+          $("ctx-dlg")?.remove();
+          if (ctx.pending) closeImportModal();
+        }
         document.body.classList.toggle("dev", !!e.dev);
         document.body.classList.toggle("share", !!(e.share ?? e.dev));
         // The context docker uses for this Asagiri: asagiri, or an Asagiri Dev's own.
