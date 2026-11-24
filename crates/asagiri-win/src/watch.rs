@@ -201,6 +201,7 @@ pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
     const ACTION_RENAMED_NEW: u32 = 5;
 
     let mut out = Vec::new();
+    let mut previous_rename_old = false;
     let mut offset = 0usize;
     while offset + 12 <= buf.len() {
         let next_offset = u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]) as usize;
@@ -217,11 +218,20 @@ pub fn decode_notify_buffer(buf: &[u8]) -> Vec<(char, String)> {
             ACTION_MODIFIED => Some('M'),
             _ => None,
         };
+        let paired_rename = previous_rename_old && action == ACTION_RENAMED_NEW;
+        previous_rename_old = false;
         if let Some(op) = op && name_bytes > 0 {
             let units: Vec<u16> = buf[name_start..name_end].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
             let name = String::from_utf16_lossy(&units);
             if !name.is_empty() && !name.contains('\0') {
                 out.push((op, name));
+                if paired_rename {
+                    // Pin the destination before deleting the old name wakes a
+                    // parent watcher that can immediately watch the new path.
+                    let end = out.len();
+                    out.swap(end - 2, end - 1);
+                }
+                previous_rename_old = action == ACTION_RENAMED_OLD;
             }
         }
         if next_offset == 0 {
@@ -251,7 +261,7 @@ fn merge_op(prev: char, next: char) -> char {
 /// (`P`) or unpin (`U`) is kept apart from changes to the same path; the
 /// later of the two wins.
 pub fn coalesce_events(events: &[(char, String)]) -> Vec<String> {
-    let mut changes: Vec<(char, &str)> = Vec::new();
+    let mut changes: Vec<Option<(char, &str)>> = Vec::new();
     let mut latest: HashMap<(bool, &str), usize> = HashMap::new();
     for (op, path) in events {
         if !matches!(op, 'C' | 'M' | 'A' | 'D' | 'P' | 'U') || path.is_empty() {
@@ -259,16 +269,19 @@ pub fn coalesce_events(events: &[(char, String)]) -> Vec<String> {
         }
         let key = (matches!(op, 'P' | 'U'), path.as_str());
         if let Some(&index) = latest.get(&key) {
-            let prev = changes[index].0;
-            if (prev, *op) != ('D', 'C') {
-                changes[index].0 = if key.0 { *op } else { merge_op(prev, *op) };
+            let (prev, _) = changes[index].expect("latest points to a live change");
+            if *op == 'D' && prev != 'D' {
+                // Keep the delete at its arrival position, after any rename destination.
+                changes[index] = None;
+            } else if (prev, *op) != ('D', 'C') {
+                changes[index] = Some((if key.0 { *op } else { merge_op(prev, *op) }, path));
                 continue;
             }
         }
         latest.insert(key, changes.len());
-        changes.push((*op, path));
+        changes.push(Some((*op, path)));
     }
-    changes.into_iter().map(|(op, path)| format!("{op}\t{path}")).collect()
+    changes.into_iter().flatten().map(|(op, path)| format!("{op}\t{path}")).collect()
 }
 
 /// The WSL path of a watched Windows directory (`C:\Users\me\app` ->
@@ -714,14 +727,20 @@ mod tests {
                 ('C', r"src\new.ts".into()),
                 ('D', r"src\old.ts".into()),
                 ('M', r"src\app.ts".into()),
-                ('D', r"src\before.ts".into()),
                 ('C', r"src\after.ts".into()),
+                ('D', r"src\before.ts".into()),
                 ('M', "src\\caf\u{00e9}.js".into()),
             ]
         );
         // Truncated buffer does not panic.
         assert!(decode_notify_buffer(&buf[..5]).is_empty());
         assert!(decode_notify_buffer(&[]).is_empty());
+    }
+
+    #[test]
+    fn earlier_metadata_does_not_move_rename_delete_before_destination() {
+        let events = [('M', "old".into()), ('C', "new".into()), ('D', "old".into())];
+        assert_eq!(coalesce_events(&events), ["C\tnew", "D\told"]);
     }
 
     #[test]

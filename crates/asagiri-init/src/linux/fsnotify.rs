@@ -184,9 +184,6 @@ fn raise_vfs_line(line: &str, automount_root: &str, pins: &mut Pins) -> bool {
     let line = line.trim_end_matches('\n');
     let Some((op, path)) = line.split_once('\t') else { return false };
     let Some((base, rel)) = split_wsl_drive_path(path, automount_root) else { return false };
-    if op == "D" {
-        pins.unpin_tree(path);
-    }
     match op {
         "P" => pins.pin_tree(path),
         "U" => pins.unpin_tree(path),
@@ -195,11 +192,18 @@ fn raise_vfs_line(line: &str, automount_root: &str, pins: &mut Pins) -> bool {
         // A delayed delete may already name a replacement on the host.
         // Pin it before waking a watcher that can immediately rescan.
         "C" | "D" if path.rsplit_once('/').is_some_and(|(parent, _)| pins.held.contains_key(parent)) => {
-            if let Some(fd) = open_dir_nofollow(base, rel) {
+            // Keep the old fd alive during lookup. On drvfs, releasing the
+            // last pin first can give an already-watched replacement a new inode.
+            let current = open_dir_nofollow(base, rel);
+            if op == "D" {
+                pins.unpin_tree(path);
+            }
+            if let Some(fd) = current {
                 pins.hold(path, fd);
                 pins.walk.push_back(path.to_owned());
             }
         }
+        "D" => pins.unpin_tree(path),
         _ => {}
     }
     matches!(op, "P" | "U") || raise_vfs_under(base, rel, op)
