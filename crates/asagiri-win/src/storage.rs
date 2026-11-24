@@ -520,14 +520,20 @@ mod imp {
                     previous = Some(backup);
                 }
                 wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(&distro)])?;
-                wsl_run(&[
-                    std::ffi::OsStr::new("--import"),
-                    std::ffi::OsStr::new(&distro),
-                    target.as_os_str(),
-                    tar.as_os_str(),
-                    std::ffi::OsStr::new("--version"),
-                    std::ffi::OsStr::new("2"),
-                ])?;
+                let import = |dir: &Path, archive: &Path| {
+                    wsl_run(&["--import".as_ref(), distro.as_ref(), dir.as_os_str(), archive.as_os_str(), "--version".as_ref(), "2".as_ref()])
+                };
+                if let Err(error) = import(&target, &tar) {
+                    if let Some(backup) = &previous {
+                        let archive = backup.join("distro.tar");
+                        fs::create_dir_all(&current).and_then(|()| import(&current, &archive).map(drop)).map_err(|rollback| {
+                            io::Error::other(format!("Fresh import failed: {error}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display()))
+                        })?;
+                        write_marker(&current)?;
+                        return Err(io::Error::other(format!("Fresh import failed: {error}. Restored the original distro at {}. Backup: {}", current.display(), archive.display())));
+                    }
+                    return Err(error);
+                }
             } else {
                 set_phase("copying", 0, used);
                 move_distro(&distro, &current, &target)?;
