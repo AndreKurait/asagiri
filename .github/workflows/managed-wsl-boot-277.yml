@@ -1,7 +1,7 @@
-name: Verify managed WSL startup on released dev.277
+name: Compare detached and foreground managed WSL startup
 on:
   push:
-    branches: [qualification/wsl-managed-boot-277]
+    branches: [qualification/wsl-managed-detach-241]
 permissions:
   actions: read
   contents: read
@@ -79,21 +79,18 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest sh $script.Trim()
-          try { Guest /tmp/engineping } catch {
-            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
-            Write-Host 'Installer launch unavailable; starting foreground control'
-            $control = Start-Process wsl.exe -ArgumentList '-d','Managed241','-u','root','--','env','HOME=/var/lib/asagiri-daemon','ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock','/usr/local/bin/asagiri','daemon' -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/control.out" -RedirectStandardError "$env:RUNNER_TEMP/control.err"
-            try { Guest /tmp/engineping } finally {
-              Get-Content "$env:RUNNER_TEMP/control.err" -Tail 40
-              Write-Host "Foreground launcher exited=$($control.HasExited)"
+          try {
+            Guest /tmp/engineping
+            Write-Host 'Packaged background launch already serves HTTP; detached control unnecessary'
+          } catch {
+            Write-Host 'Packaged background launch unavailable; checking session-detached control'
+            Guest sh -c 'command -v setsid; HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock setsid /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 &'
+            try {
+              Guest /tmp/engineping
+              Start-Sleep -Seconds 5
+              Guest /tmp/engineping
+              Write-Host 'Detached daemon still served HTTP after the launcher shell exited'
+            } finally {
+              Guest sh -c 'ps; cat /tmp/detached.log'
             }
-          }
-          Guest cat /etc/wsl.conf
-          Guest rm /tmp/managed241-marker
-          wsl.exe --terminate Managed241
-          Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
-          Write-Host 'Existing boot command verified after install'
-          try { Guest /tmp/engineping } catch {
-            Guest sh -c 'ps; ls -l /var/lib/asagiri-daemon/.asagiri/run; tail -80 /var/log/asagiri.log'
-            throw
           }
