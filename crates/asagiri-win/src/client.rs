@@ -18,6 +18,10 @@ pub fn probe(path: &str, timeout: Duration) -> io::Result<Response> {
     health::request_at(&pipe(), path, timeout)
 }
 
+pub fn wait_for_ready(limit: Duration) -> bool {
+    health::wait_for_ready(&pipe(), limit)
+}
+
 /// Product version for updates and About; older engines used Version alone.
 pub fn engine_version(version: &Value) -> Option<&str> {
     version["AsagiriVersion"].as_str().or_else(|| version["Version"].as_str())
