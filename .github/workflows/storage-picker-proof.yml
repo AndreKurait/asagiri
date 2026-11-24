@@ -24,24 +24,30 @@ jobs:
           target/debug/asagiri ui --view settings > "$RUNNER_TEMP/ui.log" 2>&1 &
           app=$!
           trap 'kill "$app" "$daemon" 2>/dev/null || true' EXIT
+          sleep 3
           osascript - "$app" "$destination" <<'APPLESCRIPT'
           on pressButton(p, labelText)
             tell application "System Events"
               repeat 30 times
+                set lastProblem to ""
+                set seenButtons to {}
                 try
                   set controls to entire contents of front window of p
                   repeat with ctl in controls
                     if role of ctl is "AXButton" then
+                      set end of seenButtons to (description of ctl as text)
                       if (description of ctl as text) is labelText or (name of ctl as text) is labelText then
                         perform action "AXPress" of ctl
                         return
                       end if
                     end if
                   end repeat
+                on error details
+                  set lastProblem to details
                 end try
                 delay 1
               end repeat
-              error "Missing control: " & labelText
+              error "Missing control: " & labelText & " buttons=" & (seenButtons as text) & " error=" & lastProblem
             end tell
           end pressButton
           on run argv
@@ -49,6 +55,8 @@ jobs:
               set p to first application process whose unix id is ((item 1 of argv) as integer)
               set frontmost of p to true
             end tell
+            tell application "System Events" to keystroke "," using command down
+            delay 1
             my pressButton(p, "Storage")
             my pressButton(p, "Change…")
             delay 1
