@@ -441,8 +441,15 @@ impl Dhcp {
         let index = self.index;
         self.apply_static_with(ip, prefix, gateway, dns, |lease| {
             let mut nl = Netlink::open(libc::NETLINK_ROUTE)?;
-            netlink::add_address(&mut nl, index, lease.ip, lease.prefix)?;
-            netlink::add_default_route(&mut nl, index, lease.gateway)
+            let added = netlink::ensure_address(&mut nl, index, lease.ip, lease.prefix)?;
+            if let Err(route) = netlink::add_default_route(&mut nl, index, lease.gateway) {
+                if added {
+                    netlink::remove_address(&mut nl, index, lease.ip, lease.prefix)
+                        .map_err(|cleanup| io::Error::new(route.kind(), format!("uplink route: {route}; removing address: {cleanup}")))?;
+                }
+                return Err(route);
+            }
+            Ok(())
         })
     }
 
@@ -1255,6 +1262,33 @@ mod tests {
         for (mode, number) in [("bridge", 4), ("private", 1), ("vepa", 2), ("passthru", 8)] {
             assert_eq!(plug(&[format!("macvlan={mode}").as_str()]).macvlan, Some(number), "{mode}");
         }
+    }
+    #[test]
+    fn static_uplink_route_failure_preserves_address_ownership() {
+        if unsafe { libc::geteuid() } != 0 {
+            return;
+        }
+        // Only this test thread enters the private namespace.
+        assert_eq!(unsafe { libc::unshare(libc::CLONE_NEWNET) }, 0);
+        let mut nl = Netlink::open(libc::NETLINK_ROUTE).unwrap();
+        netlink::create_bridge(&mut nl, UPLINK).unwrap();
+        let index = netlink::index_of(UPLINK).unwrap();
+        let mut dhcp = test_dhcp();
+        dhcp.index = index;
+        let ip = [192, 168, 64, 2];
+        let gateway = [192, 168, 64, 1];
+        let address_present = || local_addrs().contains(&ip);
+        assert!(!address_present());
+        // A down link accepts an address but rejects the gateway route.
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).is_err());
+        assert!(dhcp.lease.is_none());
+        assert!(!address_present(), "failed fallback left its address installed");
+        netlink::add_address(&mut nl, index, ip, 24).unwrap();
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).is_err());
+        assert!(address_present(), "failed fallback removed a preexisting address");
+        netlink::set_up(&mut nl, index).unwrap();
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).unwrap());
+        assert_eq!(dhcp.lease.unwrap().gateway, gateway);
     }
     fn test_dhcp() -> Dhcp {
         let (r, _w) = sys::pipe().unwrap();
