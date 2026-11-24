@@ -6,7 +6,6 @@ set -u
 bench_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 label=$1; S=${SOCK:?}; OUT=${OUT:-$(dirname "$0")/results}; RUNS=${RUNS:-30}
 c() { curl -s --unix-socket "$S" "$@"; }
-c -X POST -H 'Content-Type: application/json' -d '{"Image":"alpine","Cmd":["true"]}' http://x/containers/create >/dev/null
 cat > /tmp/api-run.sh <<R
 c() { curl -s --unix-socket "$S" "\$@"; }
 id=\$(c -X POST -H 'Content-Type: application/json' -d '{"Image":"alpine","Cmd":["true"]}' http://x/containers/create | jq -r .Id)
