@@ -31,7 +31,8 @@ jobs:
           daemon=$!
           trap 'kill "$daemon" || true; wait "$daemon" || true' EXIT
           for _ in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
-          docker pull alpine:3.21
+          for delay in 0 3 8; do sleep "$delay"; docker pull alpine:3.21 && break; done
+          docker image inspect alpine:3.21 >/dev/null
           unset GH_TOKEN
           result=0
           python3 "$GITHUB_WORKSPACE/tests/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "$PWD/client/docker-compose" --buildx-plugin "$PWD/Asagiri.app/Contents/Resources/bin/cli-plugins/docker-buildx" --output "$RUNNER_TEMP/public-build.json" || result=$?
