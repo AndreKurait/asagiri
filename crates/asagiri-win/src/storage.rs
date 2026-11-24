@@ -611,8 +611,11 @@ mod imp {
         if managed.is_ok() {
             return Ok(());
         }
-        // Fallback: export into staging folder inside target, unregister, import.
-        fs::create_dir(&staging)?;
+        export_and_import(distro, old_dir, target, &staging)
+    }
+
+    fn export_and_import(distro: &str, old_dir: &Path, target: &Path, staging: &Path) -> io::Result<()> {
+        fs::create_dir(staging)?;
         let vhd_file = staging.join("distro.vhdx");
         let tar_file = staging.join("distro.tar");
         let (archive, is_vhd) = match wsl_run(&[
@@ -625,18 +628,18 @@ mod imp {
             _ => {
                 let _ = fs::remove_file(&vhd_file);
                 if let Err(e) = wsl_run(&[std::ffi::OsStr::new("--export"), std::ffi::OsStr::new(distro), tar_file.as_os_str()]) {
-                    let _ = fs::remove_dir_all(&staging);
+                    let _ = fs::remove_dir_all(staging);
                     return Err(e);
                 }
                 if !tar_file.is_file() || fs::metadata(&tar_file).is_ok_and(|m| m.len() == 0) {
-                    let _ = fs::remove_dir_all(&staging);
+                    let _ = fs::remove_dir_all(staging);
                     return Err(io::Error::other("WSL export produced an empty archive"));
                 }
                 (tar_file, false)
             }
         };
         if let Err(e) = wsl_run(&[std::ffi::OsStr::new("--unregister"), std::ffi::OsStr::new(distro)]) {
-            let _ = fs::remove_dir_all(&staging);
+            let _ = fs::remove_dir_all(staging);
             return Err(e);
         }
         let import_to = |dest: &Path| {
@@ -658,11 +661,23 @@ mod imp {
             if let Err(rollback) = fs::create_dir_all(old_dir).and_then(|()| import_to(old_dir).map(drop)) {
                 return Err(io::Error::other(format!("WSL import failed: {e}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display())));
             }
-            let _ = fs::remove_dir_all(&staging);
+            let _ = fs::remove_dir_all(staging);
             return Err(e);
         }
-        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(staging);
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    #[ignore = "requires the disposable WSL distro created by windows-storage-move.ps1"]
+    fn native_wsl_storage_export_import() {
+        let root = PathBuf::from(std::env::var_os("ASAGIRI_WSL_STORAGE_TEST_ROOT").unwrap());
+        let target = root.join("moved");
+        fs::create_dir(&target).unwrap();
+        export_and_import("AsagiriStorageTest166", &root.join("original"), &target, &target.join(MOVING)).unwrap();
+        assert!(target.join("ext4.vhdx").is_file());
+        assert!(!target.join(MOVING).exists());
     }
 
     pub fn retry() {
