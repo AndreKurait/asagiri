@@ -36,8 +36,7 @@ jobs:
           unset GH_TOKEN
           result=0
           python3 "$GITHUB_WORKSPACE/tests/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "$PWD/client/docker-compose" --buildx-plugin "$PWD/Asagiri.app/Contents/Resources/bin/cli-plugins/docker-buildx" --output "$RUNNER_TEMP/public-build.json" || result=$?
-          builder=$(docker ps --format '{{.Names}}' | awk '/^buildx_buildkit_/ {print; exit}')
-          test -n "$builder"
+          builder=$(curl --fail --silent --unix-socket "$ASAGIRI_SOCKET" http://localhost/asagiri/builder | python3 -c 'import json,sys; print(json.load(sys.stdin)["container"])')
           {
             echo "public_build_exit=$result builder=$builder"
             docker inspect --format '{{.HostConfig.NetworkMode}}' "$builder"
