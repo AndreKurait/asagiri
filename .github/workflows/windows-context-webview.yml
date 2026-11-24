@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: 51f540c40c614a2da70d456d2ba1eecf5ea07555
           persist-credentials: false
       - run: python -m pip install pywebview
       - shell: pwsh
@@ -39,6 +40,7 @@ jobs:
               assert all(line.startswith('PASS ') for line in observed), observed
               expected = [line.split(chr(34))[1] for line in pathlib.Path('tests/ui/switch.js').read_text(encoding='utf-8').splitlines() if line.startswith('t(')]
               assert 'unknown context can select the owned context without importing or inventing a previous engine' in expected
+              assert 'an owned name on a custom endpoint never confirms an engine switch' in expected
               assert observed == ['PASS ' + title for title in expected], observed
           '@ | python -
           exit $LASTEXITCODE
