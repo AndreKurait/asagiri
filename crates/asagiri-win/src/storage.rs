@@ -273,6 +273,11 @@ mod imp {
         ACTIVE.load(Ordering::SeqCst)
     }
 
+    /// The window uses the same Docker pipe to stop the old engine and start the new one.
+    pub fn bridge_paused() -> bool {
+        matches!(state().phase, "copying" | "switching")
+    }
+
     fn config_path() -> PathBuf {
         crate::setup::dir().join(FILE)
     }
@@ -474,17 +479,17 @@ mod imp {
 
         let result = (|| -> io::Result<Vec<String>> {
             let running = if !is_unavail && crate::client::alive_quick() {
-                let list = crate::client::get_quick("/containers/json").ok();
-                let ids: Vec<String> = list
-                    .as_ref()
-                    .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|c| c["Id"].as_str().map(str::to_owned)).collect())
-                    .unwrap_or_default();
-                let _ = crate::client::request("POST", "/asagiri/stop", None);
+                let list = crate::client::get_quick("/containers/json")?;
+                let containers = list.as_array().ok_or_else(|| io::Error::other("Expected a list of running containers"))?;
+                let ids = containers.iter().map(|c| {
+                    c["Id"].as_str().map(str::to_owned).ok_or_else(|| io::Error::other("Running container has no ID"))
+                }).collect::<io::Result<Vec<_>>>()?;
+                crate::engine::expect_ok(crate::client::request("POST", "/asagiri/stop", None))?;
                 ids
             } else {
                 Vec::new()
             };
+            set_phase("switching", 0, 0);
             crate::serve::renew_bridge();
             let _ = wsl_run(&[std::ffi::OsStr::new("--terminate"), std::ffi::OsStr::new(&distro)]);
             fs::create_dir_all(&target)?;

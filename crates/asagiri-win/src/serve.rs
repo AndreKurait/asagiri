@@ -488,7 +488,7 @@ impl Hub {
             return Err(io::Error::new(io::ErrorKind::NotConnected, "Asagiri is not set up yet"));
         }
         // Never boot WSL while storage is moving or its custom drive is offline.
-        if crate::storage::moving() {
+        if crate::storage::bridge_paused() {
             return Err(io::Error::new(io::ErrorKind::NotConnected, "Asagiri is moving its data"));
         }
         if let Some(missing) = crate::storage::unavailable() {
@@ -791,7 +791,7 @@ fn serve(hub: &Hub, pipe: Pipe) {
 }
 
 fn serve_shared(hub: &Hub, pipe: Arc<Pipe>) {
-    if crate::storage::moving() {
+    if crate::storage::bridge_paused() {
         if refuse_new(&pipe, "Asagiri is moving its data to another folder: try again when Settings → Storage says it's done") {
             linger(&pipe);
         }
