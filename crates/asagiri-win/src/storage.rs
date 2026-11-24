@@ -477,7 +477,7 @@ mod imp {
         *state() = Moving { to: Some(target.clone()), phase: "stopping", done: 0, total: used, error: None };
         emit_report();
 
-        let result = (|| -> io::Result<Vec<String>> {
+        let result = (|| -> io::Result<()> {
             let running = if !is_unavail && crate::client::alive_quick() {
                 let list = crate::client::get_quick("/containers/json")?;
                 let containers = list.as_array().ok_or_else(|| io::Error::other("Expected a list of running containers"))?;
@@ -523,11 +523,23 @@ mod imp {
             set_phase("restarting", 0, 0);
             crate::serve::renew_bridge();
             crate::engine::ensure_daemon()?;
-            Ok(if fresh || is_unavail { Vec::new() } else { running })
+            if !fresh && !is_unavail {
+                let mut failures = Vec::new();
+                for id in running {
+                    let response = crate::client::request("POST", &format!("/containers/{id}/start"), None);
+                    if let Err(e) = crate::engine::expect_done(response) {
+                        failures.push(format!("{id}: {e}"));
+                    }
+                }
+                if !failures.is_empty() {
+                    return Err(io::Error::other(format!("Storage moved to {}, but some containers could not restart: {}", target.display(), failures.join(", "))));
+                }
+            }
+            Ok(())
         })();
 
         match result {
-            Ok(running) => {
+            Ok(()) => {
                 {
                     let mut m = state();
                     m.to = None;
@@ -535,9 +547,6 @@ mod imp {
                     m.error = None;
                 }
                 ACTIVE.store(false, Ordering::SeqCst);
-                for id in &running {
-                    let _ = crate::client::request("POST", &format!("/containers/{id}/start"), None);
-                }
                 emit(notice("ok", &trf("Asagiri's data moved to {path}", &[("path", &target.display().to_string())])));
                 emit_report();
                 send(Cmd::Refresh);

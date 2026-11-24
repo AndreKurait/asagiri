@@ -309,7 +309,7 @@ pub fn expect_ok(r: io::Result<client::Response>) -> io::Result<()> {
 /// A container action's answer, as on the Mac and Linux: Docker's 304 is
 /// "already so" (Stop on a stopped container, Start on a running one), so
 /// done, not an empty red toast.
-fn expect_done(r: io::Result<client::Response>) -> io::Result<()> {
+pub(crate) fn expect_done(r: io::Result<client::Response>) -> io::Result<()> {
     let r = r?;
     if r.ok() || r.status == 304 { Ok(()) } else { Err(io::Error::other(r.error())) }
 }
