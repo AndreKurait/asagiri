@@ -1,0 +1,41 @@
+name: Windows WebView2 Docker context switch
+on:
+  push:
+    branches: [qualification/windows-context-webview-428]
+permissions:
+  contents: read
+jobs:
+  webview:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python -m pip install pywebview
+      - shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = '1'
+          @'
+          import pathlib, runpy, tempfile, time, webview
+          page = runpy.run_path('scripts/ui-test.py')['page']('tests/ui/switch.js', 'windows')
+          with tempfile.TemporaryDirectory() as directory:
+              path = pathlib.Path(directory) / 'switch.html'
+              path.write_text(page, encoding='utf-8')
+              window = webview.create_window('Docker context', path.as_uri(), width=760, height=480)
+              observed = []
+              def inspect():
+                  try:
+                      for _ in range(90):
+                          text = window.evaluate_js("Array.from(document.querySelectorAll('#results')).map(e => e.textContent).join('\\n')")
+                          if text:
+                              observed.extend(text.splitlines())
+                              break
+                          time.sleep(0.5)
+                  finally:
+                      window.destroy()
+              webview.start(inspect, gui='edgechromium')
+              print(observed, flush=True)
+              assert len(observed) == 12 and all(line.startswith('PASS ') for line in observed)
+          '@ | python -
+          exit $LASTEXITCODE
