@@ -5,6 +5,9 @@ on:
       roadmap_only:
         description: The pull request changes only the implementation roadmap
         value: ${{ jobs.scope.outputs.roadmap_only }}
+      locale_only:
+        description: The pull request changes only desktop locale JSON files
+        value: ${{ jobs.scope.outputs.locale_only }}
 permissions:
   contents: read
 jobs:
@@ -13,6 +16,7 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       roadmap_only: ${{ steps.diff.outputs.roadmap_only }}
+      locale_only: ${{ steps.diff.outputs.locale_only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request'
@@ -23,9 +27,13 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           python3 - <<'PYTHON'
-          import os, subprocess
+          import os, re, subprocess
           paths = subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'])
           if paths == b'docs/implementation-roadmap.md\0':
               with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
                   print('roadmap_only=true', file=out)
+          files = paths.split(b'\0')[:-1]
+          if files and all(re.fullmatch(rb'crates/asagiri/src/ui/lang/[A-Za-z0-9_-]+\.json', path) for path in files):
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                  print('locale_only=true', file=out)
           PYTHON
