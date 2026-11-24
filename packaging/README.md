@@ -84,6 +84,18 @@ agent in `/usr/local/bin` and create an Asagiri systemd service. Existing
 services and different installed executables are preserved. Host access grants
 the account control of the engine and its containers.
 
+If **Start engine** reports `couldn't look up group asagiri` after you
+authenticate, check the `group:` providers in `/etc/nsswitch.conf`. On a
+Zorin OS 18.1 live desktop, `sss` was listed even though its NSS socket was
+absent. An unavailable provider can make a missing group indistinguishable
+from an existing directory group. On a directory-managed host, restore the
+provider and retry. On a standalone host where the administrator has confirmed
+that `asagiri` should be a new local group, run `sudo groupadd --system asagiri`
+and verify that `getent group asagiri` returns the new group. If it does not,
+repair the group lookup configuration so it reaches the local group database.
+Once the group resolves, select **Start engine** again. Setup handles membership
+and service installation.
+
 The AppImage does not update a system-installed engine automatically. Continue
 using the package manager for an existing package installation. For an engine
 installed through AppImage onboarding, stop the service and explicitly replace
