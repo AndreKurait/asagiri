@@ -105,8 +105,22 @@ def check(path, _image):
             output = kubectl("logs", "registry-dns-proof")
             assert "kind-dns-ok" in output and address in output, output
             nodes = json.loads(kubectl("get", "nodes", "-o", "json"))
+            # A pod's cgroup OOM must not mark the node OOM-killed when
+            # the node subsequently exits during a requested stop.
+            pod = "memory-limit-proof"
+            limits = {"spec": {"containers": [{"name": pod, "image": pod_image,
+                      "command": ["sh", "-c", "exec tail /dev/zero >/dev/null"],
+                      "resources": {"limits": {"memory": "32Mi"}}}]}}
+            kubectl("run", pod, "--restart=Never", "--image=" + pod_image, "--overrides=" + json.dumps(limits))
+            kubectl("wait", "--for=jsonpath={.status.containerStatuses[0].state.terminated.reason}=OOMKilled",
+                    "pod/" + pod, "--timeout=90s", timeout=100)
+            kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=30s")
+            command([*docker, "stop", "--time", "5", node])
+            stopped = json.loads(command([*docker, "inspect", node]))[0]["State"]
+            assert stopped["Status"] == "exited" and stopped["OOMKilled"] is False, stopped
             print(json.dumps({"probe": "kind-cluster", "kind": VERSION, "nodeImage": NODE,
                               "kindNetworkSubnets": subnets, "nodesReady": len(nodes["items"]), "nodeResolver": resolver.splitlines(),
+                              "podOOMKilled": True, "stoppedNodeOOMKilled": stopped["OOMKilled"],
                               "nodeContainerdPull": "passed", "nodeAndPodExternalDNS": "passed",
                               "nodeBareContainerAliasDNS": "passed",
                               "podAbsoluteContainerAliasDNS": "passed"}), flush=True)
