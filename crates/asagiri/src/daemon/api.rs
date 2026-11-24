@@ -54,7 +54,7 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
         if req.header("X-Asagiri-Background").is_none() {
             engine.touch();
         }
-        match route(&req, &engine, caller, &mut w, &mut r) {
+        match route(&req, &engine, &caller, &mut w, &mut r) {
             Ok(Next::KeepAlive) if req.wants_close() => return Ok(()),
             Ok(Next::KeepAlive) => {}
             Ok(Next::Close) => return Ok(()),
@@ -107,7 +107,7 @@ pub(super) fn error_with(w: &mut UnixStream, e: Error, extra: &str) -> io::Resul
     http::respond_with(w, status, "application/json", extra, json!({"message": message}).to_string().as_bytes())
 }
 
-fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     if let Some(message) = req.version_error() {
         // The body of a refused request was never read: the connection can
         // only carry on when there is none. HEAD gets the headers alone.
@@ -212,7 +212,16 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: 
         ("POST", "/build/prune") => return reply(w, super::builder::prune(req, engine), 200),
         ("GET", "/asagiri/builder") => return reply(w, Ok(super::builder::settings_report(engine)), 200),
         ("POST", "/asagiri/builder") => return reply(w, super::builder::set_settings(req).map(|()| super::builder::settings_report(engine)), 200),
-        ("GET", "/asagiri/watch-roots") | ("POST", "/asagiri/fs-events") if caller == super::caller::Caller::Container => {
+        #[cfg(target_os = "linux")]
+        ("GET" | "POST", "/asagiri/wsl") if super::binds::wsl().is_some() => {
+            if caller != &super::caller::Caller::Host {
+                http::json(w, 403, r#"{"message":"host connection required"}"#)?;
+                return Ok(Next::KeepAlive);
+            }
+            if m == "POST" { return reply(w, set_wsl(req), 200); }
+            return reply(w, Ok(super::wsl_sockets::wsl_report()), 200);
+        }
+        ("GET", "/asagiri/watch-roots") | ("POST", "/asagiri/fs-events") if caller != &super::caller::Caller::Host => {
             http::json(w, 403, r#"{"message":"host connection required"}"#)?;
             return Ok(Next::KeepAlive);
         }
@@ -237,7 +246,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: 
             if let Some(made) = super::builder::create_for_buildx(engine, req) {
                 return reply(w, made, 201);
             }
-            return reply(w, create(req, engine), 201);
+            return reply(w, create_for(req, engine, caller.wsl_distro()), 201);
         }
         ("GET", "/containers/json") => return reply(w, list(req, engine), 200),
         ("GET", "/networks") => return reply(w, networks(req, engine), 200),
@@ -1023,6 +1032,25 @@ fn set_domain_ports(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error>
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let port = |k: &str| body[k].as_u64().and_then(|p| u16::try_from(p).ok()).filter(|&p| p != 0).ok_or_else(|| Error::BadRequest(format!("{k} must be a port from 1 to 65535")));
     super::domains::set_ports(engine, port("http")?, port("https")?).map_err(Error::Conflict)
+}
+
+#[cfg(target_os = "linux")]
+fn set_wsl(req: &Request) -> Result<Value, Error> {
+    let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
+    let mut distros = Vec::new();
+    for item in body["distros"].as_array().ok_or_else(|| Error::BadRequest("distros must be an array".into()))? {
+        let name = item["name"].as_str().unwrap_or_default();
+        if !super::binds::valid_distro_name(name) {
+            return Err(Error::BadRequest(format!("invalid WSL distro name: {name}")));
+        }
+        let gid = item["gid"]
+            .as_u64()
+            .and_then(|g| u32::try_from(g).ok())
+            .ok_or_else(|| Error::BadRequest(format!("invalid gid for WSL distro {name}")))?;
+        distros.push(super::wsl_sockets::WslDistroConfig { name: name.to_owned(), gid });
+    }
+    super::wsl_sockets::sync_wsl_sockets(&distros).map_err(Error::Io)?;
+    Ok(super::wsl_sockets::wsl_report())
 }
 
 fn set_resources(req: &Request) -> Result<(), Error> {
