@@ -51,6 +51,8 @@ static LISTED: std::sync::LazyLock<std::sync::Mutex<std::time::Instant>> = std::
 
 #[derive(Debug, Clone)]
 pub(crate) enum Cmd {
+    #[cfg(test)]
+    CheckDispatch(Sender<()>),
     Start,
     Stop,
     /// Restore daemon availability after WSL goes away, preserving Stop.
@@ -141,6 +143,45 @@ fn state(name: &str, error: Option<&str>) -> String {
     .to_string()
 }
 
+enum Lifecycle {
+    Start,
+    Stop,
+}
+
+// Run explicit lifecycle requests in arrival order. A stalled readiness check
+// must not occupy the receiver that dispatches the window's other commands.
+fn lifecycle_loop(requests: Receiver<Lifecycle>, builders: Option<crate::daemon_start::Recovery>) {
+    for request in requests {
+        match request {
+            Lifecycle::Start => {
+                emit(state("booting", None));
+                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
+                    Ok(()) => {
+                        queue_builder(&builders);
+                        refresh();
+                    }
+                    Err(e) => emit(state("stopped", Some(&e.to_string()))),
+                }
+            }
+            // Stop means off: every container stopped, the engine off until
+            // Start (nothing wakes it meanwhile), and this window's shares closed.
+            Lifecycle::Stop => {
+                emit(state("stopping", None));
+                sharing::close_all();
+                let stopped = match expect_ok(client::request("POST", "/asagiri/stop", None)) {
+                    // An engine older than Stop: its sleep.
+                    Err(e) if e.to_string().contains("404") => expect_ok(client::request("POST", "/asagiri/sleep", None)),
+                    r => r,
+                };
+                if let Err(e) = stopped {
+                    emit(notice("error", &e.to_string()));
+                }
+                refresh();
+            }
+        }
+    }
+}
+
 fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
     watch(tx);
     // Registration may wait on buildx. Give it a separate bounded worker
@@ -161,6 +202,16 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
         Err(e) => {
             crate::serve::log(&format!("docker build: could not start builder setup worker: {e}"));
             None
+        }
+    };
+    let (lifecycle, requests) = mpsc::channel();
+    let lifecycle_builders = builders.clone();
+    if let Err(e) = std::thread::Builder::new().name("asagiri-lifecycle".into()).spawn(move || lifecycle_loop(requests, lifecycle_builders)) {
+        crate::serve::log(&format!("engine: could not start lifecycle worker: {e}"));
+    }
+    let queue_lifecycle = |request| {
+        if lifecycle.send(request).is_err() {
+            emit(notice("error", "Engine lifecycle worker unavailable"));
         }
     };
     let restored_builders = builders.clone();
@@ -193,31 +244,10 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
             None => rx.recv_timeout(TICK),
         };
         match cmd {
-            Ok(Cmd::Start) => {
-                emit(state("booting", None));
-                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
-                    Ok(()) => {
-                        queue_builder(&builders);
-                        refresh();
-                    }
-                    Err(e) => emit(state("stopped", Some(&e.to_string()))),
-                }
-            }
-            // Stop means off: every container stopped, the engine off until
-            // Start (nothing wakes it meanwhile), and this window's shares closed.
-            Ok(Cmd::Stop) => {
-                emit(state("stopping", None));
-                sharing::close_all();
-                let stopped = match expect_ok(client::request("POST", "/asagiri/stop", None)) {
-                    // An engine older than Stop: its sleep.
-                    Err(e) if e.to_string().contains("404") => expect_ok(client::request("POST", "/asagiri/sleep", None)),
-                    r => r,
-                };
-                if let Err(e) = stopped {
-                    emit(notice("error", &e.to_string()));
-                }
-                refresh();
-            }
+            #[cfg(test)]
+            Ok(Cmd::CheckDispatch(reply)) => { let _ = reply.send(()); }
+            Ok(Cmd::Start) => queue_lifecycle(Lifecycle::Start),
+            Ok(Cmd::Stop) => queue_lifecycle(Lifecycle::Stop),
             Ok(Cmd::Revive) => {
                 if let Some(recovery) = &recovery
                     && let Err(e) = recovery.request()
@@ -1689,4 +1719,19 @@ pub fn on_tray(cmd: &str) {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "runs in a dedicated Windows process with a deliberately stalled pipe"]
+fn start_with_stalled_pipe_dispatches_next_command() {
+    let name = format!(r"\\.\pipe\asagiri-stalled-start-{}", std::process::id());
+    let pipe = crate::pipe::Pipe::create(&name, true).unwrap();
+    client::set_pipe(&name);
+    start(Env { distro: Some("AsagiriStall189".into()), pipe: name });
+    on_message(r#"{"cmd":"start"}"#);
+    pipe.connect_within(Some(Duration::from_secs(10))).unwrap();
+    let (notify, received) = mpsc::channel();
+    send(Cmd::CheckDispatch(notify));
+    received.recv_timeout(Duration::from_secs(5)).expect("launcher command loop stalled during Start");
 }
