@@ -19,7 +19,12 @@ use super::http::{self, Request};
 use super::time;
 
 /// Serves one client connection until it closes.
+#[cfg(test)]
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
+    serve_as(stream, engine, super::caller::Caller::Host)
+}
+
+pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::Caller) -> io::Result<()> {
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
     // Bound an idle connection's next request. Streams, hijacked execs and
@@ -49,7 +54,7 @@ pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
         if req.header("X-Asagiri-Background").is_none() {
             engine.touch();
         }
-        match route(&req, &engine, &mut w, &mut r) {
+        match route(&req, &engine, caller, &mut w, &mut r) {
             Ok(Next::KeepAlive) if req.wants_close() => return Ok(()),
             Ok(Next::KeepAlive) => {}
             Ok(Next::Close) => return Ok(()),
@@ -102,7 +107,7 @@ pub(super) fn error_with(w: &mut UnixStream, e: Error, extra: &str) -> io::Resul
     http::respond_with(w, status, "application/json", extra, json!({"message": message}).to_string().as_bytes())
 }
 
-fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     if let Some(message) = req.version_error() {
         // The body of a refused request was never read: the connection can
         // only carry on when there is none. HEAD gets the headers alone.
@@ -207,6 +212,12 @@ fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream, r: &mut BufRea
         ("POST", "/build/prune") => return reply(w, super::builder::prune(req, engine), 200),
         ("GET", "/asagiri/builder") => return reply(w, Ok(super::builder::settings_report(engine)), 200),
         ("POST", "/asagiri/builder") => return reply(w, super::builder::set_settings(req).map(|()| super::builder::settings_report(engine)), 200),
+        ("GET", "/asagiri/watch-roots") | ("POST", "/asagiri/fs-events") if caller == super::caller::Caller::Container => {
+            http::json(w, 403, r#"{"message":"host connection required"}"#)?;
+            return Ok(Next::KeepAlive);
+        }
+        ("GET", "/asagiri/watch-roots") if super::binds::wsl().is_some() => return reply(w, Ok(watch_roots(engine)), 200),
+        ("POST", "/asagiri/fs-events") if super::binds::wsl().is_some() => return reply(w, fs_events(req, engine), 204),
         ("GET", "/images/json") => return reply(w, images(req, engine), 200),
         ("POST", "/images/create") => {
             if req.query("fromSrc").is_some() {
@@ -1070,6 +1081,48 @@ fn set_env(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
     Ok(Value::Null)
 }
 
+/// Active WSL drive bind sources of running containers, for `asagiri-win`'s
+/// opt-in bind-mount watcher.
+fn watch_roots(engine: &Engine) -> Value {
+    let root = super::binds::wsl().map_or("/mnt/", |w| w.root.as_str());
+    json!({
+        "automount_root": root,
+        "roots": engine.wsl_bind_sources(root),
+    })
+}
+
+/// Parses `POST /asagiri/fs-events` (`{"events": ["OP\tPATH", ...]}` or newline-
+/// separated `OP\tPATH` text), filters to valid WSL automount paths under
+/// `automount_root` with no `..` traversal, and caps per-request volume. OP is
+/// a change (`C`, `M`, `A`, `D`) or a watched root's pin (`P`) or unpin (`U`).
+fn parse_fs_events(body: &[u8], automount_root: &str) -> Result<Vec<String>, Error> {
+    const MAX_EVENTS: usize = 4096;
+    let raw: Vec<String> = if body.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{') {
+        let v: Value = serde_json::from_slice(body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
+        strings(&v["events"]).ok_or_else(|| Error::BadRequest("events must be a list of OP\\tPATH lines".into()))?
+    } else {
+        let text = std::str::from_utf8(body).map_err(|_| Error::BadRequest("invalid UTF-8 body".into()))?;
+        text.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect()
+    };
+    if raw.len() > MAX_EVENTS {
+        return Err(Error::BadRequest(format!("too many events ({}, limit is {MAX_EVENTS})", raw.len())));
+    }
+    Ok(raw
+        .into_iter()
+        .filter(|line| {
+            let Some((op, path)) = line.split_once('\t') else { return false };
+            matches!(op, "C" | "M" | "A" | "D" | "P" | "U") && super::binds::is_wsl_drive_path(path, automount_root, false)
+        })
+        .collect())
+}
+
+fn fs_events(req: &Request, engine: &Engine) -> Result<Value, Error> {
+    let root = super::binds::wsl().map_or("/mnt/", |w| w.root.as_str());
+    let lines = parse_fs_events(&req.body, root)?;
+    engine.send_fs_events(&lines);
+    Ok(Value::Null)
+}
+
 /// A registry client with the credentials the CLI sent, if any.
 fn client_for(req: &Request) -> Client {
     Client::new().with_credentials(req.header("x-registry-auth").and_then(asagiri_image::Credentials::from_header))
@@ -1419,13 +1472,19 @@ fn guest_bind_source(src: &str) -> String {
     mac_source(src).map_or_else(|| src.to_owned(), |real| format!("{MAC_ROOT}{real}"))
 }
 
-/// The guest mount lines with each Mac bind source followed again from the
-/// path the person gave (kept in `info`, one entry per line). Links are
-/// resolved when the container is made; this redoes it at start, so a link
-/// re-pointed since then leads to its new target. Lines that aren't a bind
-/// of the Mac's files stay as they are.
+/// Older saved containers can still name the host API socket in their mount list.
+#[cfg(target_os = "linux")]
+pub(super) fn fresh_bind_sources(guest: &[String], _info: &[Value]) -> Vec<String> {
+    guest.iter().map(|line| {
+        let Some((source, rest)) = line.split_once('\t') else { return line.clone() };
+        super::binds::engine_socket(source).map_or_else(|| line.clone(), |socket| format!("{socket}\t{rest}"))
+    }).collect()
+}
+
+/// Follow Mac bind source symlinks again when a saved container starts.
+#[cfg(not(target_os = "linux"))]
 pub(super) fn fresh_bind_sources(guest: &[String], info: &[Value]) -> Vec<String> {
-    if !cfg!(target_os = "macos") || guest.len() != info.len() {
+    if guest.len() != info.len() {
         return guest.to_vec();
     }
     guest
@@ -3622,6 +3681,17 @@ mod tests {
     use super::*;
 
     /// `--volumes-from` entries: the container and its mode, as Docker parses them.
+    #[test]
+    fn fs_events_parsing_validates_paths_and_rejects_traversal() {
+        let json_body = br#"{"events":["M\t/mnt/c/Users/me/app.js","D\t/etc/passwd","C\t/mnt/c/../etc/shadow","X\t/mnt/c/a","C\t/mnt/d/new.ts"]}"#;
+        assert_eq!(parse_fs_events(json_body, "/mnt/").unwrap(), vec!["M\t/mnt/c/Users/me/app.js", "C\t/mnt/d/new.ts"]);
+        let text_body = b"M\t/mnt/c/test/app.js\nD\t/mnt/mac/Users/a\nP\t/mnt/c/test\nU\t/etc\n";
+        assert_eq!(parse_fs_events(text_body, "/mnt/").unwrap(), vec!["M\t/mnt/c/test/app.js", "P\t/mnt/c/test"]);
+        assert!(parse_fs_events(b"{not json", "/mnt/").is_err());
+        let too_many = vec!["M\t/mnt/c/a"; 4097].join("\n");
+        assert!(parse_fs_events(too_many.as_bytes(), "/mnt/").is_err());
+    }
+
     #[test]
     fn volumes_from_takes_a_container_and_a_mode() {
         assert_eq!(parse_volumes_from("db").unwrap(), ("db", false));
