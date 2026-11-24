@@ -294,7 +294,7 @@ impl Windows {
 /// answers so far, and the latest one.
 #[derive(Default)]
 struct UsageSlot {
-    lines: Mutex<(u64, Option<Vec<String>>)>,
+    lines: Mutex<(u64, Option<Result<Vec<String>, &'static str>>)>,
     arrived: Condvar,
 }
 
@@ -312,15 +312,34 @@ impl VmLink {
     /// not block for long: it holds up every reply behind it.
     pub fn new(vm: Vm, conn: File, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
         let pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>> = Arc::new(Mutex::new(VecDeque::new()));
-        let mut reader = conn.try_clone()?;
+        let reader = conn.try_clone()?;
         let control = conn.try_clone()?;
-        let queue = pending.clone();
         let windows = Arc::new(Windows::default());
-        let wins = windows.clone();
         let usage = Arc::new(UsageSlot::default());
-        let slot = usage.clone();
         let cleanup = Arc::new(CleanupBarrier::default());
-        let cleaning = cleanup.clone();
+        Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), cleanup.clone(), on_event)?;
+        Ok(VmLink {
+            writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
+            control,
+            pending,
+            cleanup,
+            windows,
+            usage,
+            connector: vm.connector(),
+            _vm: Mutex::new(vm),
+            #[cfg(target_os = "macos")]
+            uplink_reservation: Mutex::new(None),
+        })
+    }
+
+    fn spawn_reader(
+        mut reader: File,
+        queue: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
+        wins: Arc<Windows>,
+        slot: Arc<UsageSlot>,
+        cleaning: Arc<CleanupBarrier>,
+        on_event: impl Fn(Event<'_>) + Send + 'static,
+    ) -> io::Result<std::thread::JoinHandle<()>> {
         std::thread::Builder::new().name("asa-vm-reader".into()).spawn(move || {
             let mut frame = Vec::with_capacity(64 * 1024);
             while read_frame(&mut reader, &mut frame).is_ok() {
@@ -332,10 +351,13 @@ impl VmLink {
                     }
                     // Not a reply: the guest measures on a thread and sends
                     // this when done, between other replies.
-                    Ok(Msg::Usage(lines)) => {
+                    msg @ (Ok(Msg::Usage(_)) | Ok(Msg::UsageTooLarge)) => {
                         let mut g = slot.lines.lock().unwrap_or_else(|e| e.into_inner());
                         g.0 += 1;
-                        g.1 = Some(lines.iter().map(str::to_owned).collect());
+                        g.1 = Some(match msg {
+                            Ok(Msg::Usage(lines)) => Ok(lines.iter().map(str::to_owned).collect()),
+                            _ => Err(asagiri_proto::OVERSIZED_REPLY),
+                        });
                         drop(g);
                         slot.arrived.notify_all();
                         continue;
@@ -391,18 +413,6 @@ impl VmLink {
             }
             on_event(Event::Lost);
             wins.finish_loss();
-        })?;
-        Ok(VmLink {
-            writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
-            control,
-            pending,
-            cleanup,
-            windows,
-            usage,
-            connector: vm.connector(),
-            _vm: Mutex::new(vm),
-            #[cfg(target_os = "macos")]
-            uplink_reservation: Mutex::new(None),
         })
     }
 
@@ -433,13 +443,18 @@ impl VmLink {
 
     /// What the guest's layers, containers and volumes take on disk: the
     /// `KIND NAME BYTES` lines of `Msg::Usage`, or None if they don't come
-    /// within `wait` or the VM stops.
-    pub fn usage(&self, wait: std::time::Duration) -> Option<Vec<String>> {
+    /// within `wait` or the VM stops. Oversized measurements return an error.
+    pub fn usage(&self, wait: std::time::Duration) -> io::Result<Option<Vec<String>>> {
         let asked = self.usage.lines.lock().unwrap_or_else(|e| e.into_inner()).0;
-        self.send(|o| Msg::UsageQuery.encode(o)).ok()?;
+        if self.send(|o| Msg::UsageQuery.encode(o)).is_err() {
+            return Ok(None);
+        }
         let g = self.usage.lines.lock().unwrap_or_else(|e| e.into_inner());
         let (g, _) = self.usage.arrived.wait_timeout_while(g, wait, |g| g.0 == asked).unwrap_or_else(|e| e.into_inner());
-        if g.0 == asked { None } else { g.1.clone() }
+        if g.0 == asked {
+            return Ok(None);
+        }
+        g.1.clone().transpose().map_err(io::Error::other)
     }
 
     pub fn has_layer(&self, digest: &str) -> io::Result<bool> {
@@ -844,6 +859,38 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn oversized_guest_replies_preserve_reply_order_and_connection() {
+        use std::time::Duration;
+
+        let (socket, mut guest) = UnixStream::pair().unwrap();
+        guest.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+        let (top, top_reply) = mpsc::sync_channel(1);
+        let (ping, ping_reply) = mpsc::sync_channel(1);
+        let pending = Arc::new(Mutex::new(VecDeque::from([top, ping])));
+        let usage = Arc::new(UsageSlot::default());
+        let windows = Arc::new(Windows::default());
+        let reader = VmLink::spawn_reader(
+            std::os::fd::OwnedFd::from(socket).into(), pending.clone(), windows.clone(),
+            usage.clone(), Arc::new(CleanupBarrier::default()), |_| {},
+        ).unwrap();
+
+        let line = "é".repeat(asagiri_proto::MAX_FRAME / 2);
+        let mut out = Vec::new();
+        asagiri_proto::encode_usage(&mut out, &[&line]);
+        asagiri_proto::encode_top(&mut out, &[&line]);
+        Msg::Pong(7).encode(&mut out);
+        guest.write_all(&out).unwrap();
+
+        assert!(matches!(top_reply.recv_timeout(Duration::from_secs(5)).unwrap(), Reply::Error(e) if e == asagiri_proto::OVERSIZED_REPLY));
+        assert!(matches!(ping_reply.recv_timeout(Duration::from_secs(5)).unwrap(), Reply::Pong));
+        assert_eq!(*usage.lines.lock().unwrap(), (1, Some(Err(asagiri_proto::OVERSIZED_REPLY))));
+        assert!(pending.lock().unwrap().is_empty());
+        assert!(!windows.lock().lost);
+        drop(guest);
+        reader.join().unwrap();
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

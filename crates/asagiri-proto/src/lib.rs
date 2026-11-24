@@ -25,6 +25,9 @@ pub const MAX_FRAME: usize = 1 << 20;
 /// Bytes before the payload: length plus kind.
 pub const HEADER: usize = 6;
 
+const MAX_LIST_BYTES: usize = MAX_FRAME - HEADER - 4;
+pub const OVERSIZED_REPLY: &str = "guest reply exceeds the 1 MiB frame limit";
+
 /// Largest `Output` chunk; keeps frames well under `MAX_FRAME`.
 pub const MAX_OUTPUT_CHUNK: usize = 64 * 1024;
 /// Stdin bytes the host may have sent a process beyond what the guest has
@@ -55,8 +58,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 13 updates embedded DNS when a container is renamed.
 /// 14 carries attached networks in Run so the guest configures them before exec.
 /// 15 includes guest MemAvailable and PSI in memory-pressure notifications.
+/// 16 adds an asynchronous oversized usage reply.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 15;
+pub const PROTOCOL: u16 = 16;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -141,6 +145,7 @@ pub enum Msg<'a> {
     /// unpacked layer, by blob hex), `c` (a container's writable layer, by
     /// id) or `v` (a volume, by name). BYTES is what it takes on disk.
     Usage(StrList<'a>),
+    UsageTooLarge,
     /// Host → guest: metadata of a path inside a running container's root
     /// (symlinks are not followed). Answered by `FsStat` or `Error`.
     FsStatRequest { id: &'a str, path: &'a str },
@@ -330,11 +335,17 @@ fn put_entry(out: &mut Vec<u8>, e: &FsEntry<'_>) {
 
 /// Encodes an `FsList` reply from entries.
 pub fn encode_fs_list(out: &mut Vec<u8>, entries: &[FsEntry<'_>]) {
-    frame(out, kind::FS_LIST, |o| {
-        put_u32(o, entries.len() as u32);
-        for e in entries {
-            put_entry(o, e);
+    bounded_reply(out, kind::FS_LIST, entries.len(), |o, remaining| {
+        for entry in entries {
+            // Name length prefix, mode, size, mtime, mtime_nsec and inode.
+            const FIXED: usize = 4 + 4 + 8 + 8 + 4 + 8;
+            let Some(left) = remaining.checked_sub(FIXED).and_then(|n| n.checked_sub(entry.name.len())) else {
+                return false;
+            };
+            *remaining = left;
+            put_entry(o, entry);
         }
+        true
     });
 }
 
@@ -802,6 +813,7 @@ mod kind {
     pub const START_REJECTED: u16 = 81;
     pub const DNS_RENAME: u16 = 82;
     pub const SET_UPLINK: u16 = 83;
+    pub const USAGE_TOO_LARGE: u16 = 84;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -880,19 +892,66 @@ pub fn encode_dns_rename<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, bridge: &st
     });
 }
 
+// Every item consumes at least four bytes, so an accepted count and all
+// length prefixes fit in u32. Reserve the header and count before writing
+// any records. On failure roll back just this frame, including its count.
+fn bounded_reply(out: &mut Vec<u8>, kind: u16, count: usize, append: impl FnOnce(&mut Vec<u8>, &mut usize) -> bool) {
+    let start = out.len();
+    let mut complete = false;
+    if count <= MAX_LIST_BYTES / 4 {
+        frame(out, kind, |o| {
+            put_u32(o, count as u32);
+            let mut remaining = MAX_LIST_BYTES;
+            complete = append(o, &mut remaining);
+        });
+    }
+    if !complete {
+        out.truncate(start);
+        if kind == kind::USAGE {
+            Msg::UsageTooLarge.encode(out);
+        } else {
+            Msg::Error(OVERSIZED_REPLY).encode(out);
+        }
+    }
+}
+
+fn encode_reply_lines<S: AsRef<str>>(out: &mut Vec<u8>, kind: u16, lines: &[S]) {
+    bounded_reply(out, kind, lines.len(), |o, remaining| {
+        for line in lines {
+            let line = line.as_ref();
+            let Some(left) = remaining.checked_sub(4).and_then(|n| n.checked_sub(line.len())) else {
+                return false;
+            };
+            *remaining = left;
+            put_str(o, line);
+        }
+        true
+    });
+}
+
+fn encode_raw_reply(out: &mut Vec<u8>, kind: u16, count: u32, raw: &[u8]) {
+    bounded_reply(out, kind, count as usize, |o, remaining| {
+        if raw.len() > *remaining {
+            return false;
+        }
+        o.extend_from_slice(raw);
+        true
+    });
+}
+
 /// Encodes a `Usage` reply from the sender's lines.
 pub fn encode_usage<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
-    frame(out, kind::USAGE, |out| StrList::put(out, lines));
+    encode_reply_lines(out, kind::USAGE, lines);
 }
 
 /// Encodes a `Top` reply from the sender's lines.
 pub fn encode_top<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
-    frame(out, kind::TOP, |out| StrList::put(out, lines));
+    encode_reply_lines(out, kind::TOP, lines);
 }
 
 /// Encodes a `UsbNodes` reply from the sender's lines.
 pub fn encode_usb_nodes<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
-    frame(out, kind::USB_NODES, |out| StrList::put(out, lines));
+    encode_reply_lines(out, kind::USB_NODES, lines);
 }
 
 /// Encodes an `FsEvents` frame from the sender's `OP\tPATH` lines.
@@ -902,7 +961,7 @@ pub fn encode_fs_events<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
 
 /// Encodes a `Listening` reply from the sender's lines.
 pub fn encode_listening<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
-    frame(out, kind::LISTENING, |out| StrList::put(out, lines));
+    encode_reply_lines(out, kind::LISTENING, lines);
 }
 
 /// Encodes a `Retain` frame from the sender's ids.
@@ -1100,11 +1159,9 @@ impl Msg<'_> {
                 put_u32(o, ids.count);
                 o.extend_from_slice(ids.raw);
             }),
+            Msg::UsageTooLarge => frame(out, kind::USAGE_TOO_LARGE, |_| {}),
             Msg::UsageQuery => frame(out, kind::USAGE_QUERY, |_| {}),
-            Msg::Usage(lines) => frame(out, kind::USAGE, |o| {
-                put_u32(o, lines.count);
-                o.extend_from_slice(lines.raw);
-            }),
+            Msg::Usage(lines) => encode_raw_reply(out, kind::USAGE, lines.count, lines.raw),
             Msg::RetainLayers(ids) => frame(out, kind::RETAIN_LAYERS, |o| {
                 put_u32(o, ids.count);
                 o.extend_from_slice(ids.raw);
@@ -1118,10 +1175,7 @@ impl Msg<'_> {
                 put_str(o, id);
                 put_str(o, path);
             }),
-            Msg::FsList { count, raw } => frame(out, kind::FS_LIST, |o| {
-                put_u32(o, count);
-                o.extend_from_slice(raw);
-            }),
+            Msg::FsList { count, raw } => encode_raw_reply(out, kind::FS_LIST, count, raw),
             Msg::FsRead { id, path, offset, len } => frame(out, kind::FS_READ, |o| {
                 put_str(o, id);
                 put_str(o, path);
@@ -1162,24 +1216,15 @@ impl Msg<'_> {
             Msg::StatsQuery { id } => frame(out, kind::STATS_QUERY, |o| put_str(o, id)),
             Msg::ContainerStats(st) => frame(out, kind::CONTAINER_STATS, |o| put_container_stats(o, &st)),
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
-            Msg::Top(lines) => frame(out, kind::TOP, |o| {
-                put_u32(o, lines.count);
-                o.extend_from_slice(lines.raw);
-            }),
+            Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
             Msg::UsbNodesQuery => frame(out, kind::USB_NODES_QUERY, |_| {}),
-            Msg::UsbNodes(lines) => frame(out, kind::USB_NODES, |o| {
-                put_u32(o, lines.count);
-                o.extend_from_slice(lines.raw);
-            }),
+            Msg::UsbNodes(lines) => encode_raw_reply(out, kind::USB_NODES, lines.count, lines.raw),
             Msg::FsEvents(lines) => frame(out, kind::FS_EVENTS, |o| {
                 put_u32(o, lines.count);
                 o.extend_from_slice(lines.raw);
             }),
-            Msg::Listening(lines) => frame(out, kind::LISTENING, |o| {
-                put_u32(o, lines.count);
-                o.extend_from_slice(lines.raw);
-            }),
+            Msg::Listening(lines) => encode_raw_reply(out, kind::LISTENING, lines.count, lines.raw),
             Msg::NetAttach { id, ifname, net } => frame(out, kind::NET_ATTACH, |o| {
                 put_str(o, id);
                 put_str(o, ifname);
@@ -1333,7 +1378,7 @@ impl<'a> Reader<'a> {
 /// is available, so readers can size exactly one read for the body.
 pub fn frame_len(header: &[u8; 4]) -> Result<usize, DecodeError> {
     let len = u32::from_le_bytes(*header) as usize;
-    if len < 2 || len + 4 > MAX_FRAME {
+    if !(2..=MAX_FRAME - 4).contains(&len) {
         return Err(DecodeError::TooLarge(len));
     }
     Ok(len + 4)
@@ -1451,6 +1496,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         }),
         kind::RETAIN => Msg::Retain(r.list()?),
         kind::RETAIN_LAYERS => Msg::RetainLayers(r.list()?),
+        kind::USAGE_TOO_LARGE => Msg::UsageTooLarge,
         kind::USAGE_QUERY => Msg::UsageQuery,
         kind::USAGE => Msg::Usage(r.list()?),
         kind::FS_STAT_REQUEST => Msg::FsStatRequest { id: r.str()?, path: r.str()? },
@@ -1540,6 +1586,43 @@ mod tests {
         m.encode(&mut buf);
         assert_eq!(frame_len(buf[..4].try_into().unwrap()).unwrap(), buf.len());
         assert_eq!(decode(&buf).unwrap(), m);
+    }
+
+    #[test]
+    fn guest_list_replies_are_complete_or_explicit_errors() {
+        let mut wire = Vec::new();
+        let names: Vec<_> = (0..3700).map(|i| alloc::format!("{i:04}{}x", "é".repeat(125))).collect();
+        let entries: Vec<_> = names.iter().map(|name| FsEntry {
+            name, mode: 0o100644, size: 1, mtime: 2, mtime_nsec: 3, ino: 4,
+        }).collect();
+        encode_fs_list(&mut wire, &entries);
+        let oversized = "é".repeat((MAX_LIST_BYTES - 3) / 2) + "x";
+        assert_eq!(oversized.len() + HEADER + 8, MAX_FRAME + 1);
+        encode_top(&mut wire, &[oversized]);
+        encode_usage(&mut wire, &alloc::vec!["x".repeat(120); 9000]);
+        encode_fs_list(&mut wire, &entries[..2]);
+        let exact = "é".repeat((MAX_LIST_BYTES - 4) / 2);
+        encode_top(&mut wire, &[&exact]);
+        encode_usage(&mut wire, &["v ü 123", "c c1 456"]);
+
+        let mut frames = wire.as_slice();
+        let mut next = || {
+            let len = frame_len(frames[..4].try_into().unwrap()).unwrap();
+            let (frame, rest) = frames.split_at(len);
+            frames = rest;
+            (len, decode(frame).unwrap())
+        };
+        assert_eq!(next().1, Msg::Error(OVERSIZED_REPLY));
+        assert_eq!(next().1, Msg::Error(OVERSIZED_REPLY));
+        assert_eq!(next().1, Msg::UsageTooLarge);
+        let Msg::FsList { count, raw } = next().1 else { panic!() };
+        assert!(fs_entries(count, raw).eq(entries[..2].iter().copied()));
+        let (len, Msg::Top(lines)) = next() else { panic!() };
+        assert_eq!(len, MAX_FRAME);
+        assert!(lines.iter().eq([exact.as_str()]));
+        let (_, Msg::Usage(lines)) = next() else { panic!() };
+        assert!(lines.iter().eq(["v ü 123", "c c1 456"]));
+        assert!(frames.is_empty());
     }
 
     #[test]
