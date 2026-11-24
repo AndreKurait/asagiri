@@ -7,7 +7,7 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use crate::daemon::binds::valid_distro_name;
+use crate::wsl_paths::valid_distro_name;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -58,7 +58,7 @@ pub fn socket() -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         let wsl_distro = std::env::var_os("WSL_DISTRO_NAME");
-        let wsl_sockets_dir = PathBuf::from(crate::daemon::binds::wsl_asagiri_dir()).join("sockets");
+        let wsl_sockets_dir = PathBuf::from(crate::wsl_paths::wsl_asagiri_dir()).join("sockets");
         socket_for(
             asagiri_socket.as_deref(),
             Some(&service_socket()),

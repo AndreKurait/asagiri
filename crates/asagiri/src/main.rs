@@ -35,6 +35,8 @@ mod cli_pins;
 #[cfg(unix)]
 mod client;
 #[cfg(unix)]
+mod wsl_paths;
+#[cfg(unix)]
 mod daemon;
 #[cfg(unix)]
 mod diag;

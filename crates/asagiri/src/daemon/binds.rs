@@ -8,17 +8,8 @@ use std::sync::OnceLock;
 
 use super::engine::Error;
 
-/// Shared `/mnt/wsl/asagiri` directory across all WSL 2 distros.
-pub const WSL_ASAGIRI_DIR: &str = "/mnt/wsl/asagiri";
-
-/// Active WSL integration base directory (`ASAGIRI_WSL_DIR` override or `/mnt/wsl/asagiri`).
-pub fn wsl_asagiri_dir() -> String {
-    std::env::var("ASAGIRI_WSL_DIR")
-        .ok()
-        .map(|s| s.trim_end_matches('/').to_owned())
-        .filter(|s| s.starts_with('/'))
-        .unwrap_or_else(|| WSL_ASAGIRI_DIR.to_owned())
-}
+pub use crate::wsl_paths::{valid_distro_name, wsl_asagiri_dir};
+use crate::wsl_paths::WSL_ASAGIRI_DIR;
 
 fn wsl_roots_dir() -> String {
     format!("{}/roots", wsl_asagiri_dir())
@@ -26,15 +17,6 @@ fn wsl_roots_dir() -> String {
 
 fn wsl_sockets_dir() -> String {
     format!("{}/sockets", wsl_asagiri_dir())
-}
-
-/// Whether `name` is a safe single-component WSL distro name.
-pub fn valid_distro_name(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains(['/', '\\', '\0'])
-        && !name.bytes().any(|b| b.is_ascii_control())
 }
 
 /// Normalizes a path into `/a/b/c`, clamping `..` at `/` so traversal can never
