@@ -12,6 +12,10 @@ try {
     wsl.exe -d $distro -u root -- adduser -D -u 1001 builder
     wsl.exe -d $distro -u root -- sh -ec 'printf "[user]\ndefault=builder\n" > /etc/wsl.conf'
     wsl.exe -d $distro -u builder -- sh -ec 'echo distro-local > /home/builder/fixture'
+    # WSL reads the default user from wsl.conf when the distribution starts.
+    wsl.exe --terminate $distro
+    $defaultUser = (wsl.exe -d $distro -- id -un).Trim()
+    if ($defaultUser -ne 'builder') { throw "Unexpected default distro user $defaultUser" }
     $test = Join-Path $env:RUNNER_TEMP 'windows-X64\wsl-settings-test.exe'
     function Set-Integration([string]$mode) {
         $env:ASAGIRI_TEST_DISTRO_SETTING = $mode
