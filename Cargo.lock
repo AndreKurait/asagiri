@@ -53,6 +53,7 @@ dependencies = [
  "bytes",
  "dispatch2",
  "flate2",
+ "getrandom 0.4.3",
  "gtk",
  "h2",
  "http-body-util",
@@ -140,6 +141,7 @@ version = "0.0.0"
 dependencies = [
  "asagiri-share-proto",
  "embed-resource",
+ "getrandom 0.4.3",
  "libc",
  "rustls",
  "rustls-platform-verifier",
