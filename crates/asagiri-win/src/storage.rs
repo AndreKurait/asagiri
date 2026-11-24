@@ -695,6 +695,12 @@ mod imp {
 
     pub fn retry() {
         std::thread::spawn(|| {
+            // Retrying renews the bridge and starts the daemon. Keep both outside
+            // the interval where a move stops and unregisters the WSL distro.
+            let Ok(_operation) = STORAGE_OPERATION.try_lock() else {
+                emit(notice("error", &tr("Asagiri's data is moving already")));
+                return;
+            };
             if let Some(missing) = unavailable() {
                 emit(notice("error", &unavailable_message(&missing)));
                 emit_report();
