@@ -1,0 +1,50 @@
+name: Published Windows Defender qualification
+on:
+  push:
+    branches: [qualification/windows11-arm-msi-239]
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: windows-11-arm
+    steps:
+      - name: Verify and scan the published ARM64 installer and launcher
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $asset = 'Asagiri-0.1.14-arm64.msi'
+          gh release download v0.1.14 --repo AndreKurait/asagiri --pattern $asset
+          if ($LASTEXITCODE -or (Get-FileHash $asset).Hash -ne 'c2c3ce1436adcba0bdf8a2d9dda5b79ee9544aa88b8c76590db6907baaa4c67a') { throw 'Release digest mismatch' }
+          Update-MpSignature
+          $status = Get-MpComputerStatus
+          $status | Select-Object AMEngineVersion,AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureVersion,AntivirusSignatureLastUpdated | Format-List
+          if (!$status.AntivirusEnabled -or !$status.RealTimeProtectionEnabled) { throw 'Defender antivirus unavailable' }
+          $scanner = Join-Path $env:ProgramFiles 'Windows Defender/MpCmdRun.exe'
+          function Test-ReleaseFile($path) {
+            Get-FileHash $path | Format-List
+            Get-AuthenticodeSignature $path | Select-Object Status,StatusMessage,SignerCertificate | Format-List
+            & $scanner -Scan -ScanType 3 -File $path
+            if ($LASTEXITCODE) { throw "Defender scan exited $LASTEXITCODE for $path" }
+          }
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,OSArchitecture | Format-List
+          $started = Get-Date
+          Test-ReleaseFile (Resolve-Path $asset).Path
+          $extract = Join-Path $env:RUNNER_TEMP 'asagiri-extracted'
+          $msi = Start-Process msiexec.exe -ArgumentList "/a `"$asset`" /qn TARGETDIR=`"$extract`"" -Wait -PassThru
+          if ($msi.ExitCode) { throw "MSI extraction failed: $($msi.ExitCode)" }
+          $files = @(Get-ChildItem $extract -Recurse -Filter asagiri-win.exe)
+          if ($files.Count -ne 1) { throw 'Expected one extracted launcher' }
+          Test-ReleaseFile $files[0].FullName
+          $installed = Start-Process msiexec.exe -ArgumentList "/i `"$asset`" /qn /norestart" -Wait -PassThru
+          if ($installed.ExitCode) { throw "MSI installation failed: $($installed.ExitCode)" }
+          $app = Join-Path $env:LOCALAPPDATA 'Asagiri/asagiri-win.exe'
+          $expected = (Get-FileHash $files[0].FullName).Hash
+          if ((Get-FileHash $app).Hash -ne $expected) { throw 'Installed launcher hash mismatch' }
+          Test-ReleaseFile $app
+          Start-Sleep -Seconds 15
+          if ((Get-FileHash $app).Hash -ne $expected) { throw 'Installed launcher changed or was quarantined' }
+          $events = Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=1116,1117; StartTime=$started} -ErrorAction SilentlyContinue
+          if ($events | Where-Object { $_.Message -match 'asagiri' }) { throw 'Defender reported a detection or remediation involving Asagiri' }
+          Write-Host 'PASS installed ARM64 launcher remains present with real-time protection enabled'
