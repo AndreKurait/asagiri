@@ -84,6 +84,29 @@ jobs:
                       else:
                           print("Engine version", json.loads(body)["Version"])
                       print("PASS", path, "on the same named pipe", flush=True)
+              # Read beyond the complete ping response on a separate connection.
+              # A subprocess bounds the wait even if the synchronous pipe never closes.
+              probe = r'''
+          import http.client, io, sys
+          with open(sys.argv[1], "r+b", buffering=0) as pipe:
+              pipe.write(b"GET /v1.47/_ping HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n")
+              reader = io.BufferedReader(io.FileIO(pipe.fileno(), "rb", closefd=False))
+              class Connection:
+                  def makefile(self, mode):
+                      return reader
+              response = http.client.HTTPResponse(Connection())
+              response.begin()
+              assert response.status == 200, response.status
+              assert response.read().strip() == b"OK"
+              try:
+                  trailing = pipe.read(1)
+              except BrokenPipeError:
+                  trailing = b""
+              assert trailing == b"", trailing
+              print("PASS connection closed after versioned ping", flush=True)
+          '''
+              import sys
+              subprocess.run([sys.executable, "-c", probe, name], timeout=12, check=True)
           finally:
               app.terminate()
               app.wait(timeout=30)
