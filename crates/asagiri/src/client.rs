@@ -7,6 +7,7 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
+use crate::daemon::binds::valid_distro_name;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -73,10 +74,6 @@ pub fn socket() -> io::Result<PathBuf> {
     }
 }
 
-fn safe_wsl_distro(name: &str) -> bool {
-    crate::daemon::binds::valid_distro_name(name) && !name.contains("..")
-}
-
 fn is_wsl_socket_path(target: &Path, wsl_sockets_dir: &Path) -> bool {
     let Ok(rel) = target.strip_prefix(wsl_sockets_dir) else {
         return false;
@@ -84,7 +81,7 @@ fn is_wsl_socket_path(target: &Path, wsl_sockets_dir: &Path) -> bool {
     let mut comps = rel.components();
     match (comps.next(), comps.next(), comps.next()) {
         (Some(Component::Normal(distro)), Some(Component::Normal(file)), None) => {
-            distro.to_str().is_some_and(safe_wsl_distro) && file == "docker.sock"
+            distro.to_str().is_some_and(valid_distro_name) && file == "docker.sock"
         }
         _ => false,
     }
@@ -123,7 +120,7 @@ fn socket_for(
     // `/mnt/wsl/asagiri/sockets/<distro>/docker.sock` and symlinks
     // `/var/run/docker.sock` to them.
     if let Some(wsl_dir) = wsl_sockets_dir {
-        if let Some(distro) = wsl_distro.and_then(|d| d.to_str()).filter(|d| safe_wsl_distro(d)) {
+        if let Some(distro) = wsl_distro.and_then(|d| d.to_str()).filter(|d| valid_distro_name(d)) {
             let candidate = wsl_dir.join(distro).join("docker.sock");
             if socket_present(&candidate) {
                 return Ok(candidate);
