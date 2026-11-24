@@ -27,6 +27,7 @@ class Connection(http.client.HTTPConnection):
 
 
 def check(path, image):
+    build_base = os.environ.get("ASAGIRI_TEST_BUILD_BASE") or image
     assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1", "requires a disposable test engine"
     assert "ASAGIRI_BUILDER_IDLE_SECS" not in os.environ, "test changes the private engine's setting"
     token = uuid.uuid4().hex
@@ -71,7 +72,7 @@ def check(path, image):
         def build(name, hold):
             proof = token + "-" + name
             (context / "Dockerfile").write_text(
-                f"FROM {image}\nRUN echo {proof}; sleep {hold}; printf '%s' {proof} > /idle-proof\n")
+                f"FROM {build_base}\nRUN echo {proof}; sleep {hold}; printf '%s' {proof} > /idle-proof\n")
             target = root / (name + ".tar")
             log = root / (name + ".log")
             started = time.monotonic()

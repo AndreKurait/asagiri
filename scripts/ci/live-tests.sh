@@ -1,4 +1,6 @@
 #!/bin/sh
+# BuildKit resolves FROM separately from the engine image store (libracoder/kiri#593).
+build_base=mirror.gcr.io/library/alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
 # live-tests.sh <folder holding asagiri and asagiri-init>
 #
 # Starts that build as a private engine in a container (privileged, as the
@@ -63,7 +65,7 @@ if [ "$suite" != clients ]; then
   timed reference/api-compatibility python3 "$src/tests/api-compatibility.py" /var/run/docker.sock alpine:3.21 --reference-docker || exit 2
   timed reference/healthchecks python3 "$src/tests/healthchecks.py" /var/run/docker.sock alpine:3.21 --reference-docker \
     --output "$compose_evidence/health-docker.json" || exit 2
-  timed reference/compose-health python3 "$src/tests/compose-health.py" /var/run/docker.sock alpine:3.21 --reference-docker \
+  ASAGIRI_TEST_BUILD_BASE="$build_base" timed reference/compose-health python3 "$src/tests/compose-health.py" /var/run/docker.sock alpine:3.21 --reference-docker \
     --compose-plugin "$compose_evidence/docker-compose" --output "$compose_evidence/compose-docker.json" || exit 2
 
 fi
@@ -72,7 +74,7 @@ fi
 # initialize this namespace with IPv6 disabled when its bridge is IPv4-only.
 docker run -d --privileged --name "$name" -e ASAGIRI_SOCKET="$sock" \
   --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv6.conf.default.disable_ipv6=0 \
-  -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
+  -e ASAGIRI_TEST_BUILD_BASE="$build_base" -e ASAGIRI_DATA_DIR=/test-store -e ASAGIRI_TEST_ENGINE=1 \
   -v "$compose_evidence:/opt/compose-client:ro" \
   -v "$bin:/opt/asagiri:ro" -v "$src:/src:ro" -v /var/lib/asagiri -v /test-store \
   "${ASAGIRI_CI_LIVE_IMAGE:-docker:28.0.4-cli}" sh -c \

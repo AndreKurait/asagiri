@@ -28,6 +28,7 @@ class Connection(http.client.HTTPConnection):
 
 
 def check(path, image):
+    build_base = os.environ.get("ASAGIRI_TEST_BUILD_BASE") or image
     assert os.environ.get("ASAGIRI_TEST_ENGINE") == "1", "Use only the private CI engine"
     assert Path(path).is_socket()
     token = uuid.uuid4().hex[:12]
@@ -88,7 +89,7 @@ def check(path, image):
             secret.write_text("test-only-" + token)
             secret_digest = hashlib.sha256(secret.read_bytes()).hexdigest()
             dockerfile = (
-                f"FROM {image}\n"
+                f"FROM {build_base}\n"
                 "ARG MESSAGE=first\n"
                 "COPY input.bin /input.bin\n"
                 "RUN --mount=type=secret,id=proof "
@@ -148,14 +149,14 @@ def check(path, image):
 
             # --add-host reaches the host gateway label returned by the
             # adapted ListWorkers response, not the backend's loopback.
-            (context / "Gatewayfile").write_text(f"FROM {image}\nRUN grep -E '^[0-9.]+[[:space:]]+probe.host' /etc/hosts\n")
+            (context / "Gatewayfile").write_text(f"FROM {build_base}\nRUN grep -E '^[0-9.]+[[:space:]]+probe.host' /etc/hosts\n")
             cli("buildx", "build", "--builder", "default", "--progress", "plain",
                 "--add-host", "probe.host:host-gateway", "-f", "Gatewayfile", ".")
             print("PASS host-gateway build argument", flush=True)
 
             # Interrupt an actual running solve, then immediately reuse the
             # backend. Kill only this process group, created for this test.
-            (context / "Cancelfile").write_text(f"FROM {image}\nRUN echo asagiri-cancel-{token}; sleep 120\n")
+            (context / "Cancelfile").write_text(f"FROM {build_base}\nRUN echo asagiri-cancel-{token}; sleep 120\n")
             cancel_log = root / "cancel.log"
             with cancel_log.open("w") as output:
                 process = subprocess.Popen([*command, "buildx", "build", "--builder", "default",
