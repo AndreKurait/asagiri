@@ -1,0 +1,60 @@
+name: Measure Windows Compose test serialization
+on:
+  push:
+    branches: [qualification/windows-compose-lock]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install "$env:RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-bin: false
+          save-if: false
+      - name: Install the Compose plugin shipped with the Windows app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
+          read -r version digest <<< "$pin"
+          test -n "$digest"
+          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
+          mkdir -p "$config/cli-plugins"
+          plugin="$config/cli-plugins/docker-compose.exe"
+          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
+          echo "$digest  $plugin" | sha256sum --check
+          chmod +x "$plugin"
+          export DOCKER_CONFIG="$(cygpath -w "$config")"
+          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
+      - name: Compare the four tests with and without their shared lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(a_by_name_project_is_read_again twenty_by_name_projects_cost a_crafted_required_message no_compose_error_reaches_the_window)
+          for mode in serial concurrent concurrent serial; do
+            file=crates/asagiri/src/ui/compose.rs
+            git restore -- "$file"
+            if [[ $mode == concurrent ]]; then
+              sed -i '/let _one = LOOSE_TEST.lock()/d' "$file"
+            fi
+            cargo test --locked -p asagiri-win --no-run --message-format=json > "$RUNNER_TEMP/messages.jsonl"
+            exe=$(jq -rs '[.[] | select(.profile.test == true and .executable != null and .target.name == "asagiri-win")][0].executable' "$RUNNER_TEMP/messages.jsonl")
+            start=$SECONDS
+            "$(cygpath -u "$exe")" "${args[@]}" --test-threads=4 | tee "$RUNNER_TEMP/results.txt"
+            grep -F '4 passed; 0 failed' "$RUNNER_TEMP/results.txt"
+            echo "$mode $((SECONDS-start)) seconds" >> "$GITHUB_STEP_SUMMARY"
+          done
