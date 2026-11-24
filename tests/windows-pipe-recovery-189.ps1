@@ -34,7 +34,6 @@ try {
         try { & $docker info --format '{{.ServerVersion}}'; $ready = $true; break } catch { Start-Sleep -Seconds 2 }
     }
     if (!$ready) { throw 'Windows pipe did not reach daemon' }
-    try {
     Stop-Process -Id $bridge.Id
     $bridge.WaitForExit()
     $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
