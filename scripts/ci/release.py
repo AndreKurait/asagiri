@@ -28,6 +28,8 @@ JAMMY_JOB = "Build and launch the amd64 desktop deb on Ubuntu 22.04"
 JAMMY_SCRIPT = "scripts/ci/jammy-desktop.sh"
 QEMU_JOB = "Intel emulator and corresponding source"
 QEMU_RELEASE = "packaging/qemu/release.json"
+WINDOWS_TEST_SCRIPT = "scripts/ci/windows-launcher-tests.ps1"
+WINDOWS_TEST_JOB = "Windows launcher tests"
 QEMU_SOURCE = "asagiri-qemu-source.tar.xz"
 
 
@@ -219,7 +221,7 @@ def recover_packages(repo, run_id):
         raise SystemExit("Only a failed official main or version-tag release can supply packages")
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     jobs = pages(repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
-    marker_jobs = {QEMU_RELEASE: QEMU_JOB, JAMMY_SCRIPT: JAMMY_JOB}
+    marker_jobs = {QEMU_RELEASE: QEMU_JOB, JAMMY_SCRIPT: JAMMY_JOB, WINDOWS_TEST_SCRIPT: WINDOWS_TEST_JOB}
     markers = run("git", "ls-tree", "--name-only", commit, *marker_jobs).stdout.splitlines()
     if set(markers) - marker_jobs.keys():
         raise SystemExit("Unexpected release packaging declaration")

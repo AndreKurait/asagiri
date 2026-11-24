@@ -525,6 +525,45 @@ jobs:
         if: always()
         run: python3 scripts/ci/macos-signing.py cleanup
 
+  windows-tests:
+    name: Windows launcher tests
+    needs: plan
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.artifact_run == ''
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        # zizmor: ignore[cache-poisoning] release-only cache for the planned source revision
+        with:
+          cache-bin: false
+          shared-key: release-windows-host-tests
+      - name: Install the Compose plugin shipped with the Windows app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
+          read -r version digest <<< "$pin"
+          test -n "$digest"
+          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
+          mkdir -p "$config/cli-plugins"
+          plugin="$config/cli-plugins/docker-compose.exe"
+          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
+          echo "$digest  $plugin" | sha256sum --check
+          chmod +x "$plugin"
+          DOCKER_CONFIG="$(cygpath -w "$config")"
+          export DOCKER_CONFIG
+          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
+      - name: Test the release-stamped Windows launcher
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: ./scripts/ci/windows-launcher-tests.ps1
+
   windows:
     name: Windows packages (${{ matrix.arch }})
     needs: [plan, linux]
@@ -571,23 +610,6 @@ jobs:
         with:
           name: linux-inputs-${{ matrix.linux }}
           path: ${{ runner.temp }}/linux-inputs
-      - name: Install the Compose plugin shipped with the Windows app
-        shell: bash
-        run: |
-          set -euo pipefail
-          pin=$(sed -nE 's/^pub const WIN_COMPOSE: .* = \("([^"]+)", "([0-9a-f]{64})"\);$/\1 \2/p' crates/asagiri/src/cli_pins.rs)
-          read -r version digest <<< "$pin"
-          test -n "$digest"
-          config="$(cygpath -u "$RUNNER_TEMP")/docker-config"
-          mkdir -p "$config/cli-plugins"
-          plugin="$config/cli-plugins/docker-compose.exe"
-          curl --fail --location --retry 3 "https://github.com/docker/compose/releases/download/$version/docker-compose-windows-x86_64.exe" -o "$plugin"
-          echo "$digest  $plugin" | sha256sum --check
-          chmod +x "$plugin"
-          DOCKER_CONFIG="$(cygpath -w "$config")"
-          export DOCKER_CONFIG
-          test "$(docker compose version --short | tr -d '\r')" = "${version#v}"
-          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Build the complete Windows bundle and MSI
         env:
           VERSION: ${{ needs.plan.outputs.version }}
@@ -605,8 +627,6 @@ jobs:
             if ($hash -ne $metadata.sha256.$file) { throw "Linux input hash mismatch: $file" }
           }
           python scripts/ci/release.py stamp "$env:VERSION"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo test --locked -p asagiri-win
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo xtask msi --arch "$env:ARCH"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -672,12 +692,12 @@ jobs:
 
   publish:
     name: Verify uploads and publish
-    needs: [plan, linux, jammy-desktop, guest, qemu, macos, windows, windows-arm-install]
+    needs: [plan, linux, jammy-desktop, guest, qemu, macos, windows-tests, windows, windows-arm-install]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.ready == 'true' &&
       (needs.plan.outputs.artifact_run != '' ||
        (needs.linux.result == 'success' && needs.jammy-desktop.result == 'success' && needs.guest.result == 'success' && needs.qemu.result == 'success' &&
-        needs.macos.result == 'success' && needs.windows.result == 'success' &&
+        needs.macos.result == 'success' && needs.windows-tests.result == 'success' && needs.windows.result == 'success' &&
         needs.windows-arm-install.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
