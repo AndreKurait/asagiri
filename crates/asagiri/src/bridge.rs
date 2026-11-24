@@ -771,10 +771,10 @@ mod tests {
     fn a_start_with_no_daemon_ends_at_the_deadline() {
         let dir = temp("nodaemon");
         let mut starter = Starter::new(dir.join("none.sock"), Box::new(|_| Ok(StartOutcome::SocketCreated)), dir.join("log"));
-        starter.limit = Duration::from_secs(1);
+        starter.limit = Duration::from_secs(2);
         let began = Instant::now();
         let why = starter.connect().unwrap_err();
-        assert!(why.starts_with("it did not answer within 1 s"), "{why}");
+        assert!(why.starts_with("it did not answer within 2 s"), "{why}");
         assert!(began.elapsed() >= starter.limit && began.elapsed() < starter.limit + Duration::from_secs(1));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -784,14 +784,19 @@ mod tests {
         let dir = temp("refused-socket");
         let socket = dir.join("engine.sock");
         let target = socket.clone();
+        let starts = Arc::new(AtomicUsize::new(0));
+        let attempts = starts.clone();
         let starter = Starter::new(socket, Box::new(move |_| {
+            attempts.fetch_add(1, Ordering::SeqCst);
             drop(std::os::unix::net::UnixListener::bind(&target).unwrap());
             Ok(StartOutcome::SocketCreated)
         }), dir.join("log"));
         let start = Instant::now();
         let why = starter.connect().unwrap_err();
         assert!(why.contains("refused connections after startup"), "{why}");
-        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!((Duration::from_secs(1)..Duration::from_secs(5)).contains(&start.elapsed()));
+        assert_eq!(starter.connect().unwrap_err(), why);
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
