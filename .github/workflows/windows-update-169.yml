@@ -1,0 +1,51 @@
+name: Published Windows update and restart
+on:
+  push:
+    branches: [qualification/windows-update-169]
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python -m pip install playwright
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.13 --pattern Asagiri-0.1.13-x86_64.msi
+          $msi = (Resolve-Path Asagiri-0.1.13-x86_64.msi).Path
+          if ((Get-FileHash $msi).Hash -ne 'd51f996ca5fcd8258b82af05cf10e4ac8fd66d95251ea7285ce44731bb9cad89') { throw 'Baseline hash mismatch' }
+          $install = Start-Process msiexec -ArgumentList @('/i', $msi, '/qn', '/norestart') -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Installer exited $($install.ExitCode)" }
+          $env:ASAGIRI_UPDATE_URL = 'https://github.com/AndreKurait/asagiri/releases/download/v0.1.14/latest-windows-x86_64.json'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1'
+          $exe = (Get-ChildItem "$env:LOCALAPPDATA/Asagiri" -Recurse -Filter asagiri-win.exe | Select-Object -First 1).FullName
+          if (!$exe) { throw 'Installed launcher missing' }
+          Start-Process $exe -ArgumentList '--distro','Asagiri'
+          @'
+          from playwright.sync_api import sync_playwright
+          import time, urllib.request
+          with sync_playwright() as p:
+              for _ in range(90):
+                  try:
+                      with urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=2): break
+                  except OSError: time.sleep(1)
+              browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222')
+              page = browser.contexts[0].pages[0]
+              page.locator('[data-upd="download"]:visible').first.click(timeout=90000)
+              page.locator('[data-upd="restart"]:visible').first.click(timeout=120000)
+          '@ | python -
+          if ($LASTEXITCODE) { throw 'Update card interaction failed' }
+          $deadline = (Get-Date).AddMinutes(3)
+          do {
+            $product = Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/*' | Where-Object { $_.DisplayName -like '*Asagiri*' -and $_.DisplayVersion -eq '0.1.14' }
+            if ($product -and (Get-Process asagiri-win -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep 2
+          } while ((Get-Date) -lt $deadline)
+          if (!$product -or !(Get-Process asagiri-win -ErrorAction SilentlyContinue)) { throw 'New version failed to install and relaunch' }
+          if (Test-Path "$env:LOCALAPPDATA/Asagiri/update/version") { throw 'Update still staged after restart' }
