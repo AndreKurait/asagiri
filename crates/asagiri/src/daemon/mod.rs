@@ -9,6 +9,7 @@ mod address_gap;
 mod api;
 mod balloon;
 mod binds;
+mod caller;
 mod builder;
 mod buildkit;
 pub mod dns;
@@ -162,44 +163,23 @@ pub fn run(_args: &[String]) -> io::Result<()> {
         return Ok(());
     }
     let _ = std::fs::remove_file(&socket); // stale, from a daemon that died
-    // The owner's alone from the moment it exists, whatever umask the daemon
-    // was started with; a group is let in below, once it is known which.
-    // SAFETY: umask cannot fail, and is put back at once.
-    let umask = unsafe { libc::umask(0o177) };
-    let listener = UnixListener::bind(&socket);
-    // SAFETY: as above.
-    unsafe { libc::umask(umask) };
-    let listener = listener?;
-    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
-    // An explicit group keeps Asagiri's managed membership policy. Without one,
-    // root's service socket on Linux uses ordinary Unix group access, like
-    // dockerd: container users need not exist in the host's account
-    // database. A socket anywhere else stays the owner's.
     let access_group = std::env::var_os("ASAGIRI_SOCKET_GROUP");
-    if let Some(group) = &access_group {
-        socket_group(&socket, group)?;
-    }
+    let listener = bind_api_socket(&socket, access_group.as_deref(), #[cfg(target_os = "linux")] service)?;
     #[cfg(target_os = "linux")]
-    if access_group.is_none() && service {
-        default_socket_access(&socket)?;
-    }
-    // Each member by name too, so one just added needn't sign in again; and
-    // connections are checked against the group when made and while open, so
-    // a member removed is let go at once, whatever the list still says.
+    let gate = socket_gate(&socket, access_group.as_deref())?;
     #[cfg(target_os = "linux")]
-    let gate = match &access_group {
-        Some(group) => {
-            let gate = access::Gate::new(&socket, group)?;
-            match gate.grant() {
-                Ok(n) => diag::info!("socket access list written", members = n),
-                Err(e) => diag::warn!("socket access list not written: new members sign in again first", error = e),
+    let container_endpoint = {
+        let path = caller::container_socket(&socket);
+        use std::os::unix::fs::FileTypeExt;
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_socket()) {
+            if UnixStream::connect(&path).is_ok() {
+                return Err(io::Error::new(io::ErrorKind::AddrInUse, path.display().to_string()));
             }
-            gate.clone().watch()?;
-            Some(gate)
+            std::fs::remove_file(&path)?;
         }
-        None => None,
+        let listener = bind_api_socket(&path, access_group.as_deref(), service)?;
+        (listener, socket_gate(&path, access_group.as_deref())?)
     };
-
     registry_config::initialize()?;
     asagiri_image::set_registry_settings_source(registry_config::image_settings);
     let store = asagiri_image::Store::open(asagiri_image::Store::default_root()?)?;
@@ -247,12 +227,19 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     let on_signal = engine.clone();
     let sock = socket.clone();
     let (cancel_accept, cancelled) = std::sync::mpsc::channel();
+    #[cfg(target_os = "linux")]
+    let (cancel_container, container_cancelled) = std::sync::mpsc::channel();
     let signals = std::thread::Builder::new().name("asagiri-signals".into()).spawn(move || {
         let mut sig = 0;
         // SAFETY: waits on the blocked set; writes the signal number to `sig`.
         unsafe { libc::sigwait(&set, &mut sig) };
         diag::info!("engine shutting down", signal = sig);
         let _ = cancel_accept.send(());
+        #[cfg(target_os = "linux")]
+        {
+            let _ = cancel_container.send(());
+            let _ = std::fs::remove_file(caller::container_socket(&sock));
+        }
         #[cfg(target_os = "macos")]
         nfs::unmount();
         let _ = std::fs::remove_file(&sock);
@@ -262,6 +249,60 @@ pub fn run(_args: &[String]) -> io::Result<()> {
         std::process::exit(0);
     })?;
 
+    #[cfg(target_os = "linux")]
+    {
+        let engine = engine.clone();
+        std::thread::Builder::new().name("asagiri-container-api".into()).spawn(move || {
+            serve_listener(container_endpoint.0, engine, caller::Caller::Container, container_endpoint.1, container_cancelled, max_open_conns);
+        })?;
+    }
+    serve_listener(listener, engine, caller::Caller::Host, #[cfg(target_os = "linux")] gate, cancelled, max_open_conns);
+    // Cancellation must not let the main thread exit before guest shutdown.
+    let _ = signals.join();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn socket_gate(socket: &std::path::Path, access_group: Option<&std::ffi::OsStr>) -> io::Result<Option<std::sync::Arc<access::Gate>>> {
+    Ok(match access_group {
+        Some(group) => {
+            let gate = access::Gate::new(socket, group)?;
+            match gate.grant() {
+                Ok(n) => diag::info!("socket access list written", members = n),
+                Err(e) => diag::warn!("socket access list not written: new members sign in again first", error = e),
+            }
+            gate.clone().watch()?;
+            Some(gate)
+        }
+        None => None,
+    })
+}
+
+fn bind_api_socket(socket: &std::path::Path, access_group: Option<&std::ffi::OsStr>, #[cfg(target_os = "linux")] service: bool) -> io::Result<UnixListener> {
+    // The owner's alone from the moment it exists, whatever umask the daemon
+    // was started with; a group is let in below, once it is known which.
+    // SAFETY: umask cannot fail, and is put back at once.
+    let umask = unsafe { libc::umask(0o177) };
+    let listener = UnixListener::bind(socket);
+    // SAFETY: as above.
+    unsafe { libc::umask(umask) };
+    let listener = listener?;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
+    // An explicit group keeps Asagiri's managed membership policy. Without one,
+    // root's service socket on Linux uses ordinary Unix group access, like
+    // dockerd: container users need not exist in the host's account
+    // database. A socket anywhere else stays the owner's.
+    if let Some(group) = access_group {
+        socket_group(socket, group)?;
+    }
+    #[cfg(target_os = "linux")]
+    if access_group.is_none() && service {
+        default_socket_access(socket)?;
+    }
+    Ok(listener)
+}
+
+fn serve_listener(listener: UnixListener, engine: std::sync::Arc<engine::Engine>, caller: caller::Caller, #[cfg(target_os = "linux")] gate: Option<std::sync::Arc<access::Gate>>, cancelled: std::sync::mpsc::Receiver<()>, max_open_conns: usize) {
     // One thread per connection, and a connection costs nothing to open:
     // cap the open ones, so a local flood cannot pile up threads without
     // bound. Reads are bounded in `api::serve` too.
@@ -296,15 +337,12 @@ pub fn run(_args: &[String]) -> io::Result<()> {
                 },
                 None => None,
             };
-            let _ = api::serve(conn, engine);
+            let _ = api::serve_as(conn, engine, caller);
         });
         if let Err(e) = spawned {
             diag::error!("cannot start a connection thread", error = e);
         }
     }
-    // Cancellation must not let the main thread exit before guest shutdown.
-    let _ = signals.join();
-    Ok(())
 }
 
 /// When the app this daemon runs from is deleted (appwatch.rs): docker
@@ -319,6 +357,8 @@ fn watch_own_app(engine: std::sync::Arc<engine::Engine>, socket: std::path::Path
         #[cfg(target_os = "macos")]
         nfs::unmount();
         let _ = std::fs::remove_file(&socket);
+        #[cfg(target_os = "linux")]
+        let _ = std::fs::remove_file(caller::container_socket(&socket));
         engine.shutdown();
         std::thread::sleep(Duration::from_millis(50));
         // 0: launchd restarts the engine on failure only, and there is
