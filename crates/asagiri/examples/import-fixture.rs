@@ -7,6 +7,9 @@
 #[path = "../src/client.rs"]
 mod client;
 #[cfg(target_os = "linux")]
+#[path = "../src/wsl_paths.rs"]
+mod wsl_paths;
+#[cfg(target_os = "linux")]
 #[path = "../src/flavor.rs"]
 mod flavor;
 #[cfg(target_os = "linux")]
