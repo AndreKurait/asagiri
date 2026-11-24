@@ -1912,7 +1912,6 @@
   "Remove old data?": "Удалить старые данные?",
   "Everything in {path} will be deleted for good.": "Всё содержимое {path} будет удалено безвозвратно.",
   "Choose a storage folder": "Выберите папку хранилища",
-  "Asagiri's data is moving already": "Данные Asagiri уже переносятся",
   "Asagiri's data moved to {path}": "Данные Asagiri перенесены в {path}",
   "Storage is available again": "Хранилище снова доступно",
   "Old data removed": "Старые данные удалены"

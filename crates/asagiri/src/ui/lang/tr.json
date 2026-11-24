@@ -1912,7 +1912,6 @@
   "Remove old data?": "Eski veriler kaldırılsın mı?",
   "Everything in {path} will be deleted for good.": "{path} konumundaki her şey kalıcı olarak silinecek.",
   "Choose a storage folder": "Depolama klasörü seçin",
-  "Asagiri's data is moving already": "Asagiri verileri zaten taşınıyor",
   "Asagiri's data moved to {path}": "Asagiri verileri {path} konumuna taşındı",
   "Storage is available again": "Depolama yeniden kullanılabilir",
   "Old data removed": "Eski veriler kaldırıldı"

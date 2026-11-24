@@ -1912,7 +1912,6 @@
   "Remove old data?": "పాత డేటాను తొలగించాలా?",
   "Everything in {path} will be deleted for good.": "{path} లోని ప్రతిదీ శాశ్వతంగా తొలగించబడుతుంది.",
   "Choose a storage folder": "స్టోరేజీ ఫోల్డర్‌ను ఎంచుకోండి",
-  "Asagiri's data is moving already": "Asagiri డేటా ఇప్పటికే తరలించబడుతోంది",
   "Asagiri's data moved to {path}": "Asagiri డేటా {path} కు తరలించబడింది",
   "Storage is available again": "స్టోరేజీ మళ్ళీ అందుబాటులో ఉంది",
   "Old data removed": "పాత డేటా తొలగించబడింది"

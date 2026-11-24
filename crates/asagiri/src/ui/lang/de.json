@@ -1912,7 +1912,6 @@
   "Remove old data?": "Alte Daten entfernen?",
   "Everything in {path} will be deleted for good.": "Alles in {path} wird endgültig gelöscht.",
   "Choose a storage folder": "Speicherordner wählen",
-  "Asagiri's data is moving already": "Asagiris Daten werden bereits verschoben",
   "Asagiri's data moved to {path}": "Asagiris Daten wurden nach {path} verschoben",
   "Storage is available again": "Speicher ist wieder verfügbar",
   "Old data removed": "Alte Daten entfernt"

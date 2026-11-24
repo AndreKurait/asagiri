@@ -1912,7 +1912,6 @@
   "Remove old data?": "إزالة البيانات القديمة؟",
   "Everything in {path} will be deleted for good.": "سيُحذف كل شيء في {path} نهائيًا.",
   "Choose a storage folder": "اختر مجلد التخزين",
-  "Asagiri's data is moving already": "بيانات Asagiri قيد النقل بالفعل",
   "Asagiri's data moved to {path}": "تم نقل بيانات Asagiri إلى {path}",
   "Storage is available again": "التخزين متاح مرة أخرى",
   "Old data removed": "تمت إزالة البيانات القديمة"

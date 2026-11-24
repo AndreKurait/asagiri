@@ -1912,7 +1912,6 @@
   "Remove old data?": "Xóa dữ liệu cũ?",
   "Everything in {path} will be deleted for good.": "Mọi thứ trong {path} sẽ bị xóa vĩnh viễn.",
   "Choose a storage folder": "Chọn thư mục lưu trữ",
-  "Asagiri's data is moving already": "Dữ liệu Asagiri đang được di chuyển",
   "Asagiri's data moved to {path}": "Đã di chuyển dữ liệu Asagiri đến {path}",
   "Storage is available again": "Lưu trữ đã khả dụng trở lại",
   "Old data removed": "Đã xóa dữ liệu cũ"

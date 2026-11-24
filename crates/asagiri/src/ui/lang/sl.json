@@ -1912,7 +1912,6 @@
   "Remove old data?": "Odstranim stare podatke?",
   "Everything in {path} will be deleted for good.": "Vse v {path} bo trajno izbrisano.",
   "Choose a storage folder": "Izberite mapo za shrambo",
-  "Asagiri's data is moving already": "Podatki Asagiri se že premikajo",
   "Asagiri's data moved to {path}": "Podatki Asagiri so bili premaknjeni v {path}",
   "Storage is available again": "Shramba je spet na voljo",
   "Old data removed": "Stari podatki odstranjeni"

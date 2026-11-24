@@ -1912,7 +1912,6 @@
   "Remove old data?": "Fjerne gamle data?",
   "Everything in {path} will be deleted for good.": "Alt i {path} slettes for godt.",
   "Choose a storage folder": "Velg en lagringsmappe",
-  "Asagiri's data is moving already": "Asagiris data flyttes allerede",
   "Asagiri's data moved to {path}": "Asagiris data ble flyttet til {path}",
   "Storage is available again": "Lagring er tilgjengelig igjen",
   "Old data removed": "Gamle data fjernet"

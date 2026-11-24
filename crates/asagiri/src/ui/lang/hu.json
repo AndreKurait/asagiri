@@ -1912,7 +1912,6 @@
   "Remove old data?": "Eltávolítod a régi adatokat?",
   "Everything in {path} will be deleted for good.": "Minden véglegesen törlődik innen: {path}.",
   "Choose a storage folder": "Tárhelymappa választása",
-  "Asagiri's data is moving already": "A Asagiri adatai már áthelyezés alatt állnak",
   "Asagiri's data moved to {path}": "A Asagiri adatai áthelyezve ide: {path}",
   "Storage is available again": "A tárhely újra elérhető",
   "Old data removed": "Régi adatok eltávolítva"

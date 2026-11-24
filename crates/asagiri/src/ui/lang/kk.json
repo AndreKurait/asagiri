@@ -1912,7 +1912,6 @@
   "Remove old data?": "Ескі деректерді жою керек пе?",
   "Everything in {path} will be deleted for good.": "{path} ішіндегі барлық нәрсе біржола жойылады.",
   "Choose a storage folder": "Сақтау қалтасын таңдаңыз",
-  "Asagiri's data is moving already": "Asagiri деректері қазірдің өзінде жылжытылуда",
   "Asagiri's data moved to {path}": "Asagiri деректері {path} ішіне жылжытылды",
   "Storage is available again": "Сақтау орны қайта қолжетімді",
   "Old data removed": "Ескі деректер жойылды"

@@ -1912,7 +1912,6 @@
   "Remove old data?": "የቆየ ውሂብ ይወገድ?",
   "Everything in {path} will be deleted for good.": "በ{path} ውስጥ ያለው ሁሉም ነገር ለዘላለም ይሰረዛል።",
   "Choose a storage folder": "የማከማቻ አቃፊ ይምረጡ",
-  "Asagiri's data is moving already": "የAsagiri ውሂብ አሁን እየተዛወረ ነው",
   "Asagiri's data moved to {path}": "የAsagiri ውሂብ ወደ {path} ተዛውሯል",
   "Storage is available again": "ማከማቻው እንደገና ይገኛል",
   "Old data removed": "የቆየ ውሂብ ተወግዷል"

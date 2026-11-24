@@ -1912,7 +1912,6 @@
   "Remove old data?": "Видалити старі дані?",
   "Everything in {path} will be deleted for good.": "Усе в {path} буде видалено назавжди.",
   "Choose a storage folder": "Виберіть теку сховища",
-  "Asagiri's data is moving already": "Дані Asagiri вже переносяться",
   "Asagiri's data moved to {path}": "Дані Asagiri перенесено до {path}",
   "Storage is available again": "Сховище знову доступне",
   "Old data removed": "Старі дані видалено"

@@ -1912,7 +1912,6 @@
   "Remove old data?": "¿Eliminar los datos anteriores?",
   "Everything in {path} will be deleted for good.": "Todo lo que hay en {path} se eliminará de forma permanente.",
   "Choose a storage folder": "Elige una carpeta de almacenamiento",
-  "Asagiri's data is moving already": "Los datos de Asagiri ya se están moviendo",
   "Asagiri's data moved to {path}": "Los datos de Asagiri se movieron a {path}",
   "Storage is available again": "El almacenamiento está disponible de nuevo",
   "Old data removed": "Datos anteriores eliminados"

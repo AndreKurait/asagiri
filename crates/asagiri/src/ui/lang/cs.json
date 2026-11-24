@@ -1912,7 +1912,6 @@
   "Remove old data?": "Odstranit stará data?",
   "Everything in {path} will be deleted for good.": "Vše v {path} bude trvale smazáno.",
   "Choose a storage folder": "Vyberte složku úložiště",
-  "Asagiri's data is moving already": "Data Asagiri se již přesouvají",
   "Asagiri's data moved to {path}": "Data Asagiri byla přesunuta do {path}",
   "Storage is available again": "Úložiště je opět dostupné",
   "Old data removed": "Stará data odstraněna"

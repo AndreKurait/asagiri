@@ -1912,7 +1912,6 @@
   "Remove old data?": "पुराना डेटा हटाएं?",
   "Everything in {path} will be deleted for good.": "{path} में सब कुछ हमेशा के लिए हटा दिया जाएगा।",
   "Choose a storage folder": "स्टोरेज फ़ोल्डर चुनें",
-  "Asagiri's data is moving already": "Asagiri का डेटा पहले से स्थानांतरित हो रहा है",
   "Asagiri's data moved to {path}": "Asagiri का डेटा {path} में ले जाया गया",
   "Storage is available again": "स्टोरेज फिर से उपलब्ध है",
   "Old data removed": "पुराना डेटा हटा दिया गया"

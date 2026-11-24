@@ -1912,7 +1912,6 @@
   "Remove old data?": "Pašalinti senus duomenis?",
   "Everything in {path} will be deleted for good.": "Viskas aplanke {path} bus ištrinta visam laikui.",
   "Choose a storage folder": "Pasirinkite saugyklos aplanką",
-  "Asagiri's data is moving already": "Asagiri duomenys jau perkeliami",
   "Asagiri's data moved to {path}": "Asagiri duomenys perkelti į {path}",
   "Storage is available again": "Saugykla vėl pasiekiama",
   "Old data removed": "Seni duomenys pašalinti"

@@ -1912,7 +1912,6 @@
   "Remove old data?": "Elimini datele vechi?",
   "Everything in {path} will be deleted for good.": "Tot ce se află în {path} va fi șters definitiv.",
   "Choose a storage folder": "Alege un folder de stocare",
-  "Asagiri's data is moving already": "Datele Asagiri se mută deja",
   "Asagiri's data moved to {path}": "Datele Asagiri au fost mutate în {path}",
   "Storage is available again": "Stocarea este din nou disponibilă",
   "Old data removed": "Datele vechi au fost eliminate"

@@ -1912,7 +1912,6 @@
   "Remove old data?": "古いデータを削除しますか？",
   "Everything in {path} will be deleted for good.": "{path} 内のすべてが完全に削除されます。",
   "Choose a storage folder": "ストレージフォルダーを選択",
-  "Asagiri's data is moving already": "Asagiri のデータはすでに移動中です",
   "Asagiri's data moved to {path}": "Asagiri のデータを {path} に移動しました",
   "Storage is available again": "ストレージが再び利用可能になりました",
   "Old data removed": "古いデータを削除しました"

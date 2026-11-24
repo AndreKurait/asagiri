@@ -1912,7 +1912,6 @@
   "Remove old data?": "Poistetaanko vanhat tiedot?",
   "Everything in {path} will be deleted for good.": "Kaikki sijainnissa {path} poistetaan pysyvästi.",
   "Choose a storage folder": "Valitse tallennuskansio",
-  "Asagiri's data is moving already": "Asagirin tietoja siirretään jo",
   "Asagiri's data moved to {path}": "Asagirin tiedot siirrettiin sijaintiin {path}",
   "Storage is available again": "Tallennussijainti on taas käytettävissä",
   "Old data removed": "Vanhat tiedot poistettu"

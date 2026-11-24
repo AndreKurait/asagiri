@@ -1912,7 +1912,6 @@
   "Remove old data?": "Hapus data lama?",
   "Everything in {path} will be deleted for good.": "Semua yang ada di {path} akan dihapus secara permanen.",
   "Choose a storage folder": "Pilih folder penyimpanan",
-  "Asagiri's data is moving already": "Data Asagiri sedang dipindahkan",
   "Asagiri's data moved to {path}": "Data Asagiri dipindahkan ke {path}",
   "Storage is available again": "Penyimpanan tersedia kembali",
   "Old data removed": "Data lama dihapus"

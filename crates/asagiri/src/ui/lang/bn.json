@@ -1912,7 +1912,6 @@
   "Remove old data?": "পুরনো ডেটা সরাবেন?",
   "Everything in {path} will be deleted for good.": "{path}-এর সবকিছু স্থায়ীভাবে মুছে ফেলা হবে।",
   "Choose a storage folder": "একটি স্টোরেজ ফোল্ডার বেছে নিন",
-  "Asagiri's data is moving already": "Asagiri-এর ডেটা ইতিমধ্যে সরানো হচ্ছে",
   "Asagiri's data moved to {path}": "Asagiri-এর ডেটা {path}-এ সরানো হয়েছে",
   "Storage is available again": "স্টোরেজ আবার পাওয়া যাচ্ছে",
   "Old data removed": "পুরনো ডেটা সরানো হয়েছে"
