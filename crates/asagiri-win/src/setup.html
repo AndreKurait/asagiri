@@ -742,7 +742,10 @@ function trn(n, one, other, vars) { var s = isOne(n) ? one : other, v = { n: n }
     var r = main.querySelectorAll('input[name=linux]');
     for (var i = 0; i < r.length; i++) r[i].checked = r[i].value === choice;
     var cb = document.getElementById('chooseBtn');
-    if (cb) setText(cb, choice.startsWith('existing:') ? tr("Continue") : choice === 'ubuntu' ? tr("Set up with Ubuntu") : tr("Set up with Asagiri Linux"));
+    if (cb) {
+      cb.disabled = !q('input[name=linux]:checked');
+      setText(cb, choice.startsWith('existing:') ? tr("Continue") : choice === 'ubuntu' ? tr("Set up with Ubuntu") : tr("Set up with Asagiri Linux"));
+    }
     var mk = document.getElementById('mk'); if (mk) mk.checked = effective(s, 'makeDefault');
     var au = document.getElementById('auto'); if (au) au.checked = effective(s, 'autostart');
     // Asagiri as docker's default builds on Asagiri anyway: the question is only for docker staying elsewhere.
