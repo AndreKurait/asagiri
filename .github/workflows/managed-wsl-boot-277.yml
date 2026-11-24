@@ -97,7 +97,16 @@ jobs:
           "$HOME/bin/asagiri" daemon >"$HOME/engine.log" 2>&1 &
           daemon_pid=$!
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if /tmp/engineping; then cat "$HOME/engine.log"; exit 0; fi
+            if /tmp/engineping; then
+              trap 'cat "$HOME/engine.log"' EXIT
+              export PATH="$HOME/bin:$PATH" DOCKER_HOST="unix://$ASAGIRI_SOCKET"
+              image=mirror.gcr.io/library/alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab
+              "$HOME/bin/asagiri" pull "$image"
+              output=$("$HOME/bin/asagiri" run --rm "$image" echo managed241-workload)
+              printf '%s\n' "$output"
+              test "$output" = managed241-workload
+              exit 0
+            fi
             if ! kill -0 "$daemon_pid" 2>/dev/null; then cat "$HOME/engine.log"; wait "$daemon_pid"; exit 1; fi
             sleep 1
           done
