@@ -1,0 +1,41 @@
+name: Published Ubuntu certificate holder
+on:
+  push:
+    branches: [qualification/ubuntu-cert-holder-128]
+permissions:
+  contents: read
+jobs:
+  holder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Check Docker and the published Asagiri lite engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          gh release download v0.1.14-dev.248 -R AndreKurait/asagiri -p 'asagiri-lite_*_amd64.deb'
+          echo 'c21c91e44e1c864a9ddf42f35c654d101b02a36779255ce0db96597c1d220f03  asagiri-lite_0.1.14.dev.248_amd64.deb' | sha256sum -c -
+          dpkg-deb -x asagiri-lite_*_amd64.deb lite
+          openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=holder.test -days 1 -keyout /dev/null -out cert.pem
+          exercise() {
+            docker version --format '{{.Server.Version}}'
+            docker volume create cert128
+            docker create --name holder128 -v cert128:/fixture alpine:3.20 cat /fixture/cert.pem
+            test "$(docker inspect --format '{{.State.Status}}' holder128)" = created
+            docker cp cert.pem holder128:/fixture/cert.pem
+            docker start -a holder128 > result.pem
+            cmp cert.pem result.pem
+            sha256sum result.pem
+            docker rm holder128
+            docker volume rm cert128
+          }
+          exercise
+          mkdir engine-home
+          sudo env HOME="$PWD/engine-home" ASAGIRI_SOCKET="$PWD/engine.sock" PATH="$PWD/lite/usr/bin:$PATH" "$PWD/lite/usr/bin/asagiri" daemon > engine.log 2>&1 &
+          for i in $(seq 30); do test -S engine.sock && break; sleep 1; done
+          sudo chmod 666 engine.sock
+          export DOCKER_HOST="unix://$PWD/engine.sock"
+          docker pull alpine:3.20
+          exercise
