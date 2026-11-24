@@ -41,6 +41,17 @@ try {
 const fs = require('node:fs');
 let nestedWatcher;
 let watchedGeneration;
+function watchIdentity(stage) {
+  try {
+    const pathInode = fs.statSync('/watched/renamed', {bigint:true}).ino.toString(16);
+    const marks = fs.readdirSync('/proc/self/fdinfo').flatMap(fd => {
+      try { return fs.readFileSync('/proc/self/fdinfo/'+fd, 'utf8').split('\n').filter(line => line.startsWith('inotify wd:')); }
+      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    });
+    console.log(JSON.stringify({stage, pathInodeHex:pathInode, marks}));
+  } catch (error) { console.log('watch identity unavailable: '+error.message); }
+}
+process.on('SIGUSR2', () => watchIdentity('timeout'));
 function snapshot() {
   const state = {};
   for (const entry of fs.readdirSync('/watched', {withFileTypes:true})) {
@@ -56,6 +67,7 @@ function snapshot() {
         catch (error) { if (error.code !== 'ENOENT') throw error; }
       });
       console.log(generation+' READY');
+      watchIdentity(generation);
     }
   }
   console.log(JSON.stringify(state));
@@ -78,6 +90,11 @@ console.log('READY');
             $lines = @(& $docker logs watch-test)
             if (($lines | Select-Object -Skip $offset) -ccontains $expected) { return }
             Start-Sleep -Milliseconds 500
+        }
+        if ($expected -like '*child:*') {
+            & $docker kill --signal=USR2 watch-test | Out-Null
+            Start-Sleep -Seconds 1
+            & $docker logs watch-test | Write-Host
         }
         throw "Watcher missed $expected after line $offset. Observed $lines"
     }
