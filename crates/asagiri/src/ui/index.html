@@ -7152,9 +7152,9 @@ function toast(kind, text, op, open, act, why) {
     el.querySelector("[data-tview]").addEventListener("click", () => { el.remove(); viewContainer(open); });
   }
   // Resources saved while the VM runs: restart it now to use them.
-  if (!error && act === "restartvm") {
+  if ((!error && act === "restartvm") || (error && act === "storagerestartwsl")) {
     el.querySelector(".txt").insertAdjacentHTML("beforeend", `<div class="dg-tacts"><button class="lnk" data-trestart>${tr("Restart now")}</button></div>`);
-    el.querySelector("[data-trestart]").addEventListener("click", () => { el.remove(); send("restartvm"); });
+    el.querySelector("[data-trestart]").addEventListener("click", () => { el.remove(); send(act); });
   }
   $("toasts").append(el);
   retire(el, ms);

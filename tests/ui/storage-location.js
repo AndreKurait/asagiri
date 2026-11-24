@@ -164,4 +164,11 @@ t("unavailable storage shows Retry, Change…, and Reset to default in settings 
   if (!document.getElementById("content").textContent.includes("Storage location unavailable")) throw new Error("main view didn't show unavailable message");
 });
 
+t("Windows storage recovery requires a click to restart WSL", () => {
+  asagiri.on({ type: "notice", kind: "error", text: "Save work in all WSL distributions before restarting.", act: "storagerestartwsl" });
+  if (last("storagerestartwsl")) throw new Error("Restarted without a click");
+  document.querySelector(".toast.error [data-trestart]").click();
+  if (!last("storagerestartwsl")) throw new Error("Restart did not reach the storage command");
+});
+
 report(R);

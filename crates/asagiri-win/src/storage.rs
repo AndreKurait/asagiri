@@ -732,9 +732,12 @@ mod imp {
         restart()
     }
 
-    pub fn retry() {
-        std::thread::spawn(|| {
+    pub fn retry(restart_wsl: bool) {
+        std::thread::spawn(move || {
             match retry_engine(|| {
+                if restart_wsl {
+                    wsl_run(&["--shutdown".as_ref()])?;
+                }
                 crate::serve::renew_bridge();
                 crate::engine::ensure_daemon()
             }) {
@@ -747,8 +750,10 @@ mod imp {
                     let mut message = e.to_string();
                     if message.to_ascii_lowercase().contains("ext4.vhdx") {
                         message.push_str(&tr(" If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution."));
+                        emit(json!({"type": "notice", "kind": "error", "text": message, "act": "storagerestartwsl"}).to_string());
+                    } else {
+                        emit(notice("error", &message));
                     }
-                    emit(notice("error", &message));
                     emit_report();
                 }
             }

@@ -1434,7 +1434,8 @@ pub fn on_message(msg: &str) {
             crate::storage::start_move(path, fresh);
         }
         "storagereset" => crate::storage::reset(),
-        "storageretry" => crate::storage::retry(),
+        "storageretry" => crate::storage::retry(false),
+        "storagerestartwsl" => crate::storage::retry(true),
         "storageremoveold" => crate::storage::remove_old(),
         // Settings → Diagnostics and an error's Details: crate::diag.
         cmd @ ("diaglogs" | "diagreport" | "diagsend" | "diagcrashes" | "diagsendcrash" | "diagfolder") => {
