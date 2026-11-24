@@ -102,7 +102,7 @@ jobs:
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
           if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
-          Guest sh -c 'for i in $(seq 15); do test -f /tmp/managed241-marker && break; sleep 1; done; test -f /tmp/managed241-marker'
+          Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do test -f /tmp/managed241-marker && break; sleep 1; done; test -f /tmp/managed241-marker'
           Write-Host 'Original boot command recreated the marker on restart'
-          Guest sh -c 'for i in $(seq 15); do /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
+          Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
           Write-Host 'Engine served HTTP after distro restart without a separate launcher'
