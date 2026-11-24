@@ -64,7 +64,18 @@ jobs:
           end run
           APPLESCRIPT
           for attempt in {1..60}; do
-            if find "$destination" -mindepth 1 -print -quit | grep -q .; then exit 0; fi
+            if curl -fsS --max-time 2 --unix-socket "$ASAGIRI_SOCKET" http://localhost/asagiri/storage > "$RUNNER_TEMP/storage-status.json" &&
+              python3 - "$destination" "$RUNNER_TEMP/storage-status.json" <<'PYTHON'
+          import json, os, sys
+          from pathlib import Path
+          selected = Path(sys.argv[1]).resolve()
+          status = json.loads(Path(sys.argv[2]).read_text())
+          saved = json.loads((Path(os.environ["HOME"]) / ".asagiri/storage.json").read_text())
+          assert status["state"] == "ok" and status["custom"] and not status["error"], status
+          assert Path(status["path"]).resolve() == Path(saved["path"]).resolve() == selected
+          print(f"Daemon and persisted settings confirm {selected}")
+          PYTHON
+            then exit 0; fi
             sleep 1
           done
           cat "$RUNNER_TEMP/daemon.log" "$RUNNER_TEMP/ui.log"
