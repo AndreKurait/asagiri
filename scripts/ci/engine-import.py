@@ -568,7 +568,7 @@ def main():
                        "--label", OWNER + "=" + nonce, "--group-add", "42", image, "true")
                 leftover = "interrupted-helper-" + nonce
                 docker("source", "create", "--name", leftover, "--network", "none",
-                       "--label", "dev.asagiri.import-helper=1", image, "true")
+                       "--label", OWNER + "=" + nonce, "--label", "dev.asagiri.import-helper=1", image, "true")
                 inventory = command(
                     "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
                     "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
