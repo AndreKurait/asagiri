@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: e94c30b9d23723354f393cb8892cfbf54da8bd28
+          ref: a01ed4960136c98dc941847d28d77c6e7aaea920
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -90,6 +90,7 @@ jobs:
           Guest cp $probe.Trim() /tmp/engineping
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
+          Guest cp /etc/wsl.conf /tmp/original-wsl.conf
           Guest sh $script.Trim()
           Guest /tmp/engineping
           foreach ($name in 'asagiri','asagiri-init') {
@@ -99,12 +100,12 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
-          # Exercise the command shape the installer can prepend to an existing boot command.
-          Guest sh -c 'printf "%s\n" "#!/bin/sh" "export HOME=/var/lib/asagiri-daemon" "export ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock" "nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &" > /usr/local/bin/asagiri-wsl-start'
-          Guest chmod 755 /usr/local/bin/asagiri-wsl-start
-          Guest sh -c 'printf "[boot]\nsystemd=false\ncommand=/usr/local/bin/asagiri-wsl-start; touch /tmp/managed241-marker\n" > /etc/wsl.conf'
           Guest rm /tmp/managed241-marker
           wsl.exe --terminate Managed241
           if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
           Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do test -f /tmp/managed241-marker && /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
           Write-Host 'Prefixed boot command ran the original command and the daemon answered HTTP after restart'
+          Guest sh $script.Trim() --remove-boot-entry
+          Guest cmp /etc/wsl.conf /tmp/original-wsl.conf
+          Guest test ! -e /usr/local/bin/asagiri-wsl-start
+          Write-Host 'Installer cleanup restored the original configuration byte for byte'
