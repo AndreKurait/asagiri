@@ -1,6 +1,7 @@
 """Exercise the shipping WSL hostrelay command across Windows stdio pipes."""
 import struct
 import subprocess
+import time
 from contextlib import ExitStack
 
 WSL = ['wsl.exe', '-d', 'asagiri', '-u', 'root', '--']
@@ -45,7 +46,18 @@ def exercise():
         assert client.stdout.read(1) == b''
         assert client.wait(timeout=15) == 0
         # A new listener must be able to bind the released port immediately.
-        subprocess.run(WSL + ['busybox', 'httpd', '-p', f'127.0.0.1:{port}', '-h', '/tmp'], check=True, timeout=10)
+        listener = child(stack, 'busybox', 'nc', '-l', '-p', str(port), '-s', '127.0.0.1')
+        for _ in range(20):
+            if listener.poll() is not None:
+                raise RuntimeError(f'Could not rebind WSL port {port}')
+            probe = subprocess.run(WSL + ['busybox', 'nc', '-w', '1', '127.0.0.1', str(port)],
+                                   input=b'rebound', capture_output=True, timeout=5)
+            if probe.returncode == 0:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError(f'Rebound listener on {port} did not accept a connection')
+        assert listener.stdout.read(7) == b'rebound'
         print(f'Active connection closed and WSL listener port {port} rebound', flush=True)
 
 
