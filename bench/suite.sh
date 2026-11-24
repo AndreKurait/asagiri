@@ -30,7 +30,8 @@ net=$(iperf3 -c 127.0.0.1 -p 15201 -t 5 -J 2>/dev/null | jq -r '.end.sum_receive
 $CLI rm -f "$name-iperf" >/dev/null 2>&1
 ctx=$(mktemp -d); build_tag="asagiri-bench:$(basename "$ctx" | tr A-Z a-z)"
 printf 'FROM alpine\nRUN echo one > /one\nRUN echo two > /two\nRUN echo three > /three\n' > "$ctx/Dockerfile"
-hfs build "$CLI build --no-cache -q -t $build_tag $ctx >/dev/null"
+export ctx build_tag
+hfs build "$CLI"' build --no-cache -q -t "$build_tag" "$ctx" >/dev/null'
 $CLI rmi "$build_tag" >/dev/null 2>&1; rm -rf "$ctx"
 hfs pull "$CLI rmi -f alpine >/dev/null 2>&1; $CLI pull -q alpine"
 $CLI rm -f "$name" >/dev/null 2>&1
