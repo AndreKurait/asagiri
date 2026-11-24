@@ -165,6 +165,12 @@ fn main() -> ExitCode {
     });
     let result: std::io::Result<()> = match args.first().map(String::as_str) {
         #[cfg(unix)]
+        #[cfg(target_os = "linux")]
+        Some("daemon-ping") if args.len() == 1 => {
+            client::probe("/_ping", std::time::Duration::from_secs(1)).and_then(|response| {
+                if response.ok() && response.body == b"OK" { Ok(()) } else { Err(std::io::Error::other("engine did not answer OK")) }
+            })
+        }
         Some("daemon") => daemon::run(&args[1..]),
         #[cfg(target_os = "linux")]
         Some("bridge") => bridge::run(&args[1..]),

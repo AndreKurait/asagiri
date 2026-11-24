@@ -53,6 +53,18 @@ else
     boot_entry >> /etc/wsl.conf
   fi
   pkill -f '/usr/local/bin/asagiri daemon' 2>/dev/null || true
-  HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon >/var/log/asagiri.log 2>&1 &
+  export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
+  nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &
+  daemon_pid=$!
+  # Keep this WSL launch session alive until the daemon serves requests.
+  attempts=0
+  until /usr/local/bin/asagiri daemon-ping 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if ! kill -0 "$daemon_pid" 2>/dev/null || [ "$attempts" -ge 15 ]; then
+      echo "Asagiri did not become ready on $ASAGIRI_SOCKET; see /var/log/asagiri.log" >&2
+      exit 1
+    fi
+    sleep 1
+  done
 fi
 echo "Asagiri runs in WSL on /var/lib/asagiri-daemon/.asagiri/run/docker.sock"
