@@ -354,10 +354,10 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.provenance(REPO, COMMIT, "0.1.0-dev.62", env)
 
-    def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False, jammy=False):
+    def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False, jammy=False, windows_tests=False):
         candidate = self.release_run() if candidate is None else candidate
         jobs = ([{"name": name, "status": "completed", "conclusion": "success"}
-                 for name in sorted(release.PACKAGE_JOBS | ({release.QEMU_JOB} if qemu else set()) | ({release.JAMMY_JOB} if jammy else set()))] + [
+                 for name in sorted(release.PACKAGE_JOBS | ({release.QEMU_JOB} if qemu else set()) | ({release.JAMMY_JOB} if jammy else set()) | ({release.WINDOWS_TEST_JOB} if windows_tests else set()))] + [
                     {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
                      "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
                 if jobs is None else jobs)
@@ -373,7 +373,7 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, "api", side_effect=api), \
                 patch.object(release, "run", side_effect=[
                     SimpleNamespace(stdout=""),
-                    SimpleNamespace(stdout="\n".join(path for path, present in ((release.QEMU_RELEASE, qemu), (release.JAMMY_SCRIPT, jammy)) if present)),
+                    SimpleNamespace(stdout="\n".join(path for path, present in ((release.QEMU_RELEASE, qemu), (release.JAMMY_SCRIPT, jammy), (release.WINDOWS_TEST_SCRIPT, windows_tests)) if present)),
                     SimpleNamespace(stdout="0.1.0\n")]) as run:
             result = release.recover_packages(REPO, "123")
         self.assertEqual(run.call_args_list[0].args,
@@ -399,6 +399,11 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.package_recovery(qemu=True, jammy=True), (COMMIT, "0.1.0-dev.62", True, 1))
         with self.assertRaisesRegex(SystemExit, "every native"):
             self.package_recovery(jammy=True, jobs=self.release_jobs())
+
+    def test_package_recovery_matches_windows_tests_to_source(self):
+        self.assertEqual(self.package_recovery(windows_tests=True), (COMMIT, "0.1.0-dev.62", True, 1))
+        with self.assertRaisesRegex(SystemExit, "every native"):
+            self.package_recovery(windows_tests=True, jobs=self.release_jobs())
 
     def test_package_recovery_rejects_untrusted_or_active_runs(self):
         for field, value in (("head_repository", {"full_name": "fork/asagiri"}),
