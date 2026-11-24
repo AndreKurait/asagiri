@@ -662,7 +662,7 @@ mod imp {
                 return Err(io::Error::other(format!("WSL import failed: {e}. Restoring the original distro failed: {rollback}. Recovery archive: {}", archive.display())));
             }
             let _ = fs::remove_dir_all(staging);
-            return Err(e);
+            return Err(io::Error::other(format!("WSL import failed: {e}; restored the distro at {}", old_dir.display())));
         }
         let _ = fs::remove_dir_all(staging);
         Ok(())
@@ -678,6 +678,17 @@ mod imp {
         export_and_import("AsagiriStorageTest166", &root.join("original"), &target, &target.join(MOVING)).unwrap();
         assert!(target.join("ext4.vhdx").is_file());
         assert!(!target.join(MOVING).exists());
+
+        // A file cannot be a WSL install directory. Keep staging separate so
+        // the export completes and the destination import itself must fail.
+        let invalid = root.join("occupied");
+        fs::write(&invalid, b"keep this file").unwrap();
+        let staging = root.join("rollback-export");
+        let error = export_and_import("AsagiriStorageTest166", &target, &invalid, &staging).unwrap_err();
+        assert!(error.to_string().contains("restored the distro"), "{error}");
+        assert_eq!(fs::read(invalid).unwrap(), b"keep this file");
+        assert!(target.join("ext4.vhdx").is_file());
+        assert!(!staging.exists());
     }
 
     pub fn retry() {
