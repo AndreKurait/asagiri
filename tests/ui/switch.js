@@ -12,7 +12,7 @@ const eq=(a,b,m)=>{if(JSON.stringify(a)!==JSON.stringify(b))throw new Error(m+":
 show("containers");
 t("strip and status pill offer the switch",()=>{reset();render();eq(!!document.querySelector("#impstrip [data-ctxswitch]"),true,"strip");eq(!!document.querySelector("#statusbar [data-ctxswitch]"),true,"pill");});
 t("Windows Docker environment overrides disable ineffective switches", () => {
-  for (const contextOverride of ["DOCKER_CONTEXT", "DOCKER_HOST"]) {
+  for (const contextOverride of ["DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_CONTEXT, DOCKER_HOST"]) {
     for (const context of ["orbstack", null]) {
       reset();
       asagiri.on({...ui.status, context, contextOverride});

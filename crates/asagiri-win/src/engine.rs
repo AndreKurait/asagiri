@@ -755,7 +755,9 @@ fn status_event() -> String {
         && !crate::docker_context::uses_pipe(endpoint.as_deref().unwrap_or_default(), &crate::client::pipe());
     let context_override = ["DOCKER_CONTEXT", "DOCKER_HOST"]
         .into_iter()
-        .find(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+        .filter(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        .collect::<Vec<_>>()
+        .join(", ");
     json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context, "contextOverride": context_override, "customEndpoint": custom_endpoint}).to_string()
 }
 
