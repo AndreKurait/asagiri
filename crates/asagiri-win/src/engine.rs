@@ -51,6 +51,8 @@ static LISTED: std::sync::LazyLock<std::sync::Mutex<std::time::Instant>> = std::
 
 #[derive(Debug, Clone)]
 pub(crate) enum Cmd {
+    #[cfg(test)]
+    CheckDispatch(Sender<()>),
     Start,
     Stop,
     /// Restore daemon availability after WSL goes away, preserving Stop.
@@ -186,6 +188,11 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
         send_windows_proxy();
         std::thread::sleep(Duration::from_secs(60));
     });
+    // Keep explicit Start and Stop ordered while WSL readiness waits off the UI command loop.
+    let (power, actions) = mpsc::channel();
+    if let Err(e) = std::thread::Builder::new().name("asagiri-power".into()).spawn(move || power_commands(actions, builders)) {
+        crate::serve::log(&format!("could not start engine power worker: {e}"));
+    }
     let mut pending: Option<Cmd> = None;
     loop {
         let cmd = match pending.take() {
@@ -193,30 +200,13 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
             None => rx.recv_timeout(TICK),
         };
         match cmd {
-            Ok(Cmd::Start) => {
-                emit(state("booting", None));
-                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
-                    Ok(()) => {
-                        queue_builder(&builders);
-                        refresh();
-                    }
-                    Err(e) => emit(state("stopped", Some(&e.to_string()))),
+            #[cfg(test)]
+            Ok(Cmd::CheckDispatch(reply)) => { let _ = reply.send(()); }
+            Ok(cmd @ (Cmd::Start | Cmd::Stop)) => {
+                let action = if matches!(cmd, Cmd::Start) { PowerCommand::Start } else { PowerCommand::Stop };
+                if power.send(action).is_err() {
+                    emit(notice("error", "Engine power worker stopped"));
                 }
-            }
-            // Stop means off: every container stopped, the engine off until
-            // Start (nothing wakes it meanwhile), and this window's shares closed.
-            Ok(Cmd::Stop) => {
-                emit(state("stopping", None));
-                sharing::close_all();
-                let stopped = match expect_ok(client::request("POST", "/asagiri/stop", None)) {
-                    // An engine older than Stop: its sleep.
-                    Err(e) if e.to_string().contains("404") => expect_ok(client::request("POST", "/asagiri/sleep", None)),
-                    r => r,
-                };
-                if let Err(e) = stopped {
-                    emit(notice("error", &e.to_string()));
-                }
-                refresh();
             }
             Ok(Cmd::Revive) => {
                 if let Some(recovery) = &recovery
@@ -280,6 +270,40 @@ fn engine(rx: &Receiver<Cmd>, tx: Sender<Cmd>) {
                 if LISTED.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= LIST_EVERY {
                     refresh();
                 }
+            }
+        }
+    }
+}
+
+enum PowerCommand { Start, Stop }
+
+fn power_commands(actions: Receiver<PowerCommand>, builders: Option<crate::daemon_start::Recovery>) {
+    for action in actions {
+        match action {
+            PowerCommand::Start => {
+                emit(state("booting", None));
+                match crate::daemon_start::Intent::Start.run(ensure_daemon, wake) {
+                    Ok(()) => {
+                        queue_builder(&builders);
+                        send(Cmd::Refresh);
+                    }
+                    Err(e) => emit(state("stopped", Some(&e.to_string()))),
+                }
+            }
+            // Stop means off: every container stopped, the engine off until
+            // Start (nothing wakes it meanwhile), and this window's shares closed.
+            PowerCommand::Stop => {
+                emit(state("stopping", None));
+                sharing::close_all();
+                let stopped = match expect_ok(client::request("POST", "/asagiri/stop", None)) {
+                    // An engine older than Stop: its sleep.
+                    Err(e) if e.to_string().contains("404") => expect_ok(client::request("POST", "/asagiri/sleep", None)),
+                    r => r,
+                };
+                if let Err(e) = stopped {
+                    emit(notice("error", &e.to_string()));
+                }
+                send(Cmd::Refresh);
             }
         }
     }
@@ -1694,4 +1718,19 @@ pub fn on_tray(cmd: &str) {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "runs in a dedicated Windows process with a deliberately stalled pipe"]
+fn start_with_stalled_pipe_dispatches_next_command() {
+    let name = format!(r"\\.\pipe\asagiri-stalled-start-{}", std::process::id());
+    let pipe = crate::pipe::Pipe::create(&name, true).unwrap();
+    client::set_pipe(&name);
+    start(Env { distro: Some("AsagiriStall189".into()), pipe: name });
+    on_message(r#"{"cmd":"start"}"#);
+    pipe.connect_within(Some(Duration::from_secs(10))).unwrap();
+    let (notify, received) = mpsc::channel();
+    send(Cmd::CheckDispatch(notify));
+    received.recv_timeout(Duration::from_secs(5)).expect("launcher command loop stalled during Start");
 }
