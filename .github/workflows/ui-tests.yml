@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   scope:
-    uses: ./.github/workflows/roadmap-scope.yml
+    uses: $/.github/workflows/roadmap-scope.yml
   ui:
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.roadmap_only != 'true' }}
