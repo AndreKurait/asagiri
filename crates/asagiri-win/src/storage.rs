@@ -771,6 +771,13 @@ mod imp {
         let path = PathBuf::from(r"R:\store");
         assert_eq!(read().unwrap().path, path);
         assert_eq!(report()["state"], if detached { "unavailable" } else { "ok" });
+        if !detached {
+            let mut cfg = crate::serve::Config::from_args();
+            cfg.distro = Some("Offline166".into());
+            cfg.pipe = r"\\.\pipesagiri-offline-storage-test".into();
+            crate::client::set_pipe(&cfg.pipe);
+            crate::serve::start(cfg).unwrap();
+        }
         retry_sync(!detached);
         if detached {
             assert!(!path.exists());
