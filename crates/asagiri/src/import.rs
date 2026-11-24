@@ -134,20 +134,25 @@ pub fn inventory(source: &str) -> io::Result<Value> {
             Ok(json!({"name": name, "anonymous": anonymous(&name), "have": have}))
         })
         .collect::<io::Result<_>>()?;
-    let rows = json_lines(ctx, &["ps", "-a", "--no-trunc", "--format", "{{json .}}"])?;
+    let mut rows = json_lines(ctx, &["ps", "-a", "--no-trunc", "--format", "{{json .}}"])?;
     let ids: Vec<_> = rows.iter().filter_map(|row| row["ID"].as_str()).collect();
     let mut modes = std::collections::HashMap::new();
+    let mut helpers = std::collections::HashSet::new();
     for batch in ids.chunks(128) {
-        let mut args = vec!["container", "inspect", "--format", r#"{"id":{{json .Id}},"mode":{{json .HostConfig.NetworkMode}}}"#];
+        let mut args = vec!["container", "inspect", "--format", r#"{"id":{{json .Id}},"mode":{{json .HostConfig.NetworkMode}},"labels":{{json .Config.Labels}}}"#];
         args.extend_from_slice(batch);
         for item in json_lines(ctx, &args)? {
             if let (Some(id), Some(mode)) = (item["id"].as_str(), item["mode"].as_str()) {
+                if item["labels"]["dev.asagiri.import-helper"] == "1" {
+                    helpers.insert(id.to_owned());
+                }
                 if let Some(target) = mode.strip_prefix("container:") {
                     modes.insert(id.to_owned(), target.to_owned());
                 }
             }
         }
     }
+    rows.retain(|row| !row["ID"].as_str().is_some_and(|id| helpers.contains(id)));
     let containers: Vec<Value> = order_network_peers(rows, &modes)?
         .into_iter()
         .map(|v| {

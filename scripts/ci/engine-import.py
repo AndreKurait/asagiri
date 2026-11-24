@@ -566,11 +566,15 @@ def main():
                 peer = "network-child-" + nonce
                 docker("source", "create", "--name", peer, "--network", "container:" + source_id,
                        "--label", OWNER + "=" + nonce, "--group-add", "42", image, "true")
+                leftover = "interrupted-helper-" + nonce
+                docker("source", "create", "--name", leftover, "--network", "none",
+                       "--label", "dev.asagiri.import-helper=1", image, "true")
                 inventory = command(
                     "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
                     "/opt/asagiri/asagiri", "import", "desktop-linux", "--list", text=True,
                 ).stdout.split("containers:\n", 1)[1]
                 inventory_names = [line.strip().split()[0] for line in inventory.splitlines() if line.strip()]
+                assert leftover not in inventory_names, inventory_names
                 assert inventory_names.index(definition) < inventory_names.index(peer), inventory_names
                 imported("container", peer)
                 child = get("destination", "/containers/" + peer + "/json")
