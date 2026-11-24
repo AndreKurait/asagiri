@@ -53,6 +53,10 @@ It preserves numeric ownership, user extended attributes such as Supabase
 Storage metadata, and POSIX access and default ACLs. Both helpers run with
 networking disabled during the copy.
 
+A successful volume import can leave a file without its Linux file capabilities
+(`security.capability`). If your application relies on file capabilities,
+compare them on the source and destination before starting the imported workload.
+
 The final check verifies that the source is still idle. A writer can start
 and stop between checks, so keep writers stopped throughout the copy.
 
