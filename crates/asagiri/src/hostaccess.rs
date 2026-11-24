@@ -44,7 +44,7 @@ pub fn run(args: &[String]) -> io::Result<u8> {
         return Err(io::Error::other(format!("no account named {user}")));
     }
     let lookup = || crate::daemon::access::members(GROUP)
-        .map_err(|e| io::Error::new(e.kind(), format!("couldn't look up group {GROUP}: {e}")));
+        .map_err(|e| io::Error::new(e.kind(), format!("couldn't look up group {GROUP}: {e}. Check the group lookup providers in /etc/nsswitch.conf before retrying setup.")));
     let members = match lookup()? {
         Some(members) => members,
         None => {

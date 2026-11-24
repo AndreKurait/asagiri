@@ -174,7 +174,7 @@ def main():
             lookup("native-CLI-preserves-group-outage", args.binary,
                    "unavailable", "root", "couldn't look up group asagiri", False)
             lookup("native-CLI-preserves-missing-backend-group-error", args.binary,
-                   "missing-backend", "root", "couldn't look up group asagiri", False)
+                   "missing-backend", "root", "Check the group lookup providers in /etc/nsswitch.conf", False)
         record["status"] = "passed"
     except BaseException as error:
         record.update(status="failed", error=repr(error))
