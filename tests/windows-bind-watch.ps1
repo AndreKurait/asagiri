@@ -65,6 +65,13 @@ console.log('READY');
 '@
     $image = 'node:22.23.5-bookworm-slim'
     & $docker pull $image
+    $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
+    $hostSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.sock").Trim()
+    $clientSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.container.sock").Trim()
+    if ($hostSocket -eq $clientSocket) { throw 'Expected two distinct engine sockets' }
+    $mountedSocket = (& $docker run --rm --network none --mount 'type=bind,source=/var/run/docker.sock,target=/engine.sock,readonly' $image stat -Lc '%d:%i' /engine.sock).Trim()
+    if ($mountedSocket -ne $clientSocket) { throw "Socket bind resolved to $mountedSocket, expected $clientSocket" }
+    Write-Host "Container socket bind matches the client listener ($mountedSocket)"
     & $docker run -d --name watch-test --mount "type=bind,source=$directory,target=/watched,readonly" $image node -e $script
     function Await-Line([string]$expected, [int]$offset) {
         for ($i = 0; $i -lt 40; $i++) {
