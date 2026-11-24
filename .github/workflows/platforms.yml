@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   scope:
-    uses: ./.github/workflows/roadmap-scope.yml
+    uses: $/.github/workflows/roadmap-scope.yml
   linux_build:
     needs: scope
     if: needs.scope.outputs.roadmap_only != 'true'
