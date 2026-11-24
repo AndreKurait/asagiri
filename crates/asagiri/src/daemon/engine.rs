@@ -987,8 +987,8 @@ impl Engine {
     #[cfg(target_os = "macos")]
     fn ensure_uplink(&self, vm: &VmLink) {
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            if let Ok((ip, gw)) = vm.uplink() {
+        while std::time::Instant::now() < deadline {
+            if let Ok((ip, gw)) = vm.poll_uplink(deadline) {
                 *self.uplink.lock().unwrap_or_else(|e| e.into_inner()) = serde_json::json!({
                     "mode": "dhcp",
                     "ip": std::net::Ipv4Addr::from(ip).to_string(),

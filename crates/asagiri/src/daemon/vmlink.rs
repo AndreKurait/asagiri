@@ -407,17 +407,19 @@ impl VmLink {
 
     /// Sends one request and waits for its reply.
     fn call(&self, encode: impl FnOnce(&mut Vec<u8>), body: Option<(&Path, u64)>) -> io::Result<Reply> {
-        let rx = {
-            let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-            w.out.clear();
-            encode(&mut w.out);
-            w.request(&self.windows, &self.pending, body)?
-        };
+        let rx = self.request_reply(encode, body)?;
         match rx.recv() {
             Ok(Reply::Error(e)) => Err(io::Error::other(e)),
             Ok(r) => Ok(r),
             Err(_) => Err(io::Error::other("the VM stopped")),
         }
+    }
+
+    fn request_reply(&self, encode: impl FnOnce(&mut Vec<u8>), body: Option<(&Path, u64)>) -> io::Result<mpsc::Receiver<Reply>> {
+        let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        w.out.clear();
+        encode(&mut w.out);
+        w.request(&self.windows, &self.pending, body)
     }
 
     /// Sends a message that has no reply.
@@ -607,6 +609,25 @@ impl VmLink {
             Reply::Uplink(ip, gateway) => Ok((ip, gateway)),
             Reply::Error(e) => Err(io::Error::other(e)),
             other => Err(io::Error::other(format!("expected Uplink, got {other:?}"))),
+        }
+    }
+
+    /// Waits only for the remaining DHCP discovery window. A late reply
+    /// consumes its own FIFO slot even after the receiver is dropped.
+    #[cfg(target_os = "macos")]
+    pub fn poll_uplink(&self, deadline: std::time::Instant) -> io::Result<([u8; 4], [u8; 4])> {
+        let rx = self.request_reply(|o| Msg::UplinkQuery.encode(o), None)?;
+        Self::wait_uplink(rx, deadline)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn wait_uplink(rx: mpsc::Receiver<Reply>, deadline: std::time::Instant) -> io::Result<([u8; 4], [u8; 4])> {
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Reply::Uplink(ip, gateway)) => Ok((ip, gateway)),
+            Ok(Reply::Error(e)) => Err(io::Error::other(e)),
+            Ok(other) => Err(io::Error::other(format!("expected Uplink, got {other:?}"))),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(io::Error::other("the VM stopped")),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(io::ErrorKind::TimedOut.into()),
         }
     }
 
@@ -853,6 +874,27 @@ mod tests {
         asagiri_proto::encode_run(&mut frame, "c1", &["sha256:layer".into()], &["sh".into(), "-c".into(), "true".into()],
             env, "/", "", "c1", 0, net, &["/source\t/target\tro".into()], &asagiri_proto::Limits::default(), 0, opts, &[]);
         frame
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn late_uplink_reply_leaves_next_request_in_order() {
+        use std::time::{Duration, Instant};
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let mut writer = Writer { conn: std::os::fd::OwnedFd::from(socket).into(), out: Vec::new(), blob: Vec::new() };
+        let windows = Windows::default();
+        let pending = Mutex::new(VecDeque::new());
+        Msg::UplinkQuery.encode(&mut writer.out);
+        let rx = writer.request(&windows, &pending, None).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(20);
+        assert_eq!(VmLink::wait_uplink(rx, deadline).unwrap_err().kind(), io::ErrorKind::TimedOut);
+        writer.out.clear();
+        Msg::Ping(42).encode(&mut writer.out);
+        let next = writer.request(&windows, &pending, None).unwrap();
+        let mut queue = pending.lock().unwrap();
+        assert!(queue.pop_front().unwrap().send(Reply::Error("no uplink lease".into())).is_err());
+        queue.pop_front().unwrap().send(Reply::Pong).unwrap();
+        assert!(matches!(next.recv().unwrap(), Reply::Pong));
     }
 
     fn exchange_request(frame: Vec<u8>) -> Vec<u8> {
