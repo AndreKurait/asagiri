@@ -57,7 +57,7 @@ For each report, identify its acceptance criteria, exercise the affected entry p
 ### Roadmap and formal verification (3)
 
 - [ ] Track Kiri compatibility and expanded Verus verification [#78](https://github.com/AndreKurait/asagiri/issues/78)
-- [ ] Verify HTTP framing, connection closure, and numeric parsing with Verus [#80](https://github.com/AndreKurait/asagiri/issues/80)
+- [x] Verified HTTP framing, connection closure, and numeric parsing with Verus. PR #436 (`67a4d1cc`) covered large streamed requests followed by another request on the same connection. Windows dev.205 passed the named-pipe upload and closure checks. Native cancellation and retry are tracked in #437. [#80](https://github.com/AndreKurait/asagiri/issues/80)
 - [ ] Verify lifecycle cancellation and layer preparation ownership. PR #299 proves a single counter advance invalidates the captured generation, and both callers require equality under the same lifecycle lock. Whole-counter wraparound, lock and process behavior, and layer readiness remain outside those contracts. The live lifecycle checks retain their independent coverage. [#81](https://github.com/AndreKurait/asagiri/issues/81)
 
 ### Upstream change reviews (12)
