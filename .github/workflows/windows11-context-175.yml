@@ -36,6 +36,6 @@ jobs:
               result = subprocess.run([str(edge), '--headless', '--disable-gpu', '--no-first-run', '--user-data-dir='+d+'/profile', '--dump-dom', path.as_uri()], capture_output=True, timeout=90, check=True)
               report = Results(); report.lines = []; report.feed(result.stdout.decode('utf-8', errors='replace'))
               print('\n'.join(report.lines))
-              assert len(report.lines) == 12 and all(line.startswith('PASS ') for line in report.lines), report.lines
+              assert len(report.lines) == 13 and all(line.startswith('PASS ') for line in report.lines), report.lines
           '@ | python -X utf8 -
           exit $LASTEXITCODE
