@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -44,20 +44,22 @@ pub const LISTENING: u8 = 7;
 /// before it is allocated.
 const CHUNK: usize = 64 * 1024;
 const MAX_FRAME: usize = 1 << 20;
-/// Frames waiting for one connection's writer. When it is full the reader
-/// waits, which slows the other connections too; a proxy relay has a few
-/// connections that all keep reading, and nothing grows without bound.
+/// Frames waiting for one connection's writer. A full queue closes that
+/// connection so the relay can keep reading control frames and detect EOF.
 const QUEUE: usize = 64;
 
 pub type Out = Arc<Mutex<dyn Write + Send>>;
 
 pub fn send(out: &Out, kind: u8, id: u32, data: &[u8]) -> io::Result<()> {
+    write_frame(&mut *out.lock().unwrap_or_else(PoisonError::into_inner), kind, id, data)
+}
+
+fn write_frame(w: &mut dyn Write, kind: u8, id: u32, data: &[u8]) -> io::Result<()> {
     let mut frame = Vec::with_capacity(9 + data.len());
     frame.push(kind);
     frame.extend_from_slice(&id.to_be_bytes());
     frame.extend_from_slice(&(data.len() as u32).to_be_bytes());
     frame.extend_from_slice(data);
-    let mut w = out.lock().unwrap_or_else(PoisonError::into_inner);
     w.write_all(&frame)?;
     w.flush()
 }
@@ -65,11 +67,15 @@ pub fn send(out: &Out, kind: u8, id: u32, data: &[u8]) -> io::Result<()> {
 /// The next frame, or None when the other end has gone.
 pub fn read_frame(r: &mut impl Read) -> io::Result<Option<(u8, u32, Vec<u8>)>> {
     let mut h = [0u8; 9];
-    match r.read_exact(&mut h) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
+    loop {
+        match r.read(&mut h[..1]) {
+            Ok(0) => return Ok(None),
+            Ok(_) => break,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
     }
+    r.read_exact(&mut h[1..])?;
     let id = u32::from_be_bytes([h[1], h[2], h[3], h[4]]);
     let len = u32::from_be_bytes([h[5], h[6], h[7], h[8]]) as usize;
     if len > MAX_FRAME {
@@ -89,66 +95,148 @@ enum Op {
     Eof,
 }
 
+#[derive(Clone)]
+struct Connection {
+    id: u32,
+    owner: Arc<()>,
+}
+
 struct Entry {
+    owner: Arc<()>,
     tx: SyncSender<Op>,
-    /// Set once the connection is made; a CLOSE before then just forgets it.
     stream: Option<TcpStream>,
 }
 
-/// The connections open through one relay, by id.
+impl Drop for Entry {
+    fn drop(&mut self) {
+        if let Some(stream) = &self.stream {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+}
+
 #[derive(Default)]
-pub struct Conns(Mutex<HashMap<u32, Entry>>);
+struct State {
+    closed: bool,
+    entries: HashMap<u32, Entry>,
+    listeners: HashMap<u16, TcpListener>,
+}
+
+#[derive(Default)]
+pub struct Conns(Mutex<State>);
+
+struct CloseAll(Arc<Conns>);
+
+impl Drop for CloseAll {
+    fn drop(&mut self) {
+        self.0.close_all();
+    }
+}
 
 impl Conns {
-    fn map(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Entry>> {
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A new connection: what arrives for it waits here until it is made.
-    fn open(&self, id: u32) -> Receiver<Op> {
+    fn open(&self, id: u32) -> Option<(Connection, Receiver<Op>)> {
+        let mut state = self.state();
+        if state.closed || state.entries.contains_key(&id) {
+            return None;
+        }
         let (tx, rx) = sync_channel(QUEUE);
-        self.map().insert(id, Entry { tx, stream: None });
-        rx
+        let owner = Arc::new(());
+        state.entries.insert(id, Entry { owner: owner.clone(), tx, stream: None });
+        Some((Connection { id, owner }, rx))
     }
 
-    /// A frame for one of the connections.
-    fn dispatch(&self, kind: u8, id: u32, data: Vec<u8>) {
+    fn close_all(&self) {
+        let entries = {
+            let mut state = self.state();
+            state.closed = true;
+            state.listeners.clear();
+            std::mem::take(&mut state.entries)
+        };
+        drop(entries);
+    }
+
+    fn close(&self, connection: &Connection) -> bool {
+        let mut state = self.state();
+        if state.owns(connection) {
+            state.entries.remove(&connection.id);
+            return true;
+        }
+        false
+    }
+
+    // Serialize worker frames with frames from any replacement. Never hold the
+    // state lock during transport I/O, so teardown can still shut down sockets.
+    fn send(&self, out: &Out, connection: &Connection, kind: u8, data: &[u8]) -> io::Result<()> {
+        let mut writer = out.lock().unwrap_or_else(PoisonError::into_inner);
+        let owned = if kind == CLOSE {
+            self.close(connection)
+        } else {
+            self.state().owns(connection)
+        };
+        if !owned {
+            return Ok(());
+        }
+        let result = write_frame(&mut *writer, kind, connection.id, data);
+        if result.is_err() {
+            self.close_all();
+        }
+        result
+    }
+
+    fn dispatch(&self, out: &Out, kind: u8, id: u32, data: Vec<u8>) -> io::Result<()> {
         let op = match kind {
             DATA => Op::Data(data),
             EOF => Op::Eof,
             CLOSE => {
-                if let Some(e) = self.map().remove(&id)
-                    && let Some(s) = e.stream
-                {
-                    let _ = s.shutdown(Shutdown::Both);
-                }
-                return;
+                self.state().entries.remove(&id);
+                return Ok(());
             }
-            _ => return,
+            _ => return Ok(()),
         };
-        // Sent outside the lock: a full queue waits for its own writer only.
-        let tx = self.map().get(&id).map(|e| e.tx.clone());
-        if let Some(tx) = tx {
-            let _ = tx.send(op);
+        let overflow = {
+            let state = self.state();
+            state.entries.get(&id).and_then(|entry| {
+                match entry.tx.try_send(op) {
+                    Err(TrySendError::Full(_)) => Some(Connection { id, owner: entry.owner.clone() }),
+                    _ => None,
+                }
+            })
+        };
+        if let Some(connection) = overflow {
+            self.send(out, &connection, CLOSE, &[])?;
         }
+        Ok(())
     }
+}
 
+impl State {
+    fn owns(&self, connection: &Connection) -> bool {
+        self.entries.get(&connection.id).is_some_and(|entry| Arc::ptr_eq(&entry.owner, &connection.owner))
+    }
 }
 
 /// Joins `stream` to connection `id`: what it reads goes to the other end
 /// as DATA, then EOF; what arrives for it (`rx`) is written to it.
-fn attach(conns: &Arc<Conns>, out: &Out, id: u32, rx: Receiver<Op>, stream: TcpStream) {
+fn attach(conns: &Arc<Conns>, out: &Out, connection: Connection, rx: Receiver<Op>, stream: TcpStream, target: Option<u16>) {
     let _ = stream.set_nodelay(true);
     let (Ok(reader), Ok(writer)) = (stream.try_clone(), stream.try_clone()) else {
-        conns.map().remove(&id);
-        let _ = send(out, CLOSE, id, &[]);
+        let _ = conns.send(out, &connection, CLOSE, &[]);
         return;
     };
-    match conns.map().get_mut(&id) {
-        Some(e) => e.stream = Some(stream),
-        // Closed while it was being made.
-        None => {
+    {
+        let mut state = conns.state();
+        if !state.owns(&connection) {
             let _ = stream.shutdown(Shutdown::Both);
+            return;
+        }
+        state.entries.get_mut(&connection.id).unwrap().stream = Some(stream);
+    }
+    if let Some(target) = target {
+        if conns.send(out, &connection, OPEN, &target.to_be_bytes()).is_err() {
             return;
         }
     }
@@ -156,24 +244,23 @@ fn attach(conns: &Arc<Conns>, out: &Out, id: u32, rx: Receiver<Op>, stream: TcpS
     let halves = Arc::new(AtomicU8::new(0));
     let done = {
         let conns = conns.clone();
-        let halves = halves.clone();
+        let connection = connection.clone();
         move || {
             if halves.fetch_add(1, Ordering::SeqCst) == 1 {
-                conns.map().remove(&id);
+                conns.close(&connection);
             }
         }
     };
     let done2 = done.clone();
     let (c, o) = (conns.clone(), out.clone());
+    let writer_connection = connection.clone();
     std::thread::spawn(move || {
         let mut writer = writer;
         for op in rx {
             match op {
                 Op::Data(d) => {
                     if writer.write_all(&d).is_err() {
-                        let _ = writer.shutdown(Shutdown::Both);
-                        c.map().remove(&id);
-                        let _ = send(&o, CLOSE, id, &[]);
+                        let _ = c.send(&o, &writer_connection, CLOSE, &[]);
                         return;
                     }
                 }
@@ -193,20 +280,18 @@ fn attach(conns: &Arc<Conns>, out: &Out, id: u32, rx: Receiver<Op>, stream: TcpS
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => {
-                    let _ = send(&o, EOF, id, &[]);
+                    let _ = c.send(&o, &connection, EOF, &[]);
                     break;
                 }
                 Ok(n) => {
-                    if send(&o, DATA, id, &buf[..n]).is_err() {
+                    if c.send(&o, &connection, DATA, &buf[..n]).is_err() {
                         break;
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => {
                     // Gone while the other end may still be sending: say so.
-                    if c.map().remove(&id).is_some() {
-                        let _ = send(&o, CLOSE, id, &[]);
-                    }
+                    let _ = c.send(&o, &connection, CLOSE, &[]);
                     break;
                 }
             }
@@ -219,12 +304,13 @@ fn attach(conns: &Arc<Conns>, out: &Out, id: u32, rx: Receiver<Op>, stream: TcpS
 /// connection over `out`, until asagiri-win goes, and the listeners with it.
 pub fn listen_side(input: impl Read, out: &Out) -> io::Result<()> {
     let conns = Arc::new(Conns::default());
+    let _close = CloseAll(conns.clone());
     let next = Arc::new(AtomicU32::new(1));
     let mut listening: HashMap<u16, u16> = HashMap::new();
     let mut r = BufReader::with_capacity(CHUNK, input);
     while let Some((kind, id, data)) = read_frame(&mut r)? {
         if kind != LISTEN {
-            conns.dispatch(kind, id, data);
+            conns.dispatch(out, kind, id, data)?;
             continue;
         }
         let Some(target) = port_of(&data, 0) else { continue };
@@ -248,17 +334,42 @@ pub fn listen_side(input: impl Read, out: &Out) -> io::Result<()> {
 /// Listens on the distro's loopback for `target`; its port.
 fn listen(target: u16, conns: &Arc<Conns>, out: &Out, next: &Arc<AtomicU32>) -> io::Result<u16> {
     let l = TcpListener::bind(("127.0.0.1", 0))?;
+    l.set_nonblocking(true)?;
     let port = l.local_addr()?.port();
+    {
+        let mut state = conns.state();
+        if state.closed {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        state.listeners.insert(port, l);
+    }
     let (conns, out, next) = (conns.clone(), out.clone(), next.clone());
     std::thread::spawn(move || {
-        for s in l.incoming() {
-            let Ok(s) = s else { continue };
+        loop {
+            let accepted = {
+                let state = conns.state();
+                let Some(listener) = state.listeners.get(&port) else { return };
+                listener.accept()
+            };
+            let stream = match accepted {
+                Ok((stream, _)) => stream,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    conns.state().listeners.remove(&port);
+                    return;
+                }
+            };
             let id = next.fetch_add(1, Ordering::SeqCst);
-            let rx = conns.open(id);
-            if send(&out, OPEN, id, &target.to_be_bytes()).is_err() {
-                return;
+            let Some((connection, rx)) = conns.open(id) else { continue };
+            if stream.set_nonblocking(false).is_err() {
+                conns.close(&connection);
+                continue;
             }
-            attach(&conns, &out, id, rx, s);
+            attach(&conns, &out, connection, rx, stream, Some(target));
         }
     });
     Ok(port)
@@ -268,23 +379,23 @@ fn listen(target: u16, conns: &Arc<Conns>, out: &Out, next: &Arc<AtomicU32>) -> 
 /// on the ports `allowed` names, and hands LISTENING replies to `listening`.
 pub fn dial_side(input: impl Read, out: &Out, allowed: impl Fn(u16) -> bool, listening: impl Fn(u16, u16)) -> io::Result<()> {
     let conns = Arc::new(Conns::default());
+    let _close = CloseAll(conns.clone());
     let mut r = BufReader::with_capacity(CHUNK, input);
     while let Some((kind, id, data)) = read_frame(&mut r)? {
         match kind {
             OPEN => {
+                let Some((connection, rx)) = conns.open(id) else { continue };
                 let target = port_of(&data, 0).filter(|&p| allowed(p));
                 let Some(target) = target else {
-                    send(out, CLOSE, id, &[])?;
+                    conns.send(out, &connection, CLOSE, &[])?;
                     continue;
                 };
                 // Data that arrives while it dials waits in the queue.
-                let rx = conns.open(id);
                 let (c, o) = (conns.clone(), out.clone());
                 std::thread::spawn(move || match dial(target) {
-                    Ok(s) => attach(&c, &o, id, rx, s),
+                    Ok(s) => attach(&c, &o, connection, rx, s, None),
                     Err(_) => {
-                        c.map().remove(&id);
-                        let _ = send(&o, CLOSE, id, &[]);
+                        let _ = c.send(&o, &connection, CLOSE, &[]);
                     }
                 });
             }
@@ -293,7 +404,7 @@ pub fn dial_side(input: impl Read, out: &Out, allowed: impl Fn(u16) -> bool, lis
                     listening(target, local);
                 }
             }
-            _ => conns.dispatch(kind, id, data),
+            _ => conns.dispatch(out, kind, id, data)?,
         }
     }
     Ok(())
@@ -452,5 +563,123 @@ mod tests {
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let mut buf = [0u8; 1];
         assert!(matches!(c.read(&mut buf), Ok(0) | Err(_)));
+    }
+}
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use std::sync::mpsc::TryRecvError;
+
+    #[test]
+    fn duplicate_and_stale_owners_cannot_close_replacements() {
+        let conns = Conns::default();
+        let (mut input, output) = io::pipe().unwrap();
+        let out: Out = Arc::new(Mutex::new(output));
+        let (original, rx) = conns.open(7).unwrap();
+        assert!(conns.open(7).is_none());
+        conns.dispatch(&out, CLOSE, 7, vec![]).unwrap();
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
+        let (replacement, rx) = conns.open(7).unwrap();
+        assert!(!conns.close(&original));
+        conns.send(&out, &original, CLOSE, &[]).unwrap();
+        conns.dispatch(&out, DATA, 7, vec![1]).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(Op::Data(data)) if data == [1]));
+        assert!(conns.close(&replacement));
+        let (_, rx) = conns.open(7).unwrap();
+        conns.close_all();
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
+        assert!(conns.open(8).is_none());
+        drop(out);
+        assert_eq!(read_frame(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn full_queue_releases_only_its_connection() {
+        let conns = Conns::default();
+        let (mut input, output) = io::pipe().unwrap();
+        let out: Out = Arc::new(Mutex::new(output));
+        let (_blocked, rx) = conns.open(1).unwrap();
+        let (other, _) = conns.open(2).unwrap();
+        for _ in 0..=QUEUE {
+            conns.dispatch(&out, DATA, 1, vec![1]).unwrap();
+        }
+        assert_eq!(read_frame(&mut input).unwrap(), Some((CLOSE, 1, vec![])));
+        assert_eq!(rx.into_iter().count(), QUEUE);
+        assert!(conns.state().owns(&other));
+    }
+
+    #[test]
+    fn distinguishes_clean_eof_and_truncated_frames() {
+        assert_eq!(read_frame(&mut &[][..]).unwrap(), None);
+        for truncated in [&[DATA][..], &[DATA, 0, 0, 0, 1, 0, 0, 0, 1][..]] {
+            assert_eq!(read_frame(&mut &truncated[..]).unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quiet_proxy_is_closed_and_workers_release_output() {
+        use std::os::unix::net::UnixStream;
+        use std::time::Instant;
+
+        for tail in [&[][..], &[DATA][..]] {
+            let proxy = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let address = proxy.local_addr().unwrap();
+            let (input, mut commands) = UnixStream::pair().unwrap();
+            let (output, mut replies) = UnixStream::pair().unwrap();
+            replies.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let out: Out = Arc::new(Mutex::new(output));
+            let output_lifetime = Arc::downgrade(&out);
+            let (finished, result) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                finished.send(dial_side(input, &out, |p| p == address.port(), |_, _| {})).unwrap();
+            });
+            write_frame(&mut commands, OPEN, 1, &address.port().to_be_bytes()).unwrap();
+            proxy.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut socket = loop {
+                match proxy.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => panic!("proxy accept: {e}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            socket.write_all(b"ready").unwrap();
+            assert_eq!(read_frame(&mut replies).unwrap(), Some((DATA, 1, b"ready".to_vec())));
+            commands.write_all(tail).unwrap();
+            commands.shutdown(Shutdown::Write).unwrap();
+            let relay_result = result.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(relay_result.err().map(|e| e.kind()), (!tail.is_empty()).then_some(io::ErrorKind::UnexpectedEof));
+            let closed = socket.read(&mut [0]);
+            assert!(matches!(closed, Ok(0)) || matches!(closed, Err(ref e) if e.kind() == io::ErrorKind::ConnectionReset), "{closed:?}");
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while output_lifetime.strong_count() > 0 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(output_lifetime.strong_count(), 0);
+        }
+    }
+
+    #[test]
+    fn listener_port_is_released_on_eof_and_read_error() {
+        TcpListener::bind(("127.0.0.1", 0)).expect("loopback bind required");
+        for tail in [&[][..], &[DATA][..]] {
+            let (mut replies, output) = io::pipe().unwrap();
+            let out: Out = Arc::new(Mutex::new(output));
+            let mut frames = Vec::new();
+            write_frame(&mut frames, LISTEN, 0, &7892u16.to_be_bytes()).unwrap();
+            frames.extend_from_slice(tail);
+            let result = listen_side(frames.as_slice(), &out);
+            assert_eq!(result.err().map(|err| err.kind()), (!tail.is_empty()).then_some(io::ErrorKind::UnexpectedEof));
+            let (_, _, data) = read_frame(&mut replies).unwrap().unwrap();
+            let port = port_of(&data, 2).unwrap();
+            assert_ne!(port, 0);
+            assert!(TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(500)).is_err());
+        }
     }
 }
