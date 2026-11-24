@@ -74,7 +74,11 @@ jobs:
           }
           python -m pip install pywinauto==0.6.9
           if ($LASTEXITCODE) { throw 'UI Automation driver installation failed' }
-          $process = Start-Process $env:PICKER_APP -PassThru
+          $runtime = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" -ErrorAction Stop | Sort-Object { [version]$_.Directory.Name } -Descending | Select-Object -First 1
+          $env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = $runtime.Directory.FullName
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP 'wizard-webview-profile'
+          Write-Host "Using WebView2 runtime $($runtime.VersionInfo.FileVersion)"
+          $process = Start-Process $env:PICKER_APP -WorkingDirectory (Split-Path $env:PICKER_APP) -PassThru
           @'
           import sys, time
           from pywinauto import Desktop
@@ -114,6 +118,9 @@ jobs:
           '@ | python - $process.Id
           if ($LASTEXITCODE) {
             Write-Host "Launcher PID $($process.Id) exited=$($process.HasExited) code=$($process.ExitCode)"
+            $process.Refresh()
+            Write-Host "Launcher window=$($process.MainWindowTitle) handle=$($process.MainWindowHandle) session=$($process.SessionId)"
+            try { (Invoke-WebRequest 'http://127.0.0.1:9222/json/version' -TimeoutSec 3).Content } catch { Write-Host $_.Exception.Message }
             Get-Content "$env:LOCALAPPDATA\Asagiri\asagiri-win.log" -Tail 80 -ErrorAction SilentlyContinue
             Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Select-Object Id,SessionId,Path
             throw 'Wizard interaction failed'
