@@ -40,6 +40,18 @@ pub(super) fn request_at(pipe: &str, path: &str, limit: Duration) -> io::Result<
     super::health_response::read(connection)
 }
 
+/// Share one deadline across connection attempts, responses and retry sleeps.
+pub(super) fn wait_for_ready(pipe: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if request_at(pipe, "/_ping", remaining).is_ok_and(|reply| reply.ok()) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100).min(deadline.saturating_duration_since(Instant::now())));
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,6 +94,20 @@ mod tests {
         thread.join().unwrap();
         assert_eq!(response.err().unwrap().kind(), io::ErrorKind::TimedOut);
         assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+    }
+
+    #[test]
+    fn readiness_retries_share_the_stalled_pipe_deadline() {
+        let (name, release, thread) = server(|_pipe, released| {
+            let _ = released.recv_timeout(Duration::from_secs(3));
+        });
+        let began = Instant::now();
+        let ready = wait_for_ready(&name, Duration::from_millis(150));
+        let elapsed = began.elapsed();
+        drop(release);
+        thread.join().unwrap();
+        assert!(!ready);
+        assert!(elapsed >= Duration::from_millis(140) && elapsed < Duration::from_secs(2), "{elapsed:?}");
     }
 
     #[test]
