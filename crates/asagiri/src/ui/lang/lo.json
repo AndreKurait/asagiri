@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— ສະຕຣີມບັນທຶກສິ້ນສຸດແລ້ວ —",
   "‹ Back": "‹ ກັບຄືນ",
   "★ Star on GitHub": "★ ໃຫ້ດາວໃນ GitHub",
-  "✓ Installed": "✓ ຕິດຕັ້ງແລ້ວ"
+  "✓ Installed": "✓ ຕິດຕັ້ງແລ້ວ",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "ຊື່ໃໝ່ຕ້ອງໄດ້ຮັບອະນຸມັດ. ຖ້າຊື່ຂອງທ່ານຍັງບໍ່ພ້ອມ, Asagiri ຈະໃຊ້ທີ່ຢູ່ຊົ່ວຄາວ.",
+  "Share with a name": "ແບ່ງປັນດ້ວຍຊື່",
+  "This name is waiting for review. You can use this link in the meantime.": "ຊື່ນີ້ກຳລັງລໍຖ້າການກວດສອບ. ໃນລະຫວ່າງນີ້ ທ່ານສາມາດໃຊ້ລິ້ງນີ້ໄດ້."
 }

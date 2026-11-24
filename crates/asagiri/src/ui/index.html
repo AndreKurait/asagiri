@@ -2119,6 +2119,9 @@ main > .sh-pane { flex: 1; min-height: 0; display: flex; flex-direction: column;
 .sh-linkbox { width: 100%; min-width: 0; display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-block: 6px; padding-inline: 12px 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); }
 .sh-linkbox > svg { width: 15px; height: 15px; color: var(--blue-light); flex: none; }
 .sh-linkbox span { flex: 1; min-width: 0; text-align: var(--start); font: 500 var(--fs-mono) var(--mono-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-user-select: all; user-select: all; }
+.sh-name-label { display: grid; gap: 5px; }
+.sh-name-field { display: flex; align-items: center; gap: 8px; color: var(--muted); font: var(--fs-mono) var(--mono-font); }
+.sh-name-field .field { flex: 1; min-width: 0; font: inherit; }
 .sh-cloud { display: grid; justify-items: center; gap: 6px; margin-bottom: 4px; }
 .sh-cloud svg { width: 46px; height: 46px; color: var(--text); }
 .sh-cloud span { font-size: var(--fs-small); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
@@ -5534,6 +5537,7 @@ function openMenu(button, id, project) {
   // Open lives here now that the row's first button is Restart.
   const domain = c.State === "running" && c.Ports?.length ? localUrl(c, cname(c)) : "";
   if (domain) items.unshift([tr("Open {addr}", { addr: esc(domain) }), `data-open="${esc(domain)}"`]);
+  if (shCanName(c)) items.push([`${tr("Share with a name")}…`, `data-share-name="${esc(id)}"`]);
   if (c.State === "running") items.push([tr("Pause"), `data-c="pause" data-id="${id}"`]);
   if (c.State === "paused") items.push([tr("Resume"), `data-c="unpause" data-id="${id}"`]);
   // A row drawn without Remove (Compose) has none here either; one of a project's can show its service in the file.
@@ -5565,6 +5569,7 @@ document.addEventListener("click", (ev) => {
   const item = ev.target.closest(".menu button");
   if (item) {
     if (item.dataset.ports) openPorts(item.dataset.ports);
+    else if (item.dataset.shareName) shNamePrompt(item.dataset.shareName);
     else if (item.dataset.c) containerAction(item.dataset.c, item.dataset.id);
     else if (item.dataset.g) projectAsk(item.dataset.project, item.dataset.g);
     else composeClick((q) => item.closest(q));
@@ -8841,7 +8846,7 @@ function kStart(key) {
 }
 function kShare(key) {
   if (sh.account?.signedIn) return kStart(key);
-  sh.pending = key;
+  sh.pending = { source: key };
   shSignin();
 }
 /* Share pressed: straight to the one web port; a menu when there's a choice; a
@@ -9294,7 +9299,12 @@ function shEvent(e) {
     shPolling();
     if (e.signedIn) {
       sh.login = null; $("sh-signin")?.remove();
-      if (sh.pending) { (kParse(sh.pending) ? kStart : shStart)(sh.pending); sh.pending = null; }
+      if (sh.pending) {
+        const { source, name } = sh.pending;
+        sh.pending = null;
+        if (kParse(source)) kStart(source);
+        else shStart(source, name);
+      }
       send("shareusage");
     }
   } else if (e.type === "sharelogin") {
@@ -9334,7 +9344,7 @@ function shEvent(e) {
     const it = sh.items.get(e.id) || { id: e.id, requests: 0, in: 0, out: 0, wave: new Array(SH_BARS).fill(0), last: null };
     // Once Disconnect is pressed, only the link's end changes what it shows.
     const stopping = it.state === "stopping" && e.state !== "ended";
-    for (const k of ["source", "target", "name", "state", "url", "reason", "error"]) if (e[k] !== undefined && !(stopping && k === "state")) it[k] = e[k];
+    for (const k of ["source", "target", "name", "namePending", "state", "url", "reason", "error"]) if (e[k] !== undefined && !(stopping && k === "state")) it[k] = e[k];
     if (e.state === "live" && !stopping) {
       it.reason = ""; it.error = false; it.liveAt = Date.now();
       starMoment(tr("Your link for {name} is live.", { name: it.source }));
@@ -9678,7 +9688,7 @@ function shSignin() {
       else if (ev.target.closest("[data-shcopy]")) { send("copy", { name: ev.target.closest("[data-shcopy]").dataset.shcopy }); copiedBtn(ev.target.closest("[data-shcopy]")); }
     });
   }
-  const what = sh.pending ? `<b>${esc(sh.pending)}</b>` : tr("a container");
+  const what = sh.pending ? `<b>${esc(sh.pending.source)}</b>` : tr("a container");
   const gh = `<svg class="i" viewBox="0 0 256 256"><path d="${PH.github}"/></svg>`;
   // An alert like the others: the blue "i" on the left, GitHub the main button.
   scrim.innerHTML = `<div class="dialog alert sh-in" role="dialog" aria-modal="true" aria-labelledby="sh-in-t">${alertIco("info")}${sh.login
@@ -9782,6 +9792,7 @@ function shCardOne(it) {
     <p>${tr("Anyone with this link can open it while Asagiri is running.")}</p>
     ${host ? `<div class="sh-linkbox">${shSvg("link")}<span title="${esc(it.url)}">${esc(host)}</span>
       <button class="btn sm" data-mcopy>${tr("Copy")}</button><button class="btn sm" data-mopen>${tr("Open")}</button></div>` : ""}
+    ${live && it.namePending && host.split(".")[0] !== it.name ? `<p class="sh-popnote">${shSvg("info")}${tr("This name is waiting for review. You can use this link in the meantime.")}</p>` : ""}
     ${live && it.warning ? `<p class="sh-popnote">${shSvg("info")}${tr("Browsers see a short Share server notice page first.")}<button class="linkish" data-mnotice title="${SH_NOTICE_URL}">${tr("See it ↗")}</button></p>` : ""}
     ${live ? `<div class="sh-feed" id="sh-feed">${shFeed(it, 4)}</div>` : ""}
     <div class="sh-dlg-foot"><button class="linkish danger" data-mstop>${tr("Stop sharing")}</button><span class="spacer"></span>
@@ -9838,16 +9849,56 @@ function shStatusItem() {
   return `<button class="item sh-sb${n ? " on" : ""}${only}${$("sh-modal") ? " open" : ""}" data-shstatus title="${n ? esc(ext ? shSplit() : tr("{n} shared", { n })) : tr("Share")}">${n ? `${shGlobes()}<span>${text}</span>` : shSvg("globe")}</button><span class="sep">·</span>`;
 }
 
-function shStart(name) {
-  sh.starting.add(name); sh.reveal.add(name);
-  send("share", { name, value: "" });
+function shStart(source, name = "") {
+  sh.starting.add(source); sh.reveal.add(source);
+  if (name) send("share", { name: source, value: name, action: "reserve" });
+  else send("share", { name: source, value: "" });
   if (ui.view === "containers" || ui.view === "compose") render();
 }
 
-function shShare(name) {
-  if (sh.account?.signedIn) return shStart(name);
-  sh.pending = name;
+function shShare(source, name = "") {
+  if (sh.account?.signedIn) return shStart(source, name);
+  sh.pending = { source, name };
   shSignin();
+}
+
+function shCanName(c) {
+  if (!shareOn() || c?.State !== "running" || isAsagiriK8s(c)) return false;
+  const name = cname(c);
+  return !sh.starting.has(name) && !shFor(name) && !shCliFor(c, name);
+}
+
+function shNamePrompt(id) {
+  const container = () => ui.containers.find((c) => c.Id === id);
+  if ($("sh-name") || !shCanName(container())) return;
+  const scrim = document.createElement("div");
+  scrim.className = "scrim"; scrim.id = "sh-name";
+  scrim.innerHTML = `<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="sh-name-title">
+    <h3 id="sh-name-title">${tr("Share with a name")}</h3>
+    <label class="sh-name-label">${tr("Name")}
+      <span class="sh-name-field" dir="ltr"><input class="field" placeholder="demo" maxlength="63" required
+        pattern="[a-zA-Z0-9](?:[a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?" autocomplete="off" autocapitalize="none"
+        spellcheck="false" aria-describedby="sh-name-help"></span>
+    </label>
+    <p id="sh-name-help">${tr("New names need approval. If yours isn't ready, Asagiri uses a temporary address.")}</p>
+    <div class="row-end"><span></span><span><button type="button" class="btn" data-close>${tr("Cancel")}</button>
+      <button class="btn primary" type="submit">${tr("Share")}</button></span></div></form>`;
+  const field = scrim.querySelector("input");
+  const close = () => { scrim.remove(); document.querySelector(`[data-more="${CSS.escape(id)}"]`)?.focus(); };
+  scrim.addEventListener("click", (ev) => { if (ev.target === scrim || ev.target.closest("[data-close]")) close(); });
+  scrim.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { ev.stopPropagation(); close(); }
+  });
+  scrim.querySelector("form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const c = container(), name = field.value.toLowerCase();
+    close();
+    if (!shCanName(c)) return;
+    if (shPub(c)) shShare(cname(c), name);
+    else shPublishThen(c, cname(c), name);
+  });
+  document.body.append(scrim);
+  field.focus();
 }
 
 /* The Share button on a running container with a published port (Asagiri Dev only);
@@ -9888,39 +9939,40 @@ function shareCell(c, name) {
   const bad = [...sh.items.values()].find((x) => x.state === "ended" && x.error && x.source === name && Date.now() - (x.failedAt || 0) < SH_FAILED_MS);
   // Shake only the first time it's drawn: the list redraws often.
   const shake = bad && !sh.shook.has(bad.id) ? (sh.shook.add(bad.id), " shake") : "";
-  if (bad) return `<button class="shc bad${shake}" data-shretry="${esc(name)}" title="${esc(bad.capText || bad.reason || tr("Couldn't share"))}${bad.capText ? "" : "."} ${tr("Press to try again")}">${g}<span class="shw">${tr("Couldn't share")}</span></button>`;
+  if (bad) return `<button class="shc bad${shake}" data-shretry="${esc(name)}" data-shrequested="${typeof bad.namePending === "boolean" ? esc(bad.name || "") : ""}" title="${esc(bad.capText || bad.reason || tr("Couldn't share"))}${bad.capText ? "" : "."} ${tr("Press to try again")}">${g}<span class="shw">${tr("Couldn't share")}</span></button>`;
   return `<button class="shc" ${shAt(c, name)} aria-label="${tr("Share {name}", { name: esc(name) })}">${g}<span class="shw">${tr("Share")}</span></button>`;
 }
 
 /* Share on a running container that publishes nothing: ask what it listens
    on, publish that (as Run's offer does), and share once the port is up. */
 const shPublishing = new Map();
-function shPublishThen(c, name) {
-  shPublishing.set(c.Id, name); sh.starting.add(name); render();
+function shPublishThen(c, source, name = "") {
+  const pending = { source, name };
+  shPublishing.set(c.Id, pending); sh.starting.add(source); render();
   send("listening", { id: c.Id });
   // An older engine never answers; don't spin for good.
-  setTimeout(() => { if (shPublishing.get(c.Id) === name) shPublishFail(c.Id, tr("Couldn't share {name}: Asagiri couldn't tell which port it listens on. Publish one from its page.", { name })); }, 10000);
+  setTimeout(() => { if (shPublishing.get(c.Id) === pending) shPublishFail(c.Id, tr("Couldn't share {name}: Asagiri couldn't tell which port it listens on. Publish one from its page.", { name: source })); }, 10000);
 }
 function shPublishFail(id, text) {
-  const name = shPublishing.get(id);
-  shPublishing.delete(id); sh.starting.delete(name);
+  const { source } = shPublishing.get(id);
+  shPublishing.delete(id); sh.starting.delete(source);
   toast("error", text); render();
 }
 /* The ports it listens on arrived: publish them, or say there are none. */
 function shPublishListening(e) {
   if (!shPublishing.has(e.id)) return false;
-  if (!e.ports.length) { shPublishFail(e.id, tr("{name} isn't listening on a port yet, so there's nothing to share. Try again once it's up.", { name: shPublishing.get(e.id) })); return true; }
+  if (!e.ports.length) { shPublishFail(e.id, tr("{name} isn't listening on a port yet, so there's nothing to share. Try again once it's up.", { name: shPublishing.get(e.id).source })); return true; }
   publishListening(e.id);
   return true;
 }
 /* Its port is published: now share it. */
 function shPublished() {
-  for (const [id, name] of shPublishing) {
+  for (const [id, { source, name }] of shPublishing) {
     const c = ui.containers.find((x) => x.Id === id);
-    if (!c || c.State !== "running") { shPublishFail(id, tr("Couldn't share {name}: it stopped", { name })); continue; }
+    if (!c || c.State !== "running") { shPublishFail(id, tr("Couldn't share {name}: it stopped", { name: source })); continue; }
     if (!shPub(c)) continue;
-    shPublishing.delete(id); sh.starting.delete(name);
-    shShare(name);
+    shPublishing.delete(id); sh.starting.delete(source);
+    shShare(source, name);
   }
 }
 const shareChip = (name) => { const it = shFor(name); return it?.url ? `<button class="sh-chip" data-shopen="${it.id}" title="${tr("Open {name}", { name: esc(it.url) })}"><span class="sh-led"></span><span>${esc(it.url.replace(/^https:\/\//, ""))}</span></button>` : ""; };
@@ -9936,7 +9988,7 @@ function shClicks(ev) {
   else if ((el = t("[data-shpub]"))) { const c = ui.containers.find((x) => x.Id === el.dataset.shpub); if (c) shPublishThen(c, cname(c)); }
   else if ((el = t("[data-shretry]"))) {
     for (const [id, x] of sh.items) if (x.state === "ended" && x.error && x.source === el.dataset.shretry) sh.items.delete(id);
-    shShare(el.dataset.shretry);
+    shShare(el.dataset.shretry, el.dataset.shrequested);
   }
   else if ((el = t("[data-shmodal]"))) shModal(el.dataset.shmodal);
   else if ((el = t("[data-shopen]"))) send("shareopen", { id: el.dataset.shopen });
@@ -9952,7 +10004,17 @@ function shClicks(ev) {
     send("copy", { name: el.dataset.shcopy }); copiedBtn(el);
   }
   else if ((el = t("[data-shpause]"))) { const it = sh.items.get(Number(el.dataset.shpause)); if (it) { it.paused = true; send("unshare", { id: String(it.id) }); renderShare(); } }
-  else if ((el = t("[data-shresume]"))) { const it = sh.items.get(Number(el.dataset.shresume)); if (it) { sh.resuming = { id: it.id, source: it.source }; it.paused = false; it.state = "connecting"; if (kParse(it.source)) kStart(it.source); else send("share", { name: it.source, value: (it.url || "").replace(/^https:\/\//, "").split(".")[0] }); renderShare(); } }
+  else if ((el = t("[data-shresume]"))) {
+    const it = sh.items.get(Number(el.dataset.shresume));
+    if (!it) return;
+    const retry = it.state === "ended" && typeof it.namePending === "boolean" && it.name;
+    sh.resuming = { id: it.id, source: it.source };
+    it.paused = false; it.state = "connecting";
+    if (kParse(it.source)) kStart(it.source);
+    else if (retry) shStart(it.source, it.name);
+    else send("share", { name: it.source, value: (it.url || "").replace(/^https:\/\//, "").split(".")[0] });
+    renderShare();
+  }
   else if (t("[data-shclose]")) { sh.open = null; renderShare(); }
   else if ((el = t("[data-shstop]"))) shStop(el.dataset.shstop);
   else if ((el = t(".sh-row[data-shrow]")) && !t("button")) { sh.open = Number(el.dataset.shrow); sh.q = ""; sh.st = ""; renderShare(); }

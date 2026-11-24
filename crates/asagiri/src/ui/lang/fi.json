@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— lokivirta päättyi —",
   "‹ Back": "‹ Takaisin",
   "★ Star on GitHub": "★ Tähti GitHubissa",
-  "✓ Installed": "✓ Asennettu"
+  "✓ Installed": "✓ Asennettu",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Uudet nimet on hyväksyttävä. Jos nimesi ei ole vielä käytettävissä, Asagiri käyttää tilapäistä osoitetta.",
+  "Share with a name": "Jaa nimellä",
+  "This name is waiting for review. You can use this link in the meantime.": "Tämä nimi odottaa tarkistusta. Voit sillä välin käyttää tätä linkkiä."
 }

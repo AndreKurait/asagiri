@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— luồng nhật ký đã kết thúc —",
   "‹ Back": "‹ Quay lại",
   "★ Star on GitHub": "★ Gắn sao trên GitHub",
-  "✓ Installed": "✓ Đã cài đặt"
+  "✓ Installed": "✓ Đã cài đặt",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Tên mới cần được phê duyệt. Nếu tên của bạn chưa sẵn sàng, Asagiri sẽ dùng địa chỉ tạm thời.",
+  "Share with a name": "Chia sẻ bằng tên",
+  "This name is waiting for review. You can use this link in the meantime.": "Tên này đang chờ xét duyệt. Bạn có thể dùng liên kết này trong lúc chờ."
 }

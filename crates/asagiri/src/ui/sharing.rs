@@ -23,6 +23,8 @@ struct Link {
     source: String,
     target: String,
     name: Option<String>,
+    starting_named_share: bool,
+    name_pending: Option<bool>,
     url: Option<String>,
     state: &'static str,
     requests: u64,
@@ -66,7 +68,10 @@ pub fn list() {
     let links: Vec<Value> = with_links(|m| {
         let mut v: Vec<_> = m
             .iter()
-            .map(|(id, l)| json!({"id": id, "source": l.source, "target": l.target, "name": l.name, "url": l.url, "state": l.state, "requests": l.requests, "in": l.bytes_in, "out": l.bytes_out}))
+            .map(|(id, l)| json!({
+                "id": id, "source": l.source, "target": l.target, "name": l.name, "namePending": l.name_pending,
+                "url": l.url, "state": l.state, "requests": l.requests, "in": l.bytes_in, "out": l.bytes_out,
+            }))
             .collect();
         v.sort_by_key(|x| x["id"].as_u64());
         v
@@ -110,9 +115,9 @@ fn event(id: u64, ev: share::Event) -> Value {
 
 /// Opens a link to `target` (a port, `host:port` or a container name),
 /// optionally asking for `name` as the first label of its hostname.
-pub fn open(target: String, name: String) {
+pub fn open(target: String, name: String, reserve: bool) {
     let source = target.trim().to_owned();
-    start(source.clone(), name, move || resolve(&source).map(|t| (t, None)));
+    start(source.clone(), name, reserve, move || resolve(&source).map(|t| (t, None)));
 }
 
 /// A port, `host:port` or a container name, the container looked up
@@ -147,7 +152,7 @@ fn browser(url: &str) {
 /// suggested first label.
 pub fn open_k8s(source: String, ip: String, port: u16, label: String, name: String) {
     let shown = source.clone();
-    start(source, name, move || {
+    start(source, name, false, move || {
         let r = crate::client::request("POST", "/asagiri/k8s/forward", Some(&json!({"ip": ip, "port": port})))?;
         if r.status == 404 {
             return Err(std::io::Error::other("this Asagiri engine can't reach Kubernetes services yet; restart Asagiri"));
@@ -169,17 +174,41 @@ fn unforward(port: Option<u16>) {
     }
 }
 
-fn start(source: String, name: String, resolve: impl FnOnce() -> std::io::Result<(share::Target, Option<u16>)> + Send + 'static) {
+fn start(
+    source: String,
+    name: String,
+    reserve: bool,
+    resolve: impl FnOnce() -> std::io::Result<(share::Target, Option<u16>)> + Send + 'static,
+) {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     let name = Some(name.trim().to_owned()).filter(|n| !n.is_empty());
     std::thread::spawn(move || {
         let (resolved, forward) = match resolve() {
             Ok(t) => t,
-            Err(e) => return emit(json!({"type": "share", "id": id, "source": source, "target": source, "state": "ended", "reason": e.to_string(), "error": true}).to_string()),
+            Err(e) => return emit(json!({
+                "type": "share", "id": id, "source": source, "target": source, "name": name,
+                "namePending": reserve.then_some(false), "state": "ended", "reason": e.to_string(), "error": true,
+            }).to_string()),
         };
         let shown = resolved.display.clone();
-        with_links(|m| m.insert(id, Link { source: source.clone(), target: shown.clone(), name: name.clone(), url: None, state: "connecting", requests: 0, bytes_in: 0, bytes_out: 0, handle: None, forward }));
+        with_links(|m| m.insert(id, Link {
+            source: source.clone(), target: shown.clone(), name: name.clone(),
+            starting_named_share: reserve && name.is_some(), name_pending: None, url: None,
+            state: "connecting", requests: 0, bytes_in: 0, bytes_out: 0, handle: None, forward,
+        }));
         emit(json!({"type": "share", "id": id, "source": source, "target": shown, "name": name, "state": "connecting"}).to_string());
+        if let Some(name) = name.as_deref().filter(|_| reserve) {
+            let pending = matches!(share::auto_reserve(name), Ok(share::AutoReserve::Requested(_) | share::AutoReserve::Waiting));
+            let still_open = with_links(|m| {
+                let Some(link) = m.get_mut(&id) else { return false };
+                link.name_pending = Some(pending);
+                true
+            });
+            if !still_open {
+                return;
+            }
+            emit(json!({"type": "share", "id": id, "namePending": pending}).to_string());
+        }
         let started = share::start(share::Options { target: resolved, name, app: true }, move |ev| {
             if let share::Event::Request(r) = &ev {
                 for (n, add) in SERVED.iter().zip([1, r.bytes_in, r.bytes_out]) {
@@ -219,6 +248,7 @@ fn start(source: String, name: String, resolve: impl FnOnce() -> std::io::Result
             Ok(h) => {
                 let leftover = with_links(|m| match m.get_mut(&id) {
                     Some(l) => {
+                        l.starting_named_share = false;
                         l.handle = Some(h);
                         None
                     }
@@ -236,9 +266,23 @@ fn start(source: String, name: String, resolve: impl FnOnce() -> std::io::Result
     });
 }
 
+fn end_name_check(id: u64, link: Link) {
+    unforward(link.forward);
+    emit(event(id, share::Event::Ended { reason: String::new(), error: false }).to_string());
+}
+
 /// Closes a link; its last event is `ended`.
 pub fn close(id: u64) {
-    let handle = with_links(|m| m.get_mut(&id).and_then(|l| l.handle.take()));
+    let (checking, handle) = with_links(|m| {
+        if m.get(&id).is_some_and(|l| l.starting_named_share) {
+            (m.remove(&id), None)
+        } else {
+            (None, m.get_mut(&id).and_then(|l| l.handle.take()))
+        }
+    });
+    if let Some(link) = checking {
+        end_name_check(id, link);
+    }
     if let Some(h) = handle {
         std::thread::spawn(move || h.stop());
     }
@@ -248,7 +292,14 @@ pub fn close(id: u64) {
 /// `asagiri share` on this computer (the account's tunnels with this machine's
 /// id), so nothing stays public while Asagiri is off.
 pub fn close_all() {
-    let handles: Vec<share::Handle> = with_links(|m| m.values_mut().filter_map(|l| l.handle.take()).collect());
+    let (checking, handles) = with_links(|m| {
+        let checking: Vec<_> = m.extract_if(|_, l| l.starting_named_share).collect();
+        let handles: Vec<_> = m.values_mut().filter_map(|l| l.handle.take()).collect();
+        (checking, handles)
+    });
+    for (id, link) in checking {
+        end_name_check(id, link);
+    }
     std::thread::spawn(move || {
         for h in handles {
             h.stop();

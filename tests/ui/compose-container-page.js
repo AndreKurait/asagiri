@@ -35,7 +35,7 @@ t("from the Compose list: its page opens in Compose, the sidebar on Compose", ()
 t("no Remove on the page; its ⋯ has Show in compose file, and no Remove", () => {
   eq([document.querySelectorAll('#content [data-c="remove"]').length, acts().includes("Remove")], [0, false], "no Remove");
   click($c(".dacts [data-more]"));
-  eq(menu(), ["Ports…", "Pause", "Show in compose file"], "⋯");
+  eq(menu(), ["Ports…", "Share with a name…", "Pause", "Show in compose file"], "⋯");
   click([...document.querySelectorAll(".menu button")].find((b) => b.textContent === "Show in compose file"));
   eq([ui.view, ui.detail, cmp.open, cmp.tab], ["compose", null, "shop", "file"], "the project's file");
   cmp.open = null; render();
@@ -82,7 +82,7 @@ t("a loose container's page is as before: Containers › name, Remove", () => {
   eq(crumb(), ["link Containers", "solo"], "the breadcrumb");
   eq(acts().includes("Remove"), true, "Remove");
   click($c(".dacts [data-more]"));
-  eq(menu(), ["Ports…", "Pause", "Remove (danger)"], "⋯");
+  eq(menu(), ["Ports…", "Share with a name…", "Pause", "Remove (danger)"], "⋯");
   closeMenu();
   click(document.querySelector("#title [data-back]"));
   eq([ui.view, ui.detail, !!$c('tr[data-key="solo"]')], ["containers", null, true], "back to Containers");

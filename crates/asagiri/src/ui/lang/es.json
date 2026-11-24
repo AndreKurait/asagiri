@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— el flujo del log terminó —",
   "‹ Back": "‹ Atrás",
   "★ Star on GitHub": "★ Estrella en GitHub",
-  "✓ Installed": "✓ Instalado"
+  "✓ Installed": "✓ Instalado",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Los nombres nuevos necesitan aprobación. Si tu nombre aún no está disponible, Asagiri usa una dirección temporal.",
+  "Share with a name": "Compartir con un nombre",
+  "This name is waiting for review. You can use this link in the meantime.": "Este nombre está pendiente de revisión. Mientras tanto, puedes usar este enlace."
 }

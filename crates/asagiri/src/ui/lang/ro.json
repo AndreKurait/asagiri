@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— fluxul de jurnal s-a încheiat —",
   "‹ Back": "‹ Înapoi",
   "★ Star on GitHub": "★ Stea pe GitHub",
-  "✓ Installed": "✓ Instalat"
+  "✓ Installed": "✓ Instalat",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Numele noi trebuie aprobate. Dacă numele tău nu este încă disponibil, Asagiri folosește o adresă temporară.",
+  "Share with a name": "Partajează cu un nume",
+  "This name is waiting for review. You can use this link in the meantime.": "Acest nume este în curs de verificare. Între timp, poți folosi acest link."
 }

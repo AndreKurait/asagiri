@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— proud protokolu skončil —",
   "‹ Back": "‹ Zpět",
   "★ Star on GitHub": "★ Hvězdička na GitHubu",
-  "✓ Installed": "✓ Nainstalováno"
+  "✓ Installed": "✓ Nainstalováno",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nové názvy musí být schváleny. Pokud název ještě není připraven, Asagiri použije dočasnou adresu.",
+  "Share with a name": "Sdílet s názvem",
+  "This name is waiting for review. You can use this link in the meantime.": "Tento název čeká na schválení. Mezitím můžete použít tento odkaz."
 }

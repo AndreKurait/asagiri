@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— ログストリームが終了しました —",
   "‹ Back": "‹ 戻る",
   "★ Star on GitHub": "★ GitHub でスター",
-  "✓ Installed": "✓ インストール済み"
+  "✓ Installed": "✓ インストール済み",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "新しい名前には承認が必要です。名前がまだ使えない場合、Asagiri は一時的なアドレスを使用します。",
+  "Share with a name": "名前を指定して共有",
+  "This name is waiting for review. You can use this link in the meantime.": "この名前は審査待ちです。その間はこのリンクを使用できます。"
 }

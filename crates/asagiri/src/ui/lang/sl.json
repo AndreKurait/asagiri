@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— tok dnevnika se je končal —",
   "‹ Back": "‹ Nazaj",
   "★ Star on GitHub": "★ Zvezdica na GitHubu",
-  "✓ Installed": "✓ Nameščeno"
+  "✓ Installed": "✓ Nameščeno",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Nova imena je treba odobriti. Če vaše ime še ni na voljo, Asagiri uporabi začasni naslov.",
+  "Share with a name": "Deli z imenom",
+  "This name is waiting for review. You can use this link in the meantime.": "To ime čaka na pregled. Medtem lahko uporabljate to povezavo."
 }

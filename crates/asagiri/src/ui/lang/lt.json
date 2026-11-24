@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— žurnalo srautas baigėsi —",
   "‹ Back": "‹ Atgal",
   "★ Star on GitHub": "★ Žvaigždutė GitHub",
-  "✓ Installed": "✓ Įdiegta"
+  "✓ Installed": "✓ Įdiegta",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Naujus pavadinimus reikia patvirtinti. Jei jūsų pavadinimas dar nepasiekiamas, „Asagiri“ naudoja laikiną adresą.",
+  "Share with a name": "Bendrinti su pavadinimu",
+  "This name is waiting for review. You can use this link in the meantime.": "Šis pavadinimas laukia patvirtinimo. Kol kas galite naudoti šią nuorodą."
 }

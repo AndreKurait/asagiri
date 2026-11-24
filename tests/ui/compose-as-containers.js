@@ -87,7 +87,7 @@ t("a project's containers have no Remove: no trash, none in ⋯, Show in compose
   eq($$c('tr.member [data-c="remove"], tr.member [data-ksettings]').length, 0, "no trash");
   eq(btns(row("b2")), ["Start it to restart it", "Start", "More actions for blog-worker-1"], "Restart, Start, ⋯");
   click(row("b1").querySelector("[data-more]"));
-  eq(menu(), ["Open http://app.blog.asagiri.localhost", "Ports…", "Pause", "Show in compose file"], "⋯");
+  eq(menu(), ["Open http://app.blog.asagiri.localhost", "Ports…", "Share with a name…", "Pause", "Show in compose file"], "⋯");
   closeMenu();
 });
 t("replicas: one row each", () => {

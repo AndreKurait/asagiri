@@ -1714,7 +1714,7 @@ fn handle(text: &str, tx: &Sender<Cmd>, autostart: bool, view: Option<&str>) {
             Ok(())
         }
         "share" => {
-            sharing::open(msg.name, msg.value.as_str().unwrap_or_default().to_owned());
+            sharing::open(msg.name, msg.value.as_str().unwrap_or_default().to_owned(), msg.action == "reserve");
             Ok(())
         }
         // A Kubernetes service or pod: value {ip, port, label}.

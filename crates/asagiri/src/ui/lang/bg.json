@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— потокът на журнала приключи —",
   "‹ Back": "‹ Назад",
   "★ Star on GitHub": "★ Звезда в GitHub",
-  "✓ Installed": "✓ Инсталирано"
+  "✓ Installed": "✓ Инсталирано",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Новите имена трябва да бъдат одобрени. Ако името ви още не е готово, Asagiri използва временен адрес.",
+  "Share with a name": "Споделяне с име",
+  "This name is waiting for review. You can use this link in the meantime.": "Това име чака одобрение. Междувременно можете да използвате тази връзка."
 }

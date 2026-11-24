@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— లాగ్ స్ట్రీమ్ ముగిసింది —",
   "‹ Back": "‹ వెనుకకు",
   "★ Star on GitHub": "★ GitHubలో స్టార్ ఇవ్వండి",
-  "✓ Installed": "✓ ఇన్‌స్టాల్ అయింది"
+  "✓ Installed": "✓ ఇన్‌స్టాల్ అయింది",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "కొత్త పేర్లకు ఆమోదం అవసరం. మీ పేరు ఇంకా అందుబాటులో లేకపోతే Asagiri తాత్కాలిక చిరునామాను ఉపయోగిస్తుంది.",
+  "Share with a name": "పేరుతో షేర్ చేయండి",
+  "This name is waiting for review. You can use this link in the meantime.": "ఈ పేరు సమీక్ష కోసం వేచి ఉంది. ఈలోపు ఈ లింక్‌ను ఉపయోగించవచ్చు."
 }

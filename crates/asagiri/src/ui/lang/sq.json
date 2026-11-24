@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— rrjedha e regjistrit përfundoi —",
   "‹ Back": "‹ Prapa",
   "★ Star on GitHub": "★ Yll në GitHub",
-  "✓ Installed": "✓ Instaluar"
+  "✓ Installed": "✓ Instaluar",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Emrat e rinj kërkojnë miratim. Nëse emri yt nuk është ende gati, Asagiri përdor një adresë të përkohshme.",
+  "Share with a name": "Ndaj me një emër",
+  "This name is waiting for review. You can use this link in the meantime.": "Ky emër po pret shqyrtimin. Ndërkohë mund të përdorësh këtë lidhje."
 }

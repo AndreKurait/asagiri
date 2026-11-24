@@ -756,7 +756,7 @@ pub fn close_tunnel(name: &str) -> io::Result<()> {
 
 /// What `asagiri PORT --name NAME` did about reserving NAME first.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum AutoReserve {
+pub(crate) enum AutoReserve {
     /// Already this account's.
     Mine,
     /// This account asked for it and it's waiting for review.
@@ -774,8 +774,13 @@ enum AutoReserve {
 /// Reserves NAME when it's free and a slot is left, so `--name` gives the
 /// exact address. Never stops the tunnel: any failure just leaves the edge to
 /// pick the address as before.
-fn auto_reserve(name: &str) -> io::Result<AutoReserve> {
+pub(crate) fn auto_reserve(name: &str) -> io::Result<AutoReserve> {
     let name = name.to_ascii_lowercase();
+    if name.is_empty() || name.len() > 63 || name.starts_with('-') || name.ends_with('-')
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Ok(AutoReserve::Unavailable);
+    }
     let mine = names()?;
     if let Some(n) = mine.items.iter().find(|n| n.name == name) {
         return Ok(if n.pending { AutoReserve::Waiting } else { AutoReserve::Mine });

@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— لێشاوی لۆگ کۆتایی هات —",
   "‹ Back": "‹ گەڕانەوە",
   "★ Star on GitHub": "★ ئەستێرە لە GitHub",
-  "✓ Installed": "✓ دامەزراوە"
+  "✓ Installed": "✓ دامەزراوە",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "ناوە نوێیەکان پێویستیان بە پەسەندکردن هەیە. ئەگەر ناوەکەت ئامادە نەبێت، Asagiri ناونیشانێکی کاتی بەکاردەهێنێت.",
+  "Share with a name": "هاوبەشکردن بە ناو",
+  "This name is waiting for review. You can use this link in the meantime.": "ئەم ناوە چاوەڕێی پێداچوونەوەیە. تا ئەو کاتە دەتوانیت ئەم بەستەرە بەکاربهێنیت."
 }

@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— 記錄串流已結束 —",
   "‹ Back": "‹ 返回",
   "★ Star on GitHub": "★ 在 GitHub 上給 Star",
-  "✓ Installed": "✓ 已安裝"
+  "✓ Installed": "✓ 已安裝",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "新名稱需要審核。如果名稱尚未核准，Asagiri 會使用臨時網址。",
+  "Share with a name": "使用指定名稱分享",
+  "This name is waiting for review. You can use this link in the meantime.": "此名稱正在等待審核。你可以先使用這個連結。"
 }

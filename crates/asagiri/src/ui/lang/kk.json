@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— журнал ағыны аяқталды —",
   "‹ Back": "‹ Артқа",
   "★ Star on GitHub": "★ GitHub-та жұлдызша",
-  "✓ Installed": "✓ Орнатылды"
+  "✓ Installed": "✓ Орнатылды",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Жаңа атауларды мақұлдау қажет. Атауыңыз әлі дайын болмаса, Asagiri уақытша мекенжайды пайдаланады.",
+  "Share with a name": "Атауды таңдап бөлісу",
+  "This name is waiting for review. You can use this link in the meantime.": "Бұл атау қаралуын күтіп тұр. Оған дейін осы сілтемені пайдалана аласыз."
 }

@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— մատյանի հոսքն ավարտվեց —",
   "‹ Back": "‹ Հետ",
   "★ Star on GitHub": "★ Աստղ տալ GitHub-ում",
-  "✓ Installed": "✓ Տեղադրված է"
+  "✓ Installed": "✓ Տեղադրված է",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Նոր անունները հաստատում են պահանջում։ Եթե ձեր անունը դեռ պատրաստ չէ, Asagiri-ն օգտագործում է ժամանակավոր հասցե։",
+  "Share with a name": "Համօգտագործել անունով",
+  "This name is waiting for review. You can use this link in the meantime.": "Այս անունը սպասում է հաստատման։ Մինչ այդ կարող եք օգտագործել այս հղումը։"
 }

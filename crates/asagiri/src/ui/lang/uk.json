@@ -1863,5 +1863,8 @@
   "— the log stream ended —": "— потік журналу завершено —",
   "‹ Back": "‹ Назад",
   "★ Star on GitHub": "★ Зірка на GitHub",
-  "✓ Installed": "✓ Установлено"
+  "✓ Installed": "✓ Установлено",
+  "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Нові назви потребують схвалення. Якщо назва ще недоступна, Asagiri використовує тимчасову адресу.",
+  "Share with a name": "Поділитися з назвою",
+  "This name is waiting for review. You can use this link in the meantime.": "Ця назва очікує на перевірку. Поки що можна користуватися цим посиланням."
 }
