@@ -26,6 +26,10 @@ try {
     function Read-DistroBind {
         $uid = (wsl.exe -d $distro -u builder -- id -u).Trim()
         if ($uid -ne '1001') { throw "Unexpected client uid $uid" }
+        # Capture the effective WSL login groups and permissions on every socket ancestor.
+        # These observations survive fixture cleanup if the following Docker command fails.
+        wsl.exe -d $distro -u builder -- id
+        wsl.exe -d $distro -u root -- stat -c '%a %u:%g %n' /mnt /mnt/wsl /mnt/wsl/asagiri /mnt/wsl/asagiri/sockets /mnt/wsl/asagiri/sockets/Development138 /mnt/wsl/asagiri/sockets/Development138/docker.sock
         $text = wsl.exe -d $distro -u builder -- docker --context asagiri run --rm --network none --mount 'type=bind,src=/home/builder/fixture,dst=/fixture,readonly' $image cat /fixture
         if (($text -join "`n").Trim() -ne 'distro-local') { throw "Wrong distro bind contents: $text" }
     }
