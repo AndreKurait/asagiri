@@ -91,7 +91,10 @@ absent. An unavailable provider can make a missing group indistinguishable
 from an existing directory group. On a directory-managed host, restore the
 provider and retry. On a standalone host where the administrator has confirmed
 that `asagiri` should be a new local group, run `sudo groupadd --system asagiri`
-and select **Start engine** again. Setup handles membership and service installation.
+and verify that `getent group asagiri` returns the new group. If it does not,
+repair the group lookup configuration so it reaches the local group database.
+Once the group resolves, select **Start engine** again. Setup handles membership
+and service installation.
 
 The AppImage does not update a system-installed engine automatically. Continue
 using the package manager for an existing package installation. For an engine
