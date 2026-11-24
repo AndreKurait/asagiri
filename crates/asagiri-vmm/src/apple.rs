@@ -62,7 +62,7 @@ pub enum Event {
 
 #[derive(Debug)]
 pub struct Vm {
-    _disk_lock: Option<std::fs::File>,
+    disk_lock: Option<std::fs::File>,
     queue: DispatchRetained<DispatchQueue>,
     inner: Option<OnQueue<Inner>>,
     events: Receiver<Event>,
@@ -177,7 +177,7 @@ impl Vm {
         });
         let inner = built.expect("build ran synchronously")?;
         let connection = Arc::new(ConnectionOwner { queue: queue.clone(), vm: RwLock::new(Some(OnQueue(inner.0.vm.clone()))) });
-        let vm = Vm { _disk_lock: disk_lock, queue, inner: Some(inner), events, closing: Arc::new(AtomicBool::new(false)), connection: Some(connection) };
+        let vm = Vm { disk_lock, queue, inner: Some(inner), events, closing: Arc::new(AtomicBool::new(false)), connection: Some(connection) };
         match started_rx.recv_timeout(Duration::from_secs(30)) {
             Ok(Ok(())) => Ok(vm),
             Ok(Err(e)) => Err(io::Error::other(format!("VM failed to start: {e}"))),
@@ -251,6 +251,8 @@ impl Vm {
         if let Some(inner) = self.inner.take() {
             self.queue.exec_sync(move || drop(inner));
         }
+        // A retired link can outlive its VM while a successor opens the same disk.
+        self.disk_lock.take();
         Ok(())
     }
 
