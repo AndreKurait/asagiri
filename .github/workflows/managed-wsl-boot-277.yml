@@ -1,7 +1,7 @@
 name: Verify PR 467 installer serves the engine after WSL setup
 on:
   push:
-    branches: [qualification/wsl-install-467]
+    branches: [qualification/wsl-managed-restart-467]
 permissions:
   actions: read
   contents: read
@@ -99,3 +99,10 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
+          Guest rm /tmp/managed241-marker
+          wsl.exe --terminate Managed241
+          if ($LASTEXITCODE) { throw 'Could not terminate test distro' }
+          Guest sh -c 'for i in $(seq 15); do test -f /tmp/managed241-marker && break; sleep 1; done; test -f /tmp/managed241-marker'
+          Write-Host 'Original boot command recreated the marker on restart'
+          Guest sh -c 'for i in $(seq 15); do /tmp/engineping && exit 0; sleep 1; done; cat /etc/wsl.conf; ps; exit 1'
+          Write-Host 'Engine served HTTP after distro restart without a separate launcher'
