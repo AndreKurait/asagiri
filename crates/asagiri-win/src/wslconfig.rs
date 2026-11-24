@@ -28,13 +28,27 @@ pub fn enabled_distros() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn save_enabled_distros(distros: &[String]) -> io::Result<()> {
+// Read the pending cleanup alongside the desired selection, including old files
+// that contain only the enabled list. Do not overwrite an unreadable file.
+fn integration_settings() -> io::Result<(Vec<String>, Vec<String>)> {
+    let path = integration_path().ok_or_else(|| io::Error::other("LOCALAPPDATA is not set"))?;
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), Vec::new())),
+        Err(e) => return Err(e),
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
+    let pending = serde_json::to_vec(&value["pendingDisable"])?;
+    Ok((crate::wslsync::parse_enabled_distros(&bytes), crate::wslsync::parse_enabled_distros(&pending)))
+}
+
+fn save_enabled_distros(distros: &[String], pending: &[String]) -> io::Result<()> {
     let p = integration_path().ok_or_else(|| io::Error::other("LOCALAPPDATA is not set"))?;
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, crate::wslsync::encode_enabled_distros(distros))?;
+    std::fs::write(&tmp, crate::wslsync::encode_enabled_distros(distros, pending))?;
     std::fs::rename(&tmp, &p)
 }
 
@@ -69,10 +83,14 @@ static WSL_SYNC_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Applies the current WSL integration settings to all enabled distros and updates
 /// the daemon's per-distro sockets in `/mnt/wsl/asagiri/sockets/<NAME>/docker.sock`.
-pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Result<()> {
+fn apply_wsl_integration(background: bool) -> io::Result<()> {
     let _guard = WSL_SYNC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let enabled = enabled_distros();
-    if enabled.is_empty() && disabled.is_none() {
+    let (enabled, pending) = integration_settings()?;
+    reconcile_integration(&enabled, &pending, background)
+}
+
+fn reconcile_integration(enabled: &[String], pending: &[String], background: bool) -> io::Result<()> {
+    if enabled.is_empty() && pending.is_empty() {
         if background && crate::client::alive_quick() {
             if let Ok(v) = crate::client::get_background("/asagiri/wsl")
                 && v["distros"].as_array().is_some_and(|a| !a.is_empty())
@@ -91,7 +109,7 @@ pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Re
     let available = user_distros()?;
     let mut active = Vec::new();
     let mut first_err: Option<io::Error> = None;
-    for want in &enabled {
+    for want in enabled {
         let Some(name) = available.iter().find(|a| a.eq_ignore_ascii_case(want)) else {
             continue;
         };
@@ -115,7 +133,10 @@ pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Re
     {
         first_err = Some(e);
     }
-    if let Some(off) = disabled {
+    for off in pending {
+        if !available.iter().any(|name| name.eq_ignore_ascii_case(off)) {
+            continue;
+        }
         let script = crate::wslsync::wsl_disable_script(off, "");
         if let Err(e) = run_distro_script(off, &script) {
             crate::serve::log(&format!("wsl integration disable ({off}): {e}"));
@@ -126,6 +147,7 @@ pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Re
     }
     match first_err {
         Some(e) => Err(e),
+        None if !pending.is_empty() => save_enabled_distros(enabled, &[]),
         None => Ok(()),
     }
 }
@@ -134,7 +156,7 @@ pub fn apply_wsl_integration(disabled: Option<&str>, background: bool) -> io::Re
 /// reconnects to the engine (handling `wsl --shutdown`).
 pub fn sync_wsl_integration_soon() {
     std::thread::spawn(|| {
-        if let Err(e) = apply_wsl_integration(None, true) {
+        if let Err(e) = apply_wsl_integration(true) {
             crate::serve::log(&format!("wsl integration sync: {e}"));
         }
     });
@@ -144,13 +166,22 @@ fn toggle_distro(distro: &str, on: bool) -> io::Result<()> {
     if !crate::wslsync::valid_distro_name(distro) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid WSL distro name"));
     }
-    let mut list = enabled_distros();
+    let _guard = WSL_SYNC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (list, pending) = record_distro_selection(distro, on)?;
+    reconcile_integration(&list, &pending, false)
+}
+
+fn record_distro_selection(distro: &str, on: bool) -> io::Result<(Vec<String>, Vec<String>)> {
+    let (mut list, mut pending) = integration_settings()?;
+    pending.retain(|d| !d.eq_ignore_ascii_case(distro));
     list.retain(|d| !d.eq_ignore_ascii_case(distro));
     if on {
         list.push(distro.to_owned());
+    } else {
+        pending.push(distro.to_owned());
     }
-    save_enabled_distros(&list)?;
-    apply_wsl_integration((!on).then_some(distro), false)
+    save_enabled_distros(&list, &pending)?;
+    Ok((list, pending))
 }
 
 /// `32GB`, `8192MB`, `512m` → MiB.
@@ -335,7 +366,7 @@ pub fn restart() {
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
         let r = cmd.arg("--shutdown").status().and_then(|s| if s.success() { Ok(()) } else { Err(io::Error::other("wsl --shutdown failed")) }).and_then(|()| crate::engine::ensure_daemon());
         if r.is_ok() {
-            let _ = apply_wsl_integration(None, true);
+            let _ = apply_wsl_integration(true);
         }
         emit(match r {
             Ok(()) => notice("ok", &tr("WSL restarted with the new resources")),
@@ -388,6 +419,16 @@ mod native_integration {
         let on = match std::env::var("ASAGIRI_TEST_DISTRO_SETTING").as_deref() {
             Ok("on") => true,
             Ok("off") => false,
+            Ok("interrupt-off") => {
+                let (_, pending) = super::record_distro_selection("Development138", false).unwrap();
+                assert!(pending.contains(&"Development138".to_owned()));
+                return;
+            }
+            Ok("reconnect") => {
+                super::apply_wsl_integration(true).unwrap();
+                assert!(super::integration_settings().unwrap().1.is_empty());
+                return;
+            }
             _ => panic!("set ASAGIRI_TEST_DISTRO_SETTING to on or off"),
         };
         super::toggle_distro("Development138", on).unwrap();

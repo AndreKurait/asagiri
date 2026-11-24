@@ -181,8 +181,8 @@ pub fn parse_enabled_distros(bytes: &[u8]) -> Vec<String> {
 }
 
 /// Encodes the enabled distros for `%LOCALAPPDATA%\Asagiri\wsl-integration.json`.
-pub fn encode_enabled_distros(distros: &[String]) -> Vec<u8> {
-    serde_json::to_vec_pretty(&serde_json::json!({ "distros": distros })).unwrap_or_default()
+pub fn encode_enabled_distros(distros: &[String], pending: &[String]) -> Vec<u8> {
+    serde_json::to_vec_pretty(&serde_json::json!({ "distros": distros, "pendingDisable": pending })).unwrap_or_default()
 }
 
 /// SHA-256 of `"asagiri"`, used by the Docker CLI for `~/.docker/contexts/meta/<hash>/meta.json`.
@@ -276,14 +276,14 @@ pub fn wsl_disable_script(distro: &str, root: &str) -> String {
          vr={var_run}; \
          if [ -L \"$vr/docker.sock\" ]; then \
            t=$(readlink \"$vr/docker.sock\" 2>/dev/null || true); \
-           [ \"$t\" != {sock_dir}/docker.sock ] || rm -f \"$vr/docker.sock\"; \
+           [ \"$t\" != {sock_dir}/docker.sock ] || rm -f \"$vr/docker.sock\" || exit 1; \
          fi; \
          r={bind_root}; \
          if mountpoint -q \"$r\" 2>/dev/null || grep -Fqs \" $r \" /proc/mounts 2>/dev/null; then \
-           umount -l \"$r\" 2>/dev/null || umount \"$r\" 2>/dev/null || true; \
+           umount -l \"$r\" 2>/dev/null || umount \"$r\" 2>/dev/null || exit 1; \
          fi; \
          rmdir \"$r\" 2>/dev/null || true; \
-         sd={sock_dir}; rm -f \"$sd/docker.sock\" 2>/dev/null || true; rmdir \"$sd\" 2>/dev/null || true; true"
+         sd={sock_dir}; rm -f \"$sd/docker.sock\" || exit 1; rmdir \"$sd\" 2>/dev/null || true; true"
     )
 }
 
@@ -499,7 +499,7 @@ mod tests {
         );
         // Enabled distros file defaults to off (empty) and filters system distros.
         assert!(parse_enabled_distros(b"").is_empty());
-        let saved = encode_enabled_distros(&["Ubuntu".into(), "NixOS".into()]);
+        let saved = encode_enabled_distros(&["Ubuntu".into(), "NixOS".into()], &[]);
         assert_eq!(parse_enabled_distros(&saved), vec!["Ubuntu".to_owned(), "NixOS".to_owned()]);
     }
 

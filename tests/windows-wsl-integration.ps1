@@ -41,6 +41,13 @@ try {
         try { & $Docker info --format '{{.ServerVersion}}'; Read-DistroBind; $restored = $true; break } catch { Start-Sleep -Seconds 2 }
     }
     if (!$restored) { throw 'Ordinary-user distro bind did not recover after WSL shutdown' }
+    # End the settings process after recording the disable, before cleanup.
+    # A new process runs the normal background reconnect path.
+    Set-Integration interrupt-off
+    Set-Integration reconnect
+    wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock && ! grep -Fq " /mnt/wsl/asagiri/roots/Development138 " /proc/mounts'
+    Set-Integration on
+    Read-DistroBind
     Set-Integration off
     wsl.exe -d $distro -u builder -- sh -ec 'test ! -L /var/run/docker.sock && test ! -S /mnt/wsl/asagiri/sockets/Development138/docker.sock'
 } finally {
