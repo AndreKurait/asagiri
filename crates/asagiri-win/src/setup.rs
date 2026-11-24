@@ -609,7 +609,8 @@ fn install_linux(kind: &str) -> io::Result<()> {
         };
         let distro = match existing {
             Some(d) => {
-                update(|s| s.tasks = tasks(&[d.clone(), tr("Install Asagiri's engine in it"), tr("Start it")]));
+                let label = if kind == "ubuntu" { tr("Use the Ubuntu already here") } else { d.clone() };
+                update(|s| s.tasks = tasks(&[label, tr("Install Asagiri's engine in it"), tr("Start it")]));
                 task(0, "done", &d);
                 d
             }
