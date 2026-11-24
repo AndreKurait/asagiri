@@ -34,6 +34,7 @@ try {
         try { & $docker info --format '{{.ServerVersion}}'; $ready = $true; break } catch { Start-Sleep -Seconds 2 }
     }
     if (!$ready) { throw 'Windows pipe did not reach daemon' }
+    try {
     $directory = Join-Path $env:USERPROFILE 'asagiri-watch-test'
     if ([IO.Path]::GetPathRoot($directory) -ne 'C:\') { throw 'Fixture requires C drive' }
     New-Item -ItemType Directory $directory | Out-Null
@@ -127,6 +128,9 @@ console.log('READY');
     Start-Sleep -Seconds 12
     $newLines = @(& $docker logs watch-test) | Select-Object -Skip $offset
     if ($newLines -match '"disabled":"visible without forwarding"') { throw 'Opt-out watcher forwarded a host file creation' }
+    } finally {
+        & "$PSScriptRoot/windows-wsl-integration.ps1" -Docker $docker -Root $root
+    }
 } finally {
     if ($bridge -and !$bridge.HasExited) { Stop-Process -Id $bridge.Id }
     wsl.exe --unregister asagiri

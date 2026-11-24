@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Quraşdırıldı",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Yeni adlar təsdiqlənməlidir. Adınız hələ hazır deyilsə, Asagiri müvəqqəti ünvandan istifadə edir.",
   "Share with a name": "Adla paylaş",
-  "This name is waiting for review. You can use this link in the meantime.": "Bu ad təsdiq gözləyir. Bu müddətdə bu keçiddən istifadə edə bilərsiniz."
+  "This name is waiting for review. You can use this link in the meantime.": "Bu ad təsdiq gözləyir. Bu müddətdə bu keçiddən istifadə edə bilərsiniz.",
+  "No other WSL distros installed.": "Başqa WSL distributivi quraşdırılmayıb.",
+  "WSL integration": "WSL inteqrasiyası"
 }

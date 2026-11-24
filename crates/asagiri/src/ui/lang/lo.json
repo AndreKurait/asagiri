@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ ຕິດຕັ້ງແລ້ວ",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "ຊື່ໃໝ່ຕ້ອງໄດ້ຮັບອະນຸມັດ. ຖ້າຊື່ຂອງທ່ານຍັງບໍ່ພ້ອມ, Asagiri ຈະໃຊ້ທີ່ຢູ່ຊົ່ວຄາວ.",
   "Share with a name": "ແບ່ງປັນດ້ວຍຊື່",
-  "This name is waiting for review. You can use this link in the meantime.": "ຊື່ນີ້ກຳລັງລໍຖ້າການກວດສອບ. ໃນລະຫວ່າງນີ້ ທ່ານສາມາດໃຊ້ລິ້ງນີ້ໄດ້."
+  "This name is waiting for review. You can use this link in the meantime.": "ຊື່ນີ້ກຳລັງລໍຖ້າການກວດສອບ. ໃນລະຫວ່າງນີ້ ທ່ານສາມາດໃຊ້ລິ້ງນີ້ໄດ້.",
+  "No other WSL distros installed.": "ບໍ່ມີ WSL distro ອື່ນຕິດຕັ້ງຢู่.",
+  "WSL integration": "ການເຊື່ອມໂຍງ WSL"
 }

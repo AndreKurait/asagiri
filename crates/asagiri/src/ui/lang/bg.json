@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Инсталирано",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Новите имена трябва да бъдат одобрени. Ако името ви още не е готово, Asagiri използва временен адрес.",
   "Share with a name": "Споделяне с име",
-  "This name is waiting for review. You can use this link in the meantime.": "Това име чака одобрение. Междувременно можете да използвате тази връзка."
+  "This name is waiting for review. You can use this link in the meantime.": "Това име чака одобрение. Междувременно можете да използвате тази връзка.",
+  "No other WSL distros installed.": "Няма други инсталирани WSL дистрибуции.",
+  "WSL integration": "Интеграция с WSL"
 }

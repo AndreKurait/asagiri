@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ ተጭኗል",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "አዳዲስ ስሞች መጽደቅ አለባቸው። ስምዎ ገና ዝግጁ ካልሆነ፣ Asagiri ጊዜያዊ አድራሻ ይጠቀማል።",
   "Share with a name": "በስም አጋራ",
-  "This name is waiting for review. You can use this link in the meantime.": "ይህ ስም እየተገመገመ ነው። እስከዚያው ይህን አገናኝ መጠቀም ይችላሉ።"
+  "This name is waiting for review. You can use this link in the meantime.": "ይህ ስም እየተገመገመ ነው። እስከዚያው ይህን አገናኝ መጠቀም ይችላሉ።",
+  "No other WSL distros installed.": "ሌሎች የWSL ስርጭቶች አልተጫኑም።",
+  "WSL integration": "የWSL ውህደት"
 }

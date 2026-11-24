@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ ติดตั้งแล้ว",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "ชื่อใหม่ต้องได้รับการอนุมัติ หากชื่อของคุณยังไม่พร้อม Asagiri จะใช้ที่อยู่ชั่วคราว",
   "Share with a name": "แชร์ด้วยชื่อ",
-  "This name is waiting for review. You can use this link in the meantime.": "ชื่อนี้กำลังรอการตรวจสอบ ระหว่างนี้คุณใช้ลิงก์นี้ได้"
+  "This name is waiting for review. You can use this link in the meantime.": "ชื่อนี้กำลังรอการตรวจสอบ ระหว่างนี้คุณใช้ลิงก์นี้ได้",
+  "No other WSL distros installed.": "ไม่มีดิสโทร WSL อื่นติดตั้งอยู่",
+  "WSL integration": "การผสานรวม WSL"
 }

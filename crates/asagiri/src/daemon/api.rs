@@ -54,7 +54,7 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
         if req.header("X-Asagiri-Background").is_none() {
             engine.touch();
         }
-        match route(&req, &engine, caller, &mut w, &mut r) {
+        match route(&req, &engine, &caller, &mut w, &mut r) {
             Ok(Next::KeepAlive) if req.wants_close() => return Ok(()),
             Ok(Next::KeepAlive) => {}
             Ok(Next::Close) => return Ok(()),
@@ -107,7 +107,7 @@ pub(super) fn error_with(w: &mut UnixStream, e: Error, extra: &str) -> io::Resul
     http::respond_with(w, status, "application/json", extra, json!({"message": message}).to_string().as_bytes())
 }
 
-fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
     if let Some(message) = req.version_error() {
         // The body of a refused request was never read: the connection can
         // only carry on when there is none. HEAD gets the headers alone.
@@ -212,7 +212,16 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: 
         ("POST", "/build/prune") => return reply(w, super::builder::prune(req, engine), 200),
         ("GET", "/asagiri/builder") => return reply(w, Ok(super::builder::settings_report(engine)), 200),
         ("POST", "/asagiri/builder") => return reply(w, super::builder::set_settings(req).map(|()| super::builder::settings_report(engine)), 200),
-        ("GET", "/asagiri/watch-roots") | ("POST", "/asagiri/fs-events") if caller == super::caller::Caller::Container => {
+        #[cfg(target_os = "linux")]
+        ("GET" | "POST", "/asagiri/wsl") if super::binds::wsl().is_some() => {
+            if caller != &super::caller::Caller::Host {
+                http::json(w, 403, r#"{"message":"host connection required"}"#)?;
+                return Ok(Next::KeepAlive);
+            }
+            if m == "POST" { return reply(w, set_wsl(req), 200); }
+            return reply(w, Ok(super::wsl_sockets::wsl_report()), 200);
+        }
+        ("GET", "/asagiri/watch-roots") | ("POST", "/asagiri/fs-events") if caller != &super::caller::Caller::Host => {
             http::json(w, 403, r#"{"message":"host connection required"}"#)?;
             return Ok(Next::KeepAlive);
         }
@@ -237,7 +246,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: super::caller::Caller, w: 
             if let Some(made) = super::builder::create_for_buildx(engine, req) {
                 return reply(w, made, 201);
             }
-            return reply(w, create(req, engine), 201);
+            return reply(w, create_for(req, engine, caller.wsl_distro()), 201);
         }
         ("GET", "/containers/json") => return reply(w, list(req, engine), 200),
         ("GET", "/networks") => return reply(w, networks(req, engine), 200),
@@ -1025,6 +1034,25 @@ fn set_domain_ports(req: &Request, engine: &Arc<Engine>) -> Result<Value, Error>
     super::domains::set_ports(engine, port("http")?, port("https")?).map_err(Error::Conflict)
 }
 
+#[cfg(target_os = "linux")]
+fn set_wsl(req: &Request) -> Result<Value, Error> {
+    let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
+    let mut distros = Vec::new();
+    for item in body["distros"].as_array().ok_or_else(|| Error::BadRequest("distros must be an array".into()))? {
+        let name = item["name"].as_str().unwrap_or_default();
+        if !super::binds::valid_distro_name(name) {
+            return Err(Error::BadRequest(format!("invalid WSL distro name: {name}")));
+        }
+        let gid = item["gid"]
+            .as_u64()
+            .and_then(|g| u32::try_from(g).ok())
+            .ok_or_else(|| Error::BadRequest(format!("invalid gid for WSL distro {name}")))?;
+        distros.push(super::wsl_sockets::WslDistroConfig { name: name.to_owned(), gid });
+    }
+    super::wsl_sockets::sync_wsl_sockets(&distros).map_err(Error::Io)?;
+    Ok(super::wsl_sockets::wsl_report())
+}
+
 fn set_resources(req: &Request) -> Result<(), Error> {
     use super::engine as e;
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
@@ -1553,7 +1581,7 @@ fn volumes_from_mounts(guest: &[String], info: &[Value], ro: bool) -> Vec<(Strin
 }
 
 /// `-v`, `--mount`, `--tmpfs`, `-v /path` and the image's VOLUME lines.
-fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Error> {
+fn mounts_for(body: &Value, engine: &Engine, image_cfg: &Value, wsl_distro: Option<&str>) -> Result<Mounts, Error> {
     let host = &body["HostConfig"];
     let mut out = Mounts { guest: Vec::new(), info: Vec::new(), volumes: Vec::new(), anon: Vec::new() };
     let check_target = |t: &str| -> Result<(), Error> {
@@ -1575,7 +1603,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
         };
         // The engine's own socket (Testcontainers' Ryuk, CI runners): the VM's
         // relay to this daemon on a Mac, or Asagiri's socket on a Linux host.
-        let engine_sock = if kind == "bind" { super::binds::engine_socket(src) } else { None };
+        let engine_sock = if kind == "bind" { super::binds::engine_socket_for_distro(src, wsl_distro) } else { None };
         match kind {
             "bind" if engine_sock.is_some() => {
                 out.guest.push(format!("{}\t{dst}\t{}", engine_sock.as_deref().unwrap_or_default(), flag("")));
@@ -1658,7 +1686,7 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     // From the docker CLI on Windows (into WSL), `C:\src:/app` and the like.
     let wsl = super::binds::wsl();
     for b in strings(&host["Binds"]).unwrap_or_default() {
-        let (src, dst, opts) = super::binds::split(&b, wsl)?;
+        let (src, dst, opts) = super::binds::split_for(&b, wsl, wsl_distro)?;
         let (src, dst, opts) = (src.as_str(), dst.as_str(), opts.as_str());
         let ro = opts.split(',').any(|o| o == "ro");
         let kind = if src.starts_with('/') { "bind" } else { "volume" };
@@ -1668,8 +1696,9 @@ fn mounts(body: &Value, engine: &Engine, image_cfg: &Value) -> Result<Mounts, Er
     for m in host["Mounts"].as_array().into_iter().flatten() {
         let kind = m["Type"].as_str().unwrap_or("bind");
         let src = m["Source"].as_str().unwrap_or("");
-        let src = match wsl {
-            Some(w) if kind == "bind" => super::binds::source(src, w)?,
+        let src = match (wsl, wsl_distro) {
+            (_, Some(d)) if kind == "bind" => super::binds::distro_source(src, d, wsl)?,
+            (Some(w), None) if kind == "bind" => super::binds::source(src, w)?,
             _ => src.to_owned(),
         };
         let src = src.as_str();
@@ -2198,14 +2227,18 @@ pub(super) fn validate_isolation(host: &Value) -> Result<(), Error> {
 }
 
 pub(super) fn create(req: &Request, engine: &Engine) -> Result<Value, Error> {
-    create_with_kind(req, engine, false)
+    create_for(req, engine, None)
+}
+
+pub(super) fn create_for(req: &Request, engine: &Engine, wsl_distro: Option<&str>) -> Result<Value, Error> {
+    create_with_kind(req, engine, false, wsl_distro)
 }
 
 pub(super) fn create_service(req: &Request, engine: &Engine) -> Result<Value, Error> {
-    create_with_kind(req, engine, true)
+    create_with_kind(req, engine, true, None)
 }
 
-fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Result<Value, Error> {
+fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_distro: Option<&str>) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let image_name = body["Image"].as_str().unwrap_or_default();
     if image_name.is_empty() {
@@ -2340,7 +2373,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool) -> Res
     if !ports.is_empty() && network_mode == "none" {
         return Err(Error::BadRequest("a container with --network none cannot publish ports".into()));
     }
-    let mounts = mounts(&body, engine, &image_cfg)?;
+    let mounts = mounts_for(&body, engine, &image_cfg, wsl_distro)?;
     let mut env = image.config.env.clone();
     // Settings → Network → "Pass to containers": the proxy, unless set here.
     let given = strings(&body["Env"]).unwrap_or_default();

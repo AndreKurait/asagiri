@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ نصب شد",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "نام‌های جدید باید تأیید شوند. اگر نام شما هنوز آماده نیست، Asagiri از یک نشانی موقت استفاده می‌کند.",
   "Share with a name": "اشتراک‌گذاری با نام",
-  "This name is waiting for review. You can use this link in the meantime.": "این نام در انتظار بررسی است. در این مدت می‌توانید از این پیوند استفاده کنید."
+  "This name is waiting for review. You can use this link in the meantime.": "این نام در انتظار بررسی است. در این مدت می‌توانید از این پیوند استفاده کنید.",
+  "No other WSL distros installed.": "توزیع WSL دیگری نصب نشده است.",
+  "WSL integration": "یکپارچه‌سازی WSL"
 }

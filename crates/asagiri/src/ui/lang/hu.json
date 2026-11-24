@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ Telepítve",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "Az új neveket jóvá kell hagyni. Ha a név még nem áll rendelkezésre, a Asagiri ideiglenes címet használ.",
   "Share with a name": "Megosztás névvel",
-  "This name is waiting for review. You can use this link in the meantime.": "Ez a név ellenőrzésre vár. Addig ezt a hivatkozást használhatja."
+  "This name is waiting for review. You can use this link in the meantime.": "Ez a név ellenőrzésre vár. Addig ezt a hivatkozást használhatja.",
+  "No other WSL distros installed.": "Nincs más WSL-disztribúció telepítve.",
+  "WSL integration": "WSL-integráció"
 }

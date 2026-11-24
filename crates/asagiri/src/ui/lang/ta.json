@@ -1870,5 +1870,7 @@
   "✓ Installed": "✓ நிறுவப்பட்டது",
   "New names need approval. If yours isn't ready, Asagiri uses a temporary address.": "புதிய பெயர்களுக்கு ஒப்புதல் தேவை. உங்கள் பெயர் இன்னும் கிடைக்கவில்லை என்றால் Asagiri தற்காலிக முகவரியைப் பயன்படுத்தும்.",
   "Share with a name": "பெயருடன் பகிர்",
-  "This name is waiting for review. You can use this link in the meantime.": "இந்தப் பெயர் மதிப்பாய்வுக்காகக் காத்திருக்கிறது. அதுவரை இந்த இணைப்பைப் பயன்படுத்தலாம்."
+  "This name is waiting for review. You can use this link in the meantime.": "இந்தப் பெயர் மதிப்பாய்வுக்காகக் காத்திருக்கிறது. அதுவரை இந்த இணைப்பைப் பயன்படுத்தலாம்.",
+  "No other WSL distros installed.": "வேறு எந்த WSL விநியோகங்களும் நிறுவப்படவில்லை.",
+  "WSL integration": "WSL ஒருங்கிணைப்பு"
 }
