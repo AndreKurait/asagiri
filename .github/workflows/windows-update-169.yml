@@ -49,3 +49,23 @@ jobs:
           } while ((Get-Date) -lt $deadline)
           if (!$product -or !(Get-Process asagiri-win -ErrorAction SilentlyContinue)) { throw 'New version failed to install and relaunch' }
           if (Test-Path "$env:LOCALAPPDATA/Asagiri/update/version") { throw 'Update still staged after restart' }
+          @'
+          from playwright.sync_api import sync_playwright
+          import time
+          with sync_playwright() as p:
+              deadline = time.monotonic() + 90
+              while True:
+                  try:
+                      browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=3000)
+                      page = browser.contexts[0].pages[0]
+                      page.wait_for_function("typeof send === 'function' && typeof ui !== 'undefined'", timeout=3000)
+                      break
+                  except Exception:
+                      if time.monotonic() >= deadline: raise
+                      time.sleep(1)
+              page.evaluate("send('updatecheck')")
+              page.wait_for_function("ui.updState?.state === 'uptodate' && ui.updState.current === '0.1.14'", timeout=90000)
+              assert page.locator('[data-upd="restart"]:visible').count() == 0
+              print('Relaunched dashboard checked its feed, reported 0.1.14 up to date, and displayed no restart prompt.')
+          '@ | python -
+          if ($LASTEXITCODE) { throw 'Relaunched dashboard verification failed' }
