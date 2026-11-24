@@ -435,6 +435,38 @@ impl Dhcp {
         Ok(())
     }
 
+    /// Configures `eth0` from host-supplied settings when DHCP did not answer.
+    /// No-op (`Ok(false)`) if a lease is already active.
+    pub fn apply_static(&mut self, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<bool> {
+        let index = self.index;
+        self.apply_static_with(ip, prefix, gateway, dns, |lease| {
+            let mut nl = Netlink::open(libc::NETLINK_ROUTE)?;
+            let added = netlink::ensure_address(&mut nl, index, lease.ip, lease.prefix)?;
+            if let Err(route) = netlink::add_default_route(&mut nl, index, lease.gateway) {
+                if added {
+                    netlink::remove_address(&mut nl, index, lease.ip, lease.prefix)
+                        .map_err(|cleanup| io::Error::new(route.kind(), format!("uplink route: {route}; removing address: {cleanup}")))?;
+                }
+                return Err(route);
+            }
+            Ok(())
+        })
+    }
+
+    fn apply_static_with(&mut self, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4], configure: impl FnOnce(&Lease) -> io::Result<()>) -> io::Result<bool> {
+        if self.lease.is_some() {
+            return Ok(false);
+        }
+        if !valid_uplink(ip, prefix, gateway) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid uplink settings"));
+        }
+        let lease = Lease { ip, prefix, gateway, dns: if dns == [0; 4] { Vec::new() } else { vec![dns] } };
+        configure(&lease)?;
+        self.state = DhcpState::Bound;
+        self.lease = Some(lease);
+        Ok(true)
+    }
+
     /// Handles a reply. Returns true once a lease has been configured.
     pub fn on_readable(&mut self) -> io::Result<bool> {
         let mut buf = [0u8; 1500];
@@ -493,6 +525,18 @@ impl Dhcp {
             }
         }
     }
+}
+
+fn valid_uplink(ip: [u8; 4], prefix: u8, gateway: [u8; 4]) -> bool {
+    if !(1..=30).contains(&prefix) || ip == [0; 4] || gateway == [0; 4] || ip == gateway {
+        return false;
+    }
+    if ip[0] == 127 || gateway[0] == 127 || ip[0] >= 224 || gateway[0] >= 224 {
+        return false;
+    }
+    let mask = u32::MAX << (32 - u32::from(prefix));
+    let (ip_u, gw_u) = (u32::from_be_bytes(ip), u32::from_be_bytes(gateway));
+    (ip_u & mask) == (gw_u & mask) && (ip_u & !mask) != 0 && (ip_u & !mask) != !mask && (gw_u & !mask) != 0 && (gw_u & !mask) != !mask
 }
 
 fn random_u32() -> u32 {
@@ -1218,5 +1262,64 @@ mod tests {
         for (mode, number) in [("bridge", 4), ("private", 1), ("vepa", 2), ("passthru", 8)] {
             assert_eq!(plug(&[format!("macvlan={mode}").as_str()]).macvlan, Some(number), "{mode}");
         }
+    }
+    #[test]
+    fn static_uplink_route_failure_preserves_address_ownership() {
+        if unsafe { libc::geteuid() } != 0 {
+            return;
+        }
+        // Only this test thread enters the private namespace.
+        assert_eq!(unsafe { libc::unshare(libc::CLONE_NEWNET) }, 0);
+        let mut nl = Netlink::open(libc::NETLINK_ROUTE).unwrap();
+        netlink::create_bridge(&mut nl, UPLINK).unwrap();
+        let index = netlink::index_of(UPLINK).unwrap();
+        let mut dhcp = test_dhcp();
+        dhcp.index = index;
+        let ip = [192, 168, 64, 2];
+        let gateway = [192, 168, 64, 1];
+        let address_present = || local_addrs().contains(&ip);
+        assert!(!address_present());
+        // A down link accepts an address but rejects the gateway route.
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).is_err());
+        assert!(dhcp.lease.is_none());
+        assert!(!address_present(), "failed fallback left its address installed");
+        netlink::add_address(&mut nl, index, ip, 24).unwrap();
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).is_err());
+        assert!(address_present(), "failed fallback removed a preexisting address");
+        netlink::set_up(&mut nl, index).unwrap();
+        assert!(dhcp.apply_static(ip, 24, gateway, gateway).unwrap());
+        assert_eq!(dhcp.lease.unwrap().gateway, gateway);
+    }
+    fn test_dhcp() -> Dhcp {
+        let (r, _w) = sys::pipe().unwrap();
+        Dhcp { sock: r, index: 2, mac: [2, 0, 0, 0, 0, 1], xid: 1, state: DhcpState::Discovering, next_send: Instant::now() + Duration::from_secs(1), attempt: 1, lease: None }
+    }
+
+    #[test]
+    fn set_uplink_applies_skips_when_leased_and_validates() {
+        let mut dhcp = test_dhcp();
+        for (ip, prefix, gw) in [
+            ([0; 4], 24, [192, 168, 64, 1]),
+            ([192, 168, 64, 2], 0, [192, 168, 64, 1]),
+            ([192, 168, 64, 2], 31, [192, 168, 64, 1]),
+            ([192, 168, 64, 2], 32, [192, 168, 64, 1]),
+            ([192, 168, 64, 2], 33, [192, 168, 64, 1]),
+            ([127, 0, 0, 2], 8, [127, 0, 0, 1]),
+            ([224, 0, 0, 2], 24, [224, 0, 0, 1]),
+            ([240, 0, 0, 2], 24, [240, 0, 0, 1]),
+            ([192, 168, 64, 1], 24, [192, 168, 64, 1]),
+            ([192, 168, 64, 255], 24, [192, 168, 64, 1]),
+            ([192, 168, 64, 0], 24, [192, 168, 64, 1]),
+            ([192, 168, 65, 2], 24, [192, 168, 64, 1]),
+        ] {
+            assert!(dhcp.apply_static_with(ip, prefix, gw, [0; 4], |_| panic!("must not configure")).is_err());
+        }
+        assert!(dhcp.apply_static_with([192, 168, 64, 2], 24, [192, 168, 64, 1], [192, 168, 64, 1], |_| Ok(())).unwrap());
+        assert_eq!(dhcp.timeout_ms(), -1);
+        let l = dhcp.lease.as_ref().unwrap();
+        assert_eq!((l.ip, l.prefix, l.gateway, l.dns.as_slice()), ([192, 168, 64, 2], 24, [192, 168, 64, 1], &[[192, 168, 64, 1]][..]));
+        // No-op when a lease (from DHCP or SetUplink) is already active.
+        assert!(!dhcp.apply_static_with([192, 168, 64, 9], 24, [192, 168, 64, 1], [0; 4], |_| panic!("must not reconfigure")).unwrap());
+        assert_eq!(dhcp.lease.as_ref().unwrap().ip, [192, 168, 64, 2]);
     }
 }

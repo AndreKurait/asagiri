@@ -17,6 +17,7 @@ const NLM_F_CREATE: u16 = 0x400;
 const RTM_NEWLINK: u16 = 16;
 const RTM_DELLINK: u16 = 17;
 const RTM_NEWADDR: u16 = 20;
+const RTM_DELADDR: u16 = 21;
 const RTM_NEWROUTE: u16 = 24;
 const RTM_DELROUTE: u16 = 25;
 const NLM_F_REPLACE: u16 = 0x100;
@@ -317,17 +318,32 @@ pub fn set_up(nl: &mut Netlink, index: i32) -> io::Result<()> {
 }
 
 pub fn add_address(nl: &mut Netlink, index: i32, addr: [u8; 4], prefix: u8) -> io::Result<()> {
-    let mut m = Msg::new(RTM_NEWADDR, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    ensure_address(nl, index, addr, prefix).map(|_| ())
+}
+
+/// Returns true when this request installed the address.
+pub fn ensure_address(nl: &mut Netlink, index: i32, addr: [u8; 4], prefix: u8) -> io::Result<bool> {
+    let msg = address_message(index, addr, prefix, RTM_NEWADDR, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    match nl.request(&mut [msg]) {
+        Ok(()) => Ok(true),
+        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn remove_address(nl: &mut Netlink, index: i32, addr: [u8; 4], prefix: u8) -> io::Result<()> {
+    nl.request(&mut [address_message(index, addr, prefix, RTM_DELADDR, NLM_F_ACK)])
+}
+
+fn address_message(index: i32, addr: [u8; 4], prefix: u8, kind: u16, flags: u16) -> Msg {
+    let mut m = Msg::new(kind, flags);
     // struct ifaddrmsg: family, prefixlen, flags, scope, index.
     let mut ifa = [0u8; 8];
     ifa[0] = libc::AF_INET as u8;
     ifa[1] = prefix;
     ifa[4..8].copy_from_slice(&(index as u32).to_ne_bytes());
     m.raw(&ifa).attr(IFA_LOCAL, &addr).attr(IFA_ADDRESS, &addr);
-    match nl.request(&mut [m]) {
-        Err(e) if e.raw_os_error() == Some(libc::EEXIST) => Ok(()),
-        r => r,
-    }
+    m
 }
 
 /// An IPv6 address, usable at once: no duplicate address detection, which

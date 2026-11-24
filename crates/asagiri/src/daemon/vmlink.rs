@@ -89,6 +89,8 @@ pub struct VmLink {
     cleanup: Arc<CleanupBarrier>,
     /// Owns the VM until retirement has confirmed shutdown and cleanup.
     _vm: Mutex<Vm>,
+    #[cfg(target_os = "macos")]
+    uplink_reservation: Mutex<Option<File>>,
     /// Opens vsock streams without that mutex, so connects run side by side.
     connector: asagiri_vmm::Connector,
 }
@@ -398,22 +400,26 @@ impl VmLink {
             usage,
             connector: vm.connector(),
             _vm: Mutex::new(vm),
+            #[cfg(target_os = "macos")]
+            uplink_reservation: Mutex::new(None),
         })
     }
 
     /// Sends one request and waits for its reply.
     fn call(&self, encode: impl FnOnce(&mut Vec<u8>), body: Option<(&Path, u64)>) -> io::Result<Reply> {
-        let rx = {
-            let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
-            w.out.clear();
-            encode(&mut w.out);
-            w.request(&self.windows, &self.pending, body)?
-        };
+        let rx = self.request_reply(encode, body)?;
         match rx.recv() {
             Ok(Reply::Error(e)) => Err(io::Error::other(e)),
             Ok(r) => Ok(r),
             Err(_) => Err(io::Error::other("the VM stopped")),
         }
+    }
+
+    fn request_reply(&self, encode: impl FnOnce(&mut Vec<u8>), body: Option<(&Path, u64)>) -> io::Result<mpsc::Receiver<Reply>> {
+        let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        w.out.clear();
+        encode(&mut w.out);
+        w.request(&self.windows, &self.pending, body)
     }
 
     /// Sends a message that has no reply.
@@ -606,6 +612,34 @@ impl VmLink {
         }
     }
 
+    /// Waits only for the remaining DHCP discovery window. A late reply
+    /// consumes its own FIFO slot even after the receiver is dropped.
+    #[cfg(target_os = "macos")]
+    pub fn poll_uplink(&self, deadline: std::time::Instant) -> io::Result<([u8; 4], [u8; 4])> {
+        let rx = self.request_reply(|o| Msg::UplinkQuery.encode(o), None)?;
+        Self::wait_uplink(rx, deadline)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn wait_uplink(rx: mpsc::Receiver<Reply>, deadline: std::time::Instant) -> io::Result<([u8; 4], [u8; 4])> {
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Reply::Uplink(ip, gateway)) => Ok((ip, gateway)),
+            Ok(Reply::Error(e)) => Err(io::Error::other(e)),
+            Ok(other) => Err(io::Error::other(format!("expected Uplink, got {other:?}"))),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(io::Error::other("the VM stopped")),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(io::ErrorKind::TimedOut.into()),
+        }
+    }
+
+    /// Configures the VM's uplink (`eth0`) directly when macOS DHCP did not
+    /// answer. Ignored by the guest if it already obtained a DHCP lease.
+    #[cfg(target_os = "macos")]
+    pub fn set_uplink(&self, reservation: File, ip: [u8; 4], prefix: u8, gateway: [u8; 4], dns: [u8; 4]) -> io::Result<Option<([u8; 4], [u8; 4])>> {
+        let reply = self.request_reply(|o| Msg::SetUplink { ip, prefix, gateway, dns }.encode(o), None)
+            .and_then(|rx| wait_set_uplink(rx, std::time::Duration::from_secs(5)));
+        finish_set_uplink(reply, reservation, &self.uplink_reservation)
+    }
+
     /// Forwards a published port in the kernel (on a Linux host; in the VM,
     /// from the NAT network). `Err` means the agent could not; the caller
     /// falls back to relaying.
@@ -765,6 +799,28 @@ impl VmLink {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn wait_set_uplink(rx: mpsc::Receiver<Reply>, wait: std::time::Duration) -> io::Result<Reply> {
+    rx.recv_timeout(wait).map_err(|e| match e {
+        mpsc::RecvTimeoutError::Timeout => io::Error::new(io::ErrorKind::TimedOut, "guest did not confirm the static uplink before the deadline"),
+        mpsc::RecvTimeoutError::Disconnected => io::Error::other("the VM stopped"),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn finish_set_uplink(reply: io::Result<Reply>, reservation: File, held: &Mutex<Option<File>>) -> io::Result<Option<([u8; 4], [u8; 4])>> {
+    if let Ok(Reply::Uplink(actual, gateway)) = reply {
+        return Ok(Some((actual, gateway)));
+    }
+    // Keep the reservation if the guest applied the address but its reply was lost.
+    *held.lock().unwrap_or_else(|e| e.into_inner()) = Some(reservation);
+    match reply? {
+        Reply::Ack => Ok(None),
+        Reply::Error(e) => Err(io::Error::other(e)),
+        other => Err(io::Error::other(format!("unexpected SetUplink response: {other:?}"))),
+    }
+}
+
 /// The PID a `Run` or `Exec` was answered with.
 fn started(r: Reply) -> io::Result<u32> {
     match r {
@@ -787,6 +843,41 @@ fn read_frame(conn: &mut File, buf: &mut Vec<u8>) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn late_dhcp_reply_releases_fallback_reservation() {
+        let path = std::env::temp_dir().join(format!("asagiri-late-dhcp-{}", std::process::id()));
+        let reservation = File::create_new(&path).unwrap();
+        let contender = File::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        reservation.try_lock().unwrap();
+        assert!(matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        let held = Mutex::new(None);
+        let lease = ([192, 168, 64, 42], [192, 168, 64, 1]);
+        let actual = finish_set_uplink(Ok(Reply::Uplink(lease.0, lease.1)), reservation, &held).unwrap();
+        assert_eq!(actual, Some(lease));
+        contender.try_lock().unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn unconfirmed_uplink_keeps_address_reserved() {
+        let path = std::env::temp_dir().join(format!("asagiri-unconfirmed-uplink-{}", std::process::id()));
+        let file = File::create_new(&path).unwrap();
+        let contender = File::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        file.try_lock().unwrap();
+        let held = Mutex::new(None);
+        let (sender, receiver) = mpsc::channel();
+        let reply = wait_set_uplink(receiver, std::time::Duration::ZERO);
+        let error = finish_set_uplink(reply, file, &held).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        drop(held);
+        contender.try_lock().unwrap();
+        assert!(sender.send(Reply::Ack).is_err());
+    }
 
     fn dense_seccomp_options() -> Vec<String> {
         // The Docker-valid 2,997-rule profile: three syscall families, a hole
@@ -811,6 +902,27 @@ mod tests {
         asagiri_proto::encode_run(&mut frame, "c1", &["sha256:layer".into()], &["sh".into(), "-c".into(), "true".into()],
             env, "/", "", "c1", 0, net, &["/source\t/target\tro".into()], &asagiri_proto::Limits::default(), 0, opts, &[]);
         frame
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn late_uplink_reply_leaves_next_request_in_order() {
+        use std::time::{Duration, Instant};
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let mut writer = Writer { conn: std::os::fd::OwnedFd::from(socket).into(), out: Vec::new(), blob: Vec::new() };
+        let windows = Windows::default();
+        let pending = Mutex::new(VecDeque::new());
+        Msg::UplinkQuery.encode(&mut writer.out);
+        let rx = writer.request(&windows, &pending, None).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(20);
+        assert_eq!(VmLink::wait_uplink(rx, deadline).unwrap_err().kind(), io::ErrorKind::TimedOut);
+        writer.out.clear();
+        Msg::Ping(42).encode(&mut writer.out);
+        let next = writer.request(&windows, &pending, None).unwrap();
+        let mut queue = pending.lock().unwrap();
+        assert!(queue.pop_front().unwrap().send(Reply::Error("no uplink lease".into())).is_err());
+        queue.pop_front().unwrap().send(Reply::Pong).unwrap();
+        assert!(matches!(next.recv().unwrap(), Reply::Pong));
     }
 
     fn exchange_request(frame: Vec<u8>) -> Vec<u8> {

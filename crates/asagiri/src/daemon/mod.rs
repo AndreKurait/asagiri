@@ -47,6 +47,7 @@ pub mod time;
 mod usb;
 mod vmcpu;
 mod vmlink;
+pub(crate) mod vmnet;
 mod volumes;
 mod websocket;
 #[cfg(target_os = "macos")]

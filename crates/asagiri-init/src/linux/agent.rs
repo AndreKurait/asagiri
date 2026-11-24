@@ -746,6 +746,21 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Some(l) => Msg::Uplink { ip: l.ip, gateway: l.gateway }.encode(&mut out),
                     None => Msg::Error("no uplink lease").encode(&mut out),
                 },
+                Ok(Msg::SetUplink { ip, prefix, gateway, dns: dns_ip }) => match dhcp.as_mut() {
+                    _ if host_process => Msg::Error("set uplink is only for the VM").encode(&mut out),
+                    Some(d) => match d.apply_static(ip, prefix, gateway, dns_ip) {
+                        Ok(false) => {
+                            let lease = d.lease.as_ref().expect("existing uplink lease");
+                            Msg::Uplink { ip: lease.ip, gateway: lease.gateway }.encode(&mut out);
+                        }
+                        Ok(true) => {
+                            eprintln!("asagiri-init: DHCP did not answer; configured {} statically as {}/{} via {} from host", net::UPLINK, net::ip_str(ip), prefix, net::ip_str(gateway));
+                            Msg::Ack.encode(&mut out);
+                        }
+                        Err(e) => Msg::Error(&format!("set uplink: {e}")).encode(&mut out),
+                    },
+                    None => Msg::Error("no uplink interface").encode(&mut out),
+                },
                 Ok(Msg::Route { dst, prefix, via, add }) => match net::route(dst, prefix, via, add) {
                     Ok(()) => Msg::Ack.encode(&mut out),
                     Err(e) => Msg::Error(&format!("route: {e}")).encode(&mut out),
@@ -843,7 +858,11 @@ fn wait_for_lease(dhcp: &mut Option<Dhcp>, max: std::time::Duration) {
         // SAFETY: one valid pollfd.
         unsafe { libc::poll(&mut pfd, 1, wait.max(1)) };
         if pfd.revents != 0 {
-            let _ = d.on_readable();
+            if let Ok(true) = d.on_readable()
+                && let Some(l) = &d.lease
+            {
+                eprintln!("asagiri-init: {} is {}/{} via {}", net::UPLINK, net::ip_str(l.ip), l.prefix, net::ip_str(l.gateway));
+            }
         }
         let _ = d.on_timer();
     }
