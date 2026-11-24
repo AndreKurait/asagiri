@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Đã di chuyển dữ liệu Asagiri đến {path}",
   "Storage is available again": "Lưu trữ đã khả dụng trở lại",
   "Old data removed": "Đã xóa dữ liệu cũ",
-  "Asagiri's data is moving already": "Dữ liệu Asagiri đang được di chuyển"
+  "Asagiri's data is moving already": "Dữ liệu Asagiri đang được di chuyển",
+  "No other WSL distros installed.": "Chưa cài đặt bản phân phối WSL nào khác.",
+  "WSL integration": "Tích hợp WSL"
 }

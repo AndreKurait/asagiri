@@ -1916,5 +1916,7 @@
   "Storage is available again": "Skladište je ponovo dostupno",
   "Old data removed": "Stari podaci su uklonjeni",
   "Choose a storage folder": "Izaberite fasciklu za skladištenje",
-  "Asagiri's data is moving already": "Premeštanje Asagiri podataka je već u toku"
+  "Asagiri's data is moving already": "Premeštanje Asagiri podataka je već u toku",
+  "No other WSL distros installed.": "Nijedna druga WSL distribucija nije instalirana.",
+  "WSL integration": "Integracija sa WSL-om"
 }

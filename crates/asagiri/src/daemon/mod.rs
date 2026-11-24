@@ -10,6 +10,8 @@ mod api;
 mod balloon;
 mod binds;
 mod caller;
+#[cfg(target_os = "linux")]
+mod wsl_sockets;
 mod builder;
 mod buildkit;
 pub mod dns;
@@ -245,6 +247,8 @@ pub fn run(_args: &[String]) -> io::Result<()> {
 
     watch_own_app(engine.clone(), socket.clone());
 
+    #[cfg(target_os = "linux")]
+    if binds::wsl().is_some() { wsl_sockets::initialize(engine.clone(), max_open_conns); }
     let on_signal = engine.clone();
     let sock = socket.clone();
     let (cancel_accept, cancelled) = std::sync::mpsc::channel();
@@ -264,6 +268,8 @@ pub fn run(_args: &[String]) -> io::Result<()> {
         #[cfg(target_os = "macos")]
         nfs::unmount();
         let _ = std::fs::remove_file(&sock);
+        #[cfg(target_os = "linux")]
+        wsl_sockets::cleanup();
         on_signal.shutdown();
         // Give the guest a moment to power off before the VM is released.
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -324,6 +330,15 @@ fn bind_api_socket(socket: &std::path::Path, access_group: Option<&std::ffi::OsS
 }
 
 fn serve_listener(listener: UnixListener, serve: impl Fn(UnixStream) -> io::Result<()> + Send + Sync + 'static, #[cfg(target_os = "linux")] gate: Option<std::sync::Arc<access::Gate>>, cancelled: std::sync::mpsc::Receiver<()>, max_open_conns: usize) {
+    let serve = std::sync::Arc::new(serve);
+    let mut accepting = accept::Retry::new(cancelled);
+    while let Some((conn, _)) = accepting.next(|| listener.accept()) {
+        let serve = serve.clone();
+        serve_connection(conn, move |conn| serve(conn), #[cfg(target_os = "linux")] &gate, max_open_conns);
+    }
+}
+
+fn serve_connection(conn: UnixStream, serve: impl FnOnce(UnixStream) -> io::Result<()> + Send + 'static, #[cfg(target_os = "linux")] gate: &Option<std::sync::Arc<access::Gate>>, max_open_conns: usize) {
     // One thread per connection, and a connection costs nothing to open:
     // cap the open ones, so a local flood cannot pile up threads without
     // bound. Reads are bounded in `api::serve` too.
@@ -334,36 +349,31 @@ fn serve_listener(listener: UnixListener, serve: impl Fn(UnixStream) -> io::Resu
             OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    let serve = std::sync::Arc::new(serve);
-    let mut accepting = accept::Retry::new(cancelled);
-    while let Some((conn, _)) = accepting.next(|| listener.accept()) {
-        if OPEN_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= max_open_conns {
-            OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            diag::warn!("too many open connections; the new one was not served", limit = max_open_conns);
-            continue;
-        }
-        let serve = serve.clone();
-        // Own the slot before spawning: a failed spawn drops its closure too.
-        let open = ReleaseOpenConn;
+    if OPEN_CONNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= max_open_conns {
+        OPEN_CONNS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        diag::warn!("too many open connections; the new one was not served", limit = max_open_conns);
+        return;
+    }
+    // Own the slot before spawning: a failed spawn drops its closure too.
+    let open = ReleaseOpenConn;
+    #[cfg(target_os = "linux")]
+    let gate = gate.clone();
+    let spawned = std::thread::Builder::new().name("asagiri-api".into()).spawn(move || {
+        let _open = open;
+        // Checked here, not in the accept loop: a slow user lookup holds up
+        // this connection only.
         #[cfg(target_os = "linux")]
-        let gate = gate.clone();
-        let spawned = std::thread::Builder::new().name("asagiri-api".into()).spawn(move || {
-            let _open = open;
-            // Checked here, not in the accept loop: a slow user lookup holds up
-            // this connection only.
-            #[cfg(target_os = "linux")]
-            let _seat = match &gate {
-                Some(gate) => match gate.admit(&conn) {
-                    Some(seat) => Some(seat),
-                    None => return,
-                },
-                None => None,
-            };
-            let _ = serve(conn);
-        });
-        if let Err(e) = spawned {
-            diag::error!("cannot start a connection thread", error = e);
-        }
+        let _seat = match &gate {
+            Some(gate) => match gate.admit(&conn) {
+                Some(seat) => Some(seat),
+                None => return,
+            },
+            None => None,
+        };
+        let _ = serve(conn);
+    });
+    if let Err(e) = spawned {
+        diag::error!("cannot start a connection thread", error = e);
     }
 }
 
@@ -381,6 +391,8 @@ fn watch_own_app(engine: std::sync::Arc<engine::Engine>, socket: std::path::Path
         let _ = std::fs::remove_file(&socket);
         #[cfg(target_os = "linux")]
         let _ = std::fs::remove_file(caller::container_socket(&socket));
+        #[cfg(target_os = "linux")]
+        wsl_sockets::cleanup();
         engine.shutdown();
         std::thread::sleep(Duration::from_millis(50));
         // 0: launchd restarts the engine on failure only, and there is

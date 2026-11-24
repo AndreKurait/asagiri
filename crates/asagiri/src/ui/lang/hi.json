@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Asagiri का डेटा {path} में ले जाया गया",
   "Storage is available again": "स्टोरेज फिर से उपलब्ध है",
   "Old data removed": "पुराना डेटा हटा दिया गया",
-  "Asagiri's data is moving already": "Asagiri का डेटा पहले से स्थानांतरित हो रहा है"
+  "Asagiri's data is moving already": "Asagiri का डेटा पहले से स्थानांतरित हो रहा है",
+  "No other WSL distros installed.": "कोई अन्य WSL डिस्ट्रो इंस्टॉल नहीं है।",
+  "WSL integration": "WSL एकीकरण"
 }

@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Asagiri деректері {path} ішіне жылжытылды",
   "Storage is available again": "Сақтау орны қайта қолжетімді",
   "Old data removed": "Ескі деректер жойылды",
-  "Asagiri's data is moving already": "Asagiri деректері қазірдің өзінде жылжытылуда"
+  "Asagiri's data is moving already": "Asagiri деректері қазірдің өзінде жылжытылуда",
+  "No other WSL distros installed.": "Басқа WSL дистрибутивтері орнатылмаған.",
+  "WSL integration": "WSL интеграциясы"
 }

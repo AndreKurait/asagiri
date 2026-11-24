@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Data Asagiri dipindahkan ke {path}",
   "Storage is available again": "Penyimpanan tersedia kembali",
   "Old data removed": "Data lama dihapus",
-  "Asagiri's data is moving already": "Data Asagiri sedang dipindahkan"
+  "Asagiri's data is moving already": "Data Asagiri sedang dipindahkan",
+  "No other WSL distros installed.": "Tidak ada distro WSL lain yang terinstal.",
+  "WSL integration": "Integrasi WSL"
 }

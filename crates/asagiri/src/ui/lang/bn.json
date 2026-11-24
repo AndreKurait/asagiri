@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Asagiri-এর ডেটা {path}-এ সরানো হয়েছে",
   "Storage is available again": "স্টোরেজ আবার পাওয়া যাচ্ছে",
   "Old data removed": "পুরনো ডেটা সরানো হয়েছে",
-  "Asagiri's data is moving already": "Asagiri-এর ডেটা ইতিমধ্যে সরানো হচ্ছে"
+  "Asagiri's data is moving already": "Asagiri-এর ডেটা ইতিমধ্যে সরানো হচ্ছে",
+  "No other WSL distros installed.": "অন্য কোনো WSL ডিস্ট্রো ইনস্টল করা নেই।",
+  "WSL integration": "WSL ইন্টিগ্রেশন"
 }

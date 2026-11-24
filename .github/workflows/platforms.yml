@@ -26,7 +26,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    name: Check platform build inputs
+    runs-on: ubuntu-slim
+    outputs:
+      roadmap_only: ${{ steps.diff.outputs.roadmap_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: diff
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PYTHON'
+          import os, subprocess
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'])
+          if paths == b'docs/implementation-roadmap.md\0':
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                  print('roadmap_only=true', file=out)
+          PYTHON
   linux_build:
+    needs: scope
+    if: needs.scope.outputs.roadmap_only != 'true'
     name: Linux build and proofs
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -429,15 +452,23 @@ jobs:
   linux:
     name: Linux
     if: ${{ always() }}
-    needs: [linux_build, linux_packages, linux_runtime, linux_integrations]
+    needs: [scope, linux_build, linux_packages, linux_runtime, linux_integrations]
     runs-on: ubuntu-slim
     steps:
       - name: Require successful build, packaging and runtime tests
         env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: python3 -c 'import json,os,sys; sys.exit(json.loads(os.environ["RESULTS"]) != ["success"] * 4)'
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          ROADMAP_ONLY: ${{ needs.scope.outputs.roadmap_only }}
+          RESULTS: ${{ format('{0} {1} {2} {3}', needs.linux_build.result, needs.linux_packages.result, needs.linux_runtime.result, needs.linux_integrations.result) }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          expected=success
+          if [ "$ROADMAP_ONLY" = true ]; then expected=skipped; fi
+          test "$RESULTS" = "$expected $expected $expected $expected"
 
   native_linux_arm:
+    needs: scope
+    if: needs.scope.outputs.roadmap_only != 'true'
     name: Native Linux ARM64
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
@@ -523,6 +554,8 @@ jobs:
           retention-days: 90
 
   macos:
+    needs: scope
+    if: needs.scope.outputs.roadmap_only != 'true'
     name: macOS
     runs-on: macos-26
     timeout-minutes: 45
@@ -579,6 +612,8 @@ jobs:
           retention-days: 14
 
   windows:
+    needs: scope
+    if: needs.scope.outputs.roadmap_only != 'true'
     name: Windows
     runs-on: windows-2025
     timeout-minutes: 45
@@ -626,6 +661,16 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\bin" | Out-Null
           Copy-Item target\release\asagiri-win.exe "$env:RUNNER_TEMP\bin\"
+          $messages = cargo test --no-run --locked -p asagiri-win --message-format=json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $test = $messages | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.profile.test -and $_.executable -and $_.target.name -eq 'asagiri-win' }
+          if (@($test).Count -ne 1) { throw 'Expected one Windows frontend test executable' }
+          $settingTest = 'wslconfig::native_integration::change_development138_setting'
+          $listed = & $test.executable --exact $settingTest --ignored --list
+          if ($LASTEXITCODE -ne 0 -or $listed -cnotcontains "${settingTest}: test") {
+            throw "Windows test executable did not list the required Settings test: $listed"
+          }
+          Copy-Item $test.executable "$env:RUNNER_TEMP\bin\wsl-settings-test.exe"
           $h = (Get-FileHash "$env:RUNNER_TEMP\bin\asagiri-win.exe" -Algorithm SHA256).Hash.ToLower()
           "$h  asagiri-win.exe" | Set-Content -Encoding ascii "$env:RUNNER_TEMP\bin\SHA256SUMS"
           Get-Content "$env:RUNNER_TEMP\bin\SHA256SUMS"

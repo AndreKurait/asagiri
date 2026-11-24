@@ -34,6 +34,7 @@ try {
         try { & $docker info --format '{{.ServerVersion}}'; $ready = $true; break } catch { Start-Sleep -Seconds 2 }
     }
     if (!$ready) { throw 'Windows pipe did not reach daemon' }
+    try {
     $directory = Join-Path $env:USERPROFILE 'asagiri-watch-test'
     if ([IO.Path]::GetPathRoot($directory) -ne 'C:\') { throw 'Fixture requires C drive' }
     New-Item -ItemType Directory $directory | Out-Null
@@ -65,6 +66,13 @@ console.log('READY');
 '@
     $image = 'node:22.23.5-bookworm-slim'
     & $docker pull $image
+    $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
+    $hostSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.sock").Trim()
+    $clientSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.container.sock").Trim()
+    if ($hostSocket -eq $clientSocket) { throw 'Expected two distinct engine sockets' }
+    $mountedSocket = (& $docker run --rm --network none --mount 'type=bind,source=/var/run/docker.sock,target=/engine.sock,readonly' $image stat -Lc '%d:%i' /engine.sock).Trim()
+    if ($mountedSocket -ne $clientSocket) { throw "Socket bind resolved to $mountedSocket, expected $clientSocket" }
+    Write-Host "Container socket bind matches the client listener ($mountedSocket)"
     & $docker run -d --name watch-test --mount "type=bind,source=$directory,target=/watched,readonly" $image node -e $script
     function Await-Line([string]$expected, [int]$offset) {
         for ($i = 0; $i -lt 40; $i++) {
@@ -104,6 +112,25 @@ console.log('READY');
     [IO.File]::WriteAllText("$directory\renamed\child", 'later edit')
     Await-Line 'replacement child: later edit' $offset
     & $docker logs watch-test
+    Stop-Process -Id $bridge.Id -Force
+    $bridge.WaitForExit()
+    $env:ASAGIRI_WIN_WATCH_BINDS = '0'
+    $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-watch-test' -PassThru
+    $ready = $false
+    for ($i = 0; $i -lt 45; $i++) {
+        try { & $docker info --format '{{.ServerVersion}}'; $ready = $true; break } catch { Start-Sleep -Seconds 2 }
+    }
+    if (!$ready) { throw 'Opt-out bridge did not start' }
+    $offset = @(& $docker logs watch-test).Count
+    [IO.File]::WriteAllText("$directory\disabled", 'visible without forwarding')
+    $visible = & $docker exec watch-test cat /watched/disabled
+    if ($visible -ne 'visible without forwarding') { throw 'Opt-out bind did not expose the file' }
+    Start-Sleep -Seconds 12
+    $newLines = @(& $docker logs watch-test) | Select-Object -Skip $offset
+    if ($newLines -match '"disabled":"visible without forwarding"') { throw 'Opt-out watcher forwarded a host file creation' }
+    } finally {
+        & "$PSScriptRoot/windows-wsl-integration.ps1" -Docker $docker -Root $root
+    }
 } finally {
     if ($bridge -and !$bridge.HasExited) { Stop-Process -Id $bridge.Id }
     wsl.exe --unregister asagiri

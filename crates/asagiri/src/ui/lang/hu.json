@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "A Asagiri adatai áthelyezve ide: {path}",
   "Storage is available again": "A tárhely újra elérhető",
   "Old data removed": "Régi adatok eltávolítva",
-  "Asagiri's data is moving already": "A Asagiri adatai már áthelyezés alatt állnak"
+  "Asagiri's data is moving already": "A Asagiri adatai már áthelyezés alatt állnak",
+  "No other WSL distros installed.": "Nincs más WSL-disztribúció telepítve.",
+  "WSL integration": "WSL-integráció"
 }

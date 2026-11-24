@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "داده‌های Asagiri به {path} منتقل شد",
   "Storage is available again": "فضای ذخیره‌سازی دوباره در دسترس است",
   "Old data removed": "داده‌های قدیمی حذف شد",
-  "Asagiri's data is moving already": "داده‌های Asagiri همین الان در حال جابه‌جایی است"
+  "Asagiri's data is moving already": "داده‌های Asagiri همین الان در حال جابه‌جایی است",
+  "No other WSL distros installed.": "توزیع WSL دیگری نصب نشده است.",
+  "WSL integration": "یکپارچه‌سازی WSL"
 }

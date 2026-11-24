@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Asagiri 데이터가 {path}(으)로 이동되었습니다",
   "Storage is available again": "저장소를 다시 사용할 수 있습니다",
   "Old data removed": "이전 데이터가 삭제되었습니다",
-  "Asagiri's data is moving already": "Asagiri 데이터가 이미 이동 중입니다"
+  "Asagiri's data is moving already": "Asagiri 데이터가 이미 이동 중입니다",
+  "No other WSL distros installed.": "설치된 다른 WSL 배포판이 없습니다.",
+  "WSL integration": "WSL 통합"
 }

@@ -184,13 +184,17 @@ fn raise_vfs_line(line: &str, automount_root: &str, pins: &mut Pins) -> bool {
     let line = line.trim_end_matches('\n');
     let Some((op, path)) = line.split_once('\t') else { return false };
     let Some((base, rel)) = split_wsl_drive_path(path, automount_root) else { return false };
+    if op == "D" {
+        pins.unpin_tree(path);
+    }
     match op {
         "P" => pins.pin_tree(path),
         "U" => pins.unpin_tree(path),
-        "D" => pins.unpin_tree(path),
         // A new directory is pinned before its parent hears of it, so a
         // watcher that adds a watch on it in answer gets the pinned inode.
-        "C" if path.rsplit_once('/').is_some_and(|(parent, _)| pins.held.contains_key(parent)) => {
+        // A delayed delete may already name a replacement on the host.
+        // Pin it before waking a watcher that can immediately rescan.
+        "C" | "D" if path.rsplit_once('/').is_some_and(|(parent, _)| pins.held.contains_key(parent)) => {
             if let Some(fd) = open_dir_nofollow(base, rel) {
                 pins.hold(path, fd);
                 pins.walk.push_back(path.to_owned());
@@ -562,6 +566,12 @@ mod tests {
         std::fs::create_dir(proj.join("src/new")).unwrap();
         assert!(raise_vfs_line(&format!("C\t{}\n", p("/src/new")), &root, &mut pins));
         assert!(pins.held.contains_key(&p("/src/new")));
+
+        std::fs::rename(proj.join("src/new"), proj.join("src/retired")).unwrap();
+        std::fs::create_dir(proj.join("src/new")).unwrap();
+        assert!(raise_vfs_line(&format!("D\t{}\n", p("/src/new")), &root, &mut pins));
+        let replacement = std::fs::metadata(proj.join("src/new")).unwrap();
+        assert_eq!(super::fstat(&pins.held[&p("/src/new")]).unwrap().st_ino, replacement.ino());
 
         // A deleted directory lets go of its subtree; U lets go of the root.
         std::fs::remove_dir_all(proj.join("src")).unwrap();

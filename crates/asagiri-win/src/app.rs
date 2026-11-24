@@ -1223,6 +1223,11 @@ mod tests {
         println!("Reloaded setup and opened desktop; ignored cancelled navigation {cancelled}");
         // SAFETY: this thread owns the test's controller.
         unsafe { ctl.SetBounds(RECT { left: 0, top: 0, right: 320, bottom: 480 }).unwrap() };
+        let azerbaijani = crate::assemble::page(PAGE, Some("az"));
+        assert_eq!(completed(&wv, 15, || load(&wv, azerbaijani)), Some(true));
+        assert_eq!(eval(&wv, "document.documentElement.lang === 'az'"), "true");
+        assert_eq!(eval(&wv, "document.querySelector('[data-view=images] .lbl').textContent === 'İmiclər'"), "true");
+        assert_eq!(eval(&wv, "document.querySelector('[data-view=settings] .lbl').textContent === 'Tənzimləmələr'"), "true");
         let narrow = crate::assemble::page(PAGE, Some("de"));
         assert_eq!(completed(&wv, 15, || load(&wv, narrow)), Some(true));
         let viewport: usize = eval(&wv, "innerWidth").parse().unwrap();

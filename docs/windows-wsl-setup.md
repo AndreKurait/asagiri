@@ -73,3 +73,13 @@ window, then repeat `docker context show` and `docker image ls`.
 
 Removing an environment variable here affects the current PowerShell process. If the value
 returns in a new terminal, check the environment or profile that sets it.
+
+## Windows Server
+
+Asagiri dev.247 pulled and ran the Linux image `alpine:3.21` on Windows Server
+2022 and 2025 under the signed-in runner account. Both runs used WSL 2.4.13
+with unified cgroup v2. [Server 2022 run](https://github.com/AndreKurait/asagiri/actions/runs/45285075427) · [Server 2025 run](https://github.com/AndreKurait/asagiri/actions/runs/45283636768)
+
+Unattended production use remains unqualified. The checks still needed are
+startup before sign-in, continued operation after sign-out, and recovery
+after reboot under a service identity. [Windows Server tracking issue](https://github.com/AndreKurait/asagiri/issues/237)

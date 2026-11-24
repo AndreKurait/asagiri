@@ -1916,5 +1916,7 @@
   "Storage is available again": "Պահոցը կրկին հասանելի է",
   "Old data removed": "Հին տվյալները ջնջվեցին",
   "Choose a storage folder": "Ընտրեք պահոցի պանակը",
-  "Asagiri's data is moving already": "Asagiri-ի տվյալներն արդեն տեղափոխվում են"
+  "Asagiri's data is moving already": "Asagiri-ի տվյալներն արդեն տեղափոխվում են",
+  "No other WSL distros installed.": "WSL-ի այլ բաշխումներ տեղադրված չեն։",
+  "WSL integration": "WSL-ի ինտեգրում"
 }

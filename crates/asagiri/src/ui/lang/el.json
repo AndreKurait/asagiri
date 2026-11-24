@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Τα δεδομένα του Asagiri μετακινήθηκαν στο {path}",
   "Storage is available again": "Η αποθήκευση είναι ξανά διαθέσιμη",
   "Old data removed": "Τα παλιά δεδομένα αφαιρέθηκαν",
-  "Asagiri's data is moving already": "Τα δεδομένα του Asagiri μετακινούνται ήδη"
+  "Asagiri's data is moving already": "Τα δεδομένα του Asagiri μετακινούνται ήδη",
+  "No other WSL distros installed.": "Δεν υπάρχουν άλλες εγκατεστημένες διανομές WSL.",
+  "WSL integration": "Ενσωμάτωση WSL"
 }
