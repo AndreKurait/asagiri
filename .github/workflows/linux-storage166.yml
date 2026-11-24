@@ -1,0 +1,28 @@
+name: Linux active storage relocation
+on:
+  push:
+    branches: [qualification/linux-active-storage-166]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  relocation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45355546343
+          name: linux-X64
+          path: /tmp/storage-bin
+      - run: |
+          chmod +x /tmp/storage-bin/asagiri
+          docker pull alpine:3.21
+          docker save -o /tmp/as166-alpine.tar alpine:3.21
+          sudo python3 tests/linux-active-storage166.py
+      - if: failure()
+        run: sudo tail -n 100 /tmp/as166-api-*/log
