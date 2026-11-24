@@ -99,3 +99,14 @@ jobs:
           Start-Sleep -Seconds 5
           Guest /tmp/engineping
           Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
+          Guest rm -f /tmp/managed241-marker
+          Guest test ! -e /tmp/managed241-marker
+          Guest cp /tmp/engineping /usr/local/bin/qualification-engineping
+          wsl.exe --terminate Managed241
+          if ($LASTEXITCODE) { throw 'Failed to terminate test distro' }
+          $after = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
+          try {
+            Guest sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do test -f /tmp/managed241-marker && break; sleep 1; done; if test -f /tmp/managed241-marker; then echo BOOT_COMMAND=passed; else echo BOOT_COMMAND=failed; fi; for i in 1 2 3 4 5 6 7 8 9 10; do /usr/local/bin/qualification-engineping && break; sleep 1; done; if /usr/local/bin/qualification-engineping; then echo ENGINE_RESTART=passed; else echo ENGINE_RESTART=failed; exit 1; fi; test -f /tmp/managed241-marker'
+          } finally {
+            wsl.exe --terminate Managed241
+          }
