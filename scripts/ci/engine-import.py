@@ -21,6 +21,48 @@ ROOT = Path(__file__).resolve().parents[2]
 OWNER = "dev.asagiri.import-test"
 
 
+def verify_volume_metadata(docker, imported, helper, volume):
+    filename = "metadata Δ file"
+    key = "SCHILY.xattr.user.supabase.storage.metadata"
+    value = "supabase-metadata-" * 128
+    seed = io.BytesIO()
+    with tarfile.open(fileobj=seed, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        member = tarfile.TarInfo(filename)
+        member.pax_headers[key] = value
+        member.pax_headers["SCHILY.acl.access"] = "user::rw-,user:4242:r--,group::r--,mask::r--,other::---"
+        archive.addfile(member)
+    docker("source", "run", "--rm", "-i", "--network", "none", "-v", volume + ":/data",
+           helper, "tar", "--xattrs", "--acls", "--numeric-owner", "-C", "/data", "-xf", "-", input=seed.getvalue())
+    imported("volume", volume)
+    for engine in ("source", "destination"):
+        result = docker(engine, "run", "--rm", "--network", "none", "-v", volume + ":/data:ro",
+                        helper, "tar", "--xattrs", "--acls", "--numeric-owner", "-C", "/data", "-cf", "-", filename)
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            headers = archive.getmember(filename).pax_headers
+            assert headers.get(key) == value, engine
+            entries = headers.get("SCHILY.acl.access", "").replace("\n", ",").split(",")
+            assert any(entry.split(":")[:3] == ["user", "4242", "r--"] for entry in entries), (engine, entries)
+
+
+def verify_failed_reimport(docker, imported, helper, volume, dependent):
+    mount = volume + ":/data"
+    def run(engine, *command):
+        docker(engine, "run", "--rm", "--network", "none", "-v", mount, helper, *command)
+
+    # GNU tar cannot replace a nonempty directory with the source's regular file.
+    run("source", "touch", "/data/retry-conflict")
+    run("destination", "sh", "-ec", "mkdir /data/retry-conflict; touch /data/retry-conflict/keep")
+    failure = imported("volume", volume, success=False)
+    assert "extract helper failed" in failure, failure
+    assert "  " + volume in imported("--list").splitlines()
+    refusal = imported("container", dependent, success=False)
+    assert "retry the volume first" in refusal, refusal
+    run("destination", "sh", "-ec", "unlink /data/retry-conflict/keep; rmdir /data/retry-conflict")
+    imported("volume", volume)
+    assert "  " + volume + "  (already in Asagiri)" in imported("--list").splitlines()
+    run("destination", "test", "-f", "/data/retry-conflict")
+
+
 def archive_identity(data):
     """Hash the saved configuration and actual uncompressed layer contents."""
     maximum = 256 * 1024 * 1024
@@ -193,18 +235,18 @@ def main():
         return command("docker", "exec", "-i", ids[engine], "docker", "-H", "unix://" + path,
                        *args, **kwargs)
 
-    def imported(kind, name, success=True):
+    def imported(*items, success=True):
         result = command(
             "docker", "exec", "-e", "DOCKER_CONFIG=/tmp/import-config", ids["destination"],
-            "/opt/asagiri/asagiri", "import", "desktop-linux", kind, name, check=False,
+            "/opt/asagiri/asagiri", "import", "desktop-linux", *items, check=False,
         )
         record["import_commands"].append({
-            "arguments": ["desktop-linux", kind, name], "returncode": result.returncode,
+            "arguments": ["desktop-linux", *items], "returncode": result.returncode,
             "stdout": result.stdout.decode(errors="replace"), "stderr": result.stderr.decode(errors="replace"),
         })
         save()
         text = (result.stdout + result.stderr).decode(errors="replace")
-        assert (result.returncode == 0) == success, (kind, name, result.returncode, text)
+        assert (result.returncode == 0) == success, (items, result.returncode, text)
         return text
 
     def case(name, **details):
@@ -315,8 +357,7 @@ def main():
                 assert desktop.returncode == 0 and "image|volume|container NAME" in desktop.stdout, desktop
                 case("linux-image-import-and-desktop-fixture-dispatch")
 
-                # Reuse the CI runner's existing seed bytes. The helper alias is
-                # fixture-local; it does not change any tag on the runner.
+                # Keep the disposable source free of recognized helper tags.
                 seed = command("docker", "image", "inspect", "alpine:3.21").stdout
                 seed_info = json.loads(seed)[0]
                 record["seed"] = seed_info["Id"]
@@ -328,8 +369,7 @@ def main():
                 record["image_archives"] = {"seed": archive_identity(archive)}
                 docker("source", "load", input=archive)
                 image = "asagiri-import-fixture:" + nonce
-                for tag in ("alpine:latest", image):
-                    docker("source", "tag", "alpine:3.21", tag)
+                docker("source", "tag", "alpine:3.21", image)
                 record["seed_archive_sha256"] = hashlib.sha256(archive).hexdigest()
                 del archive
                 volume = "asagiri-import-volume-" + nonce
@@ -366,6 +406,20 @@ def main():
                     assert get("destination", "/containers/json?all=1") == []
                     assert get("destination", "/images/json?all=1") == []
                     case("reject-" + state + "-before-helper-or-destination")
+                definition = "asagiri-import-definition-" + nonce
+                source_id = docker("source", "create", "--name", definition, "--network", "none",
+                                   "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
+                                   "--user", "1001:1002", "--workdir", "/tmp", "--group-add", "42",
+                                   "--device", "/dev/null:/dev/probe-null:r", "--pid", "host",
+                                   "--health-cmd", "true", "--health-interval", "15s",
+                                   "-v", volume + ":/data:ro", image, "sh", "-ec",
+                                   "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
+                                   text=True).stdout.strip()
+                error = imported("container", definition, success=False)
+                assert "import volume " + volume + " first" in error, error
+                assert request("destination", "GET", "/volumes/" + volume)[0] == 404
+                assert get("destination", "/containers/json?all=1") == []
+                case("failed-volume-copy-does-not-create-empty-dependent-volume")
                 docker("source", "unpause", cid)
                 docker("source", "stop", "-t", "1", cid)
                 docker("source", "rm", cid)
@@ -387,8 +441,17 @@ def main():
                 assert request("destination", "GET", "/volumes/" + volume)[0] == 404
                 assert get("destination", "/images/json?all=1") == []
                 case("reject-restarting-before-helper-or-destination")
+                # Freeze the writer in an active state so batch preflight is deterministic.
                 docker("source", "update", "--restart", "no", cid)
                 docker("source", "stop", "-t", "1", cid)
+                blocker = docker("source", "run", "-d", "--network", "none", "-v", volume + ":/data:ro",
+                                 image, "sleep", "600", text=True).stdout.strip()
+                batch_error = imported(success=False)
+                assert "volume " + volume + " failed to import; retry the volume first" in batch_error, batch_error
+                assert request("destination", "GET", "/volumes/" + volume)[0] == 404
+                assert get("destination", "/containers/json?all=1") == []
+                docker("source", "rm", "-f", blocker)
+                case("batch-rejects-dependent-containers-after-volume-failure")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
 
                 payload = bytes(range(256)) * 257
@@ -438,7 +501,19 @@ def main():
                      config_sha256=expected["config_sha256"],
                      api_image_ids={key: value["Id"] for key, value in record["image_inspections"].items()})
                 del archive
+                source_tags = {tag for entry in get("source", "/images/json?all=1")
+                               for tag in (entry.get("RepoTags") or [])}
+                helper_tags = {"alpine:latest", "busybox:latest", "alpine:3.22", "debian:trixie", "ubuntu:24.04"}
+                assert source_tags.isdisjoint(helper_tags), source_tags
                 imported("volume", volume)
+                helper = "debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
+                helper_digests = {}
+                for engine in ("source", "destination"):
+                    info, = json.loads(docker(engine, "image", "inspect", helper).stdout)
+                    refs = info.get("RepoDigests") or []
+                    assert any(ref in (helper, "library/" + helper, "docker.io/library/" + helper)
+                               for ref in refs), (engine, refs)
+                    helper_digests[engine] = refs
                 # An unrelated project makes a silently ignored filter observable.
                 other_volume = volume + "-other"
                 docker("destination", "volume", "create", "--label", OWNER + "=" + nonce,
@@ -455,19 +530,16 @@ def main():
                 assert contents("destination") == before == contents("source")
                 assert get("source", "/containers/" + cid + "/json")["State"]["Status"] == "exited"
                 assert get("destination", "/containers/json?all=1") == []
-                case("idle-volume-copy", bytes=len(payload), sha256=digest,
+                case("idle-volume-copy", source_helper_tags_absent=True, helper_digests=helper_digests,
+                     bytes=len(payload), sha256=digest,
                      ownership="1001:1002", mode="640", hardlink=True, symlink=True,
                      source_unchanged=True, stopped_source_user_preserved=True)
 
-                definition = "asagiri-import-definition-" + nonce
-                source_id = docker("source", "create", "--name", definition, "--network", "none",
-                                   "--label", OWNER + "=" + nonce, "--env", "IMPORT_MARKER=" + nonce,
-                                   "--user", "1001:1002", "--workdir", "/tmp", "--group-add", "42",
-                                   "--device", "/dev/null:/dev/probe-null:r", "--pid", "host",
-                                   "--health-cmd", "true", "--health-interval", "15s",
-                                   "-v", volume + ":/data:ro", image, "sh", "-ec",
-                                   "test \"$IMPORT_MARKER\" = " + nonce + "; cat /data/payload",
-                                   text=True).stdout.strip()
+                verify_failed_reimport(docker, imported, helper, volume, definition)
+                case("failed-extraction-blocks-fresh-container-import-until-volume-retry")
+                verify_volume_metadata(docker, imported, helper, volume)
+                case("volume-reimport-preserves-user-xattr-and-access-acl-on-unicode-path")
+
                 imported("container", definition)
                 copied = get("destination", "/containers/" + definition + "/json")
                 original = get("source", "/containers/" + source_id + "/json")
@@ -482,7 +554,14 @@ def main():
                            for m in copied["Mounts"]), copied["Mounts"]
                 assert docker("destination", "start", "-a", copied["Id"]).stdout == payload
                 assert get("source", "/containers/" + source_id + "/json")["State"]["Status"] == "created"
-                case("container-definition-arrives-stopped-and-runs-with-copied-volume")
+                case("container-definition-arrives-stopped-and-runs-with-copied-volume",
+                     retried_source_container=source_id)
+
+                assert get("destination", "/containers/" + definition + "/json")["State"]["Status"] == "exited"
+                error = imported("volume", volume, success=False)
+                assert "attached to" in error and definition in error, error
+                assert contents("destination") == before
+                case("volume-reimport-refuses-exited-destination-container", container=definition)
 
                 peer = "network-child-" + nonce
                 docker("source", "create", "--name", peer, "--network", "container:" + source_id,

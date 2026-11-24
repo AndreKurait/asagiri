@@ -25,6 +25,14 @@ case "$1 $2" in
     fi
     ;;
   "ps --all")
+    if [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
+      [ "$*" = 'ps --all --filter volume=fixture-volume --format {{.Names}}' ] || exit 92
+      case "$scenario" in
+        destination-attached) echo stopped-database ;;
+        destination-list-error) echo 'cannot list destination' >&2; exit 42 ;;
+      esac
+      exit 0
+    fi
     [ "$context" = orbstack ] || exit 91
     [ "$*" = 'ps --all --filter volume=fixture-volume --filter status=running --filter status=paused --filter status=restarting --format {{json .}}' ] || exit 92
     case "$scenario" in
@@ -34,13 +42,23 @@ case "$1 $2" in
       running|paused|restarting)
         printf '{"Names":"fixture-writer","State":"%s"}\n' "$scenario"
         ;;
+      writer-during-pull)
+        if [ -f "$fixture/pulled" ]; then echo '{"Names":"fixture-writer","State":"running"}'; fi
+        ;;
       late-writer)
         if [ -f "$fixture/copied" ]; then echo '{"Names":"fixture-writer","State":"running"}'; fi
         ;;
     esac
     ;;
   "image inspect")
-    # Both contexts already have the same harmless helper image.
+    case "$scenario" in helper-*|writer-during-pull) exit 1 ;; esac
+    ;;
+  "pull debian@sha256:"*)
+    touch "$fixture/pulled"
+    if [ "$scenario" = helper-pull-error ] && [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ]; then
+      echo "registry unavailable" >&2
+      exit 42
+    fi
     ;;
   "volume create")
     [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
@@ -54,11 +72,16 @@ case "$1 $2" in
   "run --rm")
     if [ "$context" = orbstack ]; then
       if [ "$scenario" = source-error ]; then echo "source tar failed" >&2; exit 42; fi
+      if [ "$scenario" = verbose-source ]; then dd if=/dev/zero bs=65536 count=8 1>&2 2>/dev/null; fi
       printf '\000volume fixture\377\n'
     else
       [ "$context" = "$ASAGIRI_IMPORT_DESTINATION" ] || exit 91
+      if [ "$scenario" = write-error ]; then
+        dd bs=1 count=4 of="$fixture/copied" 2>/dev/null
+        echo "destination tar failed" >&2
+        exit 42
+      fi
       cat > "$fixture/copied"
-      if [ "$scenario" = write-error ]; then echo "destination tar failed" >&2; exit 42; fi
     fi
     ;;
   *) echo "unexpected fixture command" >&2; exit 93 ;;

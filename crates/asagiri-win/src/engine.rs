@@ -1392,10 +1392,11 @@ pub fn on_message(msg: &str) {
             let (source, picked) = (c.name, c.value);
             std::thread::spawn(move || {
                 let (mut done, mut failed) = (0, 0);
-                for (kind, f) in [("images", crate::import::image as fn(&str, &str) -> std::io::Result<()>), ("volumes", crate::import::volume), ("containers", crate::import::container)] {
+                let mut batch = crate::import::ImportBatch::default();
+                for kind in ["images", "volumes", "containers"] {
                     for name in picked[kind].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
                         emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "running"}).to_string());
-                        match f(&source, name) {
+                        match batch.item(&source, kind, name) {
                             Ok(()) => {
                                 done += 1;
                                 emit(json!({"type": "importstep", "kind": kind, "name": name, "state": "done"}).to_string());

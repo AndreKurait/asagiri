@@ -42,13 +42,21 @@ for running, paused or restarting containers using it. An active user or an
 unreadable source inventory stops the operation before any copy helper or
 destination volume is created. The error identifies the active containers.
 
-The importer checks the source again after copying. These checks observe two
-points in time; they cannot guarantee consistency if a writer starts and
-stops between them. They do not lock the source engine or create an atomic
-filesystem snapshot.
+Both engines need the same digest-pinned Debian helper image. Each engine
+pulls it from Docker Hub if its local cache lacks that digest. After resolving
+the helper, the importer checks the source again before creating the destination
+volume. It also checks for attached destination containers, including stopped
+containers. Detach them before importing into an existing volume.
 
-If copying fails or the final source check fails, inspect the destination
-before retrying. It may contain files written by that attempt. An explicit
-volume import copies into the destination volume and does not remove extra
-files already there, so retrying against existing contents requires care.
-The source volume remains available for recovery.
+The helper mounts the source read-only and streams the files with GNU tar.
+It preserves numeric ownership, user extended attributes such as Supabase
+Storage metadata, and POSIX access and default ACLs. Both helpers run with
+networking disabled during the copy.
+
+The final check verifies that the source is still idle. A writer can start
+and stop between checks, so keep writers stopped throughout the copy.
+
+If copying or the final check fails, inspect the destination before retrying.
+A partial volume can appear as already present in `--list`. An explicit
+volume import overwrites files with matching paths and leaves other destination
+files in place. The source volume remains available for recovery.
