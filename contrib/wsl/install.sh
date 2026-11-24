@@ -19,14 +19,24 @@ boot_command_line() {
     boot && tolower($0) ~ /^[[:space:]]*command[[:space:]]*=/ { print NR; exit }
   ' "$1"
 }
+helper_contents() {
+  cat <<'START'
+#!/bin/sh
+export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
+nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &
+START
+}
 start_helper=/usr/local/bin/asagiri-wsl-start
+managed_helper() {
+  [ ! -L "$start_helper" ] && [ -f "$start_helper" ] && helper_contents | cmp -s - "$start_helper"
+}
 if [ "${1:-}" = --remove-boot-entry ]; then
   conf=/etc/wsl.conf
   [ -f "$conf" ] || exit 0
   line=$(boot_command_line "$conf")
   if [ -n "$line" ] && sed -n "${line}p" "$conf" | grep -Fq "=$start_helper; "; then
     sed -i "${line}s|=$start_helper; |=|" "$conf"
-    rm -f "$start_helper"
+    if managed_helper; then rm -f "$start_helper"; fi
   fi
   suffix=$(mktemp)
   trap 'rm -f "$suffix"' EXIT
@@ -86,12 +96,19 @@ else
     line=
     if [ -f /etc/wsl.conf ]; then line=$(boot_command_line /etc/wsl.conf); fi
     if [ -n "$line" ]; then
-      cat > "$start_helper" <<'START'
-#!/bin/sh
-export HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock
-nohup /usr/local/bin/asagiri daemon </dev/null >/var/log/asagiri.log 2>&1 &
-START
-      chmod 755 "$start_helper"
+      if [ -L "$start_helper" ] || [ -e "$start_helper" ]; then
+        if ! managed_helper; then
+          echo "Existing $start_helper differs from the Asagiri helper; keeping it intact" >&2
+          exit 1
+        fi
+      else
+        staged=$(mktemp "${start_helper}.XXXXXX")
+        trap 'rm -f "$staged"' EXIT
+        helper_contents > "$staged"
+        chmod 755 "$staged"
+        ln -T "$staged" "$start_helper"
+        rm -f "$staged"
+      fi
       if ! sed -n "${line}p" /etc/wsl.conf | grep -Fq "=$start_helper; "; then
         sed -i "${line}s|=|=$start_helper; |" /etc/wsl.conf
       fi
