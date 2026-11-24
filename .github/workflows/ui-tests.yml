@@ -20,7 +20,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    uses: ./.github/workflows/roadmap-scope.yml
   ui:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.roadmap_only != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
