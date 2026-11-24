@@ -368,19 +368,29 @@ fn start_daemon() -> io::Result<()> {
     }
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
     // Each killed after WSL_LIMIT: a wsl.exe right after Windows wakes can hang.
-    let started = crate::update::output_within(cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]), crate::update::WSL_LIMIT);
-    if !started.is_ok_and(|o| o.status.success()) {
+    let mut started = crate::update::output_within(cmd.args(["-u", "root", "--", "systemctl", "start", "asagiri"]), crate::update::WSL_LIMIT);
+    if !started.as_ref().is_ok_and(|o| o.status.success()) {
         let mut cmd = crate::win::tool("wsl.exe");
         if let Some(d) = &distro {
             cmd.args(["-d", d]);
         }
         std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
-        let _ = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
+        started = crate::update::output_within(cmd.args(["-u", "root", "--", "/usr/local/bin/asagiri-start"]), crate::update::WSL_LIMIT);
     }
     if client::wait_for_ready(Duration::from_secs(30)) {
         return Ok(());
     }
-    Err(io::Error::other("Asagiri's engine did not start in WSL: run contrib\\windows\\asagiri.ps1 to install it"))
+    let detail = match started {
+        Err(error) => error.to_string(),
+        Ok(output) if !output.status.success() => crate::setup::wsl_output(&output.stdout, &output.stderr),
+        Ok(_) => String::new(),
+    };
+    let detail = detail.trim();
+    if detail.is_empty() {
+        Err(io::Error::other("Asagiri's engine did not become ready in WSL"))
+    } else {
+        Err(io::Error::other(format!("Asagiri's engine did not start in WSL: {detail}")))
+    }
 }
 
 /// Share Mac/Linux registration and preference restoration after both
