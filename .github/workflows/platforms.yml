@@ -187,7 +187,8 @@ jobs:
 
   linux_comparisons:
     name: Linux paired comparisons
-    needs: linux_native
+    needs: [scope, linux_native]
+    if: needs.scope.outputs.locale_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -512,12 +513,15 @@ jobs:
         env:
           SCOPE_RESULT: ${{ needs.scope.result }}
           ROADMAP_ONLY: ${{ needs.scope.outputs.roadmap_only }}
+          LOCALE_ONLY: ${{ needs.scope.outputs.locale_only }}
           RESULTS: ${{ format('{0} {1} {2} {3} {4} {5}', needs.linux_build.result, needs.linux_native.result, needs.linux_comparisons.result, needs.linux_packages.result, needs.linux_runtime.result, needs.linux_integrations.result) }}
         run: |
           test "$SCOPE_RESULT" = success
           expected=success
           if [ "$ROADMAP_ONLY" = true ]; then expected=skipped; fi
-          test "$RESULTS" = "$expected $expected $expected $expected $expected $expected"
+          comparison=$expected
+          if [ "$LOCALE_ONLY" = true ]; then comparison=skipped; fi
+          test "$RESULTS" = "$expected $expected $comparison $expected $expected $expected"
 
   native_linux_arm:
     needs: scope
