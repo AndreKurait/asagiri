@@ -33,19 +33,25 @@ jobs:
           for _ in {1..60}; do docker version >/dev/null 2>&1 && break; sleep 1; done
           docker pull alpine:3.21
           unset GH_TOKEN
+          result=0
+          python3 "$GITHUB_WORKSPACE/tests/compose-health.py" "$ASAGIRI_SOCKET" alpine:3.21 --compose-plugin "$PWD/client/docker-compose" --buildx-plugin "$PWD/Asagiri.app/Contents/Resources/bin/cli-plugins/docker-buildx" --output "$RUNNER_TEMP/public-build.json" || result=$?
+          builder=$(docker ps --format '{{.Names}}' | awk '/^buildx_buildkit_/ {print; exit}')
+          test -n "$builder"
           {
-            curl -sS --max-time 12 -o /dev/null -w 'macOS registry HTTP %{http_code}\n' https://registry-1.docker.io/v2/
-            for network in bridge host; do
-              echo "network=$network"
-              docker run --rm --network "$network" alpine:3.21 sh -c '
-                cat /etc/resolv.conf
-                for host in auth.docker.io registry-1.docker.io; do nslookup "$host" || true; done
-                wget -S -T 10 -O /dev/null https://registry-1.docker.io/v2/ 2>&1 || true
-                wget -S -T 10 -O /dev/null "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/alpine:pull" 2>&1 || true'
-            done
+            echo "public_build_exit=$result builder=$builder"
+            docker inspect --format '{{.HostConfig.NetworkMode}}' "$builder"
+            docker logs --tail 100 "$builder" 2>&1 | grep -Ei 'lookup|resolve|dial|request|manifest|timeout' || true
+            docker exec "$builder" sh -c '
+              cat /etc/resolv.conf
+              for name in registry-1.docker.io auth.docker.io; do
+                for rr in A AAAA; do echo "query $name $rr"; nslookup -type="$rr" "$name" || true; done
+                wget -T 8 -S -O /dev/null "https://$name/v2/" 2>&1 || true
+              done'
           } | tee "$RUNNER_TEMP/registry-network.txt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: intel-registry-network
-          path: ${{ runner.temp }}/registry-network.txt
+          path: |
+            ${{ runner.temp }}/registry-network.txt
+            ${{ runner.temp }}/public-build.json
