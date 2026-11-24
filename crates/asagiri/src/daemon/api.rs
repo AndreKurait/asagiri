@@ -117,7 +117,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         http::respond_with(w, 400, "application/json", if close { "Connection: close\r\n" } else { "" }, body.as_bytes())?;
         return Ok(if close { Next::Close } else { Next::KeepAlive });
     }
-    if (req.path == "/asagiri/storage" || req.path.starts_with("/asagiri/storage/")) && caller != super::caller::Caller::Host {
+    if (req.path == "/asagiri/storage" || req.path.starts_with("/asagiri/storage/")) && !matches!(caller, super::caller::Caller::Host) {
         http::error(w, 403, "host connection required")?;
         return Ok(Next::Close);
     }
