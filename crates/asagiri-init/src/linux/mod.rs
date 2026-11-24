@@ -57,24 +57,68 @@ pub fn main() {
     power_off();
 }
 
-/// `panic = "abort"` means a panic in the agent unwinds nothing and leaves
-/// nothing behind but a dead vsock: say what happened and where, on the
-/// console (fd 2, what `run` uses), while it still can.
+/// Maximum length of a guest panic report, including its newline.
+const PANIC_BUF_LEN: usize = 512;
+
+/// With `panic = "abort"`, a panic in PID 1 or the host agent would otherwise
+/// abort without leaving a message on the console/stderr. Format into a fixed
+/// stack buffer and write directly to `STDERR_FILENO` via `libc::write` (no
+/// heap allocation and no `std::io::stderr()` RefCell/lock, so a panic during
+/// OOM or inside `eprintln!` argument formatting cannot double-panic).
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
-        let what = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
-            (*s).to_owned()
-        } else if let Some(s) = info.payload().downcast_ref::<String>() {
-            s.clone()
-        } else {
-            "a panic payload that is not a string".to_owned()
-        };
-        let at = info
-            .location()
-            .map(|l| format!("{}:{}", l.file(), l.line()))
-            .unwrap_or_else(|| "<unknown location>".to_owned());
-        eprintln!("asagiri-init: panic at {at}: {what}");
+        let payload = info
+            .payload()
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str));
+        let location = info.location().map(|l| (l.file(), l.line()));
+        let mut buf = [0u8; PANIC_BUF_LEN];
+        let msg = format_panic_message(&mut buf, location, payload);
+        write_stderr_all(msg);
     }));
+}
+
+fn format_panic_message<'a>(
+    buf: &'a mut [u8],
+    location: Option<(&str, u32)>,
+    payload: Option<&str>,
+) -> &'a [u8] {
+    if buf.is_empty() {
+        return &[];
+    }
+    let what = payload.unwrap_or("a panic payload that is not a string");
+    let mut cur = io::Cursor::new(&mut *buf);
+    let res = match location {
+        Some((file, line)) => write!(cur, "asagiri-init: panic at {file}:{line}: {what}\n"),
+        None => write!(cur, "asagiri-init: panic at <unknown location>: {what}\n"),
+    };
+    let len = cur.position() as usize;
+    if res.is_err() {
+        let mut end = len.min(buf.len() - 1);
+        // Back up past any UTF-8 continuation bytes so truncation ends on a
+        // character boundary before overwriting the final byte with '\n'.
+        while end > 0 && (buf[end] & 0b1100_0000) == 0b1000_0000 {
+            end -= 1;
+        }
+        buf[end] = b'\n';
+        return &buf[..=end];
+    }
+    &buf[..len]
+}
+
+fn write_stderr_all(mut bytes: &[u8]) {
+    while !bytes.is_empty() {
+        // SAFETY: writing a valid stack slice directly to STDERR_FILENO.
+        let n = unsafe { libc::write(libc::STDERR_FILENO, bytes.as_ptr().cast(), bytes.len()) };
+        if n > 0 {
+            bytes = &bytes[n as usize..];
+        } else if n < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        } else {
+            break;
+        }
+    }
 }
 
 fn run(init_start_ns: u64) -> io::Result<()> {
@@ -618,5 +662,43 @@ fn power_off() -> ! {
     loop {
         // SAFETY: pause takes no arguments.
         unsafe { libc::pause() };
+    }
+}
+
+#[cfg(test)]
+mod panic_hook_tests {
+    #[test]
+    fn formats_panic_location_and_payload_into_stack_buffer() {
+        let mut buf = [0u8; super::PANIC_BUF_LEN];
+        assert_eq!(
+            super::format_panic_message(&mut buf, Some(("crates/asagiri-init/src/linux/agent.rs", 42)), Some("boom")),
+            b"asagiri-init: panic at crates/asagiri-init/src/linux/agent.rs:42: boom\n"
+        );
+        assert_eq!(
+            super::format_panic_message(&mut buf, None, Some("oops")),
+            b"asagiri-init: panic at <unknown location>: oops\n"
+        );
+        assert_eq!(
+            super::format_panic_message(&mut buf, Some(("mod.rs", 7)), None),
+            b"asagiri-init: panic at mod.rs:7: a panic payload that is not a string\n"
+        );
+
+        // Oversized messages truncate cleanly inside the fixed stack buffer
+        // with a trailing newline and valid UTF-8.
+        let long = "x".repeat(super::PANIC_BUF_LEN * 2);
+        let out = super::format_panic_message(&mut buf, Some(("a.rs", 1)), Some(&long));
+        assert_eq!(out.len(), super::PANIC_BUF_LEN);
+        assert!(out.ends_with(b"\n"));
+        assert!(std::str::from_utf8(out).is_ok());
+
+        let mut small = [0u8; 34];
+        // "asagiri-init: panic at a.rs:1: " is 31 bytes; "éééé" has 2-byte UTF-8 chars.
+        let out = super::format_panic_message(&mut small, Some(("a.rs", 1)), Some("éééé"));
+        assert!(out.ends_with(b"\n"));
+        let text = std::str::from_utf8(out).expect("truncated output must stay valid UTF-8");
+        assert!(text.starts_with("asagiri-init: panic at a.rs:1: "));
+
+        let mut empty = [];
+        assert_eq!(super::format_panic_message(&mut empty, Some(("a.rs", 1)), Some("x")), b"");
     }
 }
