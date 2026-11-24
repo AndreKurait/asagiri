@@ -2098,7 +2098,7 @@ impl Engine {
         if previous != ceiling {
             crate::diag::info!("requested full guest memory after kernel OOM", target_mib_old = previous >> 20, target_mib = ceiling >> 20);
         }
-        Some((ceiling >> 20, ceiling >> 20))
+        Some((previous >> 20, ceiling >> 20))
     }
 
     /// Classifies a container exit for diagnostic logging, consuming any
@@ -2131,7 +2131,7 @@ impl Engine {
                     mem_available_mib = mem_available_mib,
                     target_mib = target_mib,
                     ceiling_mib = ceiling_mib,
-                    balloon_mib = 0,
+                    balloon_mib = ceiling_mib.saturating_sub(target_mib),
                     psi_full_avg10 = psi_full_avg10,
                     killed_by = "kernel",
                 );
