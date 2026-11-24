@@ -744,7 +744,11 @@ mod imp {
                     send(Cmd::Refresh);
                 }
                 Err(e) => {
-                    emit(notice("error", &e.to_string()));
+                    let mut message = e.to_string();
+                    if message.to_ascii_lowercase().contains("ext4.vhdx") {
+                        message.push_str(&tr(" If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution."));
+                    }
+                    emit(notice("error", &message));
                     emit_report();
                 }
             }
