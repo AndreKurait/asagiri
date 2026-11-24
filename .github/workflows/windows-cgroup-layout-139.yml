@@ -7,6 +7,10 @@ permissions:
   contents: read
 jobs:
   terminal:
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [original, edited]
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
@@ -36,10 +40,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           cd $env:RUNNER_TEMP
-          $tag = 'v0.1.14-dev.247'
-          $asset = 'Asagiri-0.1.14-dev.247-windows-x86_64.zip'
+          $tag = 'v0.1.14-dev.249'
+          $asset = 'Asagiri-0.1.14-dev.249-windows-x86_64.zip'
           $ref = gh api "repos/AndreKurait/asagiri/git/ref/tags/$tag" | ConvertFrom-Json
-          if ($ref.object.sha -ne '03ca8b46c7ebc0ca17f99901b1aafd8eb9740ec1') { throw 'Release revision mismatch' }
+          if ($ref.object.sha -ne '48e934fa904be0c4280750bcfd23fa5af84de133') { throw 'Release revision mismatch' }
           $release = gh release view $tag -R AndreKurait/asagiri --json assets,isDraft | ConvertFrom-Json
           if ($release.isDraft) { throw 'Release is still a draft' }
           $digest = ($release.assets | Where-Object name -eq $asset).digest
@@ -59,12 +63,11 @@ jobs:
           $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
           Guest cp /etc/wsl.conf /tmp/original-wsl.conf
           Guest sh $script.Trim()
-          Guest sh -c 'printf "\n[interop]\nappendWindowsPath=false\n" >> /etc/wsl.conf'
-          Guest cp /etc/wsl.conf /tmp/edited-wsl.conf
-          $revision = '4cfd1261d77cd3a83558e3dfa1639915e3a5e55a'
-          foreach ($path in 'contrib/windows/asagiri.ps1','contrib/wsl/install.sh') {
-            $file = Join-Path (Split-Path $env:PICKER_APP) (Split-Path $path -Leaf)
-            Invoke-WebRequest "https://raw.githubusercontent.com/AndreKurait/asagiri/$revision/$path" -OutFile $file
+          $expected = '/tmp/original-wsl.conf'
+          if ('${{ matrix.config }}' -eq 'edited') {
+            Guest sh -c 'printf "\n[interop]\nappendWindowsPath=false\n" >> /etc/wsl.conf'
+            Guest cp /etc/wsl.conf /tmp/edited-wsl.conf
+            $expected = '/tmp/edited-wsl.conf'
           }
           & pwsh -NoProfile -File "$(Split-Path $env:PICKER_APP)\asagiri.ps1" -Uninstall -Distro Managed241
           if ($LASTEXITCODE) { throw "Uninstaller failed with $LASTEXITCODE" }
@@ -74,4 +77,4 @@ jobs:
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Original boot command ran after removal'
           Guest cat /etc/wsl.conf
-          Guest cmp /tmp/edited-wsl.conf /etc/wsl.conf
+          Guest cmp $expected /etc/wsl.conf
