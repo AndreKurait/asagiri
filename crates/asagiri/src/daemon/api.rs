@@ -18,6 +18,8 @@ use super::filters::Filters;
 use super::http::{self, Request};
 use super::time;
 
+pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Serves one client connection until it closes.
 #[cfg(test)]
 pub fn serve(stream: UnixStream, engine: Arc<Engine>) -> io::Result<()> {
@@ -29,7 +31,6 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
     let mut r = BufReader::new(stream);
     // Bound an idle connection's next request. Streams, hijacked execs and
     // uploads clear the timeout before the route reads their bodies.
-    const HEADER_TIMEOUT: Duration = Duration::from_secs(300);
     let _ = r.get_ref().set_read_timeout(Some(HEADER_TIMEOUT));
     loop {
         let req = match http::read_request(&mut r, streams_body) {

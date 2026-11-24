@@ -691,6 +691,7 @@ fn remove_old_folder(old: &Path, root: &Path) -> Result<(), String> {
 /// a fresh folder). Everything else says why it can't.
 pub fn serve_unavailable(stream: UnixStream, missing: &Path) -> io::Result<()> {
     use std::io::Write as _;
+    stream.set_read_timeout(Some(super::api::HEADER_TIMEOUT))?;
     let mut w = stream.try_clone()?;
     let mut r = BufReader::new(stream);
     let unavailable = chosen::Unavailable(missing.to_owned()).to_string();
