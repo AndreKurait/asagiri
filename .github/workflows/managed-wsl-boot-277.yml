@@ -1,7 +1,7 @@
-name: Check managed WSL startup with the packaged nohup and readiness wait
+name: Verify PR 467 installer serves the engine after WSL setup
 on:
   push:
-    branches: [qualification/wsl-managed-detach-241]
+    branches: [qualification/wsl-install-467]
 permissions:
   actions: read
   contents: read
@@ -10,6 +10,16 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d9838a8376347db544f965b0159dd224f3f738d6
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45379609443
+          name: linux-X64
+          path: ${{ runner.temp }}/candidate
       - name: Install the reported Microsoft WSL release on this disposable runner
         run: |
           $ErrorActionPreference = 'Stop'
@@ -56,7 +66,10 @@ jobs:
           wsl.exe --terminate Managed241
           Guest sh -c 'for i in 1 2 3 4 5; do test -f /tmp/managed241-marker && exit 0; sleep 1; done; exit 1'
           Write-Host 'Existing boot command verified before install'
-          $script = Guest wslpath -u ((Join-Path (Split-Path $env:PICKER_APP) 'install.sh').Replace('\','/'))
+          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
+          if ((Get-Content "$candidate/SOURCE_COMMIT").Trim() -ne 'd9838a8376347db544f965b0159dd224f3f738d6') { throw 'Wrong candidate revision' }
+          Copy-Item "$env:GITHUB_WORKSPACE/contrib/wsl/install.sh" "$candidate/install.sh"
+          $script = Guest wslpath -u ((Join-Path $candidate 'install.sh').Replace('\','/'))
           @'
           package main
           import ("bufio"; "fmt"; "net"; "net/http"; "io"; "time"; "os")
@@ -79,18 +92,11 @@ jobs:
           Guest chmod 755 /tmp/engineping
           $keep = Start-Process wsl.exe -ArgumentList '-d','Managed241','--','sleep','120' -PassThru
           Guest sh $script.Trim()
-          try {
-            Guest /tmp/engineping
-            Write-Host 'Packaged background launch already serves HTTP; detached control unnecessary'
-          } catch {
-            Write-Host 'Packaged background launch unavailable; checking session-detached control'
-            Guest sh -c 'command -v nohup; HOME=/var/lib/asagiri-daemon ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock nohup /usr/local/bin/asagiri daemon </dev/null >/tmp/detached.log 2>&1 & /tmp/engineping || exit 1; echo "Daemon answered inside launch session"; ps; cat /tmp/detached.log'
-            try {
-              Guest /tmp/engineping
-              Start-Sleep -Seconds 5
-              Guest /tmp/engineping
-              Write-Host 'Detached daemon still served HTTP after the launcher shell exited'
-            } finally {
-              Guest sh -c 'ps; cat /tmp/detached.log'
-            }
+          foreach ($name in 'asagiri','asagiri-init') {
+            $digest = (Guest sha256sum "/usr/local/bin/$name").Split(' ')[0]
+            if ($digest -ne (Get-FileHash "$candidate/$name").Hash) { throw "Wrong installed $name" }
           }
+          Guest /tmp/engineping
+          Start-Sleep -Seconds 5
+          Guest /tmp/engineping
+          Write-Host 'Patched installer returned and the installed engine still serves Docker requests'
