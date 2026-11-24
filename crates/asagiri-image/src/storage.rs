@@ -75,6 +75,8 @@ pub fn read() -> io::Result<Option<Choice>> {
 fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let parent = path.parent().unwrap_or(Path::new("."));
+    #[cfg(unix)]
+    let parent_dir = fs::File::open(parent)?;
     let (tmp, mut file) = loop {
         let seq = SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let tmp = parent.join(format!(".asagiri-storage.{}.{seq}.tmp", std::process::id()));
@@ -93,7 +95,7 @@ fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if result.is_err() { let _ = fs::remove_file(tmp); }
     result?;
     #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
+    parent_dir.sync_all()?;
     Ok(())
 }
 
