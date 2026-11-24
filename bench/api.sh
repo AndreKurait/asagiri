@@ -34,6 +34,8 @@ c -X POST -H 'Content-Type: application/json' -d '{}' http://x/exec/\$e/start >/
 R
 hyperfine --shell=none --warmup 3 --runs "$RUNS" --export-json "$OUT/$label.api-run.json" "bash \"$API_BENCH_DIR/api-run.sh\"" >/dev/null
 hyperfine --shell=none --warmup 3 --runs "$RUNS" --export-json "$OUT/$label.api-exec.json" "bash \"$API_BENCH_DIR/api-exec.sh\"" >/dev/null
+c -X DELETE "http://x/containers/$id?force=true" >/dev/null
+id=
 run_stats=$(jq -L "$bench_dir" -r 'include "hyperfine"; hyperfine_wall_clock | "\(.median*1000|round) \(.min*1000|round)"' "$OUT/$label.api-run.json") || exit 1
 exec_stats=$(jq -L "$bench_dir" -r 'include "hyperfine"; hyperfine_wall_clock | "\(.median*1000|round) \(.min*1000|round)"' "$OUT/$label.api-exec.json") || exit 1
 read -r run_median run_min <<< "$run_stats"
