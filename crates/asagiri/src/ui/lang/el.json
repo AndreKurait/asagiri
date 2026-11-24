@@ -2,6 +2,7 @@
   " (current step)": " (τρέχον βήμα)",
   " (done)": " (ολοκληρώθηκε)",
   " ({port} was in use)": " (η {port} ήταν σε χρήση)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Αν επανασυνδέσατε τη μονάδα δίσκου, αποθηκεύστε την εργασία σας σε όλες τις διανομές WSL. Εκτελέστε wsl --shutdown στο PowerShell για να τις σταματήσετε όλες και δοκιμάστε ξανά.",
   " That's {count} crashes since Asagiri last opened.": " Αυτά είναι {count} σφάλματα από το τελευταίο άνοιγμα του Asagiri.",
   " and ": " και ",
   " or ": " ή ",

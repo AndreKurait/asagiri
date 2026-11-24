@@ -2,6 +2,7 @@
   " (current step)": " (ағымдағы қадам)",
   " (done)": " (дайын)",
   " ({port} was in use)": " ({port} порты бос емес еді)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Дискіні қайта қосқан болсаңыз, барлық WSL дистрибутивтеріндегі жұмысыңызды сақтаңыз. Барлығын тоқтату үшін PowerShell ішінде wsl --shutdown пәрменін орындап, қайталап көріңіз.",
   " That's {count} crashes since Asagiri last opened.": " Asagiri соңғы рет ашылғаннан бергі ақаулар: {count}.",
   " and ": " және",
   " or ": " немесе",

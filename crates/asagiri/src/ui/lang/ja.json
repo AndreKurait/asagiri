@@ -2,6 +2,7 @@
   " (current step)": "（現在のステップ）",
   " (done)": "（完了）",
   " ({port} was in use)": "（{port} は使用中でした）",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " ドライブを再接続した場合は、すべての WSL ディストリビューションで作業を保存してください。PowerShell で wsl --shutdown を実行してすべて停止し、もう一度お試しください。",
   " That's {count} crashes since Asagiri last opened.": "Asagiri を前回開いてから {count} 回クラッシュしています。",
   " and ": "と",
   " or ": " または ",

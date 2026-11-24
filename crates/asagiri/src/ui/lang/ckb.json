@@ -2,6 +2,7 @@
   " (current step)": " (هەنگاوی ئێستا)",
   " (done)": " (تەواو)",
   " ({port} was in use)": " ({port} بەکاردەهات)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " ئەگەر درایڤەکەت دووبارە بەستووەتەوە، کارەکەت لە هەموو دابەشکراوەکانی WSL پاشەکەوت بکە. بۆ وەستاندنی هەموویان لە PowerShell فرمانەکەی wsl --shutdown جێبەجێ بکە، پاشان دووبارە هەوڵ بدەوە.",
   " That's {count} crashes since Asagiri last opened.": " ژمارەی تێکشکانەکان لە دوایین کردنەوەی Asagiri ەوە: {count}.",
   " and ": " و ",
   " or ": " یان ",

@@ -2,6 +2,7 @@
   " (current step)": " (বর্তমান ধাপ)",
   " (done)": " (সম্পন্ন)",
   " ({port} was in use)": " ({port} ব্যবহৃত ছিল)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " ড্রাইভটি আবার যুক্ত করে থাকলে সব WSL ডিস্ট্রিবিউশনে আপনার কাজ সংরক্ষণ করুন। সবগুলো বন্ধ করতে PowerShell-এ wsl --shutdown চালান, তারপর আবার চেষ্টা করুন।",
   " That's {count} crashes since Asagiri last opened.": " Asagiri শেষবার খোলার পর থেকে {count}টি ক্র্যাশ হয়েছে।",
   " and ": " ও ",
   " or ": " অথবা ",

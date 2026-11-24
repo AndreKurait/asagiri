@@ -2,6 +2,7 @@
   " (current step)": " (ขั้นตอนปัจจุบัน)",
   " (done)": " (เสร็จแล้ว)",
   " ({port} was in use)": " ({port} ถูกใช้อยู่)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " หากเพิ่งเชื่อมต่อไดรฟ์อีกครั้ง ให้บันทึกงานใน WSL ทุกดิสทริบิวชัน เรียกใช้ wsl --shutdown ใน PowerShell เพื่อหยุดทั้งหมด แล้วลองอีกครั้ง",
   " That's {count} crashes since Asagiri last opened.": " ขัดข้องไปแล้ว {count} ครั้งตั้งแต่เปิด Asagiri ครั้งล่าสุด",
   " and ": " และ ",
   " or ": " หรือ ",

@@ -2,6 +2,7 @@
   " (current step)": " (ప్రస్తుత దశ)",
   " (done)": " (పూర్తయింది)",
   " ({port} was in use)": " ({port} వాడుకలో ఉంది)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " డ్రైవ్‌ను మళ్లీ కనెక్ట్ చేసి ఉంటే, అన్ని WSL పంపిణీలలో మీ పనిని సేవ్ చేయండి. వాటన్నింటినీ ఆపడానికి PowerShellలో wsl --shutdown అమలు చేసి మళ్లీ ప్రయత్నించండి.",
   " That's {count} crashes since Asagiri last opened.": " Asagiri చివరిసారి తెరిచినప్పటి నుండి ఇవి {count} క్రాష్‌లు.",
   " and ": " మరియు ",
   " or ": " లేదా ",

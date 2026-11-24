@@ -2,6 +2,7 @@
   " (current step)": " (aktuális lépés)",
   " (done)": " (kész)",
   " ({port} was in use)": " (a port foglalt volt: {port})",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Ha újracsatlakoztatta a meghajtót, mentse a munkáját minden WSL-disztribúcióban. A PowerShellben futtassa a wsl --shutdown parancsot az összes leállításához, majd próbálja újra.",
   " That's {count} crashes since Asagiri last opened.": " Ez már {count} összeomlás a Asagiri legutóbbi megnyitása óta.",
   " and ": " és ",
   " or ": " vagy ",

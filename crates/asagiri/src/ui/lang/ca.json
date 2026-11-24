@@ -2,6 +2,7 @@
   " (current step)": " (pas actual)",
   " (done)": " (fet)",
   " ({port} was in use)": " ({port} estava en ús)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Si heu tornat a connectar la unitat, deseu la feina a totes les distribucions WSL. Executeu wsl --shutdown al PowerShell per aturar-les totes i torneu-ho a provar.",
   " That's {count} crashes since Asagiri last opened.": " Ja són {count} errors des que es va obrir Asagiri per última vegada.",
   " and ": " i ",
   " or ": " o ",

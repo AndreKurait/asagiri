@@ -2,6 +2,7 @@
   " (current step)": " (текущий шаг)",
   " (done)": " (готово)",
   " ({port} was in use)": " (порт {port} был занят)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Если вы снова подключили диск, сохраните работу во всех дистрибутивах WSL. Выполните wsl --shutdown в PowerShell, чтобы остановить их все, затем повторите попытку.",
   " That's {count} crashes since Asagiri last opened.": " Сбоев с последнего запуска Asagiri: {count}.",
   " and ": " и ",
   " or ": " или ",

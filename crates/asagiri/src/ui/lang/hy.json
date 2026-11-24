@@ -2,6 +2,7 @@
   " (current step)": " (ընթացիկ քայլ)",
   " (done)": " (արված է)",
   " ({port} was in use)": " ({port} պորտը զբաղված էր)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Եթե սկավառակը նորից եք միացրել, պահպանեք ձեր աշխատանքը WSL-ի բոլոր բաշխումներում։ PowerShell-ում գործարկեք wsl --shutdown հրամանը՝ բոլոր բաշխումները կանգնեցնելու համար, ապա կրկին փորձեք։",
   " That's {count} crashes since Asagiri last opened.": " Asagiri-ի վերջին բացումից ի վեր խափանումների քանակը՝ {count}։",
   " and ": " և ",
   " or ": " կամ ",

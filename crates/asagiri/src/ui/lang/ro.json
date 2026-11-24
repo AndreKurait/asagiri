@@ -2,6 +2,7 @@
   " (current step)": " (pasul curent)",
   " (done)": " (gata)",
   " ({port} was in use)": " ({port} era ocupat)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Dacă ai reconectat unitatea, salvează lucrul în toate distribuțiile WSL. Rulează wsl --shutdown în PowerShell pentru a le opri pe toate, apoi încearcă din nou.",
   " That's {count} crashes since Asagiri last opened.": " Numărul de blocări de la ultima deschidere a Asagiri: {count}.",
   " and ": " și ",
   " or ": " sau ",

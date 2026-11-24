@@ -2,6 +2,7 @@
   " (current step)": " (bước hiện tại)",
   " (done)": " (xong)",
   " ({port} was in use)": " ({port} đang bị dùng)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Nếu vừa kết nối lại ổ đĩa, hãy lưu công việc trong tất cả các bản phân phối WSL. Chạy wsl --shutdown trong PowerShell để dừng tất cả, rồi thử lại.",
   " That's {count} crashes since Asagiri last opened.": " Đã có {count} lần gặp sự cố kể từ lần cuối mở Asagiri.",
   " and ": " và ",
   " or ": " hoặc ",

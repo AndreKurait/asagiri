@@ -2,6 +2,7 @@
   " (current step)": " (الخطوة الحالية)",
   " (done)": " (تم)",
   " ({port} was in use)": " (كان {port} مستخدمًا)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " إذا أعدت توصيل القرص، فاحفظ عملك في جميع توزيعات WSL. شغّل wsl --shutdown في PowerShell لإيقافها كلها، ثم أعد المحاولة.",
   " That's {count} crashes since Asagiri last opened.": " عدد حالات التعطّل منذ آخر فتح لـ Asagiri: {count}.",
   " and ": " و ",
   " or ": " أو ",

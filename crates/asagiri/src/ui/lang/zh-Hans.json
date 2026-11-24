@@ -2,6 +2,7 @@
   " (current step)": "（当前步骤）",
   " (done)": "（已完成）",
   " ({port} was in use)": "（{port} 已被占用）",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " 如果刚刚重新连接了驱动器，请保存所有 WSL 发行版中的工作。在 PowerShell 中运行 wsl --shutdown 以停止所有发行版，然后重试。",
   " That's {count} crashes since Asagiri last opened.": "自 Asagiri 上次打开以来已崩溃 {count} 次。",
   " and ": "和",
   " or ": " 或 ",

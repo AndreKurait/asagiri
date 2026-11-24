@@ -2,6 +2,7 @@
   " (current step)": " (langkah saat ini)",
   " (done)": " (selesai)",
   " ({port} was in use)": " ({port} sedang dipakai)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Jika Anda baru menyambungkan kembali drive, simpan pekerjaan di semua distribusi WSL. Jalankan wsl --shutdown di PowerShell untuk menghentikan semuanya, lalu coba lagi.",
   " That's {count} crashes since Asagiri last opened.": " Sudah {count} kali crash sejak Asagiri terakhir dibuka.",
   " and ": " dan ",
   " or ": " atau ",

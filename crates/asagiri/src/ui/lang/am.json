@@ -2,6 +2,7 @@
   " (current step)": " (የአሁኑ ደረጃ)",
   " (done)": " (ተጠናቋል)",
   " ({port} was in use)": " ({port} በጥቅም ላይ ነበር)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " ድራይቩን እንደገና ካገናኙ፣ በሁሉም የWSL ስርጭቶች ያለውን ሥራ ያስቀምጡ። ሁሉንም ለማቆም በPowerShell ውስጥ wsl --shutdown ያሂዱ፣ ከዚያ ደግመው ይሞክሩ።",
   " That's {count} crashes since Asagiri last opened.": " Asagiri ለመጨረሻ ጊዜ ከተከፈተ ወዲህ ይህ {count} ብልሽቶች ነው።",
   " and ": " እና",
   " or ": " ወይም",

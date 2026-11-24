@@ -2,6 +2,7 @@
   " (current step)": " (dabartinis veiksmas)",
   " (done)": " (atlikta)",
   " ({port} was in use)": " (prievadas {port} buvo užimtas)",
+  " If you just reconnected the storage drive, save work in all WSL distributions, run wsl --shutdown in PowerShell, then retry. This stops every running WSL distribution.": " Jei vėl prijungėte diską, įrašykite darbą visuose WSL platinamuosiuose paketuose. Paleiskite wsl --shutdown programoje „PowerShell“, kad juos visus sustabdytumėte, ir bandykite dar kartą.",
   " That's {count} crashes since Asagiri last opened.": " Strigčių nuo paskutinio Asagiri atidarymo: {count}.",
   " and ": " ir ",
   " or ": " arba ",
