@@ -41,15 +41,22 @@ try {
     $script = @'
 const fs = require('node:fs');
 let nestedWatcher;
+let watchedGeneration;
 function snapshot() {
   const state = {};
   for (const entry of fs.readdirSync('/watched', {withFileTypes:true})) {
     if (entry.isFile()) state[entry.name] = fs.readFileSync('/watched/'+entry.name,'utf8');
-    if (entry.isDirectory() && entry.name === 'renamed' && !nestedWatcher) {
-      nestedWatcher = fs.watch('/watched/renamed', () => {
-        console.log('nested: ' + fs.readFileSync('/watched/renamed/child','utf8'));
+    if (entry.isDirectory() && entry.name === 'renamed') {
+      const dir = '/watched/renamed';
+      const generation = fs.existsSync(dir+'/replacement') ? 'replacement' : 'original';
+      if (generation === watchedGeneration) continue;
+      nestedWatcher?.close();
+      watchedGeneration = generation;
+      nestedWatcher = fs.watch(dir, () => {
+        try { console.log(generation+' child: '+fs.readFileSync(dir+'/child','utf8')); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
       });
-      console.log('NESTED READY');
+      console.log(generation+' READY');
     }
   }
   console.log(JSON.stringify(state));
@@ -83,10 +90,20 @@ console.log('READY');
     [IO.File]::WriteAllText("$directory\original\child", 'before')
     $offset = @(& $docker logs watch-test).Count
     Move-Item "$directory\original" "$directory\renamed"
-    Await-Line 'NESTED READY' $offset
+    Await-Line 'original READY' $offset
     $offset = @(& $docker logs watch-test).Count
     [IO.File]::WriteAllText("$directory\renamed\child", 'after')
-    Await-Line 'nested: after' $offset
+    Await-Line 'original child: after' $offset
+    New-Item -ItemType Directory "$directory\staged" | Out-Null
+    [IO.File]::WriteAllText("$directory\staged\replacement", '')
+    [IO.File]::WriteAllText("$directory\staged\child", 'before replacement edit')
+    $offset = @(& $docker logs watch-test).Count
+    [IO.Directory]::Move("$directory\renamed", "$directory\retired")
+    [IO.Directory]::Move("$directory\staged", "$directory\renamed")
+    Await-Line 'replacement READY' $offset
+    $offset = @(& $docker logs watch-test).Count
+    [IO.File]::WriteAllText("$directory\renamed\child", 'later edit')
+    Await-Line 'replacement child: later edit' $offset
     & $docker logs watch-test
     } finally {
         & "$PSScriptRoot/windows-wsl-integration.ps1" -Docker $docker -Root $root

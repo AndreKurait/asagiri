@@ -241,31 +241,34 @@ fn merge_op(prev: char, next: char) -> char {
     match (prev, next) {
         (_, 'D') => 'D',
         ('C', 'M') | ('M', 'C') | ('C', 'C') => 'C',
-        ('D', 'C') | ('D', 'M') | ('M', 'M') => 'M',
+        ('D', 'M') | ('M', 'M') => 'M',
         _ => next,
     }
 }
 
 /// Coalesces duplicate/burst events within a batch, preserving arrival order
-/// and emitting at most one change line per distinct path. A root's pin
+/// and retaining both lifecycle events when a path is replaced. A root's pin
 /// (`P`) or unpin (`U`) is kept apart from changes to the same path; the
 /// later of the two wins.
 pub fn coalesce_events(events: &[(char, String)]) -> Vec<String> {
-    let mut order: Vec<(bool, String)> = Vec::new();
-    let mut ops: HashMap<(bool, String), char> = HashMap::new();
+    let mut changes: Vec<(char, &str)> = Vec::new();
+    let mut latest: HashMap<(bool, &str), usize> = HashMap::new();
     for (op, path) in events {
         if !matches!(op, 'C' | 'M' | 'A' | 'D' | 'P' | 'U') || path.is_empty() {
             continue;
         }
-        let key = (matches!(op, 'P' | 'U'), path.clone());
-        if let Some(existing) = ops.get_mut(&key) {
-            *existing = if key.0 { *op } else { merge_op(*existing, *op) };
-        } else {
-            ops.insert(key.clone(), *op);
-            order.push(key);
+        let key = (matches!(op, 'P' | 'U'), path.as_str());
+        if let Some(&index) = latest.get(&key) {
+            let prev = changes[index].0;
+            if (prev, *op) != ('D', 'C') {
+                changes[index].0 = if key.0 { *op } else { merge_op(prev, *op) };
+                continue;
+            }
         }
+        latest.insert(key, changes.len());
+        changes.push((*op, path));
     }
-    order.into_iter().filter_map(|k| ops.get(&k).map(|op| format!("{op}\t{}", k.1))).collect()
+    changes.into_iter().map(|(op, path)| format!("{op}\t{path}")).collect()
 }
 
 /// The WSL path of a watched Windows directory (`C:\Users\me\app` ->
@@ -719,6 +722,12 @@ mod tests {
         // Truncated buffer does not panic.
         assert!(decode_notify_buffer(&buf[..5]).is_empty());
         assert!(decode_notify_buffer(&[]).is_empty());
+    }
+
+    #[test]
+    fn replacement_keeps_delete_and_create_in_arrival_order() {
+        let events = [('D', "dir".into()), ('M', "other".into()), ('C', "dir".into()), ('M', "dir".into())];
+        assert_eq!(coalesce_events(&events), ["D\tdir", "M\tother", "C\tdir"]);
     }
 
     #[test]
