@@ -434,6 +434,15 @@ mod native_integration {
                 super::toggle_distro("Build138", mode == "second-on").unwrap();
                 return;
             }
+            Ok("failed-peer-off") => {
+                super::record_distro_selection("Fault138", true).unwrap();
+                assert!(super::toggle_distro("Development138", false).is_err());
+                return;
+            }
+            Ok("forget-failed-peer") => {
+                super::toggle_distro("Fault138", false).unwrap();
+                return;
+            }
             Ok("interrupt-off") => {
                 let (_, pending) = super::record_distro_selection("Development138", false).unwrap();
                 assert!(pending.contains(&"Development138".to_owned()));
