@@ -84,6 +84,22 @@ def check(path, image):
             call('rm', '-v', cid)
             owned.remove(cid)
             print('PASS requested ' + ('ephemeral' if requested == '0' else 'fixed') + ' loopback binding through create/start/stop; actual port isolated')
+        port = free_port()
+        cid = call('create', '--network', 'host', '-p', f'{port}:{port}', image,
+                   'sh', '-c', f"while :; do printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 21\\r\\nConnection: close\\r\\n\\r\\nloopback-binding-test' | nc -l -p {port} >/dev/null; done")
+        owned.append(cid)
+        call('start', cid)
+        deadline = time.monotonic() + 10
+        while not serves(port):
+            assert time.monotonic() < deadline, 'Host-network HTTP listener did not serve'
+            time.sleep(0.05)
+        row = inspect(cid)
+        assert row['State']['Running'] and row['HostConfig']['NetworkMode'] == 'host', row['State']
+        assert row['HostConfig']['PortBindings'] == {f'{port}/tcp': [{'HostIp': '', 'HostPort': str(port)}]}
+        assert row['NetworkSettings']['Ports'] == {}, row['NetworkSettings']['Ports']
+        call('rm', '-f', cid)
+        owned.remove(cid)
+        print('PASS Linux host-network listener serves directly with requested binding preserved in HostConfig')
         cid = call('create', '--network', 'none', '--entrypoint', '/bin/true', image)
         owned.append(cid)
         assert 'ExposedPorts' not in inspect(cid)['Config'], 'An absent exposed-port map must be omitted'
