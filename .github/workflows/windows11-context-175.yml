@@ -43,8 +43,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Get-CimInstance Win32_Processor | Select-Object Name,VirtualizationFirmwareEnabled,SecondLevelAddressTranslationExtensions
+          Get-CimInstance Win32_Processor | Select-Object Name,VirtualizationFirmwareEnabled,SecondLevelAddressTranslationExtensions | Format-List | Out-Host
           wsl.exe --version
+          if ($LASTEXITCODE) {
+            wsl.exe --install --no-distribution --web-download
+            if ($LASTEXITCODE) { throw "WSL installation exited $LASTEXITCODE" }
+            wsl.exe --version
+            if ($LASTEXITCODE) { throw 'Installed WSL is unavailable in this runner session' }
+          }
           wsl.exe --set-default-version 2
           if ($LASTEXITCODE) { throw 'Could not select WSL2' }
           wsl.exe --install --distribution Ubuntu --no-launch --web-download
