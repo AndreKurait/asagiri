@@ -246,7 +246,14 @@ pub fn volume(source: &str, name: &str) -> io::Result<()> {
                     .ok_or_else(|| io::Error::other("invalid source helper ID"))?;
                 // No force or volume removal. A running reader must finish first.
                 let removed = cli()?.args(["--context", ctx, "rm", id]).output()?;
-                if !removed.status.success() { return Err(io::Error::other(String::from_utf8_lossy(&removed.stderr).into_owned())); }
+                if !removed.status.success() {
+                    // AutoRemove can win the race after listing. Continue only when
+                    // the source engine confirms that this exact ID is gone.
+                    let remaining = json_lines(ctx, &["ps", "-a", "--no-trunc", "--filter", &format!("id={id}"), "--format", "{{json .ID}}"])?;
+                    if !remaining.is_empty() {
+                        return Err(io::Error::other(String::from_utf8_lossy(&removed.stderr).into_owned()));
+                    }
+                }
             }
             owner
         }
