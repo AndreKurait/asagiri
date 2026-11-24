@@ -36,6 +36,9 @@ jobs:
                       window.destroy()
               webview.start(inspect, gui='edgechromium')
               print(observed, flush=True)
-              assert len(observed) == 12 and all(line.startswith('PASS ') for line in observed)
+              assert all(line.startswith('PASS ') for line in observed), observed
+              expected = [line.split(chr(34))[1] for line in pathlib.Path('tests/ui/switch.js').read_text(encoding='utf-8').splitlines() if line.startswith('t(')]
+              assert 'unknown context can select the owned context without importing or inventing a previous engine' in expected
+              assert observed == ['PASS ' + title for title in expected], observed
           '@ | python -
           exit $LASTEXITCODE
