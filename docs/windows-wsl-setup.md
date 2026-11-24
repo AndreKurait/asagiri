@@ -1,5 +1,19 @@
 # Windows WSL setup
 
+## Using an existing distribution
+
+In the Windows setup wizard, select the registered WSL distribution you want
+Asagiri to use. Setup installs the engine as root inside that distribution.
+The native Linux engine also requires root to run containers. If your managed
+distribution permits only rootless engines, this setup option cannot run your
+workloads under that policy.
+
+On v0.1.15, a daemon started as UID 1000 answered its health check and downloaded
+an Alpine layer, then rejected runtime startup during the pull. The container
+never started. [Windows Server 2025 and WSL 2.4.13 verification](https://github.com/AndreKurait/asagiri/actions/runs/45457278453/job/138670018947)
+
+## Windows prerequisites
+
 The elevated WSL setup step enables both Virtual Machine Platform and
 `Microsoft-Windows-Subsystem-Linux` before installing the verified WSL MSI.
 This addresses [Kiri issue #297](https://github.com/libracoder/kiri/issues/297),
