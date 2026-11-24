@@ -42,6 +42,15 @@ concurrency:
 jobs:
   scope:
     uses: $/.github/workflows/roadmap-scope.yml
+  roadmap_speed:
+    needs: scope
+    if: github.event_name == 'pull_request' && needs.scope.outputs.roadmap_only == 'true'
+    # GitHub retains the literal name expression on skipped jobs. Only an
+    # executed roadmap check should publish the required speed context.
+    name: ${{ needs.scope.outputs.roadmap_only == 'true' && 'speed' || 'roadmap speed' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Only the implementation roadmap changed.'
   speed:
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.roadmap_only != 'true' }}
