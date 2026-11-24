@@ -28,6 +28,8 @@ mod hostopts;
 mod mirror;
 mod http;
 mod http_number;
+mod storage;
+mod treecopy;
 mod identity;
 mod layer_admission;
 mod lifecycle_advance;
@@ -169,6 +171,24 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     let listener = bind_api_socket(&socket, access_group.as_deref(), #[cfg(target_os = "linux")] service)?;
     #[cfg(target_os = "linux")]
     let gate = socket_gate(&socket, access_group.as_deref())?;
+    let root = match asagiri_image::Store::default_root() {
+        Ok(root) => root,
+        Err(error) => {
+            let Some(missing) = asagiri_image::storage::unavailable(&error).map(PathBuf::from) else { return Err(error) };
+            diag::warn!("waiting for storage drive", folder = missing.display());
+            let (cancel, cancelled) = std::sync::mpsc::channel();
+            std::thread::Builder::new().name("asagiri-signals".into()).spawn(move || {
+                let mut sig = 0;
+                // SAFETY: the set contains signals blocked before the listener started.
+                unsafe { libc::sigwait(&set, &mut sig) };
+                let _ = std::fs::remove_file(socket);
+                let _ = cancel.send(());
+                std::process::exit(0);
+            })?;
+            serve_listener(listener, move |conn| storage::serve_unavailable(conn, &missing), #[cfg(target_os = "linux")] gate, cancelled, max_open_conns);
+            return Ok(());
+        }
+    };
     #[cfg(target_os = "linux")]
     let container_endpoint = {
         let path = caller::container_socket(&socket);
@@ -184,9 +204,10 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     };
     registry_config::initialize()?;
     asagiri_image::set_registry_settings_source(registry_config::image_settings);
-    let store = asagiri_image::Store::open(asagiri_image::Store::default_root()?)?;
+    let store = asagiri_image::Store::open(root)?;
     let engine = engine::Engine::boot(store).inspect_err(|e| diag::error!("engine did not start", error = e))?;
     diag::info!("engine ready", version = env!("CARGO_PKG_VERSION"), ms = t0.elapsed().as_millis(), socket = format!("unix://{}", socket.display()));
+    storage::after_restart(&engine);
     // Crash files from earlier runs, if the person said they may go.
     diag::report::spawn_crash_sender(Duration::from_secs(30), Some(Duration::from_secs(6 * 3600)));
     // Container files in Finder, at ~/Asagiri. A Linux host has them on its
@@ -259,10 +280,10 @@ pub fn run(_args: &[String]) -> io::Result<()> {
     {
         let engine = engine.clone();
         std::thread::Builder::new().name("asagiri-container-api".into()).spawn(move || {
-            serve_listener(container_endpoint.0, engine, caller::Caller::Container, container_endpoint.1, container_cancelled, max_open_conns);
+            serve_listener(container_endpoint.0, move |conn| api::serve_as(conn, engine.clone(), caller::Caller::Container), container_endpoint.1, container_cancelled, max_open_conns);
         })?;
     }
-    serve_listener(listener, engine, caller::Caller::Host, #[cfg(target_os = "linux")] gate, cancelled, max_open_conns);
+    serve_listener(listener, move |conn| api::serve_as(conn, engine.clone(), caller::Caller::Host), #[cfg(target_os = "linux")] gate, cancelled, max_open_conns);
     // Cancellation must not let the main thread exit before guest shutdown.
     let _ = signals.join();
     Ok(())
@@ -308,14 +329,16 @@ fn bind_api_socket(socket: &std::path::Path, access_group: Option<&std::ffi::OsS
     Ok(listener)
 }
 
-fn serve_listener(listener: UnixListener, engine: std::sync::Arc<engine::Engine>, caller: caller::Caller, #[cfg(target_os = "linux")] gate: Option<std::sync::Arc<access::Gate>>, cancelled: std::sync::mpsc::Receiver<()>, max_open_conns: usize) {
+fn serve_listener(listener: UnixListener, serve: impl Fn(UnixStream) -> io::Result<()> + Send + Sync + 'static, #[cfg(target_os = "linux")] gate: Option<std::sync::Arc<access::Gate>>, cancelled: std::sync::mpsc::Receiver<()>, max_open_conns: usize) {
+    let serve = std::sync::Arc::new(serve);
     let mut accepting = accept::Retry::new(cancelled);
     while let Some((conn, _)) = accepting.next(|| listener.accept()) {
-        serve_connection(conn, &engine, caller.clone(), #[cfg(target_os = "linux")] &gate, max_open_conns);
+        let serve = serve.clone();
+        serve_connection(conn, move |conn| serve(conn), #[cfg(target_os = "linux")] &gate, max_open_conns);
     }
 }
 
-fn serve_connection(conn: UnixStream, engine: &std::sync::Arc<engine::Engine>, caller: caller::Caller, #[cfg(target_os = "linux")] gate: &Option<std::sync::Arc<access::Gate>>, max_open_conns: usize) {
+fn serve_connection(conn: UnixStream, serve: impl FnOnce(UnixStream) -> io::Result<()> + Send + 'static, #[cfg(target_os = "linux")] gate: &Option<std::sync::Arc<access::Gate>>, max_open_conns: usize) {
     // One thread per connection, and a connection costs nothing to open:
     // cap the open ones, so a local flood cannot pile up threads without
     // bound. Reads are bounded in `api::serve` too.
@@ -331,7 +354,6 @@ fn serve_connection(conn: UnixStream, engine: &std::sync::Arc<engine::Engine>, c
         diag::warn!("too many open connections; the new one was not served", limit = max_open_conns);
         return;
     }
-    let engine = engine.clone();
     // Own the slot before spawning: a failed spawn drops its closure too.
     let open = ReleaseOpenConn;
     #[cfg(target_os = "linux")]
@@ -348,7 +370,7 @@ fn serve_connection(conn: UnixStream, engine: &std::sync::Arc<engine::Engine>, c
             },
             None => None,
         };
-        let _ = api::serve_as(conn, engine, caller);
+        let _ = serve(conn);
     });
     if let Err(e) = spawned {
         diag::error!("cannot start a connection thread", error = e);

@@ -123,7 +123,7 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 static BUSY: AtomicBool = AtomicBool::new(false);
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
-fn dir() -> PathBuf {
+pub(crate) fn dir() -> PathBuf {
     std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Asagiri")).unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -199,6 +199,10 @@ fn quiet(program: &str) -> Command {
 
 use crate::wsl_text::decode as wsl_text;
 
+pub(crate) fn wsl_output(stdout: &[u8], stderr: &[u8]) -> String {
+    wsl_text(stdout) + &wsl_text(stderr)
+}
+
 fn wsl_installed() -> bool {
     quiet("wsl.exe").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
@@ -245,6 +249,9 @@ fn restarted_since(at: u64) -> bool {
 
 /// Whether the window should open on setup rather than Asagiri.
 pub fn needed() -> bool {
+    if crate::storage::unavailable().is_some() {
+        return false;
+    }
     let s = saved();
     setup_needed(&s, probe_distros)
 }

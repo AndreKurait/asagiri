@@ -122,6 +122,8 @@ mod wslsync;
 #[cfg(any(windows, test))]
 mod refuse;
 #[cfg(any(windows, test))]
+mod storage;
+#[cfg(any(windows, test))]
 mod watch;
 
 #[cfg(windows)]

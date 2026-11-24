@@ -40,7 +40,8 @@ fn wsl_base_dir() -> PathBuf {
 pub(super) fn initialize(engine: std::sync::Arc<engine::Engine>, limit: usize) {
     let ws = WSL_SOCKETS.get_or_init(|| {
         WslSockets::new(wsl_base_dir(), move |conn, distro| {
-            super::serve_connection(conn, &engine, caller::Caller::Wsl(distro), &None, limit);
+            let engine = engine.clone();
+            super::serve_connection(conn, move |conn| super::api::serve_as(conn, engine, caller::Caller::Wsl(distro)), &None, limit);
         })
     });
     if let Err(e) = ws.load_config() {
