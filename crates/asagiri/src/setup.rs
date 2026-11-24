@@ -473,6 +473,41 @@ pub fn after_tools() -> io::Result<()> {
 }
 
 /// The context, as `docker context create asagiri --docker host=…` writes it.
+/// After Settings → Storage moved the data folder from `old`: Asagiri Lite's
+/// docker link (`~/.asagiri/bin/docker`) and docker's plugin folder, which
+/// point into the data folder, point into the new one.
+pub fn relink_cli(old: &Path) -> io::Result<()> {
+    let new = asagiri_image::Store::default_root()?;
+    let link = bin_dir()?.join("docker");
+    if let Some(to) = std::fs::read_link(&link).ok().and_then(|t| moved(&t, old, &new)) {
+        std::fs::remove_file(&link)?;
+        std::os::unix::fs::symlink(to, &link)?;
+    }
+    let path = docker_dir()?.join("config.json");
+    let mut cfg = read_json(&path)?;
+    if repoint_plugin_dirs(&mut cfg, old, &new) {
+        write_json(&path, &cfg)?;
+    }
+    Ok(())
+}
+
+/// `path` under `new` instead of `old`, if it was under `old`.
+fn moved(path: &Path, old: &Path, new: &Path) -> Option<PathBuf> {
+    path.strip_prefix(old).ok().map(|rest| new.join(rest))
+}
+
+/// Moves docker's plugin folders under `old` to `new`; whether any moved.
+fn repoint_plugin_dirs(cfg: &mut Value, old: &Path, new: &Path) -> bool {
+    let mut changed = false;
+    for d in cfg["cliPluginsExtraDirs"].as_array_mut().into_iter().flatten() {
+        if let Some(to) = d.as_str().and_then(|s| moved(Path::new(s), old, new)) {
+            *d = to.to_string_lossy().into_owned().into();
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn context(socket: &Path) -> io::Result<()> {
     let meta = json!({
         "Name": CONTEXT.get(),

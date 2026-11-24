@@ -414,7 +414,7 @@ fn parse_release(raw: &str) -> Option<String> {
 // compatibility version separate from Asagiri's own release numbering.
 const DOCKER_COMPAT_VERSION: &str = "27.5.1-asagiri";
 
-fn version() -> Value {
+pub(super) fn version() -> Value {
     let v = env!("CARGO_PKG_VERSION");
     json!({
         "Platform": {"Name": "Asagiri"},

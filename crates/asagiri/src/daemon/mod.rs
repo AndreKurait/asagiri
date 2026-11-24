@@ -25,6 +25,8 @@ mod hostopts;
 mod mirror;
 mod http;
 mod http_number;
+mod storage;
+mod treecopy;
 mod identity;
 mod layer_admission;
 mod lifecycle_advance;
