@@ -265,7 +265,13 @@ Health transition PR #291 removed two sampled unit tests and kept the status/log
   Merged `main` at `cfbeab94` has 1,081 declarations, twelve above the baseline. The net increases are six each in `asagiri` and `asagiri-win`. The total includes the removal of two sampled health tests in #291 and one sampled HTTP numeric parsing test in #292.
 
   Recount with `git grep -n -E '^[[:space:]]*#\[test\]' 242a64ac -- 'crates/**/*.rs' | cut -d: -f2 | cut -d/ -f2 | sort | uniq -c`. This counts source declarations across platforms. Track integration suites and platform runs separately.
-- [ ] Start with issue #80 for HTTP framing and #81 for lifecycle cancellation and layer ownership. Inventory the production callers, requirements, and test assertions for one behavior at a time.
+- [x] Inventory the production callers, requirements and test assertions for the first two verification issues. Source inspected at `23ff537e`.
+
+  | Behavior | Production callers and contract | Independent checks retained |
+  |---|---|---|
+  | HTTP framing ([#80](https://github.com/AndreKurait/asagiri/issues/80)) | `daemon/http.rs` uses `parse_number` for Content-Length validation, body sizing and hexadecimal chunk sizes. The parser must return the exact value and reject empty, invalid or overflowing inputs. | The reference-parser comparison checks short byte strings. Socket tests verify that streaming consumes the correct bytes before another request or connection closure. |
+  | Container lifecycle ([#81](https://github.com/AndreKurait/asagiri/issues/81)) | Stop, kill and removal advance the generation under the lifecycle lock. `start_inner` checks the captured generation before starting the container. `start_held` checks it before restoring a canceled restart to the queue. | The native stale-start test released the old request after its replacement started and verified that the replacement still accepted `exec`. Runtime checks also cover removal and restart policy. |
+  | Layer ownership ([#81](https://github.com/AndreKurait/asagiri/issues/81)) | `LayerTransfers::run` claims capacity and the digest together under a mutex. `Permit::drop` releases both and wakes waiters. The admission contract bounds active transfers and rejects busy digests and canceled requests. | Threaded tests exercise waits, errors and unwinding. Concurrent Docker loads verify a single staging operation on success and successful retry after an injected preparation failure. |
 - [ ] State the contract, prove the production implementation, and confirm a deliberately incorrect implementation fails verification.
 - [ ] Remove unit tests whose assertions the contract covers. Exercise the normal entry point and retain checks for caller wiring, I/O, platform behavior, or independent compatibility comparisons.
 - [ ] Record the proof scope, tests removed, remaining test count, and CI result in each PR. Merge before selecting the next behavior.
