@@ -795,6 +795,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn an_engine_still_starting_can_replace_a_stale_socket() {
+        let dir = temp("slow-start");
+        let socket = dir.join("engine.sock");
+        drop(UnixListener::bind(&socket).unwrap());
+        let (started, wait_for_start) = std::sync::mpsc::channel();
+        let starter = Starter::new(socket.clone(), Box::new(move |_| {
+            started.send(()).unwrap();
+            Ok(StartOutcome::Starting)
+        }), dir.join("log"));
+        let daemon = std::thread::spawn(move || {
+            wait_for_start.recv_timeout(Duration::from_secs(3)).unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            std::fs::remove_file(&socket).unwrap();
+            UnixListener::bind(socket).unwrap()
+        });
+        starter.connect().unwrap();
+        drop(daemon.join().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Failed starts in a row wait longer each time, 5 s doubling to 5 min,
     /// and one that works resets that. At the longest, the same failure is
     /// not logged again; a new reason is.
