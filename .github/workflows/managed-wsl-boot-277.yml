@@ -111,7 +111,8 @@ jobs:
           exec /usr/local/bin/asagiri-qualified "$@"
           '@ | Set-Content -Encoding utf8NoBOM boot-trace.sh
           $wrapper = Guest wslpath -u ((Join-Path $env:RUNNER_TEMP 'boot-trace.sh').Replace('\','/'))
-          Guest sh -c 'tr -d "\r" < "$1" > /usr/local/bin/asagiri && chmod 755 /usr/local/bin/asagiri' sh $wrapper.Trim()
+          Guest cp $wrapper.Trim() /tmp/qualification-boot-trace.sh
+          Guest sh -c 'tr -d "\r" < /tmp/qualification-boot-trace.sh > /usr/local/bin/asagiri && chmod 755 /usr/local/bin/asagiri'
           Guest env ASAGIRI_SOCKET=/var/lib/asagiri-daemon/.asagiri/run/docker.sock /usr/local/bin/asagiri daemon-ping
           Guest rm -f /var/tmp/qualification-boot-invocations
           wsl.exe --terminate Managed241
