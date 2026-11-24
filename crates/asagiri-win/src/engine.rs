@@ -740,7 +740,7 @@ fn about() {
 /// DOCKER_HOST and wherever Docker Desktop keeps the CLI config).
 fn status_event() -> String {
     let context = docker(&["context", "show"]).ok().map(|s| s.trim().to_owned()).filter(|c| !c.is_empty());
-    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context.unwrap_or_else(|| "default".into())}).to_string()
+    json!({"type": "status", "version": env!("CARGO_PKG_VERSION"), "share": true, "app": "Asagiri", "ours": crate::flavor::CONTEXT.get(), "context": context}).to_string()
 }
 
 /// The docker CLI on Asagiri's context, without a console window, for Compose
