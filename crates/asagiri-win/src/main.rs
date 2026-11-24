@@ -9,7 +9,7 @@
 //!
 //! `--background` (from the login shortcut) starts with the tray icon only.
 //! Starting it again while it runs shows the running one's window.
-#![cfg_attr(windows, windows_subsystem = "windows")]
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
 
 #[cfg(windows)]
 mod app;

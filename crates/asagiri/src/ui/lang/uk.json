@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Дані Asagiri перенесено до {path}",
   "Storage is available again": "Сховище знову доступне",
   "Old data removed": "Старі дані видалено",
-  "Asagiri's data is moving already": "Дані Asagiri вже переносяться"
+  "Asagiri's data is moving already": "Дані Asagiri вже переносяться",
+  "No other WSL distros installed.": "Інших дистрибутивів WSL не встановлено.",
+  "WSL integration": "Інтеграція з WSL"
 }

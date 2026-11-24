@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "የAsagiri ውሂብ ወደ {path} ተዛውሯል",
   "Storage is available again": "ማከማቻው እንደገና ይገኛል",
   "Old data removed": "የቆየ ውሂብ ተወግዷል",
-  "Asagiri's data is moving already": "የAsagiri ውሂብ አሁን እየተዛወረ ነው"
+  "Asagiri's data is moving already": "የAsagiri ውሂብ አሁን እየተዛወረ ነው",
+  "No other WSL distros installed.": "ሌሎች የWSL ስርጭቶች አልተጫኑም።",
+  "WSL integration": "የWSL ውህደት"
 }

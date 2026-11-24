@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Data Asagiri byla přesunuta do {path}",
   "Storage is available again": "Úložiště je opět dostupné",
   "Old data removed": "Stará data odstraněna",
-  "Asagiri's data is moving already": "Data Asagiri se již přesouvají"
+  "Asagiri's data is moving already": "Data Asagiri se již přesouvají",
+  "No other WSL distros installed.": "Nejsou nainstalovány žádné další distribuce WSL.",
+  "WSL integration": "Integrace s WSL"
 }

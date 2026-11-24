@@ -4,12 +4,23 @@
 use std::path::{Path, PathBuf};
 
 /// Who is at the other end of an API connection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Caller {
     /// This machine's programs, on the daemon's own socket.
     Host,
     /// A container, through the VM's relay or its own socket.
     Container,
+    /// A client connected through the named distribution's integration socket.
+    Wsl(String),
+}
+
+impl Caller {
+    pub fn wsl_distro(&self) -> Option<&str> {
+        match self {
+            Self::Wsl(name) => Some(name),
+            Self::Host | Self::Container => None,
+        }
+    }
 }
 
 /// The socket containers that mount the engine's are given, beside the

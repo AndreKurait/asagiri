@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Los datos de Asagiri se movieron a {path}",
   "Storage is available again": "El almacenamiento está disponible de nuevo",
   "Old data removed": "Datos anteriores eliminados",
-  "Asagiri's data is moving already": "Los datos de Asagiri ya se están moviendo"
+  "Asagiri's data is moving already": "Los datos de Asagiri ya se están moviendo",
+  "No other WSL distros installed.": "No hay otras distribuciones de WSL instaladas.",
+  "WSL integration": "Integración con WSL"
 }

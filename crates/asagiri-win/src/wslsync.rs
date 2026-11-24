@@ -129,6 +129,164 @@ pub fn wsl_sh<'a>(distro: &'a str, script: &'a str) -> [&'a str; 8] {
     ["-d", distro, "-u", "root", "-e", "sh", "-c", script]
 }
 
+/// Whether `name` is a valid single-component WSL distro name.
+pub fn valid_distro_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', '\0'])
+        && !name.bytes().any(|b| b.is_ascii_control())
+}
+
+/// Parses `wsl.exe --list --quiet` output into user distros eligible for WSL
+/// integration, filtering out `asagiri`, `engine_distro`, `docker-desktop`,
+/// `docker-desktop-data` (`docker-desktop*`), empty lines and BOMs.
+pub fn parse_wsl_distros(bytes: &[u8], engine_distro: Option<&str>) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in crate::wsl_text::decode(bytes).lines() {
+        let d = line.trim().trim_matches('\u{feff}').trim();
+        if !valid_distro_name(d) {
+            continue;
+        }
+        let lower = d.to_ascii_lowercase();
+        if lower == "asagiri" || lower.starts_with("docker-desktop") {
+            continue;
+        }
+        if engine_distro.is_some_and(|e| d.eq_ignore_ascii_case(e)) {
+            continue;
+        }
+        if !out.iter().any(|x: &String| x.eq_ignore_ascii_case(d)) {
+            out.push(d.to_owned());
+        }
+    }
+    out
+}
+
+/// Parses `%LOCALAPPDATA%\Asagiri\wsl-integration.json`; off (empty) by default.
+pub fn parse_enabled_distros(bytes: &[u8]) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).unwrap_or(serde_json::Value::Null);
+    let arr = v["distros"].as_array().or_else(|| v.as_array());
+    let mut out = Vec::new();
+    for item in arr.into_iter().flatten() {
+        let Some(d) = item.as_str().map(str::trim) else { continue };
+        if valid_distro_name(d)
+            && !d.eq_ignore_ascii_case("asagiri")
+            && !d.to_ascii_lowercase().starts_with("docker-desktop")
+            && !out.iter().any(|x: &String| x.eq_ignore_ascii_case(d))
+        {
+            out.push(d.to_owned());
+        }
+    }
+    out
+}
+
+/// Encodes the enabled distros for `%LOCALAPPDATA%\Asagiri\wsl-integration.json`.
+pub fn encode_enabled_distros(distros: &[String], pending: &[String]) -> Vec<u8> {
+    serde_json::to_vec_pretty(&serde_json::json!({ "distros": distros, "pendingDisable": pending })).unwrap_or_default()
+}
+
+/// SHA-256 of `"asagiri"`, used by the Docker CLI for `~/.docker/contexts/meta/<hash>/meta.json`.
+const ASAGIRI_CONTEXT_HASH: &str = "bd307c5353f0c43cbcaff76bb185bb7b0bdf9522a9beed5c276499d62f9aa4f9";
+
+const DEFAULT_USER_AWK: &str = "function k(s) { sub(/#.*/, \"\", s); gsub(/[[:space:]]/, \"\", s); return s } \
+    substr(k($0), 1, 1) == \"[\" { u = tolower(k($0)) == \"[user]\"; next } \
+    u && index(tolower(k($0)), \"default=\") == 1 { s = k($0); sub(/^[dD][eE][fF][aA][uU][lL][tT]=/, \"\", s); print s; exit }";
+
+const PASSWD_AWK: &str = "def != \"\" && $1 == def && $3 != 0 && $4 ~ /^[0-9]+$/ { print $1 \":\" $3 \":\" $4 \":\" $6; found = 1; exit } \
+    $3 == 1000 && $4 ~ /^[0-9]+$/ && !u1000 { u1000 = $1 \":\" $3 \":\" $4 \":\" $6 } \
+    $3 >= 1000 && $3 < 65534 && $4 ~ /^[0-9]+$/ && !ufirst { ufirst = $1 \":\" $3 \":\" $4 \":\" $6 } \
+    END { if (!found) { if (u1000) print u1000; else if (ufirst) print ufirst } }";
+
+/// The script, run as root inside `distro`, that enables Asagiri's WSL integration:
+/// 1. Mounts `distro`'s `/` onto `/mnt/wsl/asagiri/roots/<distro>`.
+/// 2. Determines the socket GID (`docker` group GID if `docker` exists in
+///    `/etc/group`, otherwise the default non-root user's primary GID in
+///    `/etc/passwd`, so NixOS without `groupadd` works cleanly).
+/// 3. Links `/var/run/docker.sock -> /mnt/wsl/asagiri/sockets/<distro>/docker.sock`
+///    unless `/var/run/docker.sock` belongs to a running `dockerd` inside `distro`,
+///    and writes the `asagiri` Docker context for the default user.
+/// 4. Prints the numeric GID on stdout.
+/// `root` is `""` in production and a stand-in directory in unit tests.
+pub fn wsl_enable_script(distro: &str, root: &str) -> String {
+    let bind_root = sh_quote(&format!("{root}/mnt/wsl/asagiri/roots/{distro}"));
+    let sock_target = sh_quote(&format!("{root}/mnt/wsl/asagiri/sockets/{distro}/docker.sock"));
+    let src_root = sh_quote(if root.is_empty() { "/" } else { root });
+    let etc_group = sh_quote(&format!("{root}/etc/group"));
+    let etc_passwd = sh_quote(&format!("{root}/etc/passwd"));
+    let etc_wsl = sh_quote(&format!("{root}/etc/wsl.conf"));
+    let var_run = sh_quote(&format!("{root}/var/run"));
+    let host_prefix = sh_quote(root);
+    let ctx_meta = serde_json::json!({
+        "Name": "asagiri",
+        "Metadata": { "Description": "Asagiri" },
+        "Endpoints": {
+            "docker": {
+                "Host": format!("unix://{root}/mnt/wsl/asagiri/sockets/{distro}/docker.sock"),
+                "SkipTLSVerify": false
+            }
+        }
+    })
+    .to_string();
+    format!(
+        "export PATH=\"$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin\"; \
+         r={bind_root}; mkdir -p \"$r\" || exit 1; \
+         if ! mountpoint -q \"$r\" 2>/dev/null && ! grep -Fqs \" $r \" /proc/mounts 2>/dev/null; then mount --bind {src_root} \"$r\" || exit 1; fi; \
+         defuser=\"\"; [ -f {etc_wsl} ] && defuser=$(awk {} {etc_wsl} 2>/dev/null); \
+         uinfo=\"\"; [ -f {etc_passwd} ] && uinfo=$(awk -F: -v def=\"$defuser\" {} {etc_passwd} 2>/dev/null); \
+         uname=$(printf %s \"$uinfo\" | cut -d: -f1); \
+         uuid=$(printf %s \"$uinfo\" | cut -d: -f2); \
+         ugid=$(printf %s \"$uinfo\" | cut -d: -f3); \
+         uhome=$(printf %s \"$uinfo\" | cut -d: -f4); \
+         dgid=\"\"; [ -f {etc_group} ] && dgid=$(awk -F: '$1 == \"docker\" && $3 ~ /^[0-9]+$/ {{ print $3; exit }}' {etc_group} 2>/dev/null); \
+         if [ -n \"$dgid\" ]; then \
+           gid=\"$dgid\"; \
+           if [ -n \"$uname\" ] && ! id -G \"$uname\" 2>/dev/null | grep -Fwq \"$gid\"; then \
+             if command -v usermod >/dev/null 2>&1; then usermod -aG docker \"$uname\" >&2 || exit 1; \
+             else addgroup \"$uname\" docker >&2 || exit 1; fi; \
+           fi; \
+         elif [ -n \"$ugid\" ]; then \
+           gid=\"$ugid\"; \
+         else \
+           gid=0; \
+         fi; \
+         vr={var_run}; mkdir -p \"$vr\" || exit 1; \
+         if [ ! -e \"$vr/docker.sock\" ] && [ ! -L \"$vr/docker.sock\" ]; then ln -s {sock_target} \"$vr/docker.sock\" || exit 1; fi; \
+         if [ -n \"$uhome\" ] && [ -d {host_prefix}\"$uhome\" ]; then \
+           cdir={host_prefix}\"$uhome/.docker/contexts/meta/{ASAGIRI_CONTEXT_HASH}\"; \
+           mkdir -p \"$cdir\" 2>/dev/null && printf %s {} | base64 -d >\"$cdir/meta.json\" 2>/dev/null; \
+           [ -n \"$uuid\" ] && [ -n \"$ugid\" ] && chown -R \"$uuid:$ugid\" {host_prefix}\"$uhome/.docker\" 2>/dev/null || true; \
+         fi; \
+         echo \"$gid\"",
+        sh_quote(DEFAULT_USER_AWK),
+        sh_quote(PASSWD_AWK),
+        base64(ctx_meta.as_bytes()),
+    )
+}
+
+/// The script, run as root inside `distro`, that tears down Asagiri's WSL
+/// integration when `distro` is disabled: removes `/var/run/docker.sock` if it
+/// points into `/mnt/wsl/asagiri/`, unmounts `/mnt/wsl/asagiri/roots/<distro>`, and
+/// removes `/mnt/wsl/asagiri/sockets/<distro>/docker.sock`.
+pub fn wsl_disable_script(distro: &str, root: &str) -> String {
+    let bind_root = sh_quote(&format!("{root}/mnt/wsl/asagiri/roots/{distro}"));
+    let sock_dir = sh_quote(&format!("{root}/mnt/wsl/asagiri/sockets/{distro}"));
+    let var_run = sh_quote(&format!("{root}/var/run"));
+    format!(
+        "export PATH=\"$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin\"; \
+         vr={var_run}; \
+         if [ -L \"$vr/docker.sock\" ]; then \
+           t=$(readlink \"$vr/docker.sock\" 2>/dev/null || true); \
+           [ \"$t\" != {sock_dir}/docker.sock ] || rm -f \"$vr/docker.sock\" || exit 1; \
+         fi; \
+         r={bind_root}; \
+         if mountpoint -q \"$r\" 2>/dev/null || grep -Fqs \" $r \" /proc/mounts 2>/dev/null; then \
+           umount -l \"$r\" 2>/dev/null || umount \"$r\" 2>/dev/null || exit 1; \
+         fi; \
+         rmdir \"$r\" 2>/dev/null || true; \
+         sd={sock_dir}; rm -f \"$sd/docker.sock\" || exit 1; rmdir \"$sd\" 2>/dev/null || true; true"
+    )
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -322,5 +480,120 @@ mod tests {
     #[test]
     fn quotes_one_word() {
         assert_eq!(sh_quote("C:/Users/O'Neil/x"), r"'C:/Users/O'\''Neil/x'");
+    }
+
+    #[test]
+    fn parses_utf16le_wsl_list_and_filters_system_distros() {
+        let utf16 = |s: &str| s.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>();
+        let raw = "\u{feff}asagiri\r\nUbuntu\r\ndocker-desktop\r\ndocker-desktop-data\r\n\r\nNixOS\r\nDebian\r\nUbuntu\r\n";
+        assert_eq!(
+            parse_wsl_distros(&utf16(raw), Some("asagiri")),
+            vec!["Ubuntu".to_owned(), "NixOS".to_owned(), "Debian".to_owned()]
+        );
+        // With explicit UTF-16LE BOM prefix and custom engine distro.
+        let mut with_bom = vec![0xFF, 0xFE];
+        with_bom.extend_from_slice(&utf16("Ubuntu-26.04\nNixOS\ndocker-desktop\nasagiri\n"));
+        assert_eq!(
+            parse_wsl_distros(&with_bom, Some("Ubuntu-26.04")),
+            vec!["NixOS".to_owned()]
+        );
+        // Enabled distros file defaults to off (empty) and filters system distros.
+        assert!(parse_enabled_distros(b"").is_empty());
+        let saved = encode_enabled_distros(&["Ubuntu".into(), "NixOS".into()], &[]);
+        assert_eq!(parse_enabled_distros(&saved), vec!["Ubuntu".to_owned(), "NixOS".to_owned()]);
+    }
+
+    #[test]
+    fn wsl_integration_scripts_have_no_backslash() {
+        assert!(!wsl_enable_script("Ubuntu", "").contains('\\'));
+        assert!(!wsl_disable_script("Ubuntu", "").contains('\\'));
+    }
+
+    #[test]
+    fn wsl_enable_and_disable_scripts_setup_gid_symlink_and_teardown() {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!("asagiri-wsl-integ-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (root, tools) = (dir.join("root"), dir.join("tools"));
+        for d in [&root.join("etc"), &root.join("var/run"), &root.join("home/alice"), &tools] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        // Mock mountpoint, mount and umount in PATH so the test runs unprivileged.
+        let mounted_flag = dir.join("mounted");
+        std::fs::write(
+            tools.join("mountpoint"),
+            format!("#!/bin/sh\n[ -f '{}' ]\n", mounted_flag.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tools.join("mount"),
+            format!("#!/bin/sh\n[ \"$1\" = --bind ] && [ -d \"$3\" ] && touch '{}'\n", mounted_flag.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            tools.join("umount"),
+            format!("#!/bin/sh\nrm -f '{}'\n", mounted_flag.display()),
+        )
+        .unwrap();
+        std::fs::write(tools.join("usermod"), "#!/bin/sh\nexit 0\n").unwrap();
+        for tool in ["mountpoint", "mount", "umount", "usermod"] {
+            std::fs::set_permissions(tools.join(tool), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:{}", tools.display(), std::env::var("PATH").unwrap_or_default());
+        let root_str = root.to_string_lossy();
+
+        // 1. NixOS-like distro without `docker` group: uses default user's primary GID (100).
+        std::fs::write(root.join("etc/passwd"), "root:x:0:0:root:/root:/bin/sh\nalice:x:1000:100:Alice:/home/alice:/bin/sh\n").unwrap();
+        std::fs::write(root.join("etc/group"), "root:x:0:\nusers:x:100:\n").unwrap();
+        let enable = wsl_enable_script("NixOS", &root_str);
+        let out = Command::new("sh").args(["-c", &enable]).env("PATH", &path).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "100");
+        assert!(mounted_flag.exists(), "root bind mount must be performed");
+        assert!(root.join("mnt/wsl/asagiri/roots/NixOS").is_dir());
+        let link = std::fs::read_link(root.join("var/run/docker.sock")).unwrap();
+        assert_eq!(link, root.join("mnt/wsl/asagiri/sockets/NixOS/docker.sock"));
+        assert!(root.join("home/alice/.docker/contexts/meta").join(ASAGIRI_CONTEXT_HASH).join("meta.json").is_file());
+
+        // 2. Distro with `docker` group in /etc/group: uses `docker` group GID (131).
+        std::fs::write(root.join("etc/group"), "root:x:0:\nusers:x:100:\ndocker:x:131:alice\n").unwrap();
+        let out = Command::new("sh").args(["-c", &enable]).env("PATH", &path).output().unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "131");
+
+        // 3. Disable script unmounts root, removes /var/run/docker.sock symlink and socket dir.
+        let sock_dir = root.join("mnt/wsl/asagiri/sockets/NixOS");
+        std::fs::create_dir_all(&sock_dir).unwrap();
+        std::fs::write(sock_dir.join("docker.sock"), "").unwrap();
+        let disable = wsl_disable_script("NixOS", &root_str);
+        let out = Command::new("sh").args(["-c", &disable]).env("PATH", &path).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(!mounted_flag.exists(), "root bind mount must be unmounted");
+        assert!(std::fs::symlink_metadata(root.join("var/run/docker.sock")).is_err(), "symlink must be removed");
+        assert!(!sock_dir.exists(), "socket dir must be removed");
+
+        // An unrelated link can be live or dangling. Neither enable nor disable owns it.
+        let socket = root.join("var/run/docker.sock");
+        let foreign = root.join("another-engine.sock");
+        std::os::unix::fs::symlink(&foreign, &socket).unwrap();
+        for script in [&enable, &disable] {
+            assert!(Command::new("sh").args(["-c", script]).env("PATH", &path).output().unwrap().status.success());
+            assert_eq!(std::fs::read_link(&socket).unwrap(), foreign);
+        }
+        std::fs::remove_file(socket).unwrap();
+
+        // 4. When a live dockerd owns /var/run/docker.sock, enable leaves it untouched.
+        let own_sock = root.join("var/run/docker.sock");
+        let _listener = UnixListener::bind(&own_sock).unwrap();
+        std::fs::write(root.join("var/run/docker.pid"), std::process::id().to_string()).unwrap();
+        let out = Command::new("sh").args(["-c", &enable]).env("PATH", &path).output().unwrap();
+        assert!(out.status.success());
+        assert!(!std::fs::symlink_metadata(&own_sock).unwrap().file_type().is_symlink(), "running dockerd socket must not be overwritten");
+        // And disable leaves a real dockerd socket untouched too.
+        let out = Command::new("sh").args(["-c", &disable]).env("PATH", &path).output().unwrap();
+        assert!(out.status.success());
+        assert!(own_sock.exists(), "running dockerd socket must not be removed on disable");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1916,5 +1916,7 @@
   "Asagiri's data moved to {path}": "Asagirin tiedot siirrettiin sijaintiin {path}",
   "Storage is available again": "Tallennussijainti on taas käytettävissä",
   "Old data removed": "Vanhat tiedot poistettu",
-  "Asagiri's data is moving already": "Asagirin tietoja siirretään jo"
+  "Asagiri's data is moving already": "Asagirin tietoja siirretään jo",
+  "No other WSL distros installed.": "Muita WSL-jakeluita ei ole asennettu.",
+  "WSL integration": "WSL-integraatio"
 }

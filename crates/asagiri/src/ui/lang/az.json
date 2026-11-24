@@ -1916,5 +1916,7 @@
   "Storage is available again": "Saxlama yeri yenidən əlçatandır",
   "Old data removed": "Köhnə məlumatlar silindi",
   "Choose a storage folder": "Saxlama qovluğunu seçin",
-  "Asagiri's data is moving already": "Asagiri məlumatları artıq daşınır"
+  "Asagiri's data is moving already": "Asagiri məlumatları artıq daşınır",
+  "No other WSL distros installed.": "Başqa WSL distributivi quraşdırılmayıb.",
+  "WSL integration": "WSL inteqrasiyası"
 }
