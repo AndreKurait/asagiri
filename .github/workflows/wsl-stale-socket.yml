@@ -1,0 +1,42 @@
+name: WSL stale socket qualification
+on:
+  push:
+    branches: [qualification/wsl-stale-socket-435]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  bridge:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          rustup target add x86_64-unknown-linux-musl
+          @'
+          mod daemon {
+              pub mod time;
+              pub fn socket_path() -> std::io::Result<std::path::PathBuf> { unreachable!("tests pass an explicit socket") }
+          }
+          #[path="crates/asagiri/src/bridge.rs"] mod bridge;
+          '@ | Set-Content component.rs
+          New-Item -ItemType Directory -Force daemon | Out-Null
+          Copy-Item crates/asagiri/src/daemon/time.rs daemon/time.rs
+          rustc --edition 2024 --test --target x86_64-unknown-linux-musl -C linker=rust-lld component.rs -o bridge-tests
+          gh run download 45265682170 -R AndreKurait/asagiri -n packages-windows-x86_64
+          Expand-Archive Asagiri-0.1.14-dev.247-windows-x86_64.zip bundle
+          $rootfs = (Get-ChildItem bundle -Recurse -Filter asagiri-linux.tar.gz).FullName
+          wsl.exe --import Asagiri-test435 "$env:RUNNER_TEMP\test435" $rootfs --version 2
+          try {
+            $binary = (wsl.exe -d Asagiri-test435 -u root --exec wslpath -u (Resolve-Path bridge-tests).Path).Trim()
+            wsl.exe -d Asagiri-test435 -u root --exec sh -ec 'cp "$1" /tmp/bridge-tests && chmod 755 /tmp/bridge-tests && /tmp/bridge-tests bridge::tests:: --nocapture' sh $binary
+          } finally {
+            wsl.exe --unregister Asagiri-test435
+          }
