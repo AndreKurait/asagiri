@@ -14,12 +14,15 @@
 //! client recovers from by looking the path up again.
 
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::engine::{Engine, Status};
 use super::vmlink::FileInfo;
@@ -139,10 +142,40 @@ pub fn mount(socket: &Path) -> io::Result<PathBuf> {
 /// mount there is someone else's.
 pub fn unmount() {
     let (Ok(dir), Ok(socket)) = (mount_point(), socket_path()) else { return };
-    let Some(socket) = socket.to_str() else { return };
-    if mounted_at(&dir).is_some_and(|m| m.is_ours(socket)) {
-        let _ = std::process::Command::new("/sbin/umount").arg("-f").arg(&dir).stderr(std::process::Stdio::null()).status();
+    if let Err(e) = wait_for_unmount(Duration::from_secs(2), move || {
+        let Some(socket) = socket.to_str() else { return Ok(()) };
+        if !mounted_at(&dir).is_some_and(|m| m.is_ours(socket)) {
+            return Ok(());
+        }
+        let path = CString::new(dir.as_os_str().as_bytes())?;
+        // SAFETY: path is NUL-terminated and stays live through the syscall.
+        if unsafe { libc::unmount(path.as_ptr(), libc::MNT_FORCE) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }) {
+        crate::diag::warn!("Finder unmount failed", error = e);
     }
+}
+
+// A kernel unmount can stall. Keep it in this process so shutdown can proceed
+// after the deadline without leaving an umount child behind.
+fn wait_for_unmount(
+    timeout: Duration,
+    unmount: impl FnOnce() -> io::Result<()> + Send + 'static,
+) -> io::Result<()> {
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::Builder::new().name("asagiri-unmount".into()).spawn(move || {
+        let _ = done.send(unmount());
+    })?;
+    result.recv_timeout(timeout).map_err(|e| match e {
+        std::sync::mpsc::RecvTimeoutError::Timeout => {
+            io::Error::new(io::ErrorKind::TimedOut, "Finder unmount is still pending")
+        }
+        std::sync::mpsc::RecvTimeoutError::Disconnected => {
+            io::Error::other("Finder unmount worker exited")
+        }
+    })?
 }
 
 /// Whether `~/Asagiri` shows this engine's container files. The window asks
@@ -960,5 +993,28 @@ mod tests {
         let d = scratch("table");
         assert_eq!(mounted_at(&d), None);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn unmount_wait_is_bounded() {
+        let (release, blocked) = std::sync::mpsc::channel();
+        let (finished, worker) = std::sync::mpsc::channel();
+        let result = wait_for_unmount(Duration::from_millis(20), move || {
+            blocked.recv().unwrap();
+            finished.send(()).unwrap();
+            Ok(())
+        });
+        release.send(()).unwrap();
+        worker.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn unmount_wait_returns_the_worker_result() {
+        let timeout = Duration::from_secs(2);
+        wait_for_unmount(timeout, || Ok(())).unwrap();
+        let error = wait_for_unmount(timeout, || Err(io::Error::from_raw_os_error(libc::EPERM)))
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EPERM));
     }
 }
