@@ -493,6 +493,8 @@ pub struct ExtraNetwork {
 
 #[derive(Debug)]
 pub struct Container {
+    #[cfg(target_os = "macos")]
+    bind_start_event: u64,
     /// Serializes start with stop/kill/remove through guest creation.
     lifecycle: Arc<Mutex<u64>>,
     pub id: String,
@@ -1616,18 +1618,16 @@ impl Engine {
     /// The Mac folders and files that running containers bind-mount, as
     /// the Mac keeps them (the guest sees them under /mnt/mac).
     #[cfg(target_os = "macos")]
-    pub fn mac_bind_sources(&self) -> Vec<String> {
-        let mut out: Vec<String> = self
-            .lock()
-            .containers
-            .values()
-            .filter(|c| c.status == Status::Running)
-            .flat_map(|c| c.spec.mounts.iter())
-            .filter_map(|m| m.split('\t').next()?.strip_prefix("/mnt/mac").filter(|p| p.starts_with('/')).map(str::to_owned))
-            .collect();
-        out.sort();
-        out.dedup();
-        out
+    pub fn mac_bind_sources(&self) -> std::collections::BTreeMap<String, u64> {
+        let mut roots = std::collections::BTreeMap::<String, u64>::new();
+        for c in self.lock().containers.values().filter(|c| c.status == Status::Running) {
+            for mount in &c.spec.mounts {
+                if let Some(path) = mount.split('\t').next().and_then(|p| p.strip_prefix("/mnt/mac")).filter(|p| p.starts_with('/')) {
+                    roots.entry(path.to_owned()).and_modify(|id| *id = (*id).min(c.bind_start_event)).or_insert(c.bind_start_event);
+                }
+            }
+        }
+        roots
     }
 
     /// The WSL drive bind sources (`/mnt/<drive>` or `/mnt/<drive>/...`) of
@@ -1702,6 +1702,8 @@ impl Engine {
             for s in saved {
                 let was_running = s.status == Status::Running;
                 let mut c = Container {
+                    #[cfg(target_os = "macos")]
+                    bind_start_event: 0,
                     lifecycle: Arc::new(Mutex::new(0)),
                     id: s.id.clone(),
                     name: s.name,
@@ -2370,6 +2372,8 @@ impl Engine {
         st.containers.insert(
             id.clone(),
             Container {
+                #[cfg(target_os = "macos")]
+                bind_start_event: 0,
                 lifecycle: Arc::new(Mutex::new(0)),
                 id: id.clone(),
                 name,
@@ -2505,6 +2509,10 @@ impl Engine {
             let argv = c.argv();
             if argv.is_empty() {
                 return Err(Error::BadRequest("no command specified".into()));
+            }
+            #[cfg(target_os = "macos")]
+            {
+                c.bind_start_event = super::watch::current_event_id();
             }
             c.status = Status::Running;
             c.restart_pending = false;

@@ -50,7 +50,7 @@ fn run(engine: Weak<Engine>) {
     loop {
         let Some(e) = engine.upgrade() else { return };
         let now = e.mac_bind_sources();
-        if !roots.iter().map(|r| &r.path).eq(now.iter()) || (stream.is_none() && !now.is_empty()) {
+        if !roots.iter().map(|r| &r.path).eq(now.keys()) || (stream.is_none() && !now.is_empty()) {
             // The new stream picks up where the old one stopped, so changes
             // made in between are not lost; Known is kept with it.
             if let Some(old) = stream.take() {
@@ -60,18 +60,11 @@ fn run(engine: Weak<Engine>) {
                 resume = last.load(Ordering::Relaxed);
                 rescan |= lost.swap(false, Ordering::Relaxed);
             }
-            // A source new to this stream has nothing from before now: the
-            // resumed stream would replay its folder's whole history.
             let cur = current_event_id();
-            roots = now.into_iter().map(|path| roots.iter().find(|r| r.path == path).cloned().unwrap_or_else(|| Root::new(path, cur))).collect();
+            (roots, resume) = replay_roots(now, &roots, resume);
             if roots.is_empty() {
-                resume = 0;
                 rescan = false;
                 known = Known::new();
-            } else if resume == 0 {
-                // Keep this point even if starting the stream fails, so a
-                // later retry can recover changes made while it was down.
-                resume = cur;
             }
             let since = since_for(resume);
             known.sync(&roots);
@@ -102,6 +95,22 @@ fn run(engine: Weak<Engine>) {
             }
         }
     }
+}
+
+/// Resume existing roots after their consumed events, and include changes to
+/// new roots from container start through discovery by the watch thread.
+fn replay_roots(now: std::collections::BTreeMap<String, u64>, previous: &[Root], resume: u64) -> (Vec<Root>, u64) {
+    let roots: Vec<_> = now.into_iter().map(|(path, start)| {
+        if let Some(old) = previous.iter().find(|r| r.path == path) {
+            let mut root = old.clone();
+            root.start_id = root.start_id.max(resume);
+            root
+        } else {
+            Root::new(path, start)
+        }
+    }).collect();
+    let since = roots.iter().map(|root| root.start_id).min().unwrap_or(0);
+    (roots, since)
 }
 
 /// The folders to give FSEvents: a bind-mounted folder itself, a bind-mounted
@@ -192,7 +201,7 @@ fn case_sensitive(path: &str) -> bool {
 }
 
 /// The newest event id FSEvents has issued so far.
-fn current_event_id() -> u64 {
+pub(super) fn current_event_id() -> u64 {
     // SAFETY: takes no arguments.
     unsafe { FSEventsGetCurrentEventId() }
 }
@@ -691,6 +700,18 @@ mod tests {
 
     fn root(path: &str, sensitive: bool, start_id: u64) -> Root {
         Root { path: path.to_owned(), sensitive, start_id }
+    }
+
+    #[test]
+    fn newly_discovered_bind_replays_its_first_edit_without_replaying_other_roots() {
+        let previous = [root("/existing", true, 10)];
+        let now = [("/existing".to_owned(), 10), ("/new".to_owned(), 30)].into();
+        let (roots, since) = super::replay_roots(now, &previous, 50);
+        assert_eq!(since, 30);
+        assert!(stale("/new/file", 30, 0, &roots));
+        assert!(!stale("/new/file", 31, 0, &roots));
+        assert!(stale("/existing/file", 49, 0, &roots));
+        assert!(!stale("/existing/file", 51, 0, &roots));
     }
 
     fn file(size: u64, mtime: i64, ctime: i64, mode: u32) -> Option<Meta> {
