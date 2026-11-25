@@ -70,8 +70,12 @@ fn same_endpoint(node: &str, endpoint: &str) -> bool {
 }
 
 fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str, endpoint: &str) -> Vec<String> {
-    let mut names: Vec<String> = values(out)
-        .into_iter()
+    let builders = values(out);
+    let registered_legacy = builders.iter().any(|b| b["Name"] == legacy && b["Driver"] == "docker-container");
+    let context_driver = builders.iter().any(|b| b["Name"] == context && b["Driver"] == "docker"
+        && b["Nodes"].as_array().into_iter().flatten().any(|n| n["Endpoint"] == context
+            || n["Endpoint"].as_str().is_some_and(|node| same_endpoint(node, endpoint))));
+    let mut names: Vec<String> = builders.into_iter()
         .filter(|b| b["Driver"] == "docker-container")
         .filter(|b| {
             b["Nodes"].as_array().into_iter().flatten().any(|n| {
@@ -83,7 +87,8 @@ fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, co
         .filter_map(|b| b["Name"].as_str().map(str::to_owned))
         .collect();
     if managed {
-        names.push(if builtin { context } else { legacy }.to_owned());
+        // A manually configured context can use the engine driver without a setup record.
+        names.push(if builtin || (!registered_legacy && context_driver) { context } else { legacy }.to_owned());
     }
     names.sort();
     names.dedup();
@@ -567,6 +572,8 @@ mod tests {
         let have = vec!["buildx_buildkit_asagiri-build0".to_owned(), "buildx_buildkit_mine0".to_owned()];
         assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri", "mine"]);
         assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri-build", "mine"]);
+        let implicit = out.lines().filter(|line| !line.contains("asagiri-build")).collect::<Vec<_>>().join("\n");
+        assert_eq!(history_builders(&implicit, &have, true, false, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri", "mine"]);
         assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build", "unix:///asagiri.sock").is_empty());
     }
 
