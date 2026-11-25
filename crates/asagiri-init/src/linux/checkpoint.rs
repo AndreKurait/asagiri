@@ -43,8 +43,8 @@ pub(super) fn capture(pid: libc::pid_t, group: &Path, container_dir: &Path, name
     }
     DirBuilder::new().mode(0o700).create(&staging)?;
     let result = dump(pid, group, &staging).and_then(|()| fs::rename(&staging, destination));
-    if result.is_err() {
-        fs::remove_dir_all(staging)?;
+    if result.is_err() && let Err(error) = fs::remove_dir_all(&staging) {
+        eprintln!("checkpoint: could not remove {}: {error}", staging.display());
     }
     result
 }
