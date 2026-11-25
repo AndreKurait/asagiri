@@ -26,7 +26,7 @@ def build(arch, destination, expected):
         # supplies the logical authority used in HTTP/2 requests on that pipe.
         driver.write_bytes(contents.replace(before, b'return client.New(ctx, "tcp://localhost", opts...)'))
         result = Path(work) / 'docker-buildx.exe'
-        env = dict(os.environ, GOTOOLCHAIN='go1.26.8', GOOS='windows', GOARCH=arch,
+        env = dict(os.environ, GOTOOLCHAIN='go1.26.10', GOOS='windows', GOARCH=arch,
                    GOAMD64='v1', GOARM64='v8.0', GOEXPERIMENT='', CGO_ENABLED='0',
                    GOFLAGS='-mod=vendor', GOWORK='off')
         package = 'github.com/docker/buildx/version'

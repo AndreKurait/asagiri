@@ -146,7 +146,7 @@ pub const LINUX_ARM64_BUILDX: (&str, &str) = ("v0.38.1", "3b83b3731916ba433fecca
 /// digests. The Buildx digest covers the output of scripts/windows-buildx.py.
 pub const WIN_DOCKER_CLI: (&str, &str) = ("29.9.2", "b2be959bfed1281ddaf665c0972cba9a62ce30c542b6bcce82f055bf8886bc7d");
 pub const WIN_COMPOSE: (&str, &str) = ("v5.8.0", "0c2d9245a5f61e8e3cc85009b8b4888fa82fded08239d28bd6da5ca818eda2b2");
-pub const WIN_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "383fdefc919d65f3c4a2b026cff599092c3232248f99e6a6da10a89aca880b24");
+pub const WIN_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "a30647f372a9c35bb3f4919604c20f7dab23e06d08ebbf99b35a1f2a758db691");
 
 /// The static docker CLI for Windows; the binary is `docker/docker.exe` inside.
 pub fn win_docker_url(v: &str) -> String {
@@ -165,7 +165,7 @@ pub fn win_compose_url(v: &str) -> String {
 /// tag's commit, with Go's toolchain pinned and cgo off: Go builds that way
 /// are reproducible on any host, so the result is pinned like a download.
 pub const WIN_ARM64_COMPOSE: (&str, &str) = ("v5.8.0", "ec7a100a77d9aedbaa6e2b13a10140729860b58b8d2b6855d8191c52e7dd50fc");
-pub const WIN_ARM64_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "b2a19d990cab792571ff64284669404854020ed56554a1c967d79bbd65271224");
+pub const WIN_ARM64_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "25074619db2b6dcc9e9dbd07f09841528796470e11993fd279af6922cd388d1a");
 
 /// docker/cli at tag v29.9.2 (WIN_DOCKER_CLI's version): the commit the
 /// tag points at, its committer time (the binary's BuildTime, so the
