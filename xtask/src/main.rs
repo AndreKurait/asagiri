@@ -1156,3 +1156,30 @@ impl Cpio {
         self.buf
     }
 }
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    #[test]
+    fn nested_runtime_library_must_match_the_guest_architecture() -> io::Result<()> {
+        let root = std::env::temp_dir().join(format!("asagiri-checkpoint-elf-{}", std::process::id()));
+        fs::create_dir(&root)?;
+        let result = (|| -> io::Result<()> {
+            let libs = root.join("lib");
+            fs::create_dir(&libs)?;
+            let mut header = [0u8; 64];
+            header[..6].copy_from_slice(b"\x7fELF\x02\x01");
+            for (machine, other) in [(183, 62), (62, 183)] {
+                header[18] = machine;
+                fs::write(libs.join("libexample.so"), header)?;
+                Cpio::default().tree("bundle", &root, machine)?;
+                let error = Cpio::default().tree("bundle", &root, other).unwrap_err();
+                assert!(error.to_string().contains("bundle/lib/libexample.so"));
+            }
+            Ok(())
+        })();
+        fs::remove_dir_all(root)?;
+        result
+    }
+}
