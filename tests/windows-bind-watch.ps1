@@ -79,6 +79,41 @@ console.log('READY');
 '@
     $image = 'node:22.23.5-bookworm-slim'
     & $docker pull $image
+    # Reuse the downloaded Linux image as a second distro with no Asagiri boot hook.
+    $probe = (& $docker create $image node -e "require('http').createServer((q,r)=>r.end('owner-alive')).listen(18080)").Trim()
+    try {
+        & $docker export -o "$root/netns-peer.tar" $probe
+        & $docker start $probe
+        $address = (& $docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $probe).Trim()
+        function Assert-OwnerTraffic {
+            for ($i = 0; $i -lt 10; $i++) {
+                try {
+                    $reply = wsl.exe -d asagiri -u root -- wget -q -T 2 -O - "http://${address}:18080/"
+                    if ($reply -ceq 'owner-alive') { return }
+                } catch { }
+                Start-Sleep -Milliseconds 500
+            }
+            throw 'First engine container stopped answering over its bridge'
+        }
+        Assert-OwnerTraffic
+        $ifindex = (wsl.exe -d asagiri -u root -- cat /sys/class/net/asagiri0/ifindex).Trim()
+        $namespace = (wsl.exe -d asagiri -u root -- readlink /proc/self/ns/net).Trim()
+        wsl.exe --import asagiri-netns-peer "$root/netns-peer" "$root/netns-peer.tar" --version 2
+        try {
+            $peerNamespace = (wsl.exe -d asagiri-netns-peer -u root -- readlink /proc/self/ns/net).Trim()
+            if ($peerNamespace -ne $namespace) { throw 'WSL distributions do not share the test network namespace' }
+            # Check the expected nonzero exit without suppressing other native failures.
+            $result = & {
+                $PSNativeCommandUseErrorActionPreference = $false
+                $lines = wsl.exe -d asagiri-netns-peer -u root -- env ASAGIRI_AGENT_DIR=/tmp/agent timeout 15 "$src/asagiri-init" 2>&1
+                @{ Code = $LASTEXITCODE; Text = ($lines -join "`n") }
+            }
+            if ($result.Code -ne 1 -or $result.Text -notmatch 'network namespace is already claimed') { throw "Unexpected peer result: $($result.Code) $($result.Text)" }
+            Assert-OwnerTraffic
+        } finally { wsl.exe --unregister asagiri-netns-peer }
+        Assert-OwnerTraffic
+        if ((wsl.exe -d asagiri -u root -- cat /sys/class/net/asagiri0/ifindex).Trim() -ne $ifindex) { throw 'First engine bridge was replaced' }
+    } finally { & $docker rm -f $probe }
     $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
     $hostSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.sock").Trim()
     $clientSocket = (wsl.exe -d asagiri -u root -- stat -Lc '%d:%i' "$socketDir/docker.container.sock").Trim()
