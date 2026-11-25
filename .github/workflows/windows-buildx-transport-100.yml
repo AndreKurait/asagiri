@@ -1,0 +1,107 @@
+name: Compare Windows Buildx worker discovery over pipe and loopback TCP
+on:
+  push:
+    branches: [qualification/stable-windows-buildx-100]
+    paths: [.github/workflows/windows-buildx-transport-100.yml]
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        transport: [pipe, tcp]
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - name: Build and run an image through the Windows named pipe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $version = '0.1.15'
+          $build = 'stable'
+          $imported = $false
+          $asset = "Asagiri-$version-x86_64.msi"
+          if (!(Test-Path $asset)) {
+            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
+            if ((Get-FileHash $asset).Hash.ToLower() -ne 'ca108e386b32f5cb71ba9b228cbc0e5b24749750f0e9c6c6d040684be00fefd3') { throw "Hash mismatch for $asset" }
+
+          }
+          $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
+          $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
+          $app = Join-Path $bundle 'asagiri-win.exe'
+          $docker = Join-Path $bundle 'bin/docker.exe'
+          if (!$imported) {
+            wsl.exe --import asagiri "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $imported = $true
+          }
+          $bridge = Start-Process $app -ArgumentList '--background','--distro','asagiri','--pipe','\\.\pipe\asagiri-load-test' -PassThru
+          $env:DOCKER_HOST = 'npipe:////./pipe/asagiri-load-test'
+          Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+          function Invoke-Docker([string[]]$arguments) {
+            & $docker @arguments
+            if ($LASTEXITCODE) { throw "docker $($arguments[0]) failed: $LASTEXITCODE" }
+          }
+          try {
+            $running = $null
+            for ($i = 0; $i -lt 45; $i++) {
+              $server = & $docker version --format '{{json .Server.Components}}' 2>$null
+              if ($LASTEXITCODE -eq 0 -and $server) {
+                $engine = ($server | ConvertFrom-Json) | Where-Object Name -eq 'Engine'
+                $running = $engine.Details.AsagiriVersion
+                if ($running -eq $version) { break }
+              }
+              if ($bridge.HasExited) { throw 'Windows bridge exited before readiness' }
+              Start-Sleep -Seconds 2
+            }
+            if ($running -ne $version) { throw "Expected serving daemon $version, got $running" }
+            Write-Host "Confirmed serving daemon $running through the Windows pipe"
+            $installed = wsl.exe -d asagiri -u root -- asagiri --version
+            if ($LASTEXITCODE -or ($installed -join ' ') -notmatch [regex]::Escape($version)) { throw "Expected $version, found $installed" }
+            Write-Host "Engine binary in persistent WSL installation: $installed"
+            Invoke-Docker @('pull','alpine:3.21')
+            $context = New-Item -ItemType Directory 'build-context'
+            [IO.File]::WriteAllText((Join-Path $context.FullName 'marker'), 'windows-wsl-buildx')
+            $proof = Join-Path $env:RUNNER_TEMP 'proof.txt'
+            $iid = Join-Path $env:RUNNER_TEMP 'iid'
+            Set-Content -LiteralPath $proof -Value 'session-secret-100' -NoNewline
+            @'
+          FROM alpine:3.21
+          COPY marker /marker
+          RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
+          '@ | Set-Content "$context/Dockerfile"
+            $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
+            & $buildx inspect default
+            $pipeExit = $LASTEXITCODE
+            Write-Host "Windows Buildx named pipe inspect exit=$pipeExit"
+            if ('${{ matrix.transport }}' -eq 'tcp') {
+            wsl.exe -d asagiri -u root -- apk add --no-cache socat
+            if ($LASTEXITCODE) { throw 'Installing the WSL loopback relay failed' }
+            $relay = Start-Process wsl.exe -ArgumentList '-d','asagiri','-u','root','--','socat','TCP4-LISTEN:18765,bind=127.0.0.1,reuseaddr,fork','UNIX-CONNECT:/var/lib/asagiri-daemon/.asagiri/run/docker.sock' -PassThru
+            $env:DOCKER_HOST = 'tcp://127.0.0.1:18765'
+            for ($i = 0; $i -lt 20; $i++) {
+              $tcpVersion = & $docker version --format '{{json .Server.Components}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($relay.HasExited) { throw 'Loopback relay exited' }
+              Start-Sleep -Seconds 1
+            }
+            if ($LASTEXITCODE -or $tcpVersion -notmatch [regex]::Escape($version)) { throw 'Loopback control did not reach the same engine' }
+            }
+            & $buildx inspect default
+            if ($LASTEXITCODE) { throw "Windows Buildx inspect failed over loopback TCP, named pipe exit=$pipeExit" }
+            & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
+            if ($LASTEXITCODE) { throw 'Buildx build failed' }
+            $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
+            if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
+            $digest = (Get-FileHash $proof).Hash.ToLower()
+            $result = Invoke-Docker @('run','--rm','--network','none','ak100:test','sh','-ec','test "$(cat /marker)" = windows-wsl-buildx && test ! -e /run/secrets/proof && cat /proof.digest')
+            if ($result -ne $digest) { throw 'Session secret digest mismatch' }
+            Write-Host "PASS context, build secret, direct image load and runtime for $actual"
+          } finally {
+            if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
+            wsl.exe --terminate asagiri
+          }
