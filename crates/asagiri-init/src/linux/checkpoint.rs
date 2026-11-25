@@ -15,6 +15,13 @@ pub(super) fn capture(pid: libc::pid_t, group: &Path, container_dir: &Path, name
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "checkpoint already exists"));
     }
     let staging = root.join(format!(".{name}.partial"));
+    // The guest agent handles capture synchronously. A partial directory here
+    // belongs to an interrupted capture and may contain stale CRIU images.
+    match fs::remove_dir_all(&staging) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     DirBuilder::new().mode(0o700).create(&staging)?;
     let result = dump(pid, group, &staging).and_then(|()| fs::rename(&staging, destination));
     if result.is_err() {
