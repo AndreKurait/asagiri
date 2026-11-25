@@ -1,4 +1,4 @@
-name: Qualify candidate Windows Buildx in the MSI
+name: Verify published Windows Buildx through the installed MSI
 on:
   push:
     branches: [qualification/stable-windows-buildx-100]
@@ -7,49 +7,30 @@ permissions:
   contents: read
 jobs:
   windows-cli:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            linux: x86_64
-          - arch: arm64
-            linux: aarch64
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 6686777f39aeaa8df95a4bb9e712f3ebc438dcca
-          persist-credentials: false
-      - name: Build candidate MSI with verified stable Linux payload
+      - name: Download and verify published x64 MSI
         env:
           GH_TOKEN: ${{ github.token }}
-          ASAGIRI_WINDOWS_LINUX_DIR: ${{ runner.temp }}/linux-inputs
+          RELEASE_TAG: v0.1.14-dev.329
         run: |
           $ErrorActionPreference = 'Stop'
-          if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $true }
-          gh run download 45447160275 -R AndreKurait/asagiri -n linux-inputs-${{ matrix.linux }} -D $env:ASAGIRI_WINDOWS_LINUX_DIR
-          $metadata = Get-Content "$env:ASAGIRI_WINDOWS_LINUX_DIR/build.json" -Raw | ConvertFrom-Json
-          if ($metadata.version -ne '0.1.15' -or $metadata.arch -ne '${{ matrix.linux }}' -or $metadata.commit -ne 'd60b3edc41c628904e5cbca742096a197cc7446f') { throw 'Linux input identity mismatch' }
-          foreach ($file in @('asagiri','asagiri-init','asagiri-linux.tar.gz')) {
-            if ((Get-FileHash "$env:ASAGIRI_WINDOWS_LINUX_DIR/$file").Hash -ne $metadata.sha256.$file) { throw "Linux input hash mismatch: $file" }
-          }
-          rustup target add aarch64-pc-windows-msvc
-          dotnet tool install --global wix --version 6.0.2
-          wix extension add -g WixToolset.UI.wixext/6.0.2
-          wix extension add -g WixToolset.Util.wixext/6.0.2
-          python scripts/ci/release.py stamp 0.1.15
-          cargo xtask msi --arch ${{ matrix.arch }}
-          Copy-Item target/Asagiri-0.1.15-${{ matrix.arch }}.msi $env:RUNNER_TEMP
+          $version = $env:RELEASE_TAG.Substring(1)
+          $asset = "Asagiri-$version-x86_64.msi"
+          $release = gh release view $env:RELEASE_TAG -R AndreKurait/asagiri --json isDraft,assets | ConvertFrom-Json
+          $entry = @($release.assets | Where-Object name -eq $asset)
+          if ($release.isDraft -or $entry.Count -ne 1) { throw 'Expected one published MSI' }
+          gh release download $env:RELEASE_TAG -R AndreKurait/asagiri -p $asset -D $env:RUNNER_TEMP
+          $digest = (Get-FileHash (Join-Path $env:RUNNER_TEMP $asset)).Hash.ToLower()
+          if ($entry[0].digest -ne "sha256:$digest") { throw 'Published MSI digest mismatch' }
+          Write-Host "Verified $asset sha256:$digest"
+          "ASAGIRI_TEST_VERSION=$version" >> $env:GITHUB_ENV
       - name: Build and run an image through the Windows named pipe
-        if: matrix.arch == 'x86_64'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-Location $env:RUNNER_TEMP
-          $version = '0.1.15'
+          $version = $env:ASAGIRI_TEST_VERSION
           $build = 'stable'
           $imported = $false
           $asset = "Asagiri-$version-x86_64.msi"
@@ -99,13 +80,29 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
-            & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
+            if ((Get-FileHash $buildx).Hash.ToLower() -ne 'a30647f372a9c35bb3f4919604c20f7dab23e06d08ebbf99b35a1f2a758db691') { throw 'Installed Buildx digest mismatch' }
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $bundle 'setup-tools.ps1') -Bundle $bundle -Pipe $env:DOCKER_HOST
+            if ($LASTEXITCODE) { throw 'Installed CLI setup failed' }
+            $plugins = Invoke-Docker @('info','--format','{{json .ClientInfo.Plugins}}') | ConvertFrom-Json
+            $selected = @($plugins | Where-Object Name -eq 'buildx')
+            if ($selected.Count -ne 1 -or [IO.Path]::GetFullPath($selected[0].Path) -ne [IO.Path]::GetFullPath($buildx)) { throw 'Docker CLI did not select the installed plugin' }
+            & $docker buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
             if ($LASTEXITCODE) { throw 'Installed candidate Buildx build over the named pipe failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
             if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
             $digest = (Get-FileHash $proof).Hash.ToLower()
             $result = Invoke-Docker @('run','--rm','--network','none','ak100:test','sh','-ec','test "$(cat /marker)" = windows-wsl-buildx && test ! -e /run/secrets/proof && cat /proof.digest')
             if ($result -ne $digest) { throw 'Session secret digest mismatch' }
+            @'
+          FROM alpine:3.21
+          RUN grep -E '^[0-9.]+[[:space:]]+probe[.]host' /etc/hosts
+          '@ | Set-Content "$context/Gatewayfile"
+            Invoke-Docker @('buildx','build','--builder','default','--add-host','probe.host:host-gateway','-f',"$context/Gatewayfile",$context.FullName)
+            $env:DOCKER_BUILDKIT = '0'
+            try {
+              Invoke-Docker @('build','--no-cache','--add-host','probe.host:host-gateway','-f',"$context/Gatewayfile",'-t','ak100:classic',$context.FullName)
+              Invoke-Docker @('run','--rm','--network','none','ak100:classic','true')
+            } finally { Remove-Item Env:DOCKER_BUILDKIT }
             Write-Host "PASS context, build secret, direct image load and runtime for $actual"
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
