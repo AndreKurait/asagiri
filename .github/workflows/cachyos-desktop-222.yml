@@ -35,7 +35,7 @@ jobs:
           for i in {1..120}; do
             if grep -Eiq 'Reached target .*Graphical Interface|Started .*Display Manager' guest.log 2>/dev/null; then exit 0; fi
             if grep -q "Falling back to interactive prompt" guest.log 2>/dev/null; then exit 1; fi
-            kill -0 "$pid" || exit 1
+            sudo kill -0 "$pid" || exit 1
             sleep 3
           done
           exit 1
