@@ -325,11 +325,14 @@ def report(a):
     print()
     if res.get("samples_ms"):
         print("Paired diagnostics use each adjacent base/head measurement. They do not change the gates above.\n")
-        print("| Timing | Median paired head − base | Head faster pairs |")
-        print("|---|---|---|")
+        print("| Timing | Median paired head − base | Head faster pairs | Head − base, base first | Head − base, head first |")
+        print("|---|---|---|---|---|")
         for key, sides in res["samples_ms"].items():
             differences = [head - base for base, head in zip(sides["base"], sides["head"], strict=True)]
-            print(f"| {key} | {statistics.median(differences):+.3f} ms | {sum(d < 0 for d in differences)}/{len(differences)} |")
+            base_first = statistics.median(differences[::2])
+            head_first = statistics.median(differences[1::2])
+            print(f"| {key} | {statistics.median(differences):+.3f} ms | {sum(d < 0 for d in differences)}/{len(differences)} | "
+                  f"{base_first:+.3f} ms | {head_first:+.3f} ms |")
         print()
     if failed:
         print(f"**Slower than main:** {', '.join(failed)}. Limits are in `scripts/perf.py` (`LIMITS`).")
