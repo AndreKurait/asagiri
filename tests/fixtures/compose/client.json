@@ -1,30 +1,30 @@
 {
-  "version": "5.7.1",
-  "release": "https://github.com/docker/compose/releases/tag/v5.7.1",
-  "published_at": "2026-11-11T08:06:10Z",
-  "checksums_sha256": "faea103e645cf3a1fa0a0414a19835206b2d0f21e31dcc67e75fe63767481568",
+  "version": "5.8.0",
+  "release": "https://github.com/docker/compose/releases/tag/v5.8.0",
+  "published_at": "2026-11-17T13:40:19Z",
+  "checksums_sha256": "c5e5b8306f9ddf54ebc1e0686c48df7e700942b4bd90216879d0324952625d8f",
   "linux": {
     "x86_64": {
       "name": "docker-compose-linux-x86_64",
-      "size": 33952322,
-      "sha256": "af426722a8af5de812fcee30cc1c39f0639f5f723cbadefb25e5d4db054064cf"
+      "size": 34442228,
+      "sha256": "b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6"
     },
     "aarch64": {
       "name": "docker-compose-linux-aarch64",
-      "size": 31694371,
-      "sha256": "f2f49f903240895fa764c0dca3a14548b754ad9426f6b609ccaf55ec5a3aa2a5"
+      "size": 32155346,
+      "sha256": "1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3"
     }
   },
   "darwin": {
     "arm64": {
       "name": "docker-compose-darwin-aarch64",
-      "sha256": "5a9aa8b5fb5b1e3cd83f39c80e570ae30aafd74cd9b47264fbe4ff7e6e6251ca",
-      "size": 31976450
+      "sha256": "008b8fcf6c6d60340f5796626a0f0d51c042085793a9b1653343011727140b71",
+      "size": 32440418
     },
     "x86_64": {
       "name": "docker-compose-darwin-x86_64",
-      "size": 34318608,
-      "sha256": "c28b37c7bf1cc315acdf511c2c0f34ce19d4d33b6038611617063a99c45417c6"
+      "size": 34811712,
+      "sha256": "5c41cd573c549dc66abb03c5b29d6d4dfaae206b2e79848d1c32482bb2a3b416"
     }
   }
 }
