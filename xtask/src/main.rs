@@ -210,10 +210,15 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     // Optional architecture-specific staging tree for checkpoint qualification.
     if let Some(runtime) = std::env::var_os("ASAGIRI_CRIU_RUNTIME") {
         let runtime = Path::new(&runtime);
-        let binary = fs::read(runtime.join("usr/sbin/criu"))?;
-        let machine = match arch { Arch::Arm64 => 183, Arch::X86_64 => 62 };
-        if !binary.starts_with(b"\x7fELF\x02\x01") || binary.get(18..20) != Some(&[machine, 0]) {
-            return Err(io::Error::other("CRIU must be a 64-bit Linux ELF for the selected guest architecture"));
+        let (machine, loader) = match arch {
+            Arch::Arm64 => (183, "lib/ld-linux-aarch64.so.1"),
+            Arch::X86_64 => (62, "lib64/ld-linux-x86-64.so.2"),
+        };
+        for name in ["usr/sbin/criu", loader] {
+            let binary = fs::read(runtime.join(name)).map_err(|e| io::Error::new(e.kind(), format!("checkpoint runtime {name}: {e}")))?;
+            if !binary.starts_with(b"\x7fELF\x02\x01") || binary.get(18..20) != Some(&[machine, 0]) {
+                return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
+            }
         }
         cpio.tree("bundle", runtime)?;
     }
