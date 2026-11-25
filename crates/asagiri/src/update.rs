@@ -316,7 +316,14 @@ fn check(new_app: &Path, app: &Path, promised: &str) -> io::Result<()> {
     // already installed (its designated requirement), so only a genuine Asagiri
     // release is accepted, and require Gatekeeper/notarization acceptance.
     let dr = Command::new("/usr/bin/codesign").args(["-d", "-r", "-"]).arg(app).output()?;
-    let requirement = String::from_utf8_lossy(&dr.stdout)
+    if !dr.status.success() {
+        return Err(io::Error::other("codesign could not read the installed app's signing requirement"));
+    }
+    let output = String::from_utf8_lossy(&dr.stdout);
+    if output.lines().any(|line| line.starts_with("# designated => cdhash ")) {
+        return Err(io::Error::other("this installation has a build-specific signature; install the new Asagiri release manually from its published disk image"));
+    }
+    let requirement = output
         .lines()
         .find_map(|l| l.strip_prefix("designated => ").map(str::to_owned))
         .filter(|r| !r.trim().is_empty());
@@ -426,6 +433,19 @@ fn bundle_version(plist: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{Release, bundle_version, has_cpu, newer, runs_here};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn updater_explains_manual_update_for_adhoc_installation() {
+        let dir = std::env::temp_dir().join(format!("asagiri-updater-adhoc-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let installed = dir.join("installed");
+        std::fs::copy("/usr/bin/true", &installed).unwrap();
+        assert!(std::process::Command::new("/usr/bin/codesign").args(["--force", "--sign", "-"]).arg(&installed).status().unwrap().success());
+        let error = super::check(&dir.join("candidate"), &installed, "1.0.0").unwrap_err();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(error.to_string().contains("install the new Asagiri release manually"), "{error}");
+    }
 
     #[test]
     fn compares_versions() {
