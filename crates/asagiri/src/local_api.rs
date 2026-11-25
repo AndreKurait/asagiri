@@ -245,7 +245,7 @@ pub struct Response {
 
 fn bad(message: &str) -> io::Error { io::Error::new(io::ErrorKind::InvalidData, message) }
 
-fn line(reader: &mut impl BufRead, remaining: &mut usize) -> io::Result<String> {
+pub(crate) fn line(reader: &mut impl BufRead, remaining: &mut usize) -> io::Result<String> {
     let mut bytes = Vec::new();
     reader.take(*remaining as u64 + 1).read_until(b'\n', &mut bytes)?;
     if bytes.len() > *remaining || !bytes.ends_with(b"\r\n") {

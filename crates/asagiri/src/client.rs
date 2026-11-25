@@ -387,12 +387,19 @@ pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
     let result = (|| {
         loop {
-            if stream.reader.fill_buf()?.is_empty() {
+            let header = crate::local_api::line(&mut stream.reader, &mut 1024)?;
+            let size = u64::from_str_radix(header.split(';').next().unwrap_or(""), 16)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint chunk size"))?;
+            if size == 0 {
+                let mut remaining = 16 * 1024;
+                while !crate::local_api::line(&mut stream.reader, &mut remaining)?.is_empty() {}
+                break;
+            }
+            if io::copy(&mut (&mut stream.reader).take(size), &mut file)? != size {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete checkpoint download"));
             }
-            match chunk(&mut stream.reader)? {
-                Some(bytes) => file.write_all(&bytes)?,
-                None => break,
+            if !crate::local_api::line(&mut stream.reader, &mut 2)?.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint chunk terminator"));
             }
         }
         file.sync_all()?;
