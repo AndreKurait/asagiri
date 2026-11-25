@@ -207,6 +207,16 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     // The kernel opens /dev/console for PID 1 before any filesystem is mounted.
     cpio.char_dev("dev/console", 0o600, 5, 1);
     cpio.file("init", 0o755, &init);
+    // Optional architecture-specific staging tree for checkpoint qualification.
+    if let Some(runtime) = std::env::var_os("ASAGIRI_CRIU_RUNTIME") {
+        let runtime = Path::new(&runtime);
+        let binary = fs::read(runtime.join("usr/sbin/criu"))?;
+        let machine = match arch { Arch::Arm64 => 183, Arch::X86_64 => 62 };
+        if !binary.starts_with(b"\x7fELF\x02\x01") || binary.get(18..20) != Some(&[machine, 0]) {
+            return Err(io::Error::other("CRIU must be a 64-bit Linux ELF for the selected guest architecture"));
+        }
+        cpio.tree("bundle", runtime)?;
+    }
     let path = arch.guest_out(root)?.join("initramfs.cpio");
     fs::write(&path, cpio.finish())?;
     println!("{} ({} KiB)", path.display(), fs::metadata(&path)?.len() / 1024);
@@ -1062,6 +1072,25 @@ struct Cpio {
 }
 
 impl Cpio {
+    fn tree(&mut self, name: &str, root: &Path) -> io::Result<()> {
+        self.dir(name);
+        let mut entries = fs::read_dir(root)?.collect::<io::Result<Vec<_>>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let component = entry.file_name().into_string().map_err(|_| io::Error::other("invalid runtime filename"))?;
+            let path = format!("{name}/{component}");
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                self.tree(&path, &entry.path())?;
+            } else if kind.is_file() {
+                self.file(&path, 0o755, &fs::read(entry.path())?);
+            } else {
+                return Err(io::Error::other(format!("unsupported runtime entry {path}")));
+            }
+        }
+        Ok(())
+    }
+
     fn dir(&mut self, name: &str) {
         self.entry(name, 0o040_755, 2, (0, 0), &[]);
     }
