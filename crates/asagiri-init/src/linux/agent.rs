@@ -660,8 +660,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
                     } else if host_process || !Path::new("/bundle/usr/sbin/criu").is_file() {
                         Err(io::Error::other("guest checkpoint runtime is unavailable"))
-                    } else if let Some(pid) = running_pid(&procs, id) {
-                        super::checkpoint::capture(pid, &paths.containers.join(id), name)
+                    } else if let Some((pid, group)) = running_cgroup(&procs, id) {
+                        super::checkpoint::capture(pid, group, &paths.containers.join(id), name)
                     } else {
                         Err(io::Error::other(format!("container {id} is not running")))
                     };

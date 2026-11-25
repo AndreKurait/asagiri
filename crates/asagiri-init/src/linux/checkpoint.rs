@@ -6,7 +6,7 @@ use std::process::Command;
 
 /// Called by a guest worker with the PID resolved from the agent's process table.
 /// Keep checkpoints outside the container root and publish only complete images.
-pub(super) fn capture(pid: libc::pid_t, container_dir: &Path, name: &str) -> io::Result<()> {
+pub(super) fn capture(pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str) -> io::Result<()> {
     super::container::valid_id(name)?;
     let root = container_dir.join("checkpoints");
     DirBuilder::new().recursive(true).mode(0o700).create(&root)?;
@@ -16,14 +16,14 @@ pub(super) fn capture(pid: libc::pid_t, container_dir: &Path, name: &str) -> io:
     }
     let staging = root.join(format!(".{name}.partial"));
     DirBuilder::new().mode(0o700).create(&staging)?;
-    let result = dump(pid, &staging).and_then(|()| fs::rename(&staging, destination));
+    let result = dump(pid, group, &staging).and_then(|()| fs::rename(&staging, destination));
     if result.is_err() {
         fs::remove_dir_all(staging)?;
     }
     result
 }
 
-fn dump(pid: libc::pid_t, images: &Path) -> io::Result<()> {
+fn dump(pid: libc::pid_t, group: &Path, images: &Path) -> io::Result<()> {
     #[cfg(target_arch = "aarch64")]
     let (loader, libs) = ("/bundle/lib/ld-linux-aarch64.so.1", "/bundle/usr/lib/aarch64-linux-gnu");
     #[cfg(target_arch = "x86_64")]
@@ -33,6 +33,7 @@ fn dump(pid: libc::pid_t, images: &Path) -> io::Result<()> {
         .current_dir(images)
         .args(["--library-path", libs, "/bundle/usr/sbin/criu", "dump", "-v4", "--log-file", "dump.log", "--tree"])
         .arg(pid.to_string())
+        .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])
         .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"])
         .status()?;
