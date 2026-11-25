@@ -61,18 +61,7 @@ fn run(engine: Weak<Engine>) {
                 rescan |= lost.swap(false, Ordering::Relaxed);
             }
             let cur = current_event_id();
-            // Existing sources have already consumed events through `resume`.
-            // A newly discovered source is owed events since container start.
-            roots = now.into_iter().map(|(path, start)| {
-                if let Some(old) = roots.iter().find(|r| r.path == path) {
-                    let mut root = old.clone();
-                    root.start_id = root.start_id.max(resume);
-                    root
-                } else {
-                    Root::new(path, start)
-                }
-            }).collect();
-            resume = roots.iter().map(|root| root.start_id).min().unwrap_or(0);
+            (roots, resume) = replay_roots(now, &roots, resume);
             if roots.is_empty() {
                 rescan = false;
                 known = Known::new();
@@ -106,6 +95,22 @@ fn run(engine: Weak<Engine>) {
             }
         }
     }
+}
+
+/// Resume existing roots after their consumed events, and include changes to
+/// new roots from container start through discovery by the watch thread.
+fn replay_roots(now: std::collections::BTreeMap<String, u64>, previous: &[Root], resume: u64) -> (Vec<Root>, u64) {
+    let roots: Vec<_> = now.into_iter().map(|(path, start)| {
+        if let Some(old) = previous.iter().find(|r| r.path == path) {
+            let mut root = old.clone();
+            root.start_id = root.start_id.max(resume);
+            root
+        } else {
+            Root::new(path, start)
+        }
+    }).collect();
+    let since = roots.iter().map(|root| root.start_id).min().unwrap_or(0);
+    (roots, since)
 }
 
 /// The folders to give FSEvents: a bind-mounted folder itself, a bind-mounted
@@ -695,6 +700,18 @@ mod tests {
 
     fn root(path: &str, sensitive: bool, start_id: u64) -> Root {
         Root { path: path.to_owned(), sensitive, start_id }
+    }
+
+    #[test]
+    fn newly_discovered_bind_replays_its_first_edit_without_replaying_other_roots() {
+        let previous = [root("/existing", true, 10)];
+        let now = [("/existing".to_owned(), 10), ("/new".to_owned(), 30)].into();
+        let (roots, since) = super::replay_roots(now, &previous, 50);
+        assert_eq!(since, 30);
+        assert!(stale("/new/file", 30, 0, &roots));
+        assert!(!stale("/new/file", 31, 0, &roots));
+        assert!(stale("/existing/file", 49, 0, &roots));
+        assert!(!stale("/existing/file", 51, 0, &roots));
     }
 
     fn file(size: u64, mtime: i64, ctime: i64, mode: u32) -> Option<Meta> {
