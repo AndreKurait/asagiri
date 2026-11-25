@@ -108,6 +108,13 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if ($LASTEXITCODE -or $tcpVersion -notmatch [regex]::Escape($version)) { throw 'Loopback control did not reach the same engine' }
+            $tcpControl = $control.Replace('unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock','tcp://127.0.0.1:18765').Replace('ak100-linux-control','ak100-linux-tcp')
+            $tcpControl.Replace("`r", "") | wsl.exe -d asagiri -u root -- sh -s
+            Write-Host "WSL native TCP scratch build and image inspect exit=$LASTEXITCODE"
+            & $buildx version
+            & $docker buildx version
+            & $docker buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" -t ak100:plugin $context.FullName
+            Write-Host "Windows docker plugin build exit=$LASTEXITCODE"
             }
             & $buildx inspect default
             if ($LASTEXITCODE) { throw "Windows Buildx inspect failed over loopback TCP, named pipe exit=$pipeExit" }
