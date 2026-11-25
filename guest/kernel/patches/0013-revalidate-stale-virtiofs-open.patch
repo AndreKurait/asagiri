@@ -1,0 +1,17 @@
+# A host rename can replace the inode between a cached lookup and FUSE_OPEN.
+# Use the VFS's bounded LOOKUP_REVAL retry for read-only Mac shared files.
+--- a/fs/fuse/file.c
++++ b/fs/fuse/file.c
+@@ -274,6 +274,12 @@
+ 		fuse_set_nowrite(inode);
+ 
+ 	err = fuse_do_open(fm, get_node_id(inode), file, false);
++	/* The shared directory server may no longer know this cached node.
++	 * A fresh name lookup distinguishes replacement from actual removal.
++	 * Do not replay opens that create, truncate or write a file. */
++	if (err == -ENOENT && fc->caller_owner && !(file->f_mode & FMODE_WRITE) &&
++	    !(file->f_flags & (O_CREAT | O_TRUNC | O_EXCL)))
++		err = -ESTALE;
+ 	if (!err) {
+ 		ff = file->private_data;
+ 		err = fuse_finish_open(inode, file);

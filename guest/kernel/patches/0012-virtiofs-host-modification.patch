@@ -1,0 +1,33 @@
+# Host edit page invalidation adapted from libracoder/kiri#902.
+--- a/fs/notify/asagiri_inject.c
++++ b/fs/notify/asagiri_inject.c
+@@ -32,6 +32,7 @@
+ #include <linux/mount.h>
+ #include <linux/namei.h>
+ #include <linux/nsproxy.h>
++#include <linux/pagemap.h>
+ #include <linux/proc_fs.h>
+ #include <linux/sched/task.h>
+ #include <linux/slab.h>
+@@ -120,7 +121,8 @@
+ 			cached = NULL;
+ 			goto out;
+ 		}
+-		if (!fsnotify_sb_has_watchers(share->dentry->d_sb)) {
++		if ((!cached || !d_is_reg(cached)) &&
++		    !fsnotify_sb_has_watchers(share->dentry->d_sb)) {
+ 			err = 0;
+ 			goto out;
+ 		}
+@@ -134,6 +136,11 @@
+ 			      target.dentry, FSNOTIFY_EVENT_DENTRY, d_inode(parent.dentry), &name, 0);
+ 		break;
+ 	case 'M':
++		/* A replacement keeps the old open inode intact. An in-place
++		 * host write invalidates clean pages on the same inode. */
++		if (cached && d_is_reg(target.dentry) &&
++		    d_inode(cached) == d_inode(target.dentry))
++			invalidate_mapping_pages(d_inode(target.dentry)->i_mapping, 0, -1);
+ 		fsnotify_dentry(target.dentry, FS_MODIFY);
+ 		if (d_is_reg(target.dentry))
+ 			fsnotify_dentry(target.dentry, FS_CLOSE_WRITE);
