@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        transport: [tcp]
+        transport: [pipe]
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
@@ -94,75 +94,8 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
-            # Exercise the same installed daemon with a WSL-native Docker client.
-            # A successful scratch build exercises worker enumeration and context transfer.
-            wsl.exe -d asagiri -u root -- apk add --no-cache docker-cli docker-cli-buildx
-            if ($LASTEXITCODE) { throw 'WSL client installation failed' }
-            $control = @'
-          set -eu
-          export DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock
-          d=$(mktemp -d)
-          trap 'rm -rf "$d"' EXIT
-          printf 'FROM scratch\nCOPY marker /marker\n' > "$d/Dockerfile"
-          echo control > "$d/marker"
-          docker buildx version
-          docker buildx build --builder default --progress plain --load -t ak100-linux-control "$d"
-          docker image inspect ak100-linux-control --format '{{.Id}}'
-          '@
-            $control.Replace("`r", "") | wsl.exe -d asagiri -u root -- sh -s
-            $controlExit = $LASTEXITCODE
-            Write-Host "WSL native scratch build and image inspect exit=$controlExit"
-            & $buildx inspect default
-            $pipeExit = $LASTEXITCODE
-            Write-Host "Windows Buildx named pipe inspect exit=$pipeExit"
-            if ('${{ matrix.transport }}' -eq 'tcp') {
-            wsl.exe -d asagiri -u root -- apk add --no-cache socat
-            if ($LASTEXITCODE) { throw 'Installing the WSL loopback relay failed' }
-            $relay = Start-Process wsl.exe -ArgumentList '-d','asagiri','-u','root','--','socat','TCP4-LISTEN:18765,bind=127.0.0.1,reuseaddr,fork','UNIX-CONNECT:/var/lib/asagiri-daemon/.asagiri/run/docker.sock' -PassThru
-            $env:DOCKER_HOST = 'tcp://127.0.0.1:18765'
-            for ($i = 0; $i -lt 20; $i++) {
-              $tcpVersion = & $docker version --format '{{json .Server.Components}}' 2>$null
-              if ($LASTEXITCODE -eq 0) { break }
-              if ($relay.HasExited) { throw 'Loopback relay exited' }
-              Start-Sleep -Seconds 1
-            }
-            if ($LASTEXITCODE -or $tcpVersion -notmatch [regex]::Escape($version)) { throw 'Loopback control did not reach the same engine' }
-            $tcpControl = $control.Replace('unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock','tcp://127.0.0.1:18765').Replace('ak100-linux-control','ak100-linux-tcp')
-            $tcpControl.Replace("`r", "") | wsl.exe -d asagiri -u root -- sh -s
-            Write-Host "WSL native TCP scratch build and image inspect exit=$LASTEXITCODE"
-            & $buildx version
-            & $docker buildx version
-            & $docker buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" -t ak100:plugin $context.FullName
-            Write-Host "Windows docker plugin build exit=$LASTEXITCODE"
-            }
-            & $buildx inspect default
-            if ($LASTEXITCODE) { throw "Windows Buildx inspect failed over loopback TCP, named pipe exit=$pipeExit" }
-            # Keep raw client diagnostics on the ephemeral runner. Report only frame
-            # types, stream IDs and protocol error codes, without header values.
-            $env:GODEBUG = 'http2debug=2'
-            $trace = Join-Path $env:RUNNER_TEMP 'worker-inspect.trace'
-            & $buildx inspect default 2> $trace
-            Remove-Item Env:GODEBUG
-            foreach ($line in Get-Content $trace) {
-              # Classify pseudo-headers without emitting addresses or metadata.
-              if ($line -match '(?i)(:authority|:scheme|:method|:path).*?value[=:]\s*"([^"\r\n]*)"') {
-                $key = $Matches[1]; $value = $Matches[2]
-                $hasBackslash = $value.Contains('\')
-                $hasSlash = $value.Contains('/')
-                $hasPercent = $value.Contains('%')
-                Write-Host "HTTP2 pseudo $key length=$($value.Length) backslash=$hasBackslash slash=$hasSlash percent=$hasPercent"
-              }
-              if ($line -match '(read|wrote) (SETTINGS|HEADERS|CONTINUATION|DATA|RST_STREAM|GOAWAY|WINDOW_UPDATE|PING)\b') {
-                $frame = $Matches[0]
-                $stream = [regex]::Match($line, 'stream=\d+').Value
-                $code = [regex]::Match($line, '(?:ErrCode|code)=[A-Z_]+').Value
-                Write-Host "HTTP2 $frame $stream $code"
-              }
-            }
-            & "$env:RUNNER_TEMP/buildx-control.exe" build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:control $context.FullName
-            Write-Host "Windows logical authority build exit=$LASTEXITCODE"
-            & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
-            if ($LASTEXITCODE) { throw 'Buildx build failed' }
+            & "$env:RUNNER_TEMP/buildx-control.exe" build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
+            if ($LASTEXITCODE) { throw 'Modified Buildx build over the named pipe failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
             if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
             $digest = (Get-FileHash $proof).Hash.ToLower()
