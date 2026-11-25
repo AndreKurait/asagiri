@@ -379,8 +379,12 @@ pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
     if [container, name].iter().any(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) || matches!(s.as_str(), "." | "..")) {
         return Err(io::Error::other("invalid container or checkpoint name"));
     }
+    let output = Path::new(output);
+    if output.try_exists()? { return Err(io::ErrorKind::AlreadyExists.into()); }
+    let nonce = getrandom::u64().map_err(io::Error::other)?;
+    let temporary = output.with_file_name(format!(".asagiri-checkpoint-{nonce:016x}.partial"));
     let mut stream = Stream::open(&format!("/asagiri/checkpoints/{container}/{name}"))?;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(output)?;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
     let result = (|| {
         loop {
             if stream.reader.fill_buf()?.is_empty() {
@@ -391,10 +395,11 @@ pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
                 None => break,
             }
         }
-        file.sync_all()
+        file.sync_all()?;
+        std::fs::hard_link(&temporary, output)
     })();
-    if result.is_err() { let _ = std::fs::remove_file(output); }
-    result
+    let cleanup = std::fs::remove_file(&temporary);
+    result.and(cleanup)
 }
 
 /// Runs `cmd` in a running container and returns (exit code, output),
