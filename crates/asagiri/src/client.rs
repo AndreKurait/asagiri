@@ -370,13 +370,29 @@ impl Stream {
     }
 }
 
+fn valid_checkpoint_component(s: &str) -> bool {
+    !s.is_empty() && !matches!(s, "." | "..") && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+pub fn checkpoint_list(args: &[String]) -> io::Result<()> {
+    let [container] = args else { return Err(io::Error::other("usage: asagiri checkpoint ls CONTAINER")); };
+    if !valid_checkpoint_component(container) { return Err(io::Error::other("invalid container name")); }
+    let response = get(&format!("/containers/{container}/checkpoints"))?;
+    let entries = response.as_array().ok_or_else(|| io::Error::other("invalid checkpoint list"))?;
+    for entry in entries {
+        let name = entry["Name"].as_str().ok_or_else(|| io::Error::other("missing checkpoint name"))?;
+        println!("{name}");
+    }
+    Ok(())
+}
+
 /// Download the checkpoint without holding the process memory image in host RAM.
 pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     let [container, name, output] = args else {
         return Err(io::Error::other("usage: asagiri checkpoint export CONTAINER NAME OUTPUT.tar"));
     };
-    if [container, name].iter().any(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) || matches!(s.as_str(), "." | "..")) {
+    if !valid_checkpoint_component(container) || !valid_checkpoint_component(name) {
         return Err(io::Error::other("invalid container or checkpoint name"));
     }
     let output = Path::new(output);

@@ -120,6 +120,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri share PORT|CONTAINER [--name N] | share login | logout | status
        asagiri k8s start [--use] | stop | status | delete | set [--lan on|off] [--tls-san NAME,…] [--port N]
        asagiri usb [list] | attach DEVICE | detach DEVICE   USB devices for containers, beta (Mac: pass through to the VM)
+       asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
        asagiri machine create NAME [--distro D] | list | shell NAME | stop | delete NAME
        asagiri import [orbstack | desktop-linux] [--list]
@@ -221,6 +222,8 @@ fn main() -> ExitCode {
         Some("config") => daemon_config::run(&args[1..]),
         #[cfg(unix)]
         Some("k8s") => k8s::run(&args[1..]),
+        #[cfg(unix)]
+        Some("checkpoint") if args.get(1).map(String::as_str) == Some("ls") => client::checkpoint_list(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("export") => client::checkpoint_export(&args[2..]),
         #[cfg(unix)]
