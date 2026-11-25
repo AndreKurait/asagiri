@@ -14,6 +14,25 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: docker/buildx
+          ref: 0dbe87f36ed472fe36b6796c3f70b4210a731fc5
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build a Windows client with a valid logical gRPC host
+        shell: pwsh
+        run: |
+          $path = 'driver/docker/driver.go'
+          $source = [IO.File]::ReadAllText((Resolve-Path $path))
+          $before = 'return client.New(ctx, "", opts...)'
+          if (!$source.Contains($before)) { throw 'Buildx Docker driver changed' }
+          [IO.File]::WriteAllText((Resolve-Path $path), $source.Replace($before, 'return client.New(ctx, "tcp://localhost", opts...)'))
+          go build -mod=vendor -o "$env:RUNNER_TEMP/buildx-control.exe" ./cmd/buildx
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build and run an image through the Windows named pipe
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,6 +159,8 @@ jobs:
                 Write-Host "HTTP2 $frame $stream $code"
               }
             }
+            & "$env:RUNNER_TEMP/buildx-control.exe" build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:control $context.FullName
+            Write-Host "Windows logical authority build exit=$LASTEXITCODE"
             & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
             if ($LASTEXITCODE) { throw 'Buildx build failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
