@@ -127,6 +127,18 @@ pub unsafe fn clone3(args: &CloneArgs) -> io::Result<libc::pid_t> {
     // SAFETY: `args` is a valid clone_args of the size passed; the caller
     // upholds the single-thread requirement.
     let ret = unsafe { libc::syscall(libc::SYS_clone3, args as *const CloneArgs, std::mem::size_of::<CloneArgs>()) };
+    if ret < 0 && args.flags & CLONE_INTO_CGROUP != 0 {
+        let error = io::Error::last_os_error();
+        let context = match error.raw_os_error() {
+            Some(libc::ENOSYS) => "host does not expose clone3",
+            Some(libc::EPERM) => "host denied clone3",
+            _ => return Err(io::Error::new(error.kind(), format!("clone3: {error}"))),
+        };
+        return Err(io::Error::new(
+            error.kind(),
+            format!("clone3: {context}. Asagiri requires clone3 with CLONE_INTO_CGROUP for atomic cgroup placement: {error}"),
+        ));
+    }
     check(ret, "clone3").map(|p| p as libc::pid_t)
 }
 
