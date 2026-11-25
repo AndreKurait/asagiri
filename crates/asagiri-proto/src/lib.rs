@@ -1630,6 +1630,21 @@ mod tests {
     }
 
     #[test]
+    fn hello_without_runtime_flag_decodes_as_absent() {
+        let mut wire = Vec::new();
+        frame(&mut wire, kind::HELLO, |body| {
+            body.extend_from_slice(&PROTOCOL.to_le_bytes());
+            for value in [11, 22, 33, 44] {
+                put_u64(body, value);
+            }
+        });
+        assert_eq!(decode(&wire).unwrap(), Msg::Hello(Hello {
+            protocol: PROTOCOL, init_start_ns: 11, ready_ns: 22,
+            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false,
+        }));
+    }
+
+    #[test]
     fn round_trip() {
         round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true }));
         round(Msg::Ping(7));
