@@ -46,7 +46,7 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
         }
         copy_op::STAT => copy_out(&mut reply, spec)?,
         copy_op::OUT => copy_out(conn, spec)?,
-        copy_op::EXPORT => export(conn)?,
+        copy_op::EXPORT | copy_op::CHECKPOINT_EXPORT => export(conn)?,
         op => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unknown copy op {op}"))),
     }
     Ok(reply)

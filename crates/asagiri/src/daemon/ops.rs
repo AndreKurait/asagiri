@@ -41,7 +41,7 @@ pub fn route(req: &Request, engine: &Arc<Engine>, w: &mut UnixStream) -> Option<
                     ("POST", "rename") => reply(w, engine.rename(id, req.query("name").unwrap_or_default()).map(|()| Value::Null), 204),
                     ("POST", "update") => reply(w, update(req, engine, id), 200),
                     ("GET", "changes") => changes_reply(w, changes(engine, id)),
-                    ("GET", "export") => export(engine, id, w),
+                    ("GET", "export") => export(engine, id, asagiri_proto::copy_op::EXPORT, "/", w),
                     _ => return None,
                 });
             }
@@ -172,8 +172,8 @@ fn update(req: &Request, engine: &Engine, key: &str) -> Result<Value, Error> {
 }
 
 /// Starts a copy-service job and checks it accepted: `CopyDone` first.
-fn layer_job(engine: &Engine, key: &str, op: u8) -> Result<(asagiri_vmm::VsockStream, std::fs::File), Error> {
-    let stream = engine.copy(key, op, "/", 0)?;
+fn layer_job(engine: &Engine, key: &str, op: u8, path: &str) -> Result<(asagiri_vmm::VsockStream, std::fs::File), Error> {
+    let stream = engine.copy(key, op, path, 0)?;
     let mut f = std::fs::File::from(stream.fd.try_clone()?);
     let frame = guest_frame(&mut f)?;
     match asagiri_proto::decode(&frame) {
@@ -195,7 +195,7 @@ fn changes_reply(w: &mut UnixStream, result: Result<Value, Error>) -> io::Result
 }
 
 fn changes(engine: &Engine, key: &str) -> Result<Value, Error> {
-    let (_stream, mut f) = layer_job(engine, key, asagiri_proto::copy_op::DIFF)?;
+    let (_stream, mut f) = layer_job(engine, key, asagiri_proto::copy_op::DIFF, "/")?;
     let mut text = String::new();
     f.read_to_string(&mut text)?;
     let list: Vec<Value> = text
@@ -214,8 +214,8 @@ fn changes(engine: &Engine, key: &str) -> Result<Value, Error> {
     Ok(if list.is_empty() { Value::Null } else { Value::Array(list) })
 }
 
-fn export(engine: &Engine, key: &str, w: &mut UnixStream) -> io::Result<Next> {
-    let (stream, mut f) = match layer_job(engine, key, asagiri_proto::copy_op::EXPORT) {
+pub(super) fn export(engine: &Engine, key: &str, op: u8, path: &str, w: &mut UnixStream) -> io::Result<Next> {
+    let (stream, mut f) = match layer_job(engine, key, op, path) {
         Ok(v) => v,
         Err(e) => return reply(w, Err(e), 200),
     };
@@ -329,7 +329,7 @@ fn commit(req: &Request, engine: &Engine) -> Result<Value, Error> {
         engine.pause(&id, true)?;
     }
     let layer = (|| -> Result<(String, u64), Error> {
-        let (_stream, mut f) = layer_job(engine, &id, asagiri_proto::copy_op::COMMIT)?;
+        let (_stream, mut f) = layer_job(engine, &id, asagiri_proto::copy_op::COMMIT, "/")?;
         let mut w = engine.store.ingest()?;
         io::copy(&mut f, &mut w)?;
         Ok(w.finish()?)

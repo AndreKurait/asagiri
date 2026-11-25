@@ -126,6 +126,13 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         super::storage::refuse_while_moving(w)?;
         return Ok(Next::Close);
     }
+    if req.method == "GET" && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
+        if !matches!(caller, super::caller::Caller::Host) {
+            http::error(w, 403, "host connection required")?;
+            return Ok(Next::Close);
+        }
+        return super::ops::export(engine, id, asagiri_proto::copy_op::CHECKPOINT_EXPORT, name, w);
+    }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
     }

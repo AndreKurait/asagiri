@@ -265,13 +265,17 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     let view = view(spec.id);
     if matches!(view, View::Cleaning) || roots.cleaning(spec.id) { return Ok(None); }
     let root = match spec.op {
-        copy_op::DIFF | copy_op::COMMIT => roots.hold_upper(paths, spec.id),
+        copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT => roots.hold_upper(paths, spec.id),
         copy_op::IN | copy_op::OUT | copy_op::STAT | copy_op::EXPORT => roots.acquire(paths, spec.id, spec.layers),
         _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "unknown copy operation")),
     }?;
     let mut preparing = false;
     let result = (|| {
-        if matches!(spec.op, copy_op::DIFF | copy_op::COMMIT) {
+        if spec.op == copy_op::CHECKPOINT_EXPORT {
+            super::super::container::valid_id(spec.path)?;
+            let dir = paths.containers.join(spec.id).join("checkpoints").join(spec.path);
+            Ok(Grant::Root(File::open(dir)?.into()))
+        } else if matches!(spec.op, copy_op::DIFF | copy_op::COMMIT) {
             Ok(Grant::Text(b"upper".to_vec()))
         } else if let View::Running(pid) = view && spec.op != copy_op::EXPORT {
             // Pin the live root while the PID is still owned. A delayed copy
@@ -313,7 +317,8 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let mut seen = std::collections::HashSet::new();
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
-        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, "", 0, &layers, "", &[]);
+        let name = if spec.op == copy_op::CHECKPOINT_EXPORT { spec.path } else { "" };
+        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &[]);
         if request.len() > MAX_REQUEST {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "copy layer list exceeds the root request limit"));
         }
