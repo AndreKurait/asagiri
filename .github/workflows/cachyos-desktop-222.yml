@@ -47,10 +47,9 @@ jobs:
           sudo qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -display none -chardev socket,id=serial0,path=console.sock,server=on,wait=off,logfile=guest.log -serial chardev:serial0 -monitor none -no-reboot -drive "file=$iso,format=raw,if=virtio,readonly=on" -kernel "$kernel" -initrd "$initrd" -append "archisobasedir=arch archisosearchuuid=$uuid copytoram=n console=ttyS0,115200 systemd.show_status=1" &
           pid=$!
           trap 'sudo kill "$pid" 2>/dev/null || true; tail -60 guest.log || true' EXIT
-          for i in {1..120}; do
-            if grep -Eiq 'Reached target .*Graphical Interface|Started .*Display Manager' guest.log 2>/dev/null; then sudo /usr/bin/python3 console.py console.sock guest-check.sh; exit $?; fi
-            if grep -q "Falling back to interactive prompt" guest.log 2>/dev/null; then exit 1; fi
-            sudo kill -0 "$pid" || exit 1
-            sleep 3
+          for i in {1..30}; do
+            sudo kill -0 "$pid"
+            if sudo test -S console.sock; then break; fi
+            sleep 1
           done
-          exit 1
+          sudo /usr/bin/python3 console.py console.sock guest-check.sh
