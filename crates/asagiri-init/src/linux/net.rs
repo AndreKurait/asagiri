@@ -1151,6 +1151,17 @@ mod tests {
         // namespace owns every link, route and nftables rule created below.
         assert_eq!(unsafe { libc::unshare(libc::CLONE_NEWNET) }, 0, "{}", io::Error::last_os_error());
         let mut nl = Netlink::open(libc::NETLINK_ROUTE).unwrap();
+        // A prefix outside IPv4's range forces address setup to fail after
+        // bridge creation. Roll back only the link created by this attempt.
+        let mut bridges = Bridges::default();
+        assert!(netlink::create_bridge(&mut nl, "preexisting").unwrap());
+        let original = netlink::index_of("preexisting").unwrap();
+        for name in ["preexisting", "newbridge"] {
+            let err = bridges.ensure(name, Some([192, 0, 2, 1]), 33, None).unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+        }
+        assert_eq!(netlink::index_of("preexisting").unwrap(), original);
+        assert!(netlink::index_of("newbridge").is_err());
         let lo = netlink::index_of("lo").unwrap();
         netlink::set_up(&mut nl, lo).unwrap();
         let target = SocketAddr::from((HOST_ADDR, 12345));
