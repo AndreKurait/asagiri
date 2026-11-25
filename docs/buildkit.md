@@ -41,6 +41,33 @@ label that Buildx interprets as a Docker containerd image store. Imported
 images use their config digest as the local image ID; the bridge does not
 claim multi-platform image loading.
 
+## Windows WSL2 worker discovery
+
+On Windows x64 with Asagiri v0.1.15, the bundled Windows Buildx v0.38.1
+can fail before it reads the Dockerfile with `listing workers` and
+`RST_STREAM ... PROTOCOL_ERROR`. The stock Windows Buildx v0.39.1 also
+failed this check. To build against the installed Linux engine, open its
+WSL distribution from PowerShell with `wsl.exe -d asagiri -u root`.
+Inside that shell, install the Alpine client tools and select the engine socket:
+
+```sh
+apk add --no-cache docker-cli docker-cli-buildx
+unset DOCKER_CONTEXT
+export DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock
+```
+
+Change to your build context inside WSL, then run:
+
+```sh
+docker buildx build --builder default --load -t example .
+docker image inspect example --format '{{.Id}}'
+```
+
+This uses the installed engine's image store. The Linux client completed a
+scratch build and loaded the resulting image on Windows Server 2025 with WSL2.
+See [issue #100](https://github.com/AndreKurait/asagiri/issues/100) for the
+Windows client fix and qualification results.
+
 ## Platforms and image loading
 
 Build and load one platform at a time, for example
