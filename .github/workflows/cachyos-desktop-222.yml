@@ -24,17 +24,17 @@ jobs:
           sudo mount -o loop,ro "$iso" live
           find live -iname '*vmlinuz*' -o -iname '*initramfs*' -o -iname 'grub.cfg'
           grep -rhE 'archisolabel=|archisobasedir=' live/boot live/loader 2>/dev/null | head -12 || true
-          kernel=$(find live -iname 'vmlinuz*' -type f | sort | head -1)
-          initrd=$(find live -iname 'initramfs*.img' -type f | sort | head -1)
-          label=$(sudo blkid -s LABEL -o value "$iso")
-          base=$(find live -name 'airootfs.sfs' -printf '%P\n' | cut -d/ -f1 | head -1)
-          test -n "$base" && test -n "$label" && test -n "$kernel" && test -n "$initrd"
-          printf 'kernel=%s initrd=%s label=%s base=%s\n' "$kernel" "$initrd" "$label" "$base"
-          sudo qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -display none -serial file:guest.log -monitor none -no-reboot -cdrom "$iso" -kernel "$kernel" -initrd "$initrd" -append "archisobasedir=$base archisolabel=$label console=ttyS0,115200 systemd.show_status=1" &
+          kernel=live/arch/boot/x86_64/vmlinuz-linux-cachyos-lts
+          initrd=live/arch/boot/x86_64/initramfs-linux-cachyos-lts.img
+          test -f "$kernel" && test -f "$initrd"
+          uuid=$(sudo blkid -s UUID -o value "$iso")
+          test -n "$uuid"
+          sudo qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 -display none -serial file:guest.log -monitor none -no-reboot -drive "file=$iso,format=raw,if=virtio,readonly=on" -kernel "$kernel" -initrd "$initrd" -append "archisobasedir=arch archisosearchuuid=$uuid copytoram=n console=ttyS0,115200 systemd.show_status=1" &
           pid=$!
           trap 'sudo kill "$pid" 2>/dev/null || true; tail -60 guest.log || true' EXIT
           for i in {1..120}; do
             if grep -Eiq 'Reached target .*Graphical Interface|Started .*Display Manager' guest.log 2>/dev/null; then exit 0; fi
+            if grep -q "Falling back to interactive prompt" guest.log 2>/dev/null; then exit 1; fi
             kill -0 "$pid" || exit 1
             sleep 3
           done
