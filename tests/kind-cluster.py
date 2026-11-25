@@ -117,6 +117,8 @@ def check(path, _image):
             kubectl("wait", "--for=jsonpath={.status.containerStatuses[0].state.terminated.reason}=OOMKilled",
                     "pod/" + pod, "--timeout=90s", timeout=100)
             kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=30s")
+            # Preserve the final status while kubectl can still reach the node.
+            print(kubectl("get", "pod", pod, "-o", "json"), flush=True)
             command([*docker, "stop", "--time", "5", node])
             stopped = json.loads(command([*docker, "inspect", node]))[0]["State"]
             assert stopped["Status"] == "exited" and stopped["OOMKilled"] is False, stopped
