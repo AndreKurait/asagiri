@@ -984,9 +984,10 @@ impl Engine {
             ..Default::default()
         })
         .inspect_err(|e| crate::diag::error!("VM did not boot", error = e))?;
+        let live_checkpoint = guest.hello.live_checkpoint;
         let (vm, conn) = guest.into_parts();
         let me = self.me.get().cloned().unwrap_or_default();
-        let vm = Arc::new(VmLink::new(vm, conn, move |ev| {
+        let vm = Arc::new(VmLink::new(vm, conn, live_checkpoint, move |ev| {
             if let Some(engine) = me.upgrade() {
                 engine.on_event(ev);
             }
@@ -1666,6 +1667,10 @@ impl Engine {
     #[cfg(target_os = "macos")]
     pub fn awake_link(&self) -> Option<Arc<VmLink>> {
         self.awake()
+    }
+
+    pub fn live_checkpoint(&self) -> bool {
+        self.awake().is_some_and(|vm| vm.live_checkpoint)
     }
 
     /// Whether the VM is running right now.
@@ -3599,6 +3604,12 @@ impl Engine {
         self.save();
         self.emit_network("disconnect", &net, &id);
         self.restore_endpoint_ports(&id)
+    }
+
+    pub fn checkpoint_live(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        self.vm()?.checkpoint_live(&id, name)?;
+        Ok(())
     }
 
     /// `docker pause` / `docker unpause`.

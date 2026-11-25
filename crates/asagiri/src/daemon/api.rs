@@ -133,10 +133,14 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
     let m = req.method.as_str();
     match (m, p) {
         ("GET" | "HEAD", "/_ping") => {
-            http::respond_with(w, 200, "text/plain; charset=utf-8", "Builder-Version: 2\r\n", if m == "HEAD" { b"" } else { b"OK" })?;
+            http::respond_with(w, 200, "text/plain; charset=utf-8", &format!("Builder-Version: 2\r\nDocker-Experimental: {}\r\n", engine.live_checkpoint()), if m == "HEAD" { b"" } else { b"OK" })?;
             return Ok(Next::KeepAlive);
         }
-        ("GET", "/version") => return reply(w, Ok(version()), 200),
+        ("GET", "/version") => {
+            let mut version = version();
+            version["Experimental"] = json!(engine.live_checkpoint());
+            return reply(w, Ok(version), 200);
+        }
         ("POST", "/auth") => return reply(w, auth(req), 200),
         // Asagiri's own: the window's Start and Stop.
         // Start: no longer stopped, and the VM up.
@@ -302,6 +306,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
+            ("POST", "checkpoints") => return reply(w, checkpoint_create(req, engine, id).map(|()| Value::Null), 201),
             ("POST", "start") => {
                 // An idle BuildKit container that Asagiri paused itself counts
                 // as running: the next build resumes it.
@@ -464,6 +469,19 @@ pub(super) fn version() -> Value {
         "GitCommit": "",
         "GoVersion": "n/a (Rust)",
     })
+}
+
+fn checkpoint_create(req: &Request, engine: &Engine, id: &str) -> Result<(), Error> {
+    let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid checkpoint request: {e}")))?;
+    let name = body["CheckpointID"].as_str().filter(|s| !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+        .ok_or_else(|| Error::BadRequest("invalid checkpoint ID".into()))?;
+    if !matches!(body.get("Exit"), None | Some(Value::Bool(false))) {
+        return Err(Error::BadRequest("only live checkpoint capture is implemented".into()));
+    }
+    if body.get("CheckpointDir").is_some_and(|dir| dir.as_str() != Some("")) {
+        return Err(Error::BadRequest("custom checkpoint directories are unsupported".into()));
+    }
+    engine.checkpoint_live(id, name)
 }
 
 fn info(engine: &Engine) -> Value {

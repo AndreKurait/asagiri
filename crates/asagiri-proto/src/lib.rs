@@ -174,6 +174,8 @@ pub enum Msg<'a> {
     CopyDone,
     /// Host → guest: change a running container's limits. Answered by `Ack` or `Error`.
     Update { id: &'a str, limits: Limits<'a> },
+    /// Capture the guest-owned container process tree under a named checkpoint.
+    CheckpointCreate { id: &'a str, name: &'a str, leave_running: bool },
     /// Host → guest: freeze (pause) or thaw a container. Answered by `Ack` or `Error`.
     Freeze { id: &'a str, frozen: bool },
     /// Host → guest: a container's resource use. Answered by `ContainerStats` or `Error`.
@@ -414,6 +416,7 @@ pub struct Hello {
     pub mem_available_kib: u64,
     /// The agent can see the packaged CRIU binary after switching roots.
     pub bundled_criu_present: bool,
+    pub live_checkpoint: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -815,6 +818,7 @@ mod kind {
     pub const START_REJECTED: u16 = 81;
     pub const DNS_RENAME: u16 = 82;
     pub const SET_UPLINK: u16 = 83;
+    pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
 
@@ -1070,6 +1074,7 @@ impl Msg<'_> {
                     put_u64(o, v);
                 }
                 o.push(u8::from(h.bundled_criu_present));
+                o.push(u8::from(h.live_checkpoint));
             }),
             Msg::Ping(v) => frame(out, kind::PING, |o| put_u64(o, v)),
             Msg::Pong(v) => frame(out, kind::PONG, |o| put_u64(o, v)),
@@ -1211,6 +1216,11 @@ impl Msg<'_> {
             Msg::Update { id, limits } => frame(out, kind::UPDATE, |o| {
                 put_str(o, id);
                 put_limits(o, &limits);
+            }),
+            Msg::CheckpointCreate { id, name, leave_running } => frame(out, kind::CHECKPOINT_CREATE, |o| {
+                put_str(o, id);
+                put_str(o, name);
+                o.push(u8::from(leave_running));
             }),
             Msg::Freeze { id, frozen } => frame(out, kind::FREEZE, |o| {
                 put_str(o, id);
@@ -1402,6 +1412,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             mem_total_kib: r.u64()?,
             mem_available_kib: r.u64()?,
             bundled_criu_present: r.remaining() > 0 && r.u8()? != 0,
+            live_checkpoint: r.remaining() > 0 && r.u8()? != 0,
         }),
         kind::PING => Msg::Ping(r.u64()?),
         kind::PONG => Msg::Pong(r.u64()?),
@@ -1523,6 +1534,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::COPY_STAT => Msg::CopyStat { entry: read_entry(&mut r)?, link: r.str()? },
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
+        kind::CHECKPOINT_CREATE => Msg::CheckpointCreate { id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0 },
         kind::FREEZE => Msg::Freeze { id: r.str()?, frozen: r.u8()? != 0 },
         kind::STATS_QUERY => Msg::StatsQuery { id: r.str()? },
         kind::CONTAINER_STATS => Msg::ContainerStats(read_container_stats(&mut r)?),
@@ -1640,13 +1652,13 @@ mod tests {
         });
         assert_eq!(decode(&wire).unwrap(), Msg::Hello(Hello {
             protocol: PROTOCOL, init_start_ns: 11, ready_ns: 22,
-            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false,
+            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false, live_checkpoint: false,
         }));
     }
 
     #[test]
     fn round_trip() {
-        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true }));
+        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true, live_checkpoint: true }));
         round(Msg::Ping(7));
         round(Msg::Pong(7));
         round(Msg::Shutdown);
@@ -1777,6 +1789,9 @@ mod tests {
         round(Msg::CopyStat { entry: FsEntry { name: "hosts", mode: 0o100644, size: 9, mtime: 3, mtime_nsec: 4, ino: 5 }, link: "" });
         round(Msg::CopyDone);
         round(Msg::Update { id: "c1", limits: Limits { memory_max: 1, cpu_quota: 2, cpu_period: 3, cpu_weight: 4, pids_max: 5, shm_size: 6, memory_swap: -1, memory_reservation: 7, cpuset_cpus: "0-3", cpuset_mems: "0" } });
+        for leave_running in [false, true] {
+            round(Msg::CheckpointCreate { id: "c1", name: "java-live", leave_running });
+        }
         round(Msg::Freeze { id: "c1", frozen: true });
         round(Msg::StatsQuery { id: "c1" });
         round(Msg::ContainerStats(ContainerStats { read_ns: 1, mem_current: 2, online_cpus: 4, rx_bytes: 9, io_write_bytes: 11, ..Default::default() }));

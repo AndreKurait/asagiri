@@ -655,6 +655,21 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::CheckpointCreate { id, name, leave_running }) => {
+                    let result = if !leave_running {
+                        Err(io::Error::other("only live checkpoint capture is implemented"))
+                    } else if host_process || !Path::new("/bundle/usr/sbin/criu").is_file() {
+                        Err(io::Error::other("guest checkpoint runtime is unavailable"))
+                    } else if let Some(pid) = running_pid(&procs, id) {
+                        super::checkpoint::capture(pid, &paths.containers.join(id), name)
+                    } else {
+                        Err(io::Error::other(format!("container {id} is not running")))
+                    };
+                    match result {
+                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Err(e) => Msg::Error(&format!("checkpoint: {e}")).encode(&mut out),
+                    }
+                }
                 Ok(Msg::StatsQuery { id }) => match running_cgroup(&procs, id) {
                     Some((pid, path)) => match super::cgroup::stats(path, pid) {
                         Ok(s) => Msg::ContainerStats(s).encode(&mut out),

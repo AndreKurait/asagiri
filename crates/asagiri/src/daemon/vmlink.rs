@@ -79,6 +79,7 @@ pub enum Event<'a> {
 }
 
 pub struct VmLink {
+    pub live_checkpoint: bool,
     writer: Mutex<Writer>,
     /// Closes the transport without waiting for a writer blocked in the guest.
     control: File,
@@ -310,7 +311,7 @@ impl VmLink {
 
     /// Starts the reader thread. `on_event` runs on that thread, so it must
     /// not block for long: it holds up every reply behind it.
-    pub fn new(vm: Vm, conn: File, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
+    pub fn new(vm: Vm, conn: File, live_checkpoint: bool, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
         let pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>> = Arc::new(Mutex::new(VecDeque::new()));
         let reader = conn.try_clone()?;
         let control = conn.try_clone()?;
@@ -319,6 +320,7 @@ impl VmLink {
         let cleanup = Arc::new(CleanupBarrier::default());
         Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), cleanup.clone(), on_event)?;
         Ok(VmLink {
+            live_checkpoint,
             writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
             control,
             pending,
@@ -528,6 +530,10 @@ impl VmLink {
 
     pub fn update(&self, id: &str, limits: asagiri_proto::Limits) -> io::Result<()> {
         self.ack(|o| Msg::Update { id, limits }.encode(o))
+    }
+
+    pub fn checkpoint_live(&self, id: &str, name: &str) -> io::Result<()> {
+        self.ack(|o| Msg::CheckpointCreate { id, name, leave_running: true }.encode(o))
     }
 
     pub fn freeze(&self, id: &str, frozen: bool) -> io::Result<()> {
