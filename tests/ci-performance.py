@@ -2,11 +2,13 @@
 """Regression gates, evidence integrity, and the untrusted artifact boundary."""
 import base64
 import copy
+from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
 from pathlib import Path
 import stat
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -73,6 +75,23 @@ def archive(files, extra=None):
 
 
 class PerformanceTests(unittest.TestCase):
+    def test_report_labels_alternating_execution_order(self):
+        _, files = fixture()
+        results = json.loads(files["results.json"])
+        samples = results["samples_ms"]["run"]
+        samples["base"] = [14, 2] * 10
+        samples["head"] = [2, 14] * 10
+        for side in ("base", "head"):
+            results[side]["run"] = perf.summary(samples[side])
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "results.json"
+            path.write_text(json.dumps(results))
+            with redirect_stdout(output):
+                self.assertEqual(perf.report(SimpleNamespace(results=path, sizes=None)), 0)
+        self.assertIn("| Head − base, base first | Head − base, head first |", output.getvalue())
+        self.assertIn("| run | +0.000 ms | 10/20 | -12.000 ms | +12.000 ms |", output.getvalue())
+
     def test_quantile_uses_nearest_rank_even_for_small_samples(self):
         self.assertEqual(perf.summary(range(1, 11)), {"median": 5.5, "p95": 10, "n": 10})
         self.assertEqual(perf.summary(range(1, 401)), {"median": 200.5, "p95": 380, "n": 400})
