@@ -40,6 +40,18 @@ jobs:
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
           $app = Join-Path $bundle 'asagiri-win.exe'
           $docker = Join-Path $bundle 'bin/docker.exe'
+          $features = 'VirtualMachinePlatform','Microsoft-Windows-Subsystem-Linux'
+          foreach ($feature in $features) { Get-WindowsOptionalFeature -Online -FeatureName $feature | Select-Object FeatureName,State | Out-Host }
+          $wslMsi = Join-Path $env:RUNNER_TEMP 'wsl-arm64.msi'
+          Invoke-WebRequest -Uri 'https://github.com/microsoft/WSL/releases/download/3.0.3/wsl.3.0.3.0.arm64.msi' -OutFile $wslMsi
+          $wslHash = '2937c7ce840bb35ec6e97f052189bdfff27f8c3463bfdd231df9a958212787a3'
+          if ((Get-FileHash $wslMsi).Hash.ToLower() -ne $wslHash) { throw 'Pinned WSL MSI digest mismatch' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $bundle 'asagiri-admin.ps1') -Wsl -Msi $wslMsi -Sha256 $wslHash
+          $setupCode = $LASTEXITCODE
+          Write-Host "Published WSL setup helper exit code $setupCode"
+          foreach ($feature in $features) { Get-WindowsOptionalFeature -Online -FeatureName $feature | Select-Object FeatureName,State | Out-Host }
+          if ($setupCode -eq 3010) { throw 'WSL setup requires this same Windows host to restart' }
+          if ($setupCode -ne 0) { throw "WSL setup failed with $setupCode" }
           if (!$imported) {
             wsl.exe --import asagiri "$env:RUNNER_TEMP\load-distro" "$bundle\asagiri-linux.tar.gz" --version 2
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
