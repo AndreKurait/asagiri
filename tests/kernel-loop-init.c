@@ -8,6 +8,8 @@
 #include <sys/auxv.h>
 #include <fcntl.h>
 #include <linux/loop.h>
+#include <linux/netlink.h>
+#include <sys/socket.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +57,17 @@ static void verify_vdso_hashes(void) {
 }
 #endif
 
+/* CRIU reads SO_PASSSEC while collecting Unix and netlink descriptors. */
+static void verify_passsec(int family, int type, int protocol) {
+    int fd = socket(family, type, protocol);
+    CHECK(fd >= 0, "create checkpoint probe socket");
+    int enabled;
+    socklen_t length = sizeof(enabled);
+    CHECK(getsockopt(fd, SOL_SOCKET, SO_PASSSEC, &enabled, &length) == 0,
+          "read SO_PASSSEC during checkpoint");
+    CHECK(close(fd) == 0, "close checkpoint probe socket");
+}
+
 static void verify_copy_up_birth_time(void) {
     const char *dirs[] = {"/mnt/lower", "/mnt/upper", "/mnt/work", "/mnt/merged"};
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
@@ -101,6 +114,8 @@ int main(void) {
     CHECK(mkdir("/mnt", 0700) == 0, "create guest mountpoint");
     int control = open("/dev/loop-control", O_RDWR);
     CHECK(control >= 0, "open loop-control");
+    verify_passsec(AF_UNIX, SOCK_STREAM, 0);
+    verify_passsec(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
 #ifdef __aarch64__
     verify_vdso_hashes();
 #endif
