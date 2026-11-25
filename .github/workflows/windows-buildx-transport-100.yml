@@ -100,6 +100,14 @@ jobs:
             & $buildx inspect default 2> $trace
             Remove-Item Env:GODEBUG
             foreach ($line in Get-Content $trace) {
+              # Classify pseudo-headers without emitting addresses or metadata.
+              if ($line -match '(?i)(:authority|:scheme|:method|:path).*?value[=:]\s*"([^"\r\n]*)"') {
+                $key = $Matches[1]; $value = $Matches[2]
+                $hasBackslash = $value.Contains('\')
+                $hasSlash = $value.Contains('/')
+                $hasPercent = $value.Contains('%')
+                Write-Host "HTTP2 pseudo $key length=$($value.Length) backslash=$hasBackslash slash=$hasSlash percent=$hasPercent"
+              }
               if ($line -match '(read|wrote) (SETTINGS|HEADERS|CONTINUATION|DATA|RST_STREAM|GOAWAY|WINDOW_UPDATE|PING)\b') {
                 $frame = $Matches[0]
                 $stream = [regex]::Match($line, 'stream=\d+').Value
