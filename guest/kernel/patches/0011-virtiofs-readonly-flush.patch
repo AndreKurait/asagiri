@@ -1,0 +1,15 @@
+# Adapted from libracoder/kiri#902 (094809460bdf1ddb43b43b97fb25dc5a0c8a61ba).
+# Skip the read-only flush on caller-owner mounts without locking or writeback.
+--- a/fs/fuse/file.c
++++ b/fs/fuse/file.c
+@@ -474,6 +474,10 @@
+ 	if (ff->open_flags & FOPEN_NOFLUSH && !fm->fc->writeback_cache)
+ 		return 0;
+ 
++	if (fm->fc->caller_owner && fm->fc->no_lock &&
++	    !fm->fc->writeback_cache && !(file->f_mode & FMODE_WRITE))
++		return 0;
++
+ 	err = write_inode_now(inode, 1);
+ 	if (err)
+ 		return err;
