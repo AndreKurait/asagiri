@@ -1,0 +1,27 @@
+name: Verify corrected Buildx on native Windows Arm
+on:
+  push:
+    branches: [qualification/stable-windows-buildx-100]
+    paths: [.github/workflows/windows-arm-buildx-100.yml]
+permissions:
+  contents: read
+jobs:
+  native-plugin:
+    runs-on: windows-11-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 512265a7f80ad679754079f31091e726f26998e1
+          persist-credentials: false
+      - name: Build, verify and execute the pinned ARM64 plugin
+        run: |
+          if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') { throw 'Expected native Windows ARM64' }
+          $exe = "$env:RUNNER_TEMP/docker-buildx.exe"
+          python scripts/windows-buildx.py arm64 $exe b2a19d990cab792571ff64284669404854020ed56554a1c967d79bbd65271224
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $version = & $exe version
+          if ($LASTEXITCODE -or $version -notmatch 'v0\.38\.1-asagiri\.1') { throw "Unexpected plugin version: $version" }
+          $version
+          $metadata = & $exe docker-cli-plugin-metadata | ConvertFrom-Json
+          if ($LASTEXITCODE -or $metadata.Version -ne 'v0.38.1-asagiri.1') { throw 'Plugin discovery returned an unexpected version' }
