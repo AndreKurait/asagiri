@@ -64,13 +64,18 @@ fn builders() -> io::Result<Vec<String>> {
     Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get(), &endpoint))
 }
 
+// Buildx preserves the spelling used when registering a Windows pipe.
+fn same_endpoint(node: &str, endpoint: &str) -> bool {
+    node == endpoint || (endpoint.starts_with("npipe://") && node.replace('\\', "/").eq_ignore_ascii_case(endpoint))
+}
+
 fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str, endpoint: &str) -> Vec<String> {
     let mut names: Vec<String> = values(out)
         .into_iter()
         .filter(|b| b["Driver"] == "docker-container")
         .filter(|b| {
             b["Nodes"].as_array().into_iter().flatten().any(|n| {
-                (n["Endpoint"] == context || n["Endpoint"] == endpoint) && n["Name"].as_str().is_some_and(|name| {
+                (n["Endpoint"] == context || n["Endpoint"].as_str().is_some_and(|node| same_endpoint(node, endpoint))) && n["Name"].as_str().is_some_and(|name| {
                     name != format!("{legacy}0") && have.iter().any(|c| *c == format!("buildx_buildkit_{name}"))
                 })
             })
@@ -540,6 +545,14 @@ mod tests {
         assert_eq!(restored["credsStore"], "fixture");
         assert_eq!(restored["aliases"]["other"], "keep");
         assert_eq!(restored["aliases"]["builder"], "buildx");
+    }
+
+    #[test]
+    fn pipe_endpoint_spelling_preserves_engine_identity() {
+        let local = "npipe:////./pipe/asagiri";
+        assert!(same_endpoint(r"NPIPE://\\.\PIPE\Asagiri", local));
+        assert!(!same_endpoint(r"npipe://\\.\pipe\docker_engine", local));
+        assert!(!same_endpoint("unix:///other.sock", "unix:///Other.sock"));
     }
 
     #[test]
