@@ -154,7 +154,8 @@ fn serve(paths: &container::Paths, init_start_ns: u64) -> io::Result<()> {
     let mut conn = dial_host()?;
     let (mem_total_kib, mem_available_kib) = meminfo();
     let mut out = Vec::with_capacity(256);
-    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib })
+    let bundled_criu_present = !transport::is_host_process() && std::path::Path::new("/bundle/usr/sbin/criu").is_file();
+    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib, bundled_criu_present })
         .encode(&mut out);
     conn.write_all(&out)?;
     agent::serve(conn, paths)
