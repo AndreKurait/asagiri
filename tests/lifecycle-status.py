@@ -41,6 +41,11 @@ def check(path, image):
                                               "Timeout": 1_000_000_000, "Retries": 1}})
         cid = created["Id"]
         owned.append(cid)
+        # A missing checkpoint must never be reported as a successful cold start.
+        request("POST", "/containers/" + cid + "/start?checkpoint=missing", (404, 501))
+        _, value = request("GET", "/containers/" + cid + "/json", (200,))
+        assert value["State"]["Status"] == "created" and not value["State"]["Running"], value["State"]
+        print("PASS missing checkpoint leaves the container created", flush=True)
         done = threading.Event()
         ready = threading.Barrier(5)
         inspected = []
