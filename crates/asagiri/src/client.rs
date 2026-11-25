@@ -370,6 +370,33 @@ impl Stream {
     }
 }
 
+/// Download the checkpoint without holding the process memory image in host RAM.
+pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let [container, name, output] = args else {
+        return Err(io::Error::other("usage: asagiri checkpoint export CONTAINER NAME OUTPUT.tar"));
+    };
+    if [container, name].iter().any(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')) || matches!(s.as_str(), "." | "..")) {
+        return Err(io::Error::other("invalid container or checkpoint name"));
+    }
+    let mut stream = Stream::open(&format!("/asagiri/checkpoints/{container}/{name}"))?;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(output)?;
+    let result = (|| {
+        loop {
+            if stream.reader.fill_buf()?.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete checkpoint download"));
+            }
+            match chunk(&mut stream.reader)? {
+                Some(bytes) => file.write_all(&bytes)?,
+                None => break,
+            }
+        }
+        file.sync_all()
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(output); }
+    result
+}
+
 /// Runs `cmd` in a running container and returns (exit code, output),
 /// through the exec API with a terminal, so output arrives unframed.
 pub fn exec(container: &str, cmd: &[&str]) -> io::Result<(i64, String)> {
