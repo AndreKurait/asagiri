@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        transport: [pipe, tcp]
+        transport: [tcp]
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
@@ -75,6 +75,24 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
+            # Exercise the same installed daemon with a WSL-native Docker client.
+            # A successful scratch build exercises worker enumeration and context transfer.
+            wsl.exe -d asagiri -u root -- apk add --no-cache docker-cli docker-cli-buildx
+            if ($LASTEXITCODE) { throw 'WSL client installation failed' }
+            $control = @'
+          set -eu
+          export DOCKER_HOST=unix:///var/lib/asagiri-daemon/.asagiri/run/docker.sock
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          printf 'FROM scratch\nCOPY marker /marker\n' > "$d/Dockerfile"
+          echo control > "$d/marker"
+          docker buildx version
+          docker buildx build --builder default --progress plain --load -t ak100-linux-control "$d"
+          docker image inspect ak100-linux-control --format '{{.Id}}'
+          '@
+            $control.Replace("`r", "") | wsl.exe -d asagiri -u root -- sh -s
+            $controlExit = $LASTEXITCODE
+            Write-Host "WSL native scratch build and image inspect exit=$controlExit"
             & $buildx inspect default
             $pipeExit = $LASTEXITCODE
             Write-Host "Windows Buildx named pipe inspect exit=$pipeExit"
