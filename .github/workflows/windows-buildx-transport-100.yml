@@ -14,25 +14,13 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: docker/buildx
-          ref: 0dbe87f36ed472fe36b6796c3f70b4210a731fc5
-          persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Build a Windows client with a valid logical gRPC host
+      - name: Fetch published Windows Buildx v0.39.1
         shell: pwsh
         run: |
-          $path = 'driver/docker/driver.go'
-          $source = [IO.File]::ReadAllText((Resolve-Path $path))
-          $before = 'return client.New(ctx, "", opts...)'
-          if (!$source.Contains($before)) { throw 'Buildx Docker driver changed' }
-          [IO.File]::WriteAllText((Resolve-Path $path), $source.Replace($before, 'return client.New(ctx, "tcp://localhost", opts...)'))
-          go build -mod=vendor -o "$env:RUNNER_TEMP/buildx-control.exe" ./cmd/buildx
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $client = "$env:RUNNER_TEMP/buildx-control.exe"
+          Invoke-WebRequest 'https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.windows-amd64.exe' -OutFile $client
+          if ((Get-FileHash $client).Hash -ne '4a665d2c71f6f87a42313cb8847b8e834e2dfb1626a1b57fcdbaacf41a6c8387') { throw 'Buildx digest mismatch' }
+          & $client version
       - name: Build and run an image through the Windows named pipe
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,7 +83,7 @@ jobs:
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
             & "$env:RUNNER_TEMP/buildx-control.exe" build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
-            if ($LASTEXITCODE) { throw 'Modified Buildx build over the named pipe failed' }
+            if ($LASTEXITCODE) { throw 'Published Buildx v0.39.1 build over the named pipe failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
             if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
             $digest = (Get-FileHash $proof).Hash.ToLower()
