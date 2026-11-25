@@ -268,7 +268,8 @@ pub mod copy_op {
     /// `docker commit`: the writable layer as an OCI layer tar (whiteouts as
     /// `.wh.` files).
     pub const COMMIT: u8 = 6;
-    pub const CHECKPOINT_EXPORT: u8 = 7;
+    /// Framed archive: CopyDone, FsData chunks, then CopyDone or Error.
+    pub const CHECKPOINT_EXPORT: u8 = 8;
 }
 
 pub mod copy_flags {

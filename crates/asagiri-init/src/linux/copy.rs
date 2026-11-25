@@ -46,7 +46,12 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
         }
         copy_op::STAT => copy_out(&mut reply, spec)?,
         copy_op::OUT => copy_out(conn, spec)?,
-        copy_op::EXPORT | copy_op::CHECKPOINT_EXPORT => export(conn)?,
+        copy_op::EXPORT => { done(conn)?; export(conn)?; }
+        copy_op::CHECKPOINT_EXPORT => {
+            done(conn)?;
+            export(&mut CheckpointWriter { conn, frame: Vec::new() })?;
+            Msg::CopyDone.encode(&mut reply);
+        }
         op => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unknown copy op {op}"))),
     }
     Ok(reply)
@@ -385,7 +390,7 @@ fn append_tree(b: &mut tar::Builder<impl Write>, src: &std::path::Path, name: &s
         let meta = fs::symlink_metadata(&src)?;
         append_one(b, &src, &name, &meta)?;
         if meta.is_dir() && !kernel_dir(&src) {
-            let mut children: Vec<_> = fs::read_dir(&src)?.flatten().collect();
+            let mut children: Vec<_> = fs::read_dir(&src)?.collect::<io::Result<_>>()?;
             children.sort_by_key(|e| e.file_name());
             for e in children.into_iter().rev() {
                 stack.push((e.path(), name.join(e.file_name())));
@@ -480,15 +485,33 @@ fn done(conn: &mut fs::File) -> io::Result<()> {
     conn.write_all(&out)
 }
 
+/// Frames checkpoint bytes so an error after the first chunk cannot be
+/// mistaken for a successful archive ending at EOF.
+struct CheckpointWriter<'a> {
+    conn: &'a mut fs::File,
+    frame: Vec<u8>,
+}
+
+impl Write for CheckpointWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let n = bytes.len().min(256 * 1024);
+        self.frame.clear();
+        Msg::FsData(&bytes[..n]).encode(&mut self.frame);
+        self.conn.write_all(&self.frame)?;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> { self.conn.flush() }
+}
+
 /// `docker export`: everything under `/` (the chroot), entries named
 /// without a leading slash, as Docker writes them.
-fn export(conn: &mut fs::File) -> io::Result<()> {
-    done(conn)?;
+fn export(conn: &mut impl Write) -> io::Result<()> {
     let mut w = BufWriter::with_capacity(256 * 1024, &mut *conn);
     {
         let mut b = tar::Builder::new(&mut w);
         b.follow_symlinks(false);
-        let mut children: Vec<_> = fs::read_dir("/")?.flatten().collect();
+        let mut children: Vec<_> = fs::read_dir("/")?.collect::<io::Result<_>>()?;
         children.sort_by_key(|e| e.file_name());
         for e in children {
             append_tree(&mut b, &e.path(), std::path::Path::new(&e.file_name()))?;

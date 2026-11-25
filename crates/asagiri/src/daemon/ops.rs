@@ -220,6 +220,19 @@ pub(super) fn export(engine: &Engine, key: &str, op: u8, path: &str, w: &mut Uni
         Err(e) => return reply(w, Err(e), 200),
     };
     http::begin_stream(w, 200, "application/x-tar")?;
+    if op == asagiri_proto::copy_op::CHECKPOINT_EXPORT {
+        loop {
+            let frame = guest_frame(&mut f)?;
+            match asagiri_proto::decode(&frame) {
+                Ok(asagiri_proto::Msg::FsData(bytes)) if !bytes.is_empty() => http::chunk(w, bytes)?,
+                Ok(asagiri_proto::Msg::CopyDone) => break,
+                Ok(asagiri_proto::Msg::Error(message)) => return Err(io::Error::other(message.to_owned())),
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint export frame")),
+            }
+        }
+        http::end(w)?;
+        return Ok(Next::KeepAlive);
+    }
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = f.read(&mut buf)?;
