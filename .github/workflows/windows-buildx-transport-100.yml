@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 214574197c1a537a4dbc2602f710b35abfe3c834
+          ref: 6686777f39aeaa8df95a4bb9e712f3ebc438dcca
           persist-credentials: false
       - name: Build candidate MSI with verified stable Linux payload
         env:

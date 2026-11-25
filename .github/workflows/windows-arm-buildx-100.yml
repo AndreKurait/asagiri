@@ -12,13 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 512265a7f80ad679754079f31091e726f26998e1
+          ref: 6686777f39aeaa8df95a4bb9e712f3ebc438dcca
           persist-credentials: false
       - name: Build, verify and execute the pinned ARM64 plugin
         run: |
           if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') { throw 'Expected native Windows ARM64' }
           $exe = "$env:RUNNER_TEMP/docker-buildx.exe"
-          python scripts/windows-buildx.py arm64 $exe b2a19d990cab792571ff64284669404854020ed56554a1c967d79bbd65271224
+          python scripts/windows-buildx.py arm64 $exe 25074619db2b6dcc9e9dbd07f09841528796470e11993fd279af6922cd388d1a
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $version = & $exe version
           if ($LASTEXITCODE -or $version -notmatch 'v0\.38\.1-asagiri\.1') { throw "Unexpected plugin version: $version" }
