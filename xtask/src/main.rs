@@ -216,11 +216,11 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
         };
         for name in ["usr/sbin/criu", loader] {
             let binary = fs::read(runtime.join(name)).map_err(|e| io::Error::new(e.kind(), format!("checkpoint runtime {name}: {e}")))?;
-            if !binary.starts_with(b"\x7fELF\x02\x01") || binary.get(18..20) != Some(&[machine, 0]) {
+            if !guest_elf(&binary, machine) {
                 return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
             }
         }
-        cpio.tree("bundle", runtime)?;
+        cpio.tree("bundle", runtime, machine)?;
     }
     let path = arch.guest_out(root)?.join("initramfs.cpio");
     fs::write(&path, cpio.finish())?;
@@ -1069,6 +1069,10 @@ fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     Ok(())
 }
 
+fn guest_elf(binary: &[u8], machine: u8) -> bool {
+    binary.starts_with(b"\x7fELF\x02\x01") && binary.get(18..20) == Some(&[machine, 0])
+}
+
 /// Minimal writer for the "newc" cpio format the kernel unpacks as initramfs.
 #[derive(Default)]
 struct Cpio {
@@ -1077,7 +1081,7 @@ struct Cpio {
 }
 
 impl Cpio {
-    fn tree(&mut self, name: &str, root: &Path) -> io::Result<()> {
+    fn tree(&mut self, name: &str, root: &Path, machine: u8) -> io::Result<()> {
         self.dir(name);
         let mut entries = fs::read_dir(root)?.collect::<io::Result<Vec<_>>>()?;
         entries.sort_by_key(|entry| entry.file_name());
@@ -1086,9 +1090,13 @@ impl Cpio {
             let path = format!("{name}/{component}");
             let kind = entry.file_type()?;
             if kind.is_dir() {
-                self.tree(&path, &entry.path())?;
+                self.tree(&path, &entry.path(), machine)?;
             } else if kind.is_file() {
-                self.file(&path, 0o755, &fs::read(entry.path())?);
+                let data = fs::read(entry.path())?;
+                if data.starts_with(b"\x7fELF") && !guest_elf(&data, machine) {
+                    return Err(io::Error::other(format!("{path} has the wrong ELF format for the selected guest architecture")));
+                }
+                self.file(&path, 0o755, &data);
             } else {
                 return Err(io::Error::other(format!("unsupported runtime entry {path}")));
             }
