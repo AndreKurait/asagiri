@@ -403,6 +403,9 @@ pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
     let result = (|| {
         loop {
+            if stream.reader.fill_buf()?.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "checkpoint export ended before the engine confirmed completion"));
+            }
             let header = crate::local_api::line(&mut stream.reader, &mut 1024)?;
             let size = u64::from_str_radix(header.split(';').next().unwrap_or(""), 16)
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint chunk size"))?;
