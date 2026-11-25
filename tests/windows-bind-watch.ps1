@@ -96,6 +96,13 @@ console.log('READY');
             throw 'First engine container stopped answering over its bridge'
         }
         Assert-OwnerTraffic
+        wsl.exe -d asagiri -u root -- apk add --no-cache nftables
+        function Get-OwnerFirewall {
+            $rules = (wsl.exe -d asagiri -u root -- nft --stateless --handle list table ip asagiri) -join "`n"
+            if ($rules -notmatch 'chain ' -or $rules -notmatch '# handle ') { throw 'Missing Asagiri firewall chains or handles' }
+            return $rules
+        }
+        $firewall = Get-OwnerFirewall
         $ifindex = (wsl.exe -d asagiri -u root -- cat /sys/class/net/asagiri0/ifindex).Trim()
         $namespace = (wsl.exe -d asagiri -u root -- readlink /proc/self/ns/net).Trim()
         wsl.exe --import asagiri-netns-peer "$root/netns-peer" "$root/netns-peer.tar" --version 2
@@ -110,8 +117,10 @@ console.log('READY');
             }
             if ($result.Code -ne 1 -or $result.Text -notmatch 'network namespace is already claimed') { throw "Unexpected peer result: $($result.Code) $($result.Text)" }
             Assert-OwnerTraffic
+            if ((Get-OwnerFirewall) -cne $firewall) { throw 'Peer startup changed the owner firewall' }
         } finally { wsl.exe --unregister asagiri-netns-peer }
         Assert-OwnerTraffic
+        if ((Get-OwnerFirewall) -cne $firewall) { throw 'Peer teardown changed the owner firewall' }
         if ((wsl.exe -d asagiri -u root -- cat /sys/class/net/asagiri0/ifindex).Trim() -ne $ifindex) { throw 'First engine bridge was replaced' }
     } finally { & $docker rm -f $probe }
     $socketDir = '/var/lib/asagiri-daemon/.asagiri/run'
