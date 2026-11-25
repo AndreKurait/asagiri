@@ -3608,6 +3608,11 @@ impl Engine {
 
     pub fn checkpoint_live(&self, key: &str, name: &str) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.with(&id, |c| c.status == Status::Running)? {
+            return Err(Error::Conflict("checkpoint capture requires a running container".into()));
+        }
         self.vm()?.checkpoint_live(&id, name)?;
         Ok(())
     }

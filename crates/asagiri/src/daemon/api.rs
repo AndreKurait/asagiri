@@ -131,6 +131,9 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             http::error(w, 403, "host connection required")?;
             return Ok(Next::Close);
         }
+        if !valid_checkpoint_name(name) {
+            return reply(w, Err(Error::BadRequest("invalid checkpoint ID".into())), 200);
+        }
         return super::ops::export(engine, id, asagiri_proto::copy_op::CHECKPOINT_EXPORT, name, w);
     }
     if let Some(done) = super::ops::route(req, engine, w) {
@@ -482,9 +485,13 @@ pub(super) fn version() -> Value {
     })
 }
 
+fn valid_checkpoint_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 128 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 fn checkpoint_create(req: &Request, engine: &Engine, id: &str) -> Result<(), Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid checkpoint request: {e}")))?;
-    let name = body["CheckpointID"].as_str().filter(|s| !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+    let name = body["CheckpointID"].as_str().filter(|s| valid_checkpoint_name(s))
         .ok_or_else(|| Error::BadRequest("invalid checkpoint ID".into()))?;
     if !matches!(body.get("Exit"), None | Some(Value::Bool(false))) {
         return Err(Error::BadRequest("only live checkpoint capture is implemented".into()));
