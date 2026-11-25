@@ -3620,9 +3620,12 @@ impl Engine {
     /// `docker pause` / `docker unpause`.
     pub fn pause(&self, key: &str, paused: bool) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        // Serialize freezer transitions with live capture and other lifecycle operations.
+        let lifecycle = self.lifecycle(&id)?;
+        let _transition = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         {
             let st = self.lock();
-            let c = st.containers.get(&id).expect("resolved");
+            let c = st.containers.get(&id).ok_or_else(|| Error::NotFound(id.clone()))?;
             if c.status != Status::Running {
                 return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
             }
