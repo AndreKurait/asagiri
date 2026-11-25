@@ -7,17 +7,18 @@ permissions:
   contents: read
 jobs:
   windows-cli:
-    runs-on: windows-2025
+    runs-on: windows-11-arm
     timeout-minutes: 60
     steps:
-      - name: Download and verify published x64 MSI
+      - name: Download and verify published ARM64 MSI
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: v0.1.14-dev.329
         run: |
           $ErrorActionPreference = 'Stop'
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne "Arm64") { throw "Expected native Windows ARM64" }
           $version = $env:RELEASE_TAG.Substring(1)
-          $asset = "Asagiri-$version-x86_64.msi"
+          $asset = "Asagiri-$version-arm64.msi"
           $release = gh release view $env:RELEASE_TAG -R AndreKurait/asagiri --json isDraft,assets | ConvertFrom-Json
           $entry = @($release.assets | Where-Object name -eq $asset)
           if ($release.isDraft -or $entry.Count -ne 1) { throw 'Expected one published MSI' }
@@ -33,7 +34,7 @@ jobs:
           $version = $env:ASAGIRI_TEST_VERSION
           $build = 'stable'
           $imported = $false
-          $asset = "Asagiri-$version-x86_64.msi"
+          $asset = "Asagiri-$version-arm64.msi"
           $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
@@ -80,7 +81,7 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
-            if ((Get-FileHash $buildx).Hash.ToLower() -ne 'a30647f372a9c35bb3f4919604c20f7dab23e06d08ebbf99b35a1f2a758db691') { throw 'Installed Buildx digest mismatch' }
+            if ((Get-FileHash $buildx).Hash.ToLower() -ne '25074619db2b6dcc9e9dbd07f09841528796470e11993fd279af6922cd388d1a') { throw 'Installed Buildx digest mismatch' }
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $bundle 'setup-tools.ps1') -Bundle $bundle -Pipe $env:DOCKER_HOST
             if ($LASTEXITCODE) { throw 'Installed CLI setup failed' }
             $plugins = Invoke-Docker @('info','--format','{{json .ClientInfo.Plugins}}') | ConvertFrom-Json
