@@ -18,10 +18,16 @@ apt-get update -qq && apt-get install -y -qq build-essential flex bison bc libss
 cd /build
 [ -f "linux-$KVER/Makefile" ] && [ -f "linux-$KVER/scripts/Kbuild.include" ] || { rm -rf "linux-$KVER"; curl -fsSL "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$KVER.tar.xz" | tar xJ; }
 cd "linux-$KVER"
-# Asagiri's kernel patches. Reverse-apply first so re-runs on a cached tree stay clean.
+# Unwind dependent patches from the cached kernel tree in reverse order.
+set --
+for p in /src/patches/*.patch; do set -- "$p" "$@"; done
+for p do
+  if patch -p1 -R -s -f --dry-run < "$p" >/dev/null 2>&1; then
+    patch -p1 -R -s -f < "$p"
+  fi
+done
 for p in /src/patches/*.patch; do
-  patch -p1 -R -s -f --dry-run < "$p" >/dev/null 2>&1 && patch -p1 -R -s < "$p"
-  patch -p1 -s < "$p"
+  patch -p1 -s -f < "$p"
 done
 config=/src/asagiri.config
 if [ "$KARCH" = x86_64 ]; then

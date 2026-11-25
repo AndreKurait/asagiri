@@ -1,0 +1,352 @@
+# Ported from libracoder/kiri at 094809460bdf1ddb43b43b97fb25dc5a0c8a61ba.
+# Ownership hunks from Kiri #902. Track explicit chown on the guest inode.
+--- a/fs/fuse/fuse_i.h
++++ b/fs/fuse/fuse_i.h
+@@ -138,6 +138,10 @@
+ 	/** 64 bit inode number */
+ 	u64 orig_ino;
+ 
++	/** Explicit chown ownership on caller_owner (virtiofs) mounts */
++	kuid_t chown_uid;
++	kgid_t chown_gid;
++
+ 	/** Version of last attribute change */
+ 	u64 attr_version;
+ 
+@@ -233,6 +237,9 @@
+ 	FUSE_I_BTIME,
+ 	/* Wants or already has page cache IO */
+ 	FUSE_I_CACHE_IO_MODE,
++	/* Explicit uid/gid set via chown on caller_owner mounts */
++	FUSE_I_CHOWN_UID,
++	FUSE_I_CHOWN_GID,
+ };
+ 
+ struct fuse_conn;
+@@ -1336,8 +1346,26 @@
+ void fuse_flush_time_update(struct inode *inode);
+ void fuse_update_ctime(struct inode *inode);
+ 
+ int fuse_update_attributes(struct inode *inode, struct file *file, u32 mask);
+ 
++static inline bool fuse_inode_chown_uid(struct fuse_inode *fi, kuid_t *uid)
++{
++	if (!test_bit(FUSE_I_CHOWN_UID, &fi->state))
++		return false;
++	smp_rmb();
++	*uid = READ_ONCE(fi->chown_uid);
++	return true;
++}
++
++static inline bool fuse_inode_chown_gid(struct fuse_inode *fi, kgid_t *gid)
++{
++	if (!test_bit(FUSE_I_CHOWN_GID, &fi->state))
++		return false;
++	smp_rmb();
++	*gid = READ_ONCE(fi->chown_gid);
++	return true;
++}
++
+ void fuse_flush_writepages(struct inode *inode);
+ 
+ void fuse_set_nowrite(struct inode *inode);
+--- a/fs/fuse/inode.c
++++ b/fs/fuse/inode.c
+@@ -251,8 +251,10 @@
+ 	inode->i_ino     = fuse_squash_ino(attr->ino);
+ 	inode->i_mode    = (inode->i_mode & S_IFMT) | (attr->mode & 07777);
+ 	set_nlink(inode, attr->nlink);
+-	inode->i_uid     = make_kuid(fc->user_ns, attr->uid);
+-	inode->i_gid     = make_kgid(fc->user_ns, attr->gid);
++	inode->i_uid     = (fc->caller_owner && test_bit(FUSE_I_CHOWN_UID, &fi->state)) ?
++			   fi->chown_uid : make_kuid(fc->user_ns, attr->uid);
++	inode->i_gid     = (fc->caller_owner && test_bit(FUSE_I_CHOWN_GID, &fi->state)) ?
++			   fi->chown_gid : make_kgid(fc->user_ns, attr->gid);
+ 	inode->i_blocks  = attr->blocks;
+ 
+ 	/* Sanitize nsecs */
+--- a/fs/fuse/dir.c
++++ b/fs/fuse/dir.c
+@@ -1199,11 +1203,24 @@
+ {
+ 	unsigned int blkbits;
+ 	struct fuse_conn *fc = get_fuse_conn(inode);
+-	vfsuid_t vfsuid = make_vfsuid(idmap, fc->user_ns,
+-				      make_kuid(fc->user_ns, attr->uid));
+-	vfsgid_t vfsgid = make_vfsgid(idmap, fc->user_ns,
+-				      make_kgid(fc->user_ns, attr->gid));
++	struct fuse_inode *fi = get_fuse_inode(inode);
++	kuid_t kuid = make_kuid(fc->user_ns, attr->uid);
++	kgid_t kgid = make_kgid(fc->user_ns, attr->gid);
++	vfsuid_t vfsuid;
++	vfsgid_t vfsgid;
+ 
++	if (fc->caller_owner) {
++		kuid_t cuid;
++		kgid_t cgid;
++
++		if (fuse_inode_chown_uid(fi, &cuid))
++			kuid = cuid;
++		if (fuse_inode_chown_gid(fi, &cgid))
++			kgid = cgid;
++	}
++	vfsuid = make_vfsuid(idmap, fc->user_ns, kuid);
++	vfsgid = make_vfsgid(idmap, fc->user_ns, kgid);
++
+ 	stat->dev = inode->i_sb->s_dev;
+ 	stat->ino = attr->ino;
+ 	stat->mode = (inode->i_mode & S_IFMT) | (attr->mode & 07777);
+@@ -1403,8 +1420,15 @@
+ 		stat->ino = fi->orig_ino;
+ 		stat->blksize = 1 << fi->cached_i_blkbits;
+ 		if (fc->caller_owner) {
+-			stat->uid = vfsuid_into_kuid(make_vfsuid(idmap, fc->user_ns, current_fsuid()));
+-			stat->gid = vfsgid_into_kgid(make_vfsgid(idmap, fc->user_ns, current_fsgid()));
++			kuid_t kuid;
++			kgid_t kgid;
++
++			if (!fuse_inode_chown_uid(fi, &kuid))
++				kuid = current_fsuid();
++			if (!fuse_inode_chown_gid(fi, &kgid))
++				kgid = current_fsgid();
++			stat->uid = vfsuid_into_kuid(make_vfsuid(idmap, fc->user_ns, kuid));
++			stat->gid = vfsgid_into_kgid(make_vfsgid(idmap, fc->user_ns, kgid));
+ 		}
+ 		if (test_bit(FUSE_I_BTIME, &fi->state)) {
+ 			stat->btime = fi->i_btime;
+@@ -1583,20 +1607,40 @@
+ 
+ /*
+  * Apple's virtiofs server echoes InHeader.uid/gid as the file's owner, so
+- * every caller is treated as the owner there. Check owner mode bits and
+- * DAC capabilities directly instead of racing on cached inode->i_uid/i_gid
+- * from other callers.
++ * every caller is treated as the owner there unless the inode was explicitly
++ * chowned in guest memory. Check owner/group/other mode bits against any
++ * recorded chown_uid/chown_gid (or owner bits when unchowned) and DAC
++ * capabilities against fc->user_ns instead of racing on cached i_uid/i_gid.
+  */
+-static int fuse_caller_permission(struct inode *inode, int mask)
++static int fuse_caller_permission(struct mnt_idmap *idmap,
++				  struct inode *inode, int mask)
+ {
+ 	struct fuse_conn *fc = get_fuse_conn(inode);
++	struct fuse_inode *fi = get_fuse_inode(inode);
+ 	umode_t mode = inode->i_mode;
+ 	int m = mask & (MAY_READ | MAY_WRITE | MAY_EXEC);
++	kuid_t kuid;
++	kgid_t kgid;
+ 
+-	if (!(m & ~(mode >> 6)))
++	if (fuse_inode_chown_uid(fi, &kuid)) {
++		vfsuid_t vfsuid = make_vfsuid(idmap, fc->user_ns, kuid);
++
++		if (vfsuid_eq_kuid(vfsuid, current_fsuid())) {
++			mode >>= 6;
++		} else if (fuse_inode_chown_gid(fi, &kgid)) {
++			vfsgid_t vfsgid = make_vfsgid(idmap, fc->user_ns, kgid);
++
++			if (vfsgid_in_group_p(vfsgid))
++				mode >>= 3;
++		}
++	} else {
++		mode >>= 6;
++	}
++
++	if (!(m & ~mode))
+ 		return 0;
+ 
+-	if (S_ISDIR(mode)) {
++	if (S_ISDIR(inode->i_mode)) {
+ 		if (!(m & MAY_WRITE) &&
+ 		    fuse_caller_capable(fc, CAP_DAC_READ_SEARCH))
+ 			return 0;
+@@ -1608,7 +1652,7 @@
+ 	if (m == MAY_READ && fuse_caller_capable(fc, CAP_DAC_READ_SEARCH))
+ 		return 0;
+ 
+-	if ((!(m & MAY_EXEC) || (mode & S_IXUGO)) &&
++	if ((!(m & MAY_EXEC) || (inode->i_mode & S_IXUGO)) &&
+ 	    fuse_caller_capable(fc, CAP_DAC_OVERRIDE))
+ 		return 0;
+ 
+@@ -1663,7 +1707,7 @@
+ 
+ 	if (fc->default_permissions) {
+ 		err = fc->caller_owner ?
+-			fuse_caller_permission(inode, mask) :
++			fuse_caller_permission(idmap, inode, mask) :
+ 			generic_permission(idmap, inode, mask);
+ 
+ 		/* If permission is denied, try to refresh file
+@@ -1673,7 +1717,7 @@
+ 			err = fuse_perm_getattr(inode, mask);
+ 			if (!err)
+ 				err = fc->caller_owner ?
+-					fuse_caller_permission(inode, mask) :
++					fuse_caller_permission(idmap, inode, mask) :
+ 					generic_permission(idmap,
+ 								 inode, mask);
+ 		}
+@@ -2015,44 +2067,54 @@
+  * and the actual truncation by hand.
+  */
+ static int fuse_caller_setattr_check(struct mnt_idmap *idmap,
+-				     struct fuse_conn *fc,
++				     struct inode *inode,
+ 				     struct iattr *attr)
+ {
++	struct fuse_conn *fc = get_fuse_conn(inode);
++	struct fuse_inode *fi = get_fuse_inode(inode);
+ 	unsigned int ia_valid = attr->ia_valid;
+-	vfsuid_t caller_uid = make_vfsuid(idmap, fc->user_ns, current_fsuid());
+-	vfsgid_t caller_gid = make_vfsgid(idmap, fc->user_ns, current_fsgid());
++	kuid_t kuid;
++	kgid_t kgid;
++	vfsuid_t owner_uid;
++	vfsgid_t owner_gid;
++	bool is_owner;
+ 
++	if (!fuse_inode_chown_uid(fi, &kuid))
++		kuid = current_fsuid();
++	if (!fuse_inode_chown_gid(fi, &kgid))
++		kgid = current_fsgid();
++
++	owner_uid = make_vfsuid(idmap, fc->user_ns, kuid);
++	owner_gid = make_vfsgid(idmap, fc->user_ns, kgid);
++	is_owner = vfsuid_eq_kuid(owner_uid, current_fsuid());
++
+ 	if ((ia_valid & ATTR_UID) &&
+-	    !(vfsuid_eq_kuid(caller_uid, current_fsuid()) &&
+-	      vfsuid_eq(attr->ia_vfsuid, caller_uid)) &&
++	    !(is_owner && vfsuid_eq(attr->ia_vfsuid, owner_uid)) &&
+ 	    !fuse_caller_capable(fc, CAP_CHOWN))
+ 		return -EPERM;
+ 
+ 	if ((ia_valid & ATTR_GID) &&
+-	    !(vfsuid_eq_kuid(caller_uid, current_fsuid()) &&
+-	      (vfsgid_eq(attr->ia_vfsgid, caller_gid) ||
++	    !(is_owner &&
++	      (vfsgid_eq(attr->ia_vfsgid, owner_gid) ||
+ 	       vfsgid_in_group_p(attr->ia_vfsgid))) &&
+ 	    !fuse_caller_capable(fc, CAP_CHOWN))
+ 		return -EPERM;
+ 
+ 	if (ia_valid & ATTR_MODE) {
+ 		vfsgid_t vfsgid = (ia_valid & ATTR_GID) ?
+-			attr->ia_vfsgid : caller_gid;
++			attr->ia_vfsgid : owner_gid;
+ 
+-		if (!vfsuid_eq_kuid(caller_uid, current_fsuid()) &&
+-		    !fuse_caller_capable(fc, CAP_FOWNER))
++		if (!is_owner && !fuse_caller_capable(fc, CAP_FOWNER))
+ 			return -EPERM;
+ 
+-		if (!vfsgid_eq(vfsgid, caller_gid) &&
+-		    !vfsgid_in_group_p(vfsgid) &&
++		if (!vfsgid_in_group_p(vfsgid) &&
+ 		    !(vfsgid_has_mapping(fc->user_ns, vfsgid) &&
+ 		      fuse_caller_capable(fc, CAP_FSETID)))
+ 			attr->ia_mode &= ~S_ISGID;
+ 	}
+ 
+ 	if ((ia_valid & (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET)) &&
+-	    !vfsuid_eq_kuid(caller_uid, current_fsuid()) &&
+-	    !fuse_caller_capable(fc, CAP_FOWNER))
++	    !is_owner && !fuse_caller_capable(fc, CAP_FOWNER))
+ 		return -EPERM;
+ 
+ 	attr->ia_valid |= ATTR_FORCE;
+@@ -2072,6 +2134,9 @@
+ 	struct fuse_attr_out outarg;
+ 	bool is_truncate = false;
+ 	bool is_wb = fc->writeback_cache && S_ISREG(inode->i_mode);
++	bool set_uid = false, set_gid = false;
++	kuid_t new_uid = INVALID_UID;
++	kgid_t new_gid = INVALID_GID;
+ 	loff_t oldsize;
+ 	int err;
+ 	bool trust_local_cmtime = is_wb;
+@@ -2081,7 +2146,7 @@
+ 	if (!fc->default_permissions)
+ 		attr->ia_valid |= ATTR_FORCE;
+ 	else if (fc->caller_owner && !(attr->ia_valid & ATTR_FORCE)) {
+-		err = fuse_caller_setattr_check(idmap, fc, attr);
++		err = fuse_caller_setattr_check(idmap, inode, attr);
+ 		if (err)
+ 			return err;
+ 	}
+@@ -2089,6 +2154,25 @@
+ 	err = setattr_prepare(idmap, dentry, attr);
+ 	if (err)
+ 		return err;
++
++	if (fc->caller_owner) {
++		if (attr->ia_valid & ATTR_UID) {
++			new_uid = from_vfsuid(idmap, fc->user_ns, attr->ia_vfsuid);
++			if (!uid_valid(new_uid))
++				return -EINVAL;
++			set_uid = true;
++		}
++		if (attr->ia_valid & ATTR_GID) {
++			new_gid = from_vfsgid(idmap, fc->user_ns, attr->ia_vfsgid);
++			if (!gid_valid(new_gid))
++				return -EINVAL;
++			set_gid = true;
++		} else if (set_uid && !test_bit(FUSE_I_CHOWN_GID, &fi->state)) {
++			new_gid = current_fsgid();
++			if (gid_valid(new_gid))
++				set_gid = true;
++		}
++	}
+ 
+ 	if (attr->ia_valid & ATTR_SIZE) {
+ 		if (WARN_ON(!S_ISREG(inode->i_mode)))
+@@ -2163,6 +2247,28 @@
+ 		/* Kill suid/sgid for truncate only if no CAP_FSETID */
+ 		if (fc->handle_killpriv_v2 && !capable(CAP_FSETID))
+ 			inarg.valid |= FATTR_KILL_SUIDGID;
++	}
++
++	if (fc->caller_owner && (set_uid || set_gid)) {
++		inarg.valid &= ~(FATTR_UID | FATTR_GID);
++		if (!(inarg.valid & ~FATTR_FH)) {
++			spin_lock(&fi->lock);
++			if (set_uid) {
++				WRITE_ONCE(fi->chown_uid, new_uid);
++				smp_wmb();
++				set_bit(FUSE_I_CHOWN_UID, &fi->state);
++				inode->i_uid = new_uid;
++			}
++			if (set_gid) {
++				WRITE_ONCE(fi->chown_gid, new_gid);
++				smp_wmb();
++				set_bit(FUSE_I_CHOWN_GID, &fi->state);
++				inode->i_gid = new_gid;
++			}
++			inode_set_ctime_current(inode);
++			spin_unlock(&fi->lock);
++			goto out;
++		}
+ 	}
+ 
+ 	attr_version = fuse_get_attr_version(fm->fc);
+@@ -2182,6 +2288,18 @@
+ 	}
+ 
+ 	spin_lock(&fi->lock);
++	if (fc->caller_owner) {
++		if (set_uid) {
++			WRITE_ONCE(fi->chown_uid, new_uid);
++			smp_wmb();
++			set_bit(FUSE_I_CHOWN_UID, &fi->state);
++		}
++		if (set_gid) {
++			WRITE_ONCE(fi->chown_gid, new_gid);
++			smp_wmb();
++			set_bit(FUSE_I_CHOWN_GID, &fi->state);
++		}
++	}
+ 	/* the kernel maintains i_mtime locally */
+ 	if (trust_local_cmtime) {
+ 		if (attr->ia_valid & ATTR_MTIME)
