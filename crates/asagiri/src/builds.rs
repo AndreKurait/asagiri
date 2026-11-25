@@ -57,16 +57,25 @@ fn builders() -> io::Result<Vec<String>> {
     }
     let (out, _) = buildx(&["ls", "--format", "json"])?;
     let builtin = crate::buildwith::places().is_ok_and(|p| p.builtin());
-    Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get()))
+    #[cfg(unix)]
+    let endpoint = format!("unix://{}", crate::client::socket()?.display());
+    #[cfg(windows)]
+    let endpoint = format!("npipe://{}", crate::client::pipe().replace('\\', "/"));
+    Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get(), &endpoint))
 }
 
-fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str) -> Vec<String> {
+// Buildx preserves the spelling used when registering a Windows pipe.
+fn same_endpoint(node: &str, endpoint: &str) -> bool {
+    node == endpoint || (endpoint.starts_with("npipe://") && node.replace('\\', "/").eq_ignore_ascii_case(endpoint))
+}
+
+fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str, endpoint: &str) -> Vec<String> {
     let mut names: Vec<String> = values(out)
         .into_iter()
         .filter(|b| b["Driver"] == "docker-container")
         .filter(|b| {
             b["Nodes"].as_array().into_iter().flatten().any(|n| {
-                n["Endpoint"] == context && n["Name"].as_str().is_some_and(|name| {
+                (n["Endpoint"] == context || n["Endpoint"].as_str().is_some_and(|node| same_endpoint(node, endpoint))) && n["Name"].as_str().is_some_and(|name| {
                     name != format!("{legacy}0") && have.iter().any(|c| *c == format!("buildx_buildkit_{name}"))
                 })
             })
@@ -539,18 +548,26 @@ mod tests {
     }
 
     #[test]
+    fn pipe_endpoint_spelling_preserves_engine_identity() {
+        let local = "npipe:////./pipe/asagiri";
+        assert!(same_endpoint(r"NPIPE://\\.\PIPE\Asagiri", local));
+        assert!(!same_endpoint(r"npipe://\\.\pipe\docker_engine", local));
+        assert!(!same_endpoint("unix:///other.sock", "unix:///Other.sock"));
+    }
+
+    #[test]
     fn managed_build_history_appears_once_and_other_existing_builders_stay() {
         let out = [
             json!({"Name": "asagiri", "Driver": "docker", "Nodes": [{"Name": "asagiri", "Endpoint": "asagiri"}]}),
             json!({"Name": "asagiri-build", "Driver": "docker-container", "Nodes": [{"Name": "asagiri-build0", "Endpoint": "asagiri"}]}),
-            json!({"Name": "mine", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "asagiri"}]}),
+            json!({"Name": "mine", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "unix:///asagiri.sock"}]}),
             json!({"Name": "not-made", "Driver": "docker-container", "Nodes": [{"Name": "not-made0", "Endpoint": "asagiri"}]}),
             json!({"Name": "other", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "other-engine"}]}),
         ].iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
         let have = vec!["buildx_buildkit_asagiri-build0".to_owned(), "buildx_buildkit_mine0".to_owned()];
-        assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build"), ["asagiri", "mine"]);
-        assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build"), ["asagiri-build", "mine"]);
-        assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build").is_empty());
+        assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri", "mine"]);
+        assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri-build", "mine"]);
+        assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build", "unix:///asagiri.sock").is_empty());
     }
 
     #[test]
