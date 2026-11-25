@@ -1,4 +1,4 @@
-name: Compare Windows Buildx worker discovery over pipe and loopback TCP
+name: Qualify candidate Windows Buildx in the MSI
 on:
   push:
     branches: [qualification/stable-windows-buildx-100]
@@ -10,18 +10,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        transport: [pipe]
+        include:
+          - arch: x86_64
+            linux: x86_64
+          - arch: arm64
+            linux: aarch64
     runs-on: windows-2025
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
-      - name: Fetch published Windows Buildx v0.39.1
-        shell: pwsh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 214574197c1a537a4dbc2602f710b35abfe3c834
+          persist-credentials: false
+      - name: Build candidate MSI with verified stable Linux payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASAGIRI_WINDOWS_LINUX_DIR: ${{ runner.temp }}/linux-inputs
         run: |
-          $client = "$env:RUNNER_TEMP/buildx-control.exe"
-          Invoke-WebRequest 'https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.windows-amd64.exe' -OutFile $client
-          if ((Get-FileHash $client).Hash -ne '4a665d2c71f6f87a42313cb8847b8e834e2dfb1626a1b57fcdbaacf41a6c8387') { throw 'Buildx digest mismatch' }
-          & $client version
+          $ErrorActionPreference = 'Stop'
+          if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $true }
+          gh run download 45447160275 -R AndreKurait/asagiri -n linux-inputs-${{ matrix.linux }} -D $env:ASAGIRI_WINDOWS_LINUX_DIR
+          $metadata = Get-Content "$env:ASAGIRI_WINDOWS_LINUX_DIR/build.json" -Raw | ConvertFrom-Json
+          if ($metadata.version -ne '0.1.15' -or $metadata.arch -ne '${{ matrix.linux }}' -or $metadata.commit -ne 'd60b3edc41c628904e5cbca742096a197cc7446f') { throw 'Linux input identity mismatch' }
+          foreach ($file in @('asagiri','asagiri-init','asagiri-linux.tar.gz')) {
+            if ((Get-FileHash "$env:ASAGIRI_WINDOWS_LINUX_DIR/$file").Hash -ne $metadata.sha256.$file) { throw "Linux input hash mismatch: $file" }
+          }
+          rustup target add aarch64-pc-windows-msvc
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add -g WixToolset.UI.wixext/6.0.2
+          wix extension add -g WixToolset.Util.wixext/6.0.2
+          python scripts/ci/release.py stamp 0.1.15
+          cargo xtask msi --arch ${{ matrix.arch }}
+          Copy-Item target/Asagiri-0.1.15-${{ matrix.arch }}.msi $env:RUNNER_TEMP
       - name: Build and run an image through the Windows named pipe
+        if: matrix.arch == 'x86_64'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -31,11 +53,6 @@ jobs:
           $build = 'stable'
           $imported = $false
           $asset = "Asagiri-$version-x86_64.msi"
-          if (!(Test-Path $asset)) {
-            gh release download "v$version" --repo AndreKurait/asagiri --pattern $asset
-            if ((Get-FileHash $asset).Hash.ToLower() -ne 'ca108e386b32f5cb71ba9b228cbc0e5b24749750f0e9c6c6d040684be00fefd3') { throw "Hash mismatch for $asset" }
-
-          }
           $install = Start-Process msiexec -ArgumentList "/i `"$env:RUNNER_TEMP\$asset`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$build.log`"" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "MSI install $version failed with $($install.ExitCode)" }
           $bundle = Join-Path $env:LOCALAPPDATA 'Asagiri'
@@ -82,8 +99,8 @@ jobs:
           RUN --mount=type=secret,id=proof sha256sum /run/secrets/proof | cut -d' ' -f1 > /proof.digest
           '@ | Set-Content "$context/Dockerfile"
             $buildx = Join-Path $bundle 'bin/cli-plugins/docker-buildx.exe'
-            & "$env:RUNNER_TEMP/buildx-control.exe" build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
-            if ($LASTEXITCODE) { throw 'Published Buildx v0.39.1 build over the named pipe failed' }
+            & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
+            if ($LASTEXITCODE) { throw 'Installed candidate Buildx build over the named pipe failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
             if ($actual -ne (Get-Content $iid -Raw).Trim()) { throw "Loaded image ID mismatch: $actual" }
             $digest = (Get-FileHash $proof).Hash.ToLower()
