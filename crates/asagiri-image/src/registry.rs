@@ -859,7 +859,7 @@ impl Client {
         }
         // Keep the registry bytes: serializing the same JSON changes its digest.
         for (digest, bytes) in std::iter::once((digest, manifest_bytes)).chain(index_digest.as_ref().zip(index_bytes.as_ref())) {
-            if !store.has_blob(digest, bytes.len() as u64) {
+            if !store.read_config(digest).is_ok_and(|cached| cached == *bytes) {
                 let mut writer = store.blob_writer(digest)?;
                 writer.write_all(bytes)?;
                 writer.finish()?;
@@ -2094,6 +2094,11 @@ mod tests {
         let image = test_client().pull_from(&store, &name, &targets, &platform, &|_| {}, &Cancel::new()).unwrap();
         assert_eq!(image.name, "alpine:3.22", "the mirror's name never shows");
         assert_eq!(image.layers.len(), 1);
+        let path = store.blob_path(&image.digest).unwrap();
+        let manifest = std::fs::read(&path).unwrap();
+        std::fs::write(&path, vec![0; manifest.len()]).unwrap();
+        test_client().pull_from(&store, &name, &targets, &platform, &|_| {}, &Cancel::new()).unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), manifest, "re-pull repairs same-length manifest corruption");
         quit(&mirror);
         quit(&origin);
         assert!(mirror_seen.join().unwrap().iter().any(|p| p.contains("/manifests/")));
