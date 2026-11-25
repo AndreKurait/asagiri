@@ -203,8 +203,12 @@ fn port_free(port: u16, lan: bool) -> bool {
 
 /// The asked-for port, or the first free one of the next few.
 fn pick_port(want: u16, lan: bool) -> io::Result<u16> {
+    first_free_port(want, |port| port_free(port, lan))
+}
+
+fn first_free_port(want: u16, mut available: impl FnMut(u16) -> bool) -> io::Result<u16> {
     let last = want.saturating_add(PORT_TRIES);
-    (want..=last).find(|&p| port_free(p, lan)).ok_or_else(|| {
+    (want..=last).find(|&p| available(p)).ok_or_else(|| {
         io::Error::other(format!(
             "ports {want}–{last} are all in use on this PC, so the cluster's API server has none to take. Choose another in Settings → Kubernetes, or stop what holds them, such as another Kubernetes"
         ))
@@ -773,17 +777,19 @@ mod tests {
     }
 
     #[test]
-    fn a_busy_port_moves_the_api_to_the_next_free_one() {
+    fn a_listening_port_is_busy() {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = held.local_addr().unwrap().port();
-        assert!(!super::port_free(port, false));
-        let picked = super::pick_port(port, false);
-        if port == u16::MAX {
-            assert!(picked.is_err());
-        } else {
-            let got = picked.unwrap();
-            assert!(got > port && got - port <= super::PORT_TRIES, "{got}");
-        }
+        assert!(!super::port_free(held.local_addr().unwrap().port(), false));
+    }
+
+    #[test]
+    fn port_selection_returns_the_first_available_port_within_the_window() {
+        assert_eq!(super::first_free_port(6443, |_| true).unwrap(), 6443);
+        assert_eq!(super::first_free_port(6443, |p| p >= 6445).unwrap(), 6445);
+        let last = 6443 + super::PORT_TRIES;
+        assert_eq!(super::first_free_port(6443, |p| p == last).unwrap(), last);
+        assert!(super::first_free_port(6443, |p| p > last).is_err());
+        assert!(super::first_free_port(u16::MAX, |_| false).is_err());
     }
 
     #[test]
