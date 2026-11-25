@@ -263,9 +263,9 @@ fn answer(conn: TcpStream, engine: &Engine) -> io::Result<()> {
     if method != "GET" && method != "HEAD" {
         return head(&mut w, "405 Method Not Allowed", "", 0);
     }
-    match lookup(engine, target.split('?').next().unwrap_or_default(), &token()) {
-        Some(Found::Manifest(bytes, digest)) => {
-            head(&mut w, "200 OK", &format!("Content-Type: application/vnd.oci.image.manifest.v1+json\r\nDocker-Content-Digest: {digest}\r\n"), bytes.len() as u64)?;
+    match lookup(&engine.store, target.split('?').next().unwrap_or_default(), &token()) {
+        Some(Found::Manifest(bytes, media_type, digest)) => {
+            head(&mut w, "200 OK", &format!("Content-Type: {media_type}\r\nDocker-Content-Digest: {digest}\r\n"), bytes.len() as u64)?;
             if method == "GET" {
                 w.write_all(&bytes)?;
             }
@@ -283,9 +283,41 @@ fn answer(conn: TcpStream, engine: &Engine) -> io::Result<()> {
     w.flush()
 }
 
+const OCI_MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
+const OCI_INDEX: &str = "application/vnd.oci.image.index.v1+json";
+const MAX_MANIFEST: u64 = 4 << 20;
+
+/// Content-Type for raw manifest or index JSON `bytes`.
+fn manifest_media_type(bytes: &[u8]) -> String {
+    if let Ok(v) = serde_json::from_slice::<Value>(bytes) {
+        if let Some(mt) = v["mediaType"].as_str().map(str::trim).filter(|m| !m.is_empty() && !m.contains(['\r', '\n'])) {
+            return mt.to_owned();
+        }
+        if v.get("manifests").is_some() {
+            return OCI_INDEX.to_owned();
+        }
+    }
+    OCI_MANIFEST.to_owned()
+}
+
+/// Reads a raw upstream manifest or multi-arch index blob saved during `pull`,
+/// verifying that its bytes hash to `digest`.
+fn stored_manifest(store: &asagiri_image::Store, digest: &str) -> Option<(Vec<u8>, String)> {
+    let path = store.blob_path(digest).ok()?;
+    let len = std::fs::metadata(&path).ok()?.len();
+    if len > MAX_MANIFEST {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    (asagiri_image::store::sha256_digest(&bytes) == digest).then(|| {
+        let media_type = manifest_media_type(&bytes);
+        (bytes, media_type)
+    })
+}
+
 #[derive(Debug)]
 enum Found {
-    Manifest(Vec<u8>, String),
+    Manifest(Vec<u8>, String, String),
     Blob(std::path::PathBuf, String),
 }
 
@@ -323,13 +355,18 @@ fn serve_tag(i: &Image) -> bool {
     i.local_tag || i.repo_digest().is_none()
 }
 
-fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
+fn lookup(store: &asagiri_image::Store, path: &str, token: &str) -> Option<Found> {
     let (registry, repo, is_manifest, reference) = parse(path, token)?;
-    let images = engine.store.images().ok()?;
+    let images = store.images().ok()?;
     let in_repo = |i: &&Image| Reference::parse(&i.name).is_ok_and(|n| n.registry == registry && n.repository == repo);
     if is_manifest {
         if reference.starts_with("sha256:") {
-            return images.iter().filter(in_repo).find_map(|i| manifest(&engine.store, i).filter(|(_, d)| *d == reference)).map(|(b, d)| Found::Manifest(b, d));
+            if images.iter().filter(in_repo).any(|i| (i.digest != i.config_digest && i.digest == reference) || i.index_digest.as_deref() == Some(reference.as_str()))
+                && let Some((bytes, media_type)) = stored_manifest(store, &reference)
+            {
+                return Some(Found::Manifest(bytes, media_type, reference));
+            }
+            return images.iter().filter(in_repo).find_map(|i| manifest(store, i).filter(|(_, d)| *d == reference)).map(|(b, d)| Found::Manifest(b, OCI_MANIFEST.to_owned(), d));
         }
         let wanted = Reference::parse(&format!("{registry}/{repo}:{reference}")).ok()?.short();
         // A tag a registry published is the registry's to answer: Asagiri holds
@@ -338,12 +375,12 @@ fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
         // fails on them (issue #57). 404 here makes the builder skip this
         // mirror and pull the platform it asked for.
         let i = images.iter().find(|i| i.name == wanted && serve_tag(i))?;
-        let (b, d) = manifest(&engine.store, i)?;
-        return Some(Found::Manifest(b, d));
+        let (b, d) = manifest(store, i)?;
+        return Some(Found::Manifest(b, OCI_MANIFEST.to_owned(), d));
     }
     // Only blobs of that repository's images.
     let owned = images.iter().filter(in_repo).any(|i| i.config_digest == reference || i.layers.iter().any(|l| l.digest == reference));
-    let path = engine.store.blob_path(&reference).ok()?;
+    let path = store.blob_path(&reference).ok()?;
     (owned && path.is_file()).then_some(Found::Blob(path, reference))
 }
 
@@ -362,6 +399,23 @@ mod tests {
         assert!(!config.contains("insecure"));
         assert!(!config.contains("http ="));
         assert_ne!(ca_path(ca), ca_path(include_str!("../../../asagiri-image/tests/fixtures/registry-ca/other-ca.pem")));
+    }
+
+    #[test]
+    fn digest_lookup_serves_exact_registry_bytes_only_for_the_owning_repository() {
+        let dir = std::env::temp_dir().join(format!("asagiri-mirror-pins-{}", std::process::id()));
+        let store = asagiri_image::Store::open(&dir).unwrap();
+        let raw = br#"{ "schemaVersion": 2, "manifests": [] }"#;
+        let mut writer = store.ingest().unwrap();
+        writer.write_all(raw).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        store.put_image(Image { name: "app:latest".into(), index_digest: Some(digest.clone()), ..made_here() }).unwrap();
+        let request = |repo| lookup(&store, &format!("/v2/tok/docker.io/library/{repo}/manifests/{digest}"), "tok");
+        assert!(matches!(request("app"), Some(Found::Manifest(bytes, media, hash)) if bytes == raw && media == OCI_INDEX && hash == digest));
+        assert!(request("other").is_none());
+        std::fs::write(store.blob_path(&digest).unwrap(), b"corrupt").unwrap();
+        assert!(request("app").is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
