@@ -424,8 +424,10 @@ pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
         file.sync_all()?;
         std::fs::hard_link(&temporary, output)
     })();
-    let cleanup = std::fs::remove_file(&temporary);
-    result.and(cleanup)
+    if let Err(error) = std::fs::remove_file(&temporary) {
+        eprintln!("checkpoint: could not remove {}: {error}", temporary.display());
+    }
+    result
 }
 
 /// Runs `cmd` in a running container and returns (exit code, output),
