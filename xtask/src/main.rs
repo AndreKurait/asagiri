@@ -464,11 +464,18 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
         let compose = fetch(&cache, &format!("docker-compose-windows-x86_64-{compose_v}.exe"), &cli_pins::win_compose_url(compose_v))?;
         verify(&compose, compose_sum)?;
         fs::copy(&compose, out.join("bin/cli-plugins/docker-compose.exe"))?;
-        let (buildx_v, buildx_sum) = WIN_BUILDX;
-        let buildx = fetch(&cache, &format!("buildx-{buildx_v}.windows-amd64.exe"), &cli_pins::win_buildx_url(buildx_v))?;
-        verify(&buildx, buildx_sum)?;
-        fs::copy(&buildx, out.join("bin/cli-plugins/docker-buildx.exe"))?;
     }
+    let (go_arch, (version, digest)) = match arch {
+        WinArch::X64 => ("amd64", WIN_BUILDX),
+        WinArch::Arm64 => ("arm64", WIN_ARM64_BUILDX),
+    };
+    let buildx = cache.join(format!("buildx-{version}-windows-{go_arch}.exe"));
+    if !buildx.is_file() || sha256(&buildx)? != digest {
+        let python = if cfg!(windows) { "python" } else { "python3" };
+        run(Command::new(python).arg(root.join("scripts/windows-buildx.py")).arg(go_arch).arg(&buildx).arg(digest))?;
+    }
+    verify(&buildx, digest)?;
+    fs::copy(buildx, out.join("bin/cli-plugins/docker-buildx.exe"))?;
     fs::copy(root.join("contrib/wsl/install.sh"), out.join("install.sh"))?;
     // The PowerShell scripts asagiri-win runs, from their files beside it with
     // -File: asagiri.ps1 (update, uninstall), setup-tools.ps1 (setup's tools
@@ -499,7 +506,7 @@ fn windows(root: &Path, debug: bool, arch: WinArch) -> io::Result<()> {
     Ok(())
 }
 
-/// The arm64 docker CLI, Compose and buildx into `out`/bin, pinned as the
+/// The arm64 docker CLI and Compose into `out`/bin, pinned as the
 /// x86-64 ones are; docker.exe is built, as Docker publishes none.
 fn windows_arm64_cli(cache: &Path, out: &Path) -> io::Result<()> {
     let docker = docker_cli_arm64(cache)?;
@@ -508,10 +515,6 @@ fn windows_arm64_cli(cache: &Path, out: &Path) -> io::Result<()> {
     let compose = fetch(cache, &format!("docker-compose-windows-aarch64-{compose_v}.exe"), &cli_pins::win_arm64_compose_url(compose_v))?;
     verify(&compose, compose_sum)?;
     fs::copy(&compose, out.join("bin/cli-plugins/docker-compose.exe"))?;
-    let (buildx_v, buildx_sum) = WIN_ARM64_BUILDX;
-    let buildx = fetch(cache, &format!("buildx-{buildx_v}.windows-arm64.exe"), &cli_pins::win_arm64_buildx_url(buildx_v))?;
-    verify(&buildx, buildx_sum)?;
-    fs::copy(&buildx, out.join("bin/cli-plugins/docker-buildx.exe"))?;
     Ok(())
 }
 

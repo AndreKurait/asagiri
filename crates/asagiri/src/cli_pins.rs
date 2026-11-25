@@ -142,11 +142,11 @@ pub const LINUX_ARM64_COMPOSE: (&str, &str) = ("v5.8.0", "1a9c918b2fb49b9c87f001
 pub const LINUX_ARM64_BUILDX: (&str, &str) = ("v0.38.1", "3b83b3731916ba433feccaaa689fe5bcdc81c641d92c8e6c2ea865dfa141c97a");
 
 /// The same versions for Windows x86-64, bundled with asagiri-win
-/// (`cargo xtask windows`). Compose and buildx are GitHub's asset digests;
-/// the docker CLI's zip as download.docker.com served it.
+/// (`cargo xtask windows`). Compose and the Docker CLI use published binary
+/// digests. The Buildx digest covers the output of scripts/windows-buildx.py.
 pub const WIN_DOCKER_CLI: (&str, &str) = ("29.9.2", "b2be959bfed1281ddaf665c0972cba9a62ce30c542b6bcce82f055bf8886bc7d");
 pub const WIN_COMPOSE: (&str, &str) = ("v5.8.0", "0c2d9245a5f61e8e3cc85009b8b4888fa82fded08239d28bd6da5ca818eda2b2");
-pub const WIN_BUILDX: (&str, &str) = ("v0.38.1", "fd2e18501910dd535ea3aa7f69010b3cfdfba0f47aa27674124554386dfa26f3");
+pub const WIN_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "a30647f372a9c35bb3f4919604c20f7dab23e06d08ebbf99b35a1f2a758db691");
 
 /// The static docker CLI for Windows; the binary is `docker/docker.exe` inside.
 pub fn win_docker_url(v: &str) -> String {
@@ -157,18 +157,15 @@ pub fn win_compose_url(v: &str) -> String {
     format!("https://github.com/docker/compose/releases/download/{v}/docker-compose-windows-x86_64.exe")
 }
 
-pub fn win_buildx_url(v: &str) -> String {
-    format!("https://github.com/docker/buildx/releases/download/{v}/buildx-{v}.windows-amd64.exe")
-}
-
 /// The same versions for Windows on Arm (`cargo xtask windows --arch arm64`).
-/// Compose and buildx publish arm64 Windows builds (GitHub's asset digests).
+/// Compose uses its published arm64 digest. Buildx uses the same source build
+/// as x86-64, with the arm64 output digest.
 /// Docker publishes no arm64 docker.exe (download.docker.com/win/static has
 /// x86_64 only), so it is built from docker/cli's own source at the release
 /// tag's commit, with Go's toolchain pinned and cgo off: Go builds that way
 /// are reproducible on any host, so the result is pinned like a download.
 pub const WIN_ARM64_COMPOSE: (&str, &str) = ("v5.8.0", "ec7a100a77d9aedbaa6e2b13a10140729860b58b8d2b6855d8191c52e7dd50fc");
-pub const WIN_ARM64_BUILDX: (&str, &str) = ("v0.38.1", "2d4e2e78d7ddf0ea6d63acde7e73599717e94e3f9417edd23d4ffeceef6777fc");
+pub const WIN_ARM64_BUILDX: (&str, &str) = ("v0.38.1-asagiri.1", "25074619db2b6dcc9e9dbd07f09841528796470e11993fd279af6922cd388d1a");
 
 /// docker/cli at tag v29.9.2 (WIN_DOCKER_CLI's version): the commit the
 /// tag points at, its committer time (the binary's BuildTime, so the
@@ -195,8 +192,4 @@ pub const DOCKER_CLI_GIT: &str = "https://github.com/docker/cli";
 
 pub fn win_arm64_compose_url(v: &str) -> String {
     format!("https://github.com/docker/compose/releases/download/{v}/docker-compose-windows-aarch64.exe")
-}
-
-pub fn win_arm64_buildx_url(v: &str) -> String {
-    format!("https://github.com/docker/buildx/releases/download/{v}/buildx-{v}.windows-arm64.exe")
 }
