@@ -229,8 +229,35 @@ fn live_bridges() -> Vec<Bridge> {
 
 #[cfg(target_os = "macos")]
 pub fn current_bridge() -> Option<Bridge> {
+    bridge_for_vm(None)
+}
+
+#[cfg(target_os = "macos")]
+fn bridge_for_vm(mac: Option<[u8; 6]>) -> Option<Bridge> {
+    let bridges = live_bridges();
+    if let Some(mac) = mac {
+        for bridge in &bridges {
+            if !usable_gateway(bridge.gateway) || !(8..=30).contains(&bridge.prefix) { continue; }
+            let table = std::process::Command::new("/sbin/ifconfig").args([bridge.name.as_str(), "addr"]).output();
+            if let Ok(table) = table && table.status.success() && has_vm_mac(&String::from_utf8_lossy(&table.stdout), mac) {
+                return Some(bridge.clone());
+            }
+        }
+    }
     let plist = std::fs::read_to_string("/Library/Preferences/SystemConfiguration/com.apple.vmnet.plist").ok().and_then(|s| parse_vmnet_plist(&s));
-    pick_bridge(&live_bridges(), plist)
+    pick_bridge(&bridges, plist)
+}
+
+fn has_vm_mac(table: &str, mac: [u8; 6]) -> bool {
+    table.lines().any(|line| line.split_whitespace().next().and_then(parse_mac) == Some(mac))
+}
+
+#[cfg(test)]
+#[test]
+fn recognizes_vm_in_bridge_forwarding_table() {
+    let table = "3e:e2:ea:8b:f8:ab Vlan1 vmenet1 1200 flags=0<>";
+    assert!(has_vm_mac(table, [0x3e, 0xe2, 0xea, 0x8b, 0xf8, 0xab]));
+    assert!(!has_vm_mac(table, [0; 6]));
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -262,8 +289,8 @@ fn reserve_ip(dir: &Path, gateway: [u8; 4], prefix: u8, mac: Option<[u8; 6]>, mu
 
 #[cfg(target_os = "macos")]
 pub fn discover_uplink(store_root: &Path) -> Result<(Bridge, [u8; 4], std::fs::File), String> {
-    let bridge = current_bridge().ok_or_else(|| "no macOS vmnet bridge interface (bridge100) found".to_owned())?;
     let vm_mac = std::fs::read_to_string(store_root.join("vm/mac")).ok().and_then(|s| parse_mac(&s));
+    let bridge = bridge_for_vm(vm_mac).ok_or_else(|| "no macOS vmnet bridge interface found".to_owned())?;
     let leases = std::fs::read_to_string("/var/db/dhcpd_leases").map(|t| parse_dhcpd_leases(&t)).unwrap_or_default();
     let (ip, reservation) = reserve_ip(Path::new("/private/tmp"), bridge.gateway, bridge.prefix, vm_mac, leases).map_err(|e| e.to_string())?;
     Ok((bridge, ip, reservation))
