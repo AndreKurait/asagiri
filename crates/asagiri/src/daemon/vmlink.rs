@@ -34,6 +34,7 @@ pub enum Reply {
     Ack,
     ContainerStats(asagiri_proto::ContainerStats),
     Top(Vec<String>),
+    Checkpoints(Vec<String>),
     Listening(Vec<String>),
     UsbNodes(Vec<String>),
     Uplink([u8; 4], [u8; 4]),
@@ -395,6 +396,7 @@ impl VmLink {
                     Ok(Msg::Ack) => Reply::Ack,
                     Ok(Msg::ContainerStats(s)) => Reply::ContainerStats(s),
                     Ok(Msg::Top(lines)) => Reply::Top(lines.iter().map(str::to_owned).collect()),
+                    Ok(Msg::Checkpoints(names)) => Reply::Checkpoints(names.iter().map(str::to_owned).collect()),
                     Ok(Msg::Listening(lines)) => Reply::Listening(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::UsbNodes(lines)) => Reply::UsbNodes(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::Uplink { ip, gateway }) => Reply::Uplink(ip, gateway),
@@ -530,6 +532,13 @@ impl VmLink {
 
     pub fn update(&self, id: &str, limits: asagiri_proto::Limits) -> io::Result<()> {
         self.ack(|o| Msg::Update { id, limits }.encode(o))
+    }
+
+    pub fn checkpoints(&self, id: &str) -> io::Result<Vec<String>> {
+        match self.call(|o| Msg::CheckpointList { id }.encode(o), None)? {
+            Reply::Checkpoints(names) => Ok(names),
+            other => Err(io::Error::other(format!("expected Checkpoints, got {other:?}"))),
+        }
     }
 
     pub fn checkpoint_live(&self, id: &str, name: &str) -> io::Result<()> {

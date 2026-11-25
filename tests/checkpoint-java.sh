@@ -22,6 +22,7 @@ nonce=${BASH_REMATCH[1]}
 docker pause "$cid" >/dev/null
 docker cp "$cid:/tmp/heartbeat" "$work/before"
 docker checkpoint create --leave-running "$cid" java-live
+docker checkpoint ls "$cid" | grep -Fx java-live
 docker cp "$cid:/tmp/heartbeat" "$work/after"
 [[ $(wc -c < "$work/before") -eq 8 ]]
 cmp "$work/before" "$work/after"

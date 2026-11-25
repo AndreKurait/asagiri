@@ -192,6 +192,8 @@ pub enum Msg<'a> {
     NetDetach { id: &'a str, ifname: &'a str, bridge: &'a str, ip: [u8; 4] },
     /// Host → guest: replace a running endpoint's DNS names. Answered by `Ack`.
     DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
+    CheckpointList { id: &'a str },
+    Checkpoints(StrList<'a>),
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
     ListenQuery { id: &'a str },
@@ -819,6 +821,8 @@ mod kind {
     pub const START_REJECTED: u16 = 81;
     pub const DNS_RENAME: u16 = 82;
     pub const SET_UPLINK: u16 = 83;
+    pub const CHECKPOINT_LIST: u16 = 86;
+    pub const CHECKPOINTS: u16 = 87;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -964,6 +968,10 @@ pub fn encode_usb_nodes<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
 /// Encodes an `FsEvents` frame from the sender's `OP\tPATH` lines.
 pub fn encode_fs_events<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
     frame(out, kind::FS_EVENTS, |out| StrList::put(out, lines));
+}
+
+pub fn encode_checkpoints<S: AsRef<str>>(out: &mut Vec<u8>, names: &[S]) {
+    encode_reply_lines(out, kind::CHECKPOINTS, names);
 }
 
 /// Encodes a `Listening` reply from the sender's lines.
@@ -1231,6 +1239,8 @@ impl Msg<'_> {
             Msg::ContainerStats(st) => frame(out, kind::CONTAINER_STATS, |o| put_container_stats(o, &st)),
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
+            Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
+            Msg::Checkpoints(names) => encode_raw_reply(out, kind::CHECKPOINTS, names.count, names.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
             Msg::UsbNodesQuery => frame(out, kind::USB_NODES_QUERY, |_| {}),
             Msg::UsbNodes(lines) => encode_raw_reply(out, kind::USB_NODES, lines.count, lines.raw),
@@ -1541,6 +1551,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::CONTAINER_STATS => Msg::ContainerStats(read_container_stats(&mut r)?),
         kind::TOP_QUERY => Msg::TopQuery { id: r.str()? },
         kind::TOP => Msg::Top(r.list()?),
+        kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
+        kind::CHECKPOINTS => Msg::Checkpoints(r.list()?),
         kind::LISTEN_QUERY => Msg::ListenQuery { id: r.str()? },
         kind::LISTENING => Msg::Listening(r.list()?),
         kind::USB_NODES_QUERY => Msg::UsbNodesQuery,

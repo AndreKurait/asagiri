@@ -316,6 +316,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
+            ("GET", "checkpoints") => return reply(w, checkpoint_list(req, engine, id), 200),
             ("POST", "checkpoints") => return reply(w, checkpoint_create(req, engine, id).map(|()| Value::Null), 201),
             ("POST", "start") => {
                 if req.query("checkpoint").is_some_and(|name| !name.is_empty()) {
@@ -487,6 +488,15 @@ pub(super) fn version() -> Value {
 
 fn valid_checkpoint_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 128 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn checkpoint_list(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
+    if req.query("dir").is_some_and(|dir| !dir.is_empty()) {
+        return Err(Error::BadRequest("custom checkpoint directories are unsupported".into()));
+    }
+    let id = engine.resolve(id)?;
+    let names = engine.vm()?.checkpoints(&id)?;
+    Ok(Value::Array(names.into_iter().map(|name| json!({"Name": name})).collect()))
 }
 
 fn checkpoint_create(req: &Request, engine: &Engine, id: &str) -> Result<(), Error> {

@@ -4,6 +4,25 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::process::Command;
 
+pub(super) fn list(containers: &Path, id: &str) -> io::Result<Vec<String>> {
+    super::container::valid_id(id)?;
+    let entries = match fs::read_dir(containers.join(id).join("checkpoints")) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if let Ok(name) = entry.file_name().into_string()
+            && super::container::valid_id(&name).is_ok() && entry.file_type()?.is_dir() {
+            names.push(name);
+        }
+    }
+    names.sort_unstable();
+    Ok(names)
+}
+
 /// Called by a guest worker with the PID resolved from the agent's process table.
 /// Keep checkpoints outside the container root and publish only complete images.
 pub(super) fn capture(pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str) -> io::Result<()> {
