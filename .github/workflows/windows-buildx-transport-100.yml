@@ -93,6 +93,20 @@ jobs:
             }
             & $buildx inspect default
             if ($LASTEXITCODE) { throw "Windows Buildx inspect failed over loopback TCP, named pipe exit=$pipeExit" }
+            # Keep raw client diagnostics on the ephemeral runner. Report only frame
+            # types, stream IDs and protocol error codes, without header values.
+            $env:GODEBUG = 'http2debug=2'
+            $trace = Join-Path $env:RUNNER_TEMP 'worker-inspect.trace'
+            & $buildx inspect default 2> $trace
+            Remove-Item Env:GODEBUG
+            foreach ($line in Get-Content $trace) {
+              if ($line -match '(read|wrote) (SETTINGS|HEADERS|CONTINUATION|DATA|RST_STREAM|GOAWAY|WINDOW_UPDATE|PING)\b') {
+                $frame = $Matches[0]
+                $stream = [regex]::Match($line, 'stream=\d+').Value
+                $code = [regex]::Match($line, '(?:ErrCode|code)=[A-Z_]+').Value
+                Write-Host "HTTP2 $frame $stream $code"
+              }
+            }
             & $buildx build --builder default --progress plain --load --secret "id=proof,src=$proof" --iidfile $iid -t ak100:test $context.FullName
             if ($LASTEXITCODE) { throw 'Buildx build failed' }
             $actual = Invoke-Docker @('image','inspect','ak100:test','--format','{{.Id}}')
