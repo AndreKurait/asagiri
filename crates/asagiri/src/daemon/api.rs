@@ -303,6 +303,10 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
             ("POST", "start") => {
+                if req.query("checkpoint").is_some_and(|name| !name.is_empty()) {
+                    http::error(w, 501, "restoring a container from a checkpoint is not supported by this engine")?;
+                    return Ok(Next::KeepAlive);
+                }
                 // An idle BuildKit container that Asagiri paused itself counts
                 // as running: the next build resumes it.
                 match engine.with(id, |c| (c.status == Status::Running, c.paused && !super::engine::is_builder(c))) {
