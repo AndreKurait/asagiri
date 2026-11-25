@@ -109,9 +109,11 @@ def check(path, _image):
             # the node subsequently exits during a requested stop.
             pod = "memory-limit-proof"
             limits = {"spec": {"containers": [{"name": pod, "image": pod_image,
-                      "command": ["sh", "-c", "exec tail /dev/zero >/dev/null"],
+                      "command": ["sh", "-c", "while [ ! -f /tmp/start-proof ]; do sleep 1; done; exec tail /dev/zero >/dev/null"],
                       "resources": {"limits": {"memory": "32Mi"}}}]}}
             kubectl("run", pod, "--restart=Never", "--image=" + pod_image, "--overrides=" + json.dumps(limits))
+            kubectl("wait", "--for=condition=Ready", "pod/" + pod, "--timeout=90s", timeout=100)
+            kubectl("exec", pod, "--", "touch", "/tmp/start-proof")
             kubectl("wait", "--for=jsonpath={.status.containerStatuses[0].state.terminated.reason}=OOMKilled",
                     "pod/" + pod, "--timeout=90s", timeout=100)
             kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=30s")
@@ -126,6 +128,8 @@ def check(path, _image):
                               "podAbsoluteContainerAliasDNS": "passed"}), flush=True)
         except BaseException:
             for arguments in (["logs", "--tail", "45", node],
+                              ["exec", node, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
+                               "get", "pod", "memory-limit-proof", "-o", "json"],
                               ["exec", node, "journalctl", "--no-pager", "-n", "45"],
                               ["exec", node, "kubectl", "--kubeconfig=/etc/kubernetes/admin.conf",
                                "logs", "registry-dns-proof"]):
