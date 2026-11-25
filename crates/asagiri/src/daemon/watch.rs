@@ -50,7 +50,7 @@ fn run(engine: Weak<Engine>) {
     loop {
         let Some(e) = engine.upgrade() else { return };
         let now = e.mac_bind_sources();
-        if !roots.iter().map(|r| &r.path).eq(now.iter()) || (stream.is_none() && !now.is_empty()) {
+        if !roots.iter().map(|r| &r.path).eq(now.keys()) || (stream.is_none() && !now.is_empty()) {
             // The new stream picks up where the old one stopped, so changes
             // made in between are not lost; Known is kept with it.
             if let Some(old) = stream.take() {
@@ -60,18 +60,22 @@ fn run(engine: Weak<Engine>) {
                 resume = last.load(Ordering::Relaxed);
                 rescan |= lost.swap(false, Ordering::Relaxed);
             }
-            // A source new to this stream has nothing from before now: the
-            // resumed stream would replay its folder's whole history.
             let cur = current_event_id();
-            roots = now.into_iter().map(|path| roots.iter().find(|r| r.path == path).cloned().unwrap_or_else(|| Root::new(path, cur))).collect();
+            // Existing sources have already consumed events through `resume`.
+            // A newly discovered source is owed events since container start.
+            roots = now.into_iter().map(|(path, start)| {
+                if let Some(old) = roots.iter().find(|r| r.path == path) {
+                    let mut root = old.clone();
+                    root.start_id = root.start_id.max(resume);
+                    root
+                } else {
+                    Root::new(path, start)
+                }
+            }).collect();
+            resume = roots.iter().map(|root| root.start_id).min().unwrap_or(0);
             if roots.is_empty() {
-                resume = 0;
                 rescan = false;
                 known = Known::new();
-            } else if resume == 0 {
-                // Keep this point even if starting the stream fails, so a
-                // later retry can recover changes made while it was down.
-                resume = cur;
             }
             let since = since_for(resume);
             known.sync(&roots);
@@ -192,7 +196,7 @@ fn case_sensitive(path: &str) -> bool {
 }
 
 /// The newest event id FSEvents has issued so far.
-fn current_event_id() -> u64 {
+pub(super) fn current_event_id() -> u64 {
     // SAFETY: takes no arguments.
     unsafe { FSEventsGetCurrentEventId() }
 }
