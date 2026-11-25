@@ -1,5 +1,15 @@
 Asagiri is an independent Docker-compatible engine derived from Kiri.
 
+## Changes since stable 0.1.15
+
+- On Macs with multiple virtual bridges, the fallback uplink selects the bridge that learned the guest MAC address. Off-host connectivity remains under investigation in #213.
+- Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
+- Both guest kernel configurations enable prerequisites for checkpointing (#507). Cross-machine restore is tracked in #506.
+
+## Earlier releases
+
+Stable 0.1.15 bundled Docker Compose 5.8.0, reused verified image blobs during archive loads, and improved guest memory and panic diagnostics.
+
 The 0.1.14 changes include:
 
 - Verus checks the exact production health transition, HTTP numeric parser
