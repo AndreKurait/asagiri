@@ -57,16 +57,20 @@ fn builders() -> io::Result<Vec<String>> {
     }
     let (out, _) = buildx(&["ls", "--format", "json"])?;
     let builtin = crate::buildwith::places().is_ok_and(|p| p.builtin());
-    Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get()))
+    #[cfg(unix)]
+    let endpoint = format!("unix://{}", crate::client::socket()?.display());
+    #[cfg(windows)]
+    let endpoint = format!("npipe://{}", crate::client::pipe().replace('\\', "/"));
+    Ok(history_builders(&out, &have, existing, builtin, CONTEXT.get(), BUILDER.get(), &endpoint))
 }
 
-fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str) -> Vec<String> {
+fn history_builders(out: &str, have: &[String], managed: bool, builtin: bool, context: &str, legacy: &str, endpoint: &str) -> Vec<String> {
     let mut names: Vec<String> = values(out)
         .into_iter()
         .filter(|b| b["Driver"] == "docker-container")
         .filter(|b| {
             b["Nodes"].as_array().into_iter().flatten().any(|n| {
-                n["Endpoint"] == context && n["Name"].as_str().is_some_and(|name| {
+                (n["Endpoint"] == context || n["Endpoint"] == endpoint) && n["Name"].as_str().is_some_and(|name| {
                     name != format!("{legacy}0") && have.iter().any(|c| *c == format!("buildx_buildkit_{name}"))
                 })
             })
@@ -543,14 +547,14 @@ mod tests {
         let out = [
             json!({"Name": "asagiri", "Driver": "docker", "Nodes": [{"Name": "asagiri", "Endpoint": "asagiri"}]}),
             json!({"Name": "asagiri-build", "Driver": "docker-container", "Nodes": [{"Name": "asagiri-build0", "Endpoint": "asagiri"}]}),
-            json!({"Name": "mine", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "asagiri"}]}),
+            json!({"Name": "mine", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "unix:///asagiri.sock"}]}),
             json!({"Name": "not-made", "Driver": "docker-container", "Nodes": [{"Name": "not-made0", "Endpoint": "asagiri"}]}),
             json!({"Name": "other", "Driver": "docker-container", "Nodes": [{"Name": "mine0", "Endpoint": "other-engine"}]}),
         ].iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
         let have = vec!["buildx_buildkit_asagiri-build0".to_owned(), "buildx_buildkit_mine0".to_owned()];
-        assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build"), ["asagiri", "mine"]);
-        assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build"), ["asagiri-build", "mine"]);
-        assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build").is_empty());
+        assert_eq!(history_builders(&out, &have, true, true, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri", "mine"]);
+        assert_eq!(history_builders(&out, &have, true, false, "asagiri", "asagiri-build", "unix:///asagiri.sock"), ["asagiri-build", "mine"]);
+        assert!(history_builders(&out, &[], false, true, "asagiri", "asagiri-build", "unix:///asagiri.sock").is_empty());
     }
 
     #[test]
