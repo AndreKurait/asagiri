@@ -428,7 +428,13 @@ mod imp {
     fn wsl_run(args: &[&std::ffi::OsStr]) -> io::Result<String> {
         let mut cmd = crate::win::tool("wsl.exe");
         cmd.creation_flags(CREATE_NO_WINDOW).args(args);
+        #[cfg(test)]
+        let started = std::time::Instant::now();
+        #[cfg(test)]
+        eprintln!("WSL storage test starting {args:?}");
         let out = cmd.output()?;
+        #[cfg(test)]
+        eprintln!("WSL storage test finished {args:?} in {:?} with {}", started.elapsed(), out.status);
         let text = crate::setup::wsl_output(&out.stdout, &out.stderr);
         if out.status.success() {
             Ok(text)
