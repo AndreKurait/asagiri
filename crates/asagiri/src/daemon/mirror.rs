@@ -263,7 +263,7 @@ fn answer(conn: TcpStream, engine: &Engine) -> io::Result<()> {
     if method != "GET" && method != "HEAD" {
         return head(&mut w, "405 Method Not Allowed", "", 0);
     }
-    match lookup(engine, target.split('?').next().unwrap_or_default(), &token()) {
+    match lookup(&engine.store, target.split('?').next().unwrap_or_default(), &token()) {
         Some(Found::Manifest(bytes, media_type, digest)) => {
             head(&mut w, "200 OK", &format!("Content-Type: {media_type}\r\nDocker-Content-Digest: {digest}\r\n"), bytes.len() as u64)?;
             if method == "GET" {
@@ -355,18 +355,18 @@ fn serve_tag(i: &Image) -> bool {
     i.local_tag || i.repo_digest().is_none()
 }
 
-fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
+fn lookup(store: &asagiri_image::Store, path: &str, token: &str) -> Option<Found> {
     let (registry, repo, is_manifest, reference) = parse(path, token)?;
-    let images = engine.store.images().ok()?;
+    let images = store.images().ok()?;
     let in_repo = |i: &&Image| Reference::parse(&i.name).is_ok_and(|n| n.registry == registry && n.repository == repo);
     if is_manifest {
         if reference.starts_with("sha256:") {
             if images.iter().filter(in_repo).any(|i| (i.digest != i.config_digest && i.digest == reference) || i.index_digest.as_deref() == Some(reference.as_str()))
-                && let Some((bytes, media_type)) = stored_manifest(&engine.store, &reference)
+                && let Some((bytes, media_type)) = stored_manifest(store, &reference)
             {
                 return Some(Found::Manifest(bytes, media_type, reference));
             }
-            return images.iter().filter(in_repo).find_map(|i| manifest(&engine.store, i).filter(|(_, d)| *d == reference)).map(|(b, d)| Found::Manifest(b, OCI_MANIFEST.to_owned(), d));
+            return images.iter().filter(in_repo).find_map(|i| manifest(store, i).filter(|(_, d)| *d == reference)).map(|(b, d)| Found::Manifest(b, OCI_MANIFEST.to_owned(), d));
         }
         let wanted = Reference::parse(&format!("{registry}/{repo}:{reference}")).ok()?.short();
         // A tag a registry published is the registry's to answer: Asagiri holds
@@ -375,12 +375,12 @@ fn lookup(engine: &Engine, path: &str, token: &str) -> Option<Found> {
         // fails on them (issue #57). 404 here makes the builder skip this
         // mirror and pull the platform it asked for.
         let i = images.iter().find(|i| i.name == wanted && serve_tag(i))?;
-        let (b, d) = manifest(&engine.store, i)?;
+        let (b, d) = manifest(store, i)?;
         return Some(Found::Manifest(b, OCI_MANIFEST.to_owned(), d));
     }
     // Only blobs of that repository's images.
     let owned = images.iter().filter(in_repo).any(|i| i.config_digest == reference || i.layers.iter().any(|l| l.digest == reference));
-    let path = engine.store.blob_path(&reference).ok()?;
+    let path = store.blob_path(&reference).ok()?;
     (owned && path.is_file()).then_some(Found::Blob(path, reference))
 }
 
@@ -399,6 +399,23 @@ mod tests {
         assert!(!config.contains("insecure"));
         assert!(!config.contains("http ="));
         assert_ne!(ca_path(ca), ca_path(include_str!("../../../asagiri-image/tests/fixtures/registry-ca/other-ca.pem")));
+    }
+
+    #[test]
+    fn digest_lookup_serves_exact_registry_bytes_only_for_the_owning_repository() {
+        let dir = std::env::temp_dir().join(format!("asagiri-mirror-pins-{}", std::process::id()));
+        let store = asagiri_image::Store::open(&dir).unwrap();
+        let raw = br#"{ "schemaVersion": 2, "manifests": [] }"#;
+        let mut writer = store.ingest().unwrap();
+        writer.write_all(raw).unwrap();
+        let (digest, _) = writer.finish().unwrap();
+        store.put_image(Image { name: "app:latest".into(), index_digest: Some(digest.clone()), ..made_here() }).unwrap();
+        let request = |repo| lookup(&store, &format!("/v2/tok/docker.io/library/{repo}/manifests/{digest}"), "tok");
+        assert!(matches!(request("app"), Some(Found::Manifest(bytes, media, hash)) if bytes == raw && media == OCI_INDEX && hash == digest));
+        assert!(request("other").is_none());
+        std::fs::write(store.blob_path(&digest).unwrap(), b"corrupt").unwrap();
+        assert!(request("app").is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
