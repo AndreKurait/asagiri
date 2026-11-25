@@ -154,7 +154,8 @@ fn serve(paths: &container::Paths, init_start_ns: u64) -> io::Result<()> {
     let mut conn = dial_host()?;
     let (mem_total_kib, mem_available_kib) = meminfo();
     let mut out = Vec::with_capacity(256);
-    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib })
+    let bundled_criu_present = !transport::is_host_process() && std::path::Path::new("/bundle/usr/sbin/criu").is_file();
+    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib, bundled_criu_present })
         .encode(&mut out);
     conn.write_all(&out)?;
     agent::serve(conn, paths)
@@ -171,6 +172,12 @@ fn leave_initramfs() -> io::Result<()> {
     for d in [c"/root/dev", c"/root/proc", c"/root/sys", c"/root/run", c"/root/tmp", c"/root/etc", c"/root/var", c"/root/lib", c"/root/lib/modules"] {
         sys::mkdir(d, 0o755);
     }
+    // Keep the optional checkpoint runtime visible after moving to the tmpfs root.
+    if std::path::Path::new("/bundle").try_exists()? {
+        std::fs::create_dir("/root/bundle")?;
+        mount(c"/bundle", c"/root/bundle", c"", libc::MS_BIND, None)?;
+        mount(c"", c"/root/bundle", c"", libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV, None)?;
+    }
     // Free the initramfs copy of this binary; the running image stays mapped.
     let _ = std::fs::remove_file("/init");
     // SAFETY: plain path syscalls with valid NUL-terminated strings.
@@ -181,7 +188,7 @@ fn leave_initramfs() -> io::Result<()> {
         check(libc::chdir(c"/".as_ptr()) as _, "chdir /")?;
     }
     // The console descriptors were opened from the old root's /dev/console
-    // and keep working; nothing else refers to the initramfs any more.
+    // and keep working after the root switch.
     Ok(())
 }
 

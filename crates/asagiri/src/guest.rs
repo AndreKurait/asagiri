@@ -219,7 +219,7 @@ impl Guest {
             out: Vec::with_capacity(64),
             rtts: Vec::new(),
             seq: 0,
-            hello: Hello { protocol: 0, init_start_ns: 0, ready_ns: 0, mem_total_kib: 0, mem_available_kib: 0 },
+            hello: Hello { protocol: 0, init_start_ns: 0, ready_ns: 0, mem_total_kib: 0, mem_available_kib: 0, bundled_criu_present: false },
             timings: BootTimings {
                 vm_started,
                 agent_ready: Duration::ZERO,

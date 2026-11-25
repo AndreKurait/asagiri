@@ -40,6 +40,9 @@ pub fn run(args: &[String]) -> io::Result<()> {
         hello.mem_total_kib / 1024,
         hello.mem_available_kib / 1024
     );
+    if hello.bundled_criu_present {
+        println!("  guest checkpoint runtime    bundled CRIU present");
+    }
     if let Some(l) = latency {
         println!("  vsock round trip ({pings:>5})    p50 {:6.1} µs   p99 {:6.1} µs", us(l.p50), us(l.p99));
     }

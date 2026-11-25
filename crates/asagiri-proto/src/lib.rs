@@ -412,6 +412,8 @@ pub struct Hello {
     /// MemTotal and MemAvailable from /proc/meminfo, in KiB.
     pub mem_total_kib: u64,
     pub mem_available_kib: u64,
+    /// The agent can see the packaged CRIU binary after switching roots.
+    pub bundled_criu_present: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1067,6 +1069,7 @@ impl Msg<'_> {
                 for v in [h.init_start_ns, h.ready_ns, h.mem_total_kib, h.mem_available_kib] {
                     put_u64(o, v);
                 }
+                o.push(u8::from(h.bundled_criu_present));
             }),
             Msg::Ping(v) => frame(out, kind::PING, |o| put_u64(o, v)),
             Msg::Pong(v) => frame(out, kind::PONG, |o| put_u64(o, v)),
@@ -1398,6 +1401,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             ready_ns: r.u64()?,
             mem_total_kib: r.u64()?,
             mem_available_kib: r.u64()?,
+            bundled_criu_present: r.remaining() > 0 && r.u8()? != 0,
         }),
         kind::PING => Msg::Ping(r.u64()?),
         kind::PONG => Msg::Pong(r.u64()?),
@@ -1626,8 +1630,23 @@ mod tests {
     }
 
     #[test]
+    fn hello_without_runtime_flag_decodes_as_absent() {
+        let mut wire = Vec::new();
+        frame(&mut wire, kind::HELLO, |body| {
+            body.extend_from_slice(&PROTOCOL.to_le_bytes());
+            for value in [11, 22, 33, 44] {
+                put_u64(body, value);
+            }
+        });
+        assert_eq!(decode(&wire).unwrap(), Msg::Hello(Hello {
+            protocol: PROTOCOL, init_start_ns: 11, ready_ns: 22,
+            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false,
+        }));
+    }
+
+    #[test]
     fn round_trip() {
-        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4 }));
+        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true }));
         round(Msg::Ping(7));
         round(Msg::Pong(7));
         round(Msg::Shutdown);

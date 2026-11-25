@@ -207,6 +207,21 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     // The kernel opens /dev/console for PID 1 before any filesystem is mounted.
     cpio.char_dev("dev/console", 0o600, 5, 1);
     cpio.file("init", 0o755, &init);
+    // Optional architecture-specific staging tree for checkpoint qualification.
+    if let Some(runtime) = std::env::var_os("ASAGIRI_CRIU_RUNTIME") {
+        let runtime = Path::new(&runtime);
+        let (machine, loader) = match arch {
+            Arch::Arm64 => (183, "lib/ld-linux-aarch64.so.1"),
+            Arch::X86_64 => (62, "lib64/ld-linux-x86-64.so.2"),
+        };
+        for name in ["usr/sbin/criu", loader] {
+            let binary = fs::read(runtime.join(name)).map_err(|e| io::Error::new(e.kind(), format!("checkpoint runtime {name}: {e}")))?;
+            if !guest_elf(&binary, machine) {
+                return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
+            }
+        }
+        cpio.tree("bundle", runtime, machine)?;
+    }
     let path = arch.guest_out(root)?.join("initramfs.cpio");
     fs::write(&path, cpio.finish())?;
     println!("{} ({} KiB)", path.display(), fs::metadata(&path)?.len() / 1024);
@@ -1054,6 +1069,10 @@ fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     Ok(())
 }
 
+fn guest_elf(binary: &[u8], machine: u8) -> bool {
+    binary.starts_with(b"\x7fELF\x02\x01") && binary.get(18..20) == Some(&[machine, 0])
+}
+
 /// Minimal writer for the "newc" cpio format the kernel unpacks as initramfs.
 #[derive(Default)]
 struct Cpio {
@@ -1062,6 +1081,29 @@ struct Cpio {
 }
 
 impl Cpio {
+    fn tree(&mut self, name: &str, root: &Path, machine: u8) -> io::Result<()> {
+        self.dir(name);
+        let mut entries = fs::read_dir(root)?.collect::<io::Result<Vec<_>>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let component = entry.file_name().into_string().map_err(|_| io::Error::other("invalid runtime filename"))?;
+            let path = format!("{name}/{component}");
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                self.tree(&path, &entry.path(), machine)?;
+            } else if kind.is_file() {
+                let data = fs::read(entry.path())?;
+                if data.starts_with(b"\x7fELF") && !guest_elf(&data, machine) {
+                    return Err(io::Error::other(format!("{path} has the wrong ELF format for the selected guest architecture")));
+                }
+                self.file(&path, 0o755, &data);
+            } else {
+                return Err(io::Error::other(format!("unsupported runtime entry {path}")));
+            }
+        }
+        Ok(())
+    }
+
     fn dir(&mut self, name: &str) {
         self.entry(name, 0o040_755, 2, (0, 0), &[]);
     }
@@ -1112,5 +1154,32 @@ impl Cpio {
         self.ino = 0;
         self.entry("TRAILER!!!", 0, 1, (0, 0), &[]);
         self.buf
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    #[test]
+    fn nested_runtime_library_must_match_the_guest_architecture() -> io::Result<()> {
+        let root = std::env::temp_dir().join(format!("asagiri-checkpoint-elf-{}", std::process::id()));
+        fs::create_dir(&root)?;
+        let result = (|| -> io::Result<()> {
+            let libs = root.join("lib");
+            fs::create_dir(&libs)?;
+            let mut header = [0u8; 64];
+            header[..6].copy_from_slice(b"\x7fELF\x02\x01");
+            for (machine, other) in [(183, 62), (62, 183)] {
+                header[18] = machine;
+                fs::write(libs.join("libexample.so"), header)?;
+                Cpio::default().tree("bundle", &root, machine)?;
+                let error = Cpio::default().tree("bundle", &root, other).unwrap_err();
+                assert!(error.to_string().contains("bundle/lib/libexample.so"));
+            }
+            Ok(())
+        })();
+        fs::remove_dir_all(root)?;
+        result
     }
 }
