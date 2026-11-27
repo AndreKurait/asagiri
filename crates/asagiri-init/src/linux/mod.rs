@@ -45,10 +45,11 @@ use sys::{boottime_ns, check, mount};
 const DATA: &str = "/var/lib/asagiri";
 
 pub fn main() {
-    if std::env::args_os().next().as_deref().and_then(|arg| std::path::Path::new(arg).file_name()) == Some(checkpoint::VOLUME_HOOK.as_ref()) {
-        if let Err(error) = checkpoint::run_volume_hook() {
-            eprintln!("checkpoint volume archive: {error}");
-            std::process::exit(1);
+    if std::env::args_os().next().as_deref().and_then(|arg| std::path::Path::new(arg).file_name()) == Some(checkpoint::FILESYSTEM_HOOK.as_ref()) {
+        if let Err(error) = checkpoint::run_filesystem_hook() {
+            // The missing completion marker prevents publication even when
+            // the hook could not record its error (for example, on ENOSPC).
+            eprintln!("checkpoint filesystem archive: {error}");
         }
         return;
     }

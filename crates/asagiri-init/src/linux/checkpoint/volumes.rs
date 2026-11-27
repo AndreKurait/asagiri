@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use super::super::{container::VOLUMES, inroot};
 use serde::{Deserialize, Serialize};
 
-pub(in super::super) const VOLUME_HOOK: &str = ".asagiri-volume-hook";
+pub(in super::super) const FILESYSTEM_HOOK: &str = ".asagiri-filesystem-hook";
 const MANIFEST: &str = "volume-mounts.json";
 
 #[derive(Deserialize, Serialize)]
@@ -59,11 +59,10 @@ pub(super) fn inventory(json: &str, pid: libc::pid_t) -> io::Result<Vec<Mount>> 
 }
 
 pub(super) fn prepare(command: &mut Command, images: &Path, mounts: &[Mount]) -> io::Result<()> {
-    if mounts.is_empty() { return Ok(()); }
-    fs::create_dir(images.join("volumes"))?;
+    if !mounts.is_empty() { fs::create_dir(images.join("volumes"))?; }
     serde_json::to_writer(File::create_new(images.join(MANIFEST))?, mounts)?;
     // The guest PID 1 can still execute its pinned inode after switching root.
-    let hook = images.join(VOLUME_HOOK);
+    let hook = images.join(FILESYSTEM_HOOK);
     symlink(format!("/proc/{}/exe", std::process::id()), &hook)?;
     command.arg("--action-script").arg(hook);
     for mount in mounts {
@@ -73,9 +72,21 @@ pub(super) fn prepare(command: &mut Command, images: &Path, mounts: &[Mount]) ->
 }
 
 /// CRIU invokes this hook in a separate process before resuming the dumped tree.
-pub(in super::super) fn run_volume_hook() -> io::Result<()> {
+pub(in super::super) fn run_filesystem_hook() -> io::Result<()> {
     if std::env::var_os("CRTOOLS_SCRIPT_ACTION").as_deref() != Some("post-dump".as_ref()) { return Ok(()); }
     let images = PathBuf::from(std::env::var_os("CRTOOLS_IMAGE_DIR").ok_or_else(|| io::Error::other("missing CRIU image directory"))?);
+    // A post-dump script error changes CRIU's handling of the stopped tree.
+    // Let leave-running finish normally and reject publication in the agent.
+    match capture_filesystems(&images) {
+        Ok(()) => { File::create_new(images.join(".filesystem-complete"))?; }
+        Err(error) => { fs::write(images.join(".filesystem-error"), error.to_string())?; }
+    }
+    Ok(())
+}
+
+fn capture_filesystems(images: &Path) -> io::Result<()> {
+    let container = std::env::var_os("ASAGIRI_CHECKPOINT_CONTAINER_DIR").ok_or_else(|| io::Error::other("missing checkpoint container directory"))?;
+    super::writable::capture(Path::new(&container), images)?;
     let mounts: Vec<Mount> = serde_json::from_reader(File::open(images.join(MANIFEST))?)?;
     let pid: u32 = std::env::var("CRTOOLS_INIT_PID").map_err(io::Error::other)?.parse().map_err(io::Error::other)?;
     let root = inroot::open_root(Path::new(&format!("/proc/{pid}/root")))?;
@@ -91,7 +102,7 @@ pub(in super::super) fn run_volume_hook() -> io::Result<()> {
             .filter_map(|p| p.strip_prefix(source.as_os_str().as_bytes())).any(|suffix| suffix.is_empty() || suffix.starts_with(b"/")) {
             return Err(io::Error::other(format!("volume {} contains an external mount", mount.name)));
         }
-        let directory = mount.archive_dir(&images);
+        let directory = mount.archive_dir(images);
         fs::create_dir(&directory)?;
         let part = directory.join("data.partial");
         let status = Command::new("/usr/bin/tar").env_clear().env("PATH", super::TOOL_PATH)
@@ -105,12 +116,17 @@ pub(in super::super) fn run_volume_hook() -> io::Result<()> {
 }
 
 pub(super) fn finish(images: &Path, mounts: &[Mount]) -> io::Result<()> {
-    if mounts.is_empty() { return Ok(()); }
+    if let Ok(error) = fs::read_to_string(images.join(".filesystem-error")) {
+        return Err(io::Error::other(format!("checkpoint filesystem capture: {error}")));
+    }
+    fs::remove_file(images.join(".filesystem-complete"))
+        .map_err(|e| io::Error::other(format!("checkpoint filesystem capture did not finish: {e}")))?;
+    if !images.join("rootfs/layer.tar").is_file() { return Err(io::Error::other("checkpoint did not capture the writable layer")); }
     for mount in mounts {
         let archive = mount.archive_dir(images).join("data.tar");
         if !archive.is_file() {
             return Err(io::Error::other(format!("checkpoint did not capture volume {}", mount.name)));
         }
     }
-    fs::remove_file(images.join(VOLUME_HOOK))
+    fs::remove_file(images.join(FILESYSTEM_HOOK))
 }

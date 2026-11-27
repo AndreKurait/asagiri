@@ -522,7 +522,7 @@ fn export(conn: &mut impl Write) -> io::Result<()> {
 }
 
 /// An overlay whiteout: a 0:0 character device.
-fn is_whiteout(m: &fs::Metadata) -> bool {
+pub(super) fn is_whiteout(m: &fs::Metadata) -> bool {
     m.file_type().is_char_device() && m.rdev() == 0
 }
 
@@ -537,7 +537,7 @@ fn is_opaque(path: &std::path::Path) -> bool {
 /// An older kernel-default mount may already have left entries whose data
 /// exists only in the merged filesystem. Never publish their raw upper bytes
 /// as a successful diff/commit: a redirect looks empty and metacopy looks zeroed.
-fn require_complete_upper(path: &std::path::Path) -> io::Result<()> {
+pub(super) fn require_complete_upper(path: &std::path::Path) -> io::Result<()> {
     let c = sys::cstr(path)?;
     for (name, kind) in [(c"trusted.overlay.metacopy", "metadata-only file"), (c"trusted.overlay.redirect", "directory redirect")] {
         // SAFETY: valid paths/names; a null buffer with zero length queries

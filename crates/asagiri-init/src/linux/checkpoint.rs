@@ -8,7 +8,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 mod volumes;
-pub(super) use volumes::{VOLUME_HOOK, run_volume_hook};
+mod writable;
+pub(super) use volumes::{FILESYSTEM_HOOK, run_filesystem_hook};
 
 const TOOL_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 
@@ -186,6 +187,7 @@ pub(super) fn list(containers: &Path, id: &str) -> io::Result<Vec<String>> {
 pub(super) struct Capture {
     child: Child,
     target_pid: libc::pid_t,
+    pub(super) container_id: String,
     staging: PathBuf,
     destination: PathBuf,
     cancelled: bool,
@@ -198,8 +200,10 @@ impl Capture {
         self.volume_mounts.iter().any(|m| m.name == name)
     }
 
-    pub(super) fn start(runtime: &Runtime, pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str, volume_inventory: &str, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
+    pub(super) fn start(runtime: &Runtime, run: &super::container::Process, group: &Path, containers: &Path, name: &str, volume_inventory: &str, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
         super::container::valid_id(name)?;
+        let pid = run.pid;
+        let container_dir = containers.join(&run.id);
         let volume_mounts = volumes::inventory(volume_inventory, pid)?;
         if let Some(mount) = volume_mounts.iter().find(|m| busy(&m.name)) {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, format!("volume {} has another active writer; pause its containers and finish uploads before checkpointing", mount.name)));
@@ -218,14 +222,14 @@ impl Capture {
             Err(error) => return Err(error),
         }
         DirBuilder::new().mode(0o700).create(&staging)?;
-        let child = match dump(runtime, pid, group, &staging, &volume_mounts) {
+        let child = match dump(runtime, pid, group, &staging, &container_dir, &run.image_layers, &volume_mounts) {
             Ok(child) => child,
             Err(error) => {
                 remove_staging(&staging);
                 return Err(error);
             }
         };
-        Ok(Self { child, target_pid: pid, staging, destination, cancelled: false, finished: false, volume_mounts })
+        Ok(Self { child, target_pid: pid, container_id: run.id.clone(), staging, destination, cancelled: false, finished: false, volume_mounts })
     }
 
     /// Peek without making the target PID reusable. On target exit, stop the
@@ -312,7 +316,7 @@ fn remove_staging(staging: &Path) {
     }
 }
 
-fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path, mounts: &[volumes::Mount]) -> io::Result<Child> {
+fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path, container_dir: &Path, layers: &[String], mounts: &[volumes::Mount]) -> io::Result<Child> {
     let mut command = runtime.command();
     command
         .process_group(0)
@@ -322,6 +326,8 @@ fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path, mounts
         .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])
         .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"]);
+    writable::prepare(images, layers)?;
+    command.env("ASAGIRI_CHECKPOINT_CONTAINER_DIR", container_dir);
     volumes::prepare(&mut command, images, mounts)?;
     command.spawn()
 }

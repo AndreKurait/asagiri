@@ -74,6 +74,8 @@ pub struct Process {
     /// The initial process runs in an existing PID namespace.
     /// False for execs, which do not own a container cgroup to tear down.
     pub pid_shared: bool,
+    /// Immutable image layer digests, in overlay lookup order.
+    pub image_layers: Vec<String>,
     /// Managed volumes this container can write, used to coordinate checkpoints.
     pub writable_volumes: Vec<String>,
     /// Pipe read end, or the pty master for a TTY.
@@ -527,6 +529,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             container: None,
             pid,
             pid_shared: shared_pid_ns.is_some(),
+            image_layers: spec.layers.iter().map(str::to_owned).collect(),
             writable_volumes: spec.mounts.iter().filter_map(writable_volume).map(str::to_owned).collect(),
             stdout,
             stderr,
@@ -693,6 +696,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         container: Some(spec.container_id.to_owned()),
         pid,
         pid_shared: false,
+        image_layers: Vec::new(),
         writable_volumes: Vec::new(),
         stdout,
         stderr,

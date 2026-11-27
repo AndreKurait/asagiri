@@ -146,7 +146,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
         }
         roots.start(paths, std::time::Instant::now());
         volumes.start(std::time::Instant::now());
-        copy_jobs.advance(paths, |id| copy_view(&procs, id), |volume| checkpoint.as_ref().is_some_and(|c| c.uses_volume(volume)));
+        copy_jobs.advance(paths, |id| copy_view(&procs, id), |spec| checkpoint.as_ref().is_some_and(|c| c.container_id == spec.id || spec.mounts.iter().any(|v| c.uses_volume(v))));
         root_events(&roots, &procs, &mut conn, &mut out)?;
         fds.clear();
         fds.push(libc::pollfd { fd: conn.as_raw_fd(), events: libc::POLLIN, revents: 0 });
@@ -511,6 +511,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Err(e) if super::startup::rejected(&e) => Msg::StartRejected(&e.to_string()).encode(&mut out),
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
+                Ok(Msg::Exec(spec)) if checkpoint.as_ref().is_some_and(|c| c.container_id == spec.container_id) => {
+                    Msg::Error("container checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {
                     Msg::Error(&format!("exec {} is running or being cleaned up", spec.exec_id)).encode(&mut out);
                 }
@@ -668,9 +671,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| procs.get(id)
+                Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| c.container_id == id || procs.get(id)
                     .is_some_and(|p| p.run.writable_volumes.iter().any(|name| c.uses_volume(name)))) => {
-                    Msg::Error("volume checkpoint in progress").encode(&mut out);
+                    Msg::Error("container or volume checkpoint in progress").encode(&mut out);
                 }
                 Ok(Msg::Freeze { id, frozen }) => match running_cgroup(&procs, id) {
                     Some((_, path)) => match super::cgroup::freeze(path, frozen) {
@@ -689,10 +692,14 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                         Err(io::Error::other("only live checkpoint capture is implemented"))
                     } else if checkpoint.is_some() {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
+                    } else if copy_jobs.writes_root(id) {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "checkpoint has another active writer uploading to this container"))
+                    } else if procs.values().any(|p| p.run.container.as_deref() == Some(id) && p.exited.is_none()) {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "finish the active container exec before checkpointing"))
                     } else if let Some(runtime) = runtime {
-                        match running_cgroup(&procs, id) {
-                            Some((pid, group)) => super::checkpoint::Capture::start(runtime, pid, group, &paths.containers.join(id), name, volume_mounts,
-                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, pid, volume)),
+                        match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (&p.run, group))) {
+                            Some((run, group)) => super::checkpoint::Capture::start(runtime, run, group, &paths.containers, name, volume_mounts,
+                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, run.pid, volume)),
                             None => Err(io::Error::other(format!("container {id} is not running"))),
                         }
                     } else {
