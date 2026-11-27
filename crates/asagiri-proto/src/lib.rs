@@ -541,6 +541,8 @@ pub mod net_opts {
     pub const IP6: &str = "ip6";
     /// `gw6=fd00:1::1`: that network's IPv6 gateway, the bridge's address.
     pub const GW6: &str = "gw6";
+    /// `keepipv6=1`: the container explicitly enables IPv6, even without IPv6 IPAM on this network.
+    pub const KEEP_IPV6: &str = "keepipv6";
     /// `internal=1`: the network is `--internal`: no default route, so
     /// nothing beyond it is reached (and fails at once).
     pub const INTERNAL: &str = "internal";

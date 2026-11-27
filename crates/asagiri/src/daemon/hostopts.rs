@@ -275,16 +275,22 @@ fn device_rule(rule: &str) -> Option<(&str, &str, &str, &str)> {
     (number(major) && number(minor)).then_some((t, major, minor, perms))
 }
 
-/// Whether the `Sysctls` in `opts` turn IPv6 off on `ifname`:
-/// `net.ipv6.conf.all`, `.default` or `.<ifname>` `.disable_ipv6` set to 1
-/// (dots or slashes, as Docker takes both).
-pub fn ipv6_disabled(opts: &Value, ifname: &str) -> bool {
-    let Some(map) = opts["Sysctls"].as_object() else { return false };
-    map.iter().any(|(key, value)| {
+/// The explicit IPv6 setting for an interface, with a disable taking precedence.
+/// Docker accepts both dotted and slash-separated sysctl names.
+pub fn ipv6_disabled(opts: &Value, ifname: &str) -> Option<bool> {
+    let mut state = None;
+    for (key, value) in opts["Sysctls"].as_object()? {
         let key = key.replace('/', ".");
-        let on = value.as_str().map(str::trim) == Some("1") || value.as_i64() == Some(1);
-        on && ["all", "default", ifname].iter().any(|i| key == format!("net.ipv6.conf.{i}.disable_ipv6"))
-    })
+        if !["all", "default", ifname].iter().any(|i| key == format!("net.ipv6.conf.{i}.disable_ipv6")) {
+            continue;
+        }
+        match (value.as_str().map(str::trim), value.as_i64()) {
+            (Some("1"), _) | (_, Some(1)) => return Some(true),
+            (Some("0"), _) | (_, Some(0)) => state = Some(false),
+            _ => (),
+        }
+    }
+    state
 }
 
 /// Which namespace a sysctl belongs to (`net`, `ipc` or `uts`) and its path
@@ -440,14 +446,18 @@ mod tests {
     }
 
     #[test]
-    fn ipv6_off_by_sysctl() {
-        let on = |k: &str, v: serde_json::Value, i: &str| super::ipv6_disabled(&json!({"Sysctls": {k: v}}), i);
-        assert!(on("net.ipv6.conf.all.disable_ipv6", json!("1"), "eth0"));
-        assert!(on("net.ipv6.conf.default.disable_ipv6", json!("1"), "eth0"));
-        assert!(on("net/ipv6/conf/eth1/disable_ipv6", json!("1"), "eth1"));
-        assert!(!on("net.ipv6.conf.eth1.disable_ipv6", json!("1"), "eth0"));
-        assert!(!on("net.ipv6.conf.all.disable_ipv6", json!("0"), "eth0"));
-        assert!(!super::ipv6_disabled(&json!({}), "eth0"));
+    fn explicit_ipv6_sysctl() {
+        let state = |key: &str, value: serde_json::Value, device: &str| {
+            super::ipv6_disabled(&json!({"Sysctls": {key: value}}), device)
+        };
+        assert_eq!(state("net.ipv6.conf.all.disable_ipv6", json!("1"), "eth0"), Some(true));
+        assert_eq!(state("net.ipv6.conf.default.disable_ipv6", json!("0"), "eth1"), Some(false));
+        assert_eq!(state("net/ipv6/conf/eth1/disable_ipv6", json!(0), "eth1"), Some(false));
+        assert_eq!(state("net.ipv6.conf.eth1.disable_ipv6", json!("1"), "eth0"), None);
+        assert_eq!(super::ipv6_disabled(&json!({}), "eth0"), None);
+        assert_eq!(super::ipv6_disabled(&json!({"Sysctls": {
+            "net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.eth1.disable_ipv6": "0"
+        }}), "eth1"), Some(true));
     }
 
     #[test]

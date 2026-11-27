@@ -797,16 +797,16 @@ fn relay(client: TcpStream, vm: &VmLink, ip: [u8; 4], port: u16, nat: Option<Soc
 /// each half-close passed on.
 fn relay_tcp(client: TcpStream, guest: TcpStream) -> io::Result<()> {
     relayed_tcp(&guest)?;
-    let (mut client_read, mut guest_write) = (client.try_clone()?, guest.try_clone()?);
-    let up = std::thread::Builder::new().name("asagiri-conn-up".into()).spawn(move || {
-        let how = pass_on(copy(&mut client_read, &mut guest_write));
-        let _ = guest_write.shutdown(how);
-    })?;
-    let (mut guest_read, mut client_write) = (guest, client);
-    let how = pass_on(copy(&mut guest_read, &mut client_write));
-    let _ = client_write.shutdown(how);
-    let _ = up.join();
-    Ok(())
+    std::thread::scope(|scope| {
+        let up = std::thread::Builder::new().name("asagiri-conn-up".into()).spawn_scoped(scope, || {
+            let how = pass_on(copy(&mut &client, &mut &guest));
+            let _ = guest.shutdown(how);
+        })?;
+        let how = pass_on(copy(&mut &guest, &mut &client));
+        let _ = client.shutdown(how);
+        let _ = up.join();
+        Ok(())
+    })
 }
 
 /// How long a Linux host waits for a container to answer a connect: it is
@@ -1032,6 +1032,28 @@ mod relay_shutdown_tests {
                 let _ = thread.join();
             }
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_live_relay_holds_one_descriptor_for_each_socket() {
+        let mut relay = Relay::new();
+        let client = relay.client.as_mut().unwrap();
+        client.write_all(b"x").unwrap();
+        let mut received = [0];
+        relay.server.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"x");
+
+        let relay_end = |peer: &TcpStream| format!("n{}->{}", peer.peer_addr().unwrap(), peer.local_addr().unwrap());
+        let output = std::process::Command::new("/usr/sbin/lsof")
+            .args(["-nP", "-a", "-p", &std::process::id().to_string(), "-iTCP", "-sTCP:ESTABLISHED", "-Ffn"])
+            .output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let sockets = String::from_utf8(output.stdout).unwrap();
+        let descriptors = |endpoint: String| sockets.lines().filter(|line| *line == endpoint).count();
+        assert_eq!(descriptors(relay_end(client)), 1);
+        // The fixture also holds guest_probe, a duplicate of the guest socket.
+        assert_eq!(descriptors(relay_end(&relay.server)), 2);
     }
 
     #[test]

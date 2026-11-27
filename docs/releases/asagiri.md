@@ -3,8 +3,20 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 ## Changes since stable 0.1.15
 
 - On Macs with multiple virtual bridges, the fallback uplink selects the bridge that learned the guest MAC address. Off-host connectivity remains under investigation in #213.
-- Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
-- Both guest kernel configurations enable prerequisites for checkpointing (#507). Cross-machine restore is tracked in #506.
+- Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504). Subsequent in-place host edits also refresh reads on descriptors the container already has open (#526).
+- Mac bind mounts preserve container-side `chown` across remounts while retaining the host file’s ownership (#494).
+- The macOS menu bar preserves the engine action you select while the engine is recovering (#527).
+- The macOS updater validates archive paths and bundle contents before extraction. Release packaging compresses both Mac update archives in parallel (#521, #523).
+- The macOS updater directs users of ad hoc signed builds to the published disk image. Engine shutdown bounds the wait for Finder unmount and releases the VM disk lock after the VM has stopped (#490, #492, #513).
+- Published TCP connections on macOS use half as many relay socket descriptors per connection, leaving more descriptors available for concurrent connections (#528).
+- Windows Buildx includes the upstream certificate validation fix, and Build history recognizes workers using equivalent local pipe endpoints (#497, #498). Linux clients in an integrated WSL distribution can discover its Docker socket, and the Windows dashboard resolves Compose project paths inside WSL (#478, #485).
+- WSL distributions coordinate host networking before assigning bridge addresses, with rollback when an address is rejected. The Windows host proxy closes active connections when it stops (#489, #519).
+- Linux ignores published ports for containers using host networking and reports when the kernel cannot place a new process atomically in its cgroup (#483, #495).
+- Oversized guest directory, process and disk-usage replies return an error. The ARM64 guest kernel includes the SysV symbol hash that older Rosetta versions expect (#484, #488).
+- The registry mirror serves manifest and index digests from their original bytes. A re-pull repairs a corrupt cached manifest even when its size is unchanged (#499).
+- Build history finds builds using implicit contexts, and cache prune reports usage from current BuildKit output (#502, #525).
+- The desktop uses clearer Ukrainian wording for Share and other controls (#482).
+- Both guest kernel configurations enable prerequisites for checkpointing, and both guest architectures can bundle CRIU. A restore request with a missing checkpoint leaves the container stopped. Cross-machine restore is tracked in #506 (#507, #508, #512, #514).
 - The Apple Silicon and Intel Mac packages bundle CRIU and its helpers. `docker checkpoint create --leave-running` captures a container, and `asagiri checkpoint export` saves the named checkpoint to a tar file. The release asset `asagiri-checkpoint-source.tar` contains the matching Debian sources and build recipes for both architectures.
 - The guest kernels expose the IPv6 route-information and optimistic address-detection settings that CRIU restores from Debian network namespaces. The Mac guest runtime includes legacy IPv4 and IPv6 iptables save and restore helpers. The stock Debian ARM64 cloud kernel exposes additional procfs mounts that can prevent restoring its containers on the Mac guest (#506).
 - Native Linux engines can capture containers using the distribution's CRIU and helpers. Check `asagiri checkpoint platform` for runtime availability. Kernel-created tunnel interfaces can prevent capture. Failed captures report the underlying CRIU error when available.
