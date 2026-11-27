@@ -18,7 +18,7 @@ pub(super) const MANIFEST: &str = "volume-mounts.json";
 pub(super) struct Mount {
     pub(super) name: String,
     pub(super) target: String,
-    read_only: bool,
+    pub(super) read_only: bool,
 }
 
 pub(super) fn valid_name(name: &str) -> bool {
