@@ -74,6 +74,8 @@ pub struct Process {
     /// The initial process runs in an existing PID namespace.
     /// False for execs, which do not own a container cgroup to tear down.
     pub pid_shared: bool,
+    /// Managed volumes this container can write, used to coordinate checkpoints.
+    pub writable_volumes: Vec<String>,
     /// Pipe read end, or the pty master for a TTY.
     pub stdout: Option<OwnedFd>,
     /// None for a TTY: the terminal merges both streams.
@@ -525,6 +527,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             container: None,
             pid,
             pid_shared: shared_pid_ns.is_some(),
+            writable_volumes: spec.mounts.iter().filter_map(writable_volume).map(str::to_owned).collect(),
             stdout,
             stderr,
             stdin,
@@ -690,6 +693,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         container: Some(spec.container_id.to_owned()),
         pid,
         pid_shared: false,
+        writable_volumes: Vec::new(),
         stdout,
         stderr,
         stdin,
@@ -854,6 +858,18 @@ fn undo_now(t: &Teardown) -> io::Result<()> {
 /// Deletes a named volume's data.
 /// Where volumes live: `<name>/_data` under it.
 pub const VOLUMES: &str = "/var/lib/asagiri/volumes";
+
+/// Names from resolved guest mount lines. A bind of an entire volume or a
+/// directory inside it also gives the container access to that volume.
+pub(super) fn writable_volume(line: &str) -> Option<&str> {
+    let mut fields = line.split('\t');
+    let source = fields.next()?;
+    fields.next()?;
+    if fields.next().unwrap_or_default().split(',').any(|flag| flag == "ro") { return None; }
+    let mut parts = Path::new(source).strip_prefix(VOLUMES).ok()?.iter();
+    let name = parts.next()?.to_str()?;
+    (parts.next()? == "_data").then_some(name)
+}
 
 
 pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {

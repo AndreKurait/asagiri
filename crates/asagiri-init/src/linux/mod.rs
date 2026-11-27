@@ -45,6 +45,13 @@ use sys::{boottime_ns, check, mount};
 const DATA: &str = "/var/lib/asagiri";
 
 pub fn main() {
+    if std::env::args_os().next().as_deref().and_then(|arg| std::path::Path::new(arg).file_name()) == Some(checkpoint::VOLUME_HOOK.as_ref()) {
+        if let Err(error) = checkpoint::run_volume_hook() {
+            eprintln!("checkpoint volume archive: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     install_panic_hook();
     let init_start_ns = boottime_ns();
     let result = run(init_start_ns);

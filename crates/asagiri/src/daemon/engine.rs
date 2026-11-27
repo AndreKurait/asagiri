@@ -3610,10 +3610,24 @@ impl Engine {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        if !self.with(&id, |c| c.status == Status::Running)? {
+        let (running, mounts) = self.with(&id, |c| (c.status == Status::Running, c.spec.mount_info.clone()))?;
+        if !running {
             return Err(Error::Conflict("checkpoint capture requires a running container".into()));
         }
-        match self.vm()?.checkpoint_live(&id, name) {
+        let mut volumes = Vec::new();
+        for mount in mounts.iter().filter(|m| m["Type"] == "volume") {
+            let volume = mount["Name"].as_str().and_then(|name| self.volume_get(name))
+                .ok_or_else(|| Error::Conflict("checkpoint volume metadata is missing".into()))?;
+            if !volume.options.is_empty() {
+                return Err(Error::Conflict(format!("checkpoint of volume {} with external driver options is unsupported", volume.name)));
+            }
+            volumes.push(serde_json::json!({"name": volume.name, "target": mount["Destination"], "readOnly": mount["RW"] == false}));
+        }
+        let manifest = if volumes.is_empty() { String::new() } else { serde_json::Value::Array(volumes).to_string() };
+        if manifest.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
+            return Err(Error::Conflict("checkpoint volume inventory exceeds the guest protocol limit".into()));
+        }
+        match self.vm()?.checkpoint_live(&id, name, &manifest) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(Error::Conflict(error.to_string())),
             Err(error) => Err(Error::Io(error)),

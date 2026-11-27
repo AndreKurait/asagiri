@@ -146,7 +146,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
         }
         roots.start(paths, std::time::Instant::now());
         volumes.start(std::time::Instant::now());
-        copy_jobs.advance(paths, |id| copy_view(&procs, id));
+        copy_jobs.advance(paths, |id| copy_view(&procs, id), |volume| checkpoint.as_ref().is_some_and(|c| c.uses_volume(volume)));
         root_events(&roots, &procs, &mut conn, &mut out)?;
         fds.clear();
         fds.push(libc::pollfd { fd: conn.as_raw_fd(), events: libc::POLLIN, revents: 0 });
@@ -473,6 +473,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(stored) => Msg::LayerStored(stored).encode(&mut out),
                     Err(e) => Msg::Error(&format!("unpack {}: {e}", begin.digest)).encode(&mut out),
                 },
+                Ok(Msg::Run(spec)) if checkpoint.as_ref().is_some_and(|c| spec.mounts.iter().filter_map(container::writable_volume).any(|name| c.uses_volume(name))) => {
+                    Msg::Error("volume checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Run(spec)) if procs.contains_key(spec.id) || roots.removing(spec.id) => {
                     Msg::Error(&format!("container {} is running or being cleaned up", spec.id)).encode(&mut out);
                 }
@@ -665,6 +668,10 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| procs.get(id)
+                    .is_some_and(|p| p.run.writable_volumes.iter().any(|name| c.uses_volume(name)))) => {
+                    Msg::Error("volume checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Freeze { id, frozen }) => match running_cgroup(&procs, id) {
                     Some((_, path)) => match super::cgroup::freeze(path, frozen) {
                         Ok(()) => Msg::Ack.encode(&mut out),
@@ -677,14 +684,15 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
                 },
-                Ok(Msg::CheckpointCreate { id, name, leave_running }) => {
+                Ok(Msg::CheckpointCreate { id, name, leave_running, volume_mounts }) => {
                     let result = if !leave_running {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
                     } else if checkpoint.is_some() {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
                     } else if let Some(runtime) = runtime {
                         match running_cgroup(&procs, id) {
-                            Some((pid, group)) => super::checkpoint::Capture::start(runtime, pid, group, &paths.containers.join(id), name),
+                            Some((pid, group)) => super::checkpoint::Capture::start(runtime, pid, group, &paths.containers.join(id), name, volume_mounts,
+                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, pid, volume)),
                             None => Err(io::Error::other(format!("container {id} is not running"))),
                         }
                     } else {
@@ -936,6 +944,17 @@ fn memory_pressure_trigger() -> Option<std::fs::File> {
 fn running_cgroup<'a>(procs: &'a Procs, id: &str) -> Option<(libc::pid_t, &'a std::path::Path)> {
     let pid = running_pid(procs, id)?;
     Some((pid, container::cgroup(&procs.get(id)?.run)?))
+}
+
+fn other_volume_writer(procs: &Procs, target: libc::pid_t, volume: &str) -> bool {
+    procs.values().any(|p| {
+        if p.run.pid == target || !p.run.writable_volumes.iter().any(|v| v == volume) { return false; }
+        let Some(group) = container::cgroup(&p.run) else { return false };
+        let Ok(events) = std::fs::read_to_string(group.join("cgroup.events")) else {
+            return p.exited.is_none() || group.exists();
+        };
+        events.lines().any(|line| line == "populated 1") && !events.lines().any(|line| line == "frozen 1")
+    })
 }
 
 /// A reaped entry may retain its terminal while output and cleanup drain.

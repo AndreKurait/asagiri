@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod volumes;
+pub(super) use volumes::{VOLUME_HOOK, run_volume_hook};
+
 const TOOL_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 
 #[derive(Debug)]
@@ -187,11 +190,20 @@ pub(super) struct Capture {
     destination: PathBuf,
     cancelled: bool,
     finished: bool,
+    volume_mounts: Vec<volumes::Mount>,
 }
 
 impl Capture {
-    pub(super) fn start(runtime: &Runtime, pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str) -> io::Result<Self> {
+    pub(super) fn uses_volume(&self, name: &str) -> bool {
+        self.volume_mounts.iter().any(|m| m.name == name)
+    }
+
+    pub(super) fn start(runtime: &Runtime, pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str, volume_inventory: &str, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
         super::container::valid_id(name)?;
+        let volume_mounts = volumes::inventory(volume_inventory, pid)?;
+        if let Some(mount) = volume_mounts.iter().find(|m| busy(&m.name)) {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, format!("volume {} has another active writer; pause its containers and finish uploads before checkpointing", mount.name)));
+        }
         let root = container_dir.join("checkpoints");
         DirBuilder::new().recursive(true).mode(0o700).create(&root)?;
         let destination = root.join(name);
@@ -206,14 +218,14 @@ impl Capture {
             Err(error) => return Err(error),
         }
         DirBuilder::new().mode(0o700).create(&staging)?;
-        let child = match dump(runtime, pid, group, &staging) {
+        let child = match dump(runtime, pid, group, &staging, &volume_mounts) {
             Ok(child) => child,
             Err(error) => {
                 remove_staging(&staging);
                 return Err(error);
             }
         };
-        Ok(Self { child, target_pid: pid, staging, destination, cancelled: false, finished: false })
+        Ok(Self { child, target_pid: pid, staging, destination, cancelled: false, finished: false, volume_mounts })
     }
 
     /// Peek without making the target PID reusable. On target exit, stop the
@@ -255,7 +267,8 @@ impl Capture {
             let detail = dump_failure(&self.staging.join("dump.log")).unwrap_or_default();
             Err(io::Error::other(format!("CRIU dump exited with {status}{detail}")))
         } else {
-            fs::rename(&self.staging, &self.destination)
+            volumes::finish(&self.staging, &self.volume_mounts)
+                .and_then(|()| fs::rename(&self.staging, &self.destination))
         };
         if result.is_err() { remove_staging(&self.staging); }
         result.map(Some)
@@ -299,16 +312,18 @@ fn remove_staging(staging: &Path) {
     }
 }
 
-fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path) -> io::Result<Child> {
-    runtime.command()
+fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path, mounts: &[volumes::Mount]) -> io::Result<Child> {
+    let mut command = runtime.command();
+    command
         .process_group(0)
         .current_dir(images)
         .args(["dump", "-v4", "--log-file", "dump.log", "--tree"])
         .arg(pid.to_string())
         .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])
-        .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"])
-        .spawn()
+        .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"]);
+    volumes::prepare(&mut command, images, mounts)?;
+    command.spawn()
 }
 
 #[cfg(test)]

@@ -107,6 +107,7 @@ dependencies = [
  "flate2",
  "libc",
  "ruzstd",
+ "serde",
  "serde_json",
  "tar",
 ]

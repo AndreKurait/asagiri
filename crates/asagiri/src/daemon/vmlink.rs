@@ -590,9 +590,9 @@ impl VmLink {
         }
     }
 
-    pub fn checkpoint_live(&self, id: &str, name: &str) -> io::Result<()> {
+    pub fn checkpoint_live(&self, id: &str, name: &str, volume_mounts: &str) -> io::Result<()> {
         let completion = self.checkpoint.reserve()?;
-        let result = self.ack(|o| Msg::CheckpointCreate { id, name, leave_running: true }.encode(o))
+        let result = self.ack(|o| Msg::CheckpointCreate { id, name, leave_running: true, volume_mounts }.encode(o))
             .and_then(|()| completion.recv().unwrap_or_else(|_| Err(io::Error::other("the VM stopped during checkpoint capture"))));
         self.checkpoint.clear();
         result

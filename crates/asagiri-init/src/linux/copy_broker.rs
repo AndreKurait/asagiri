@@ -46,6 +46,7 @@ struct Worker {
     written: usize,
     exited: Option<i32>,
     preparing: bool,
+    writable_volumes: Vec<String>,
 }
 
 pub struct Broker<'a> {
@@ -90,7 +91,7 @@ impl<'a> Broker<'a> {
         }
         drop(child);
         self.workers.push(Worker { pid, client, control: Some(ours), phase: Phase::Awaiting,
-            lease: None, completion_root: None, reply: None, written: 0, exited: None, preparing: false });
+            lease: None, completion_root: None, reply: None, written: 0, exited: None, preparing: false, writable_volumes: Vec::new() });
         Ok(())
     }
 
@@ -120,11 +121,15 @@ impl<'a> Broker<'a> {
 
     /// Also revisits a pending root after its prior cleanup completes. View
     /// lookup happens here, never from a snapshot taken at accept/fork time.
-    pub fn advance(&mut self, paths: &Paths, view: impl Fn(&str) -> View) {
+    pub fn writes_volume(&self, name: &str) -> bool {
+        self.workers.iter().any(|w| w.exited.is_none() && w.writable_volumes.iter().any(|v| v == name))
+    }
+
+    pub fn advance(&mut self, paths: &Paths, view: impl Fn(&str) -> View, volume_busy: impl Fn(&str) -> bool) {
         for worker in &mut self.workers {
             if worker.exited.is_none() {
                 if let Phase::Pending(request) = &worker.phase {
-                    match grant(self.roots, paths, request, &view) {
+                    match grant(self.roots, paths, request, &view, &volume_busy, &mut worker.writable_volumes) {
                         Ok(Some((reply, id, preparing))) => {
                             worker.lease = Some(id);
                             worker.preparing = preparing;
@@ -253,7 +258,7 @@ impl Worker {
     }
 }
 
-fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> View) -> io::Result<Option<(Grant, String, bool)>> {
+fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> View, volume_busy: &impl Fn(&str) -> bool, writable_volumes: &mut Vec<String>) -> io::Result<Option<(Grant, String, bool)>> {
     let spec = match asagiri_proto::decode(request) {
         Ok(Msg::Copy(spec)) => spec,
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid root request")),
@@ -264,11 +269,13 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     }
     let view = view(spec.id);
     if matches!(view, View::Cleaning) || roots.cleaning(spec.id) { return Ok(None); }
+    if spec.op == copy_op::IN && spec.mounts.iter().any(volume_busy) { return Ok(None); }
     let root = match spec.op {
         copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT => roots.hold_upper(paths, spec.id),
         copy_op::IN | copy_op::OUT | copy_op::STAT | copy_op::EXPORT => roots.acquire(paths, spec.id, spec.layers),
         _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "unknown copy operation")),
     }?;
+    if spec.op == copy_op::IN { writable_volumes.extend(spec.mounts.iter().map(str::to_owned)); }
     let mut preparing = false;
     let result = (|| {
         if spec.op == copy_op::CHECKPOINT_EXPORT {
@@ -318,9 +325,10 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
         let name = if spec.op == copy_op::CHECKPOINT_EXPORT { spec.path } else { "" };
-        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &[]);
+        let volumes: Vec<_> = if spec.op == copy_op::IN { spec.mounts.iter().filter_map(super::super::container::writable_volume).collect() } else { Vec::new() };
+        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &volumes);
         if request.len() > MAX_REQUEST {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "copy layer list exceeds the root request limit"));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "copy metadata exceeds the root request limit"));
         }
         send(control.as_raw_fd(), &request)?;
         let grant = sys::recv_fd(control.as_raw_fd())?;
