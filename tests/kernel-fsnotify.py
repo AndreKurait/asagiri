@@ -33,6 +33,7 @@ CONTROLS = [
     "replacement looks up new inode and preserves open file",
     "replacement expires cache without watchers",
     "deletion expires cache without watchers",
+    "repeated edits refresh the held descriptor without reopen",
 ]
 
 

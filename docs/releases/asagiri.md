@@ -3,7 +3,7 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 ## Changes since stable 0.1.15
 
 - On Macs with multiple virtual bridges, the fallback uplink selects the bridge that learned the guest MAC address. Off-host connectivity remains under investigation in #213.
-- Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
+- Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504). Subsequent in-place host edits also refresh reads on descriptors the container already has open (#526).
 - Mac bind mounts preserve container-side `chown` across remounts while retaining the host file’s ownership (#494).
 - The macOS menu bar preserves the engine action you select while the engine is recovering (#527).
 - The macOS updater validates archive paths and bundle contents before extraction. Release packaging compresses both Mac update archives in parallel (#521, #523).
