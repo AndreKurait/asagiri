@@ -30,9 +30,26 @@ const TOOL_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
 pub(super) fn verify_receiver(containers: &Path, run: &super::container::Process, name: &str, destinations: asagiri_proto::StrList<'_>) -> io::Result<()> {
     restore_mounts::external_mounts(containers, &run.id, run.pid, name, destinations)?;
     if run.awaiting_checkpoint_restore {
-        stdio::restore_pipes(&containers.join(&run.id).join("checkpoints").join(name), run)?;
+        let images = containers.join(&run.id).join("checkpoints").join(name);
+        let network: serde_json::Value = receive::manifest(&images.join("network.json"))?;
+        if let Some(external) = network.get("externalNetwork") {
+            if external.as_str() != Some(asagiri_proto::CHECKPOINT_NETNS) {
+                return Err(io::Error::other("unsupported checkpoint network namespace key"));
+            }
+            private_bridge_namespace(run)?;
+        }
+        stdio::restore_pipes(&images, run)?;
     }
     Ok(())
+}
+
+fn private_bridge_namespace(run: &super::container::Process) -> io::Result<fs::File> {
+    let namespace = fs::File::open(format!("/proc/{}/ns/net", run.pid))?;
+    let inode = namespace.metadata()?.ino();
+    if run.veths.is_empty() || !run.macvlans.is_empty() || inode != run.netns || inode == fs::metadata("/proc/self/ns/net")?.ino() {
+        return Err(io::Error::other("container does not own a private bridge network namespace"));
+    }
+    Ok(namespace)
 }
 
 #[derive(Debug)]
@@ -398,10 +415,7 @@ fn dump(mut command: Command, run: &super::container::Process, group: &Path, ima
         .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"]);
     if external_network {
-        let inode = fs::metadata(format!("/proc/{}/ns/net", run.pid))?.ino();
-        if run.veths.is_empty() || !run.macvlans.is_empty() || inode != run.netns || inode == fs::metadata("/proc/self/ns/net")?.ino() {
-            return Err(io::Error::other("container does not own a private bridge network namespace"));
-        }
+        let inode = private_bridge_namespace(run)?.metadata()?.ino();
         command.arg("--external").arg(format!("net[{inode}]:{}", asagiri_proto::CHECKPOINT_NETNS));
     }
     network_files::prepare(&mut command, &run.network_files_dir);
