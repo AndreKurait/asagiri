@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -31,8 +32,16 @@ class Connection(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
-def timestamp(value):
-    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+def timestamp_ns(value):
+    # Docker timestamps may include nine fractional digits. Parse them
+    # without rounding the dependency start/finish order through a float.
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})", value)
+    if not match:
+        raise ValueError(f"invalid Docker timestamp: {value!r}")
+    whole, fraction, offset = match.groups()
+    time_with_offset = datetime.datetime.fromisoformat(whole + ("+00:00" if offset == "Z" else offset))
+    since_epoch = time_with_offset - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+    return (since_epoch.days * 86400 + since_epoch.seconds) * 1_000_000_000 + int((fraction or "").ljust(9, "0"))
 
 
 def project_files(image, arch, token, context, bind, project):
@@ -211,11 +220,11 @@ def check(args):
             assert completed["State"]["ExitCode"] == 0 and not completed["State"]["Running"], completed["State"]
             assert app["State"]["Running"], app["State"]
             healthy = [p for p in db["State"]["Health"]["Log"] if p["ExitCode"] == 0]
-            assert healthy and timestamp(app["State"]["StartedAt"]) >= min(timestamp(p["End"]) for p in healthy)
-            delay = timestamp(app["State"]["StartedAt"]) - timestamp(db["State"]["StartedAt"])
-            assert delay >= 2, (delay, db["State"], app["State"])
-            passed("service-healthy-dependency", start_delay_seconds=delay)
-            assert timestamp(app["State"]["StartedAt"]) >= timestamp(completed["State"]["FinishedAt"])
+            assert healthy and timestamp_ns(app["State"]["StartedAt"]) >= min(timestamp_ns(p["End"]) for p in healthy)
+            delay_ns = timestamp_ns(app["State"]["StartedAt"]) - timestamp_ns(db["State"]["StartedAt"])
+            assert delay_ns >= 2_000_000_000, (delay_ns, db["State"], app["State"])
+            passed("service-healthy-dependency", start_delay_seconds=delay_ns / 1_000_000_000)
+            assert timestamp_ns(app["State"]["StartedAt"]) >= timestamp_ns(completed["State"]["FinishedAt"])
             passed("service-completed-successfully-dependency")
             built = api("GET", image_path(image_tag) + "/json")
             assert built["Architecture"] == arch and built["Os"] == "linux", built
