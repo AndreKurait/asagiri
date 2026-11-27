@@ -1034,6 +1034,28 @@ mod relay_shutdown_tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_live_relay_holds_one_descriptor_for_each_socket() {
+        let mut relay = Relay::new();
+        let client = relay.client.as_mut().unwrap();
+        client.write_all(b"x").unwrap();
+        let mut received = [0];
+        relay.server.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"x");
+
+        let relay_end = |peer: &TcpStream| format!("n{}->{}", peer.peer_addr().unwrap(), peer.local_addr().unwrap());
+        let output = std::process::Command::new("/usr/sbin/lsof")
+            .args(["-nP", "-a", "-p", &std::process::id().to_string(), "-iTCP", "-sTCP:ESTABLISHED", "-Ffn"])
+            .output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let sockets = String::from_utf8(output.stdout).unwrap();
+        let descriptors = |endpoint: String| sockets.lines().filter(|line| *line == endpoint).count();
+        assert_eq!(descriptors(relay_end(client)), 1);
+        // The fixture also holds guest_probe, a duplicate of the guest socket.
+        assert_eq!(descriptors(relay_end(&relay.server)), 2);
+    }
+
     #[test]
     fn a_quiet_relay_has_no_read_deadline_and_preserves_half_close() {
         let mut relay = Relay::new();
