@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 
 SECRET_NAMES = (
     "ASAGIRI_APPLE_CERTIFICATE_BASE64",
@@ -165,8 +166,15 @@ def finalize(app, arch, version):
         "--verbose=2", str(dmg))
     # Tar and the update feed must describe the app after its ticket was stapled.
     run("cargo", "xtask", "pack", "--arch", arch)
+    update_archive = ROOT / "target" / f"Asagiri-{version}-{arch}.tar.gz"
+    with tempfile.TemporaryDirectory(prefix="update-", dir=directory) as unpacked:
+        run("/usr/bin/tar", "-xzf", str(update_archive), "-C", unpacked)
+        update_app = str(Path(unpacked) / "Asagiri.app")
+        run("codesign", "--verify", "--deep", "--strict", update_app)
+        run("xcrun", "stapler", "validate", update_app)
+        run("spctl", "--assess", "--type", "execute", "--verbose=2", update_app)
     archive.unlink()
-    print("Final app and DMG are signed, notarized, stapled, and accepted by Gatekeeper.")
+    print("Final app, DMG, and extracted update app are signed, notarized, stapled, and accepted by Gatekeeper.")
 
 
 def cleanup():
