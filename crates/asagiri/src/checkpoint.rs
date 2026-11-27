@@ -117,6 +117,14 @@ pub(crate) fn fence_receiver(args: &[String]) -> io::Result<()> {
     if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
+pub(crate) fn activate_group(ids: &[String]) -> io::Result<()> {
+    if ids.is_empty() || ids.iter().any(|id| !client::valid_checkpoint_component(id)) {
+        return Err(io::Error::other("usage: asagiri checkpoint activate-group CONTAINER [CONTAINER...]"));
+    }
+    let response = client::request("POST", "/asagiri/checkpoint-activate-group", Some(&json!({"containers": ids})))?;
+    if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
+}
+
 fn local_platform() -> io::Result<Platform> {
     serde_json::from_value(client::get("/asagiri/checkpoint-platform")?).map_err(io::Error::other)
 }

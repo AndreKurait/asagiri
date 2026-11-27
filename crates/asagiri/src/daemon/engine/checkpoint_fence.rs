@@ -1,5 +1,6 @@
 use super::{Container, Engine, Error, SHUTTING_DOWN, Status};
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 
 impl Container {
@@ -26,20 +27,47 @@ struct CaptureMember<'a> {
 }
 
 impl Engine {
+    fn checkpoint_members(&self, keys: &[String], role: &str) -> Result<BTreeMap<String, Arc<Mutex<u64>>>, Error> {
+        let mut members = BTreeMap::new();
+        let state = self.lock();
+        for key in keys {
+            let id = super::resolve(&state, key)?;
+            let lifecycle = state.containers[&id].lifecycle.clone();
+            if members.insert(id, lifecycle).is_some() {
+                return Err(Error::BadRequest(format!("duplicate {role}")));
+            }
+        }
+        Ok(members)
+    }
+
+    pub fn activate_checkpoint_receivers(&self, keys: &[String]) -> Result<(), Error> {
+        if keys.is_empty() || keys.len() > asagiri_proto::MAX_FRAME.saturating_sub(32) / 68 {
+            return Err(Error::BadRequest("invalid checkpoint receiver group size".into()));
+        }
+        let _power = self.power.lock().unwrap_or_else(|e| e.into_inner());
+        if SHUTTING_DOWN.load(Ordering::SeqCst) { return Err(Error::Conflict("daemon is shutting down".into())); }
+        let members = self.checkpoint_members(keys, "checkpoint receiver")?;
+        let _guards: Vec<_> = members.values().map(|lock| lock.lock().unwrap_or_else(|e| e.into_inner())).collect();
+        for id in members.keys() {
+            self.with(id, |c| {
+                c.ensure_unfenced()?;
+                if c.status != Status::Running || !c.in_guest || !c.spec.checkpoint_wait || c.paused {
+                    return Err(Error::Conflict(format!("container {id} is not a running checkpoint receiver")));
+                }
+                Ok(())
+            })??;
+        }
+        let ids: Vec<_> = members.keys().cloned().collect();
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.activate_checkpoint_receivers(&ids).map_err(|error| Error::Conflict(error.to_string()))
+    }
+
     pub fn checkpoint_group(&self, name: &str, keys: &[String], action: SourceAction) -> Result<(), Error> {
         if keys.is_empty() { return Err(Error::BadRequest("supply at least one source container".into())); }
         // Power transitions can thaw ordinary paused containers during shutdown.
         let _power = self.power.lock().unwrap_or_else(|e| e.into_inner());
         if SHUTTING_DOWN.load(Ordering::SeqCst) { return Err(Error::Conflict("daemon is shutting down".into())); }
-        let mut members = BTreeMap::new();
-        {
-            let state = self.lock();
-            for key in keys {
-                let id = super::resolve(&state, key)?;
-                let lifecycle = state.containers[&id].lifecycle.clone();
-                if members.insert(id, lifecycle).is_some() { return Err(Error::BadRequest("duplicate source container".into())); }
-            }
-        }
+        let members = self.checkpoint_members(keys, "source container")?;
         // Consistent ID order excludes concurrent pause, start, stop and removal.
         let _guards: Vec<_> = members.values().map(|lock| lock.lock().unwrap_or_else(|e| e.into_inner())).collect();
         let ids: Vec<_> = members.keys().cloned().collect();

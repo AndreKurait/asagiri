@@ -134,7 +134,7 @@ fn wait(group: &Group, key: &str, value: bool, deadline: Instant) -> io::Result<
     }
 }
 
-fn pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
+pub(super) fn pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
     // SAFETY: opens a handle to this process identity; no signal is sent.
     let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0u32) };
     if fd < 0 { return Err(io::Error::last_os_error()); }
@@ -143,11 +143,16 @@ fn pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
 }
 
 fn signal(fd: &OwnedFd) -> io::Result<()> {
-    // SAFETY: SIGKILL is addressed to the pinned process identity, never a PID.
-    let result = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, std::ptr::null::<libc::siginfo_t>(), 0u32) };
-    if result == 0 { return Ok(()); }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+    match signal_pidfd(fd, libc::SIGKILL) {
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
+        result => result,
+    }
+}
+
+pub(super) fn signal_pidfd(fd: &OwnedFd, signal: libc::c_int) -> io::Result<()> {
+    // SAFETY: signal addresses the pinned process identity, with no signal payload.
+    let result = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), signal, std::ptr::null::<libc::siginfo_t>(), 0u32) };
+    if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 fn signal_members(group: &Group, snapshot: &[libc::pid_t], deadline: Instant) -> io::Result<usize> {

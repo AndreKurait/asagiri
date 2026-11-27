@@ -607,6 +607,10 @@ impl VmLink {
         self.ack(|out| Msg::CheckpointFenceReceiver { id, fenced }.encode(out))
     }
 
+    pub fn activate_checkpoint_receivers(&self, ids: &[String]) -> io::Result<()> {
+        self.ack(|out| asagiri_proto::encode_checkpoint_activate_group(out, ids))
+    }
+
     pub fn checkpoint_mounts(&self, id: &str) -> io::Result<Vec<String>> {
         match self.call(|o| Msg::CheckpointMountQuery { id }.encode(o), None)? {
             Reply::CheckpointMounts(paths) => Ok(paths),

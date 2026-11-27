@@ -199,6 +199,19 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             version["Experimental"] = json!(engine.live_checkpoint());
             return reply(w, Ok(version), 200);
         }
+        ("POST", "/asagiri/checkpoint-activate-group") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Receivers { containers: Vec<String> }
+            let result = serde_json::from_slice::<Receivers>(&req.body)
+                .map_err(|error| Error::BadRequest(error.to_string()))
+                .and_then(|group| engine.activate_checkpoint_receivers(&group.containers));
+            return reply(w, result.map(|()| Value::Null), 204);
+        }
         ("POST", path @ ("/asagiri/checkpoint-capture-group" | "/asagiri/checkpoint-fence" | "/asagiri/checkpoint-release")) => {
             if !matches!(caller, super::caller::Caller::Host) {
                 http::error(w, 403, "host connection required")?;

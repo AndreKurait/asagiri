@@ -785,6 +785,10 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                         Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
                     }
                 }
+                Ok(Msg::CheckpointActivateGroup(ids)) => match activate_receivers(&mut procs, ids) {
+                    Ok(()) => Msg::Ack.encode(&mut out),
+                    Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                },
                 Ok(Msg::CheckpointInstallProcess { id, name, volumes }) => {
                     let result = if restoring.is_some() || checkpoint.is_some() {
                         Err(io::Error::other("another checkpoint operation is in progress"))
@@ -1129,6 +1133,66 @@ fn fence_receiver(procs: &mut Procs, id: &str, fenced: bool) -> io::Result<()> {
     let namespace = super::checkpoint::private_bridge_namespace(&p.run)?;
     super::netlink::checkpoint_fence(&namespace, fenced)?;
     p.restore_fenced = fenced;
+    Ok(())
+}
+
+fn activate_receivers(procs: &mut Procs, ids: asagiri_proto::StrList<'_>) -> io::Result<()> {
+    use super::{cgroup_kill, checkpoint, netlink};
+    let mut members = std::collections::BTreeMap::new();
+    for id in ids.iter() {
+        if members.contains_key(id) {
+            return Err(io::Error::other("duplicate checkpoint receiver"));
+        }
+        let p = procs.get(id).filter(|p| p.exited.is_none() && !p.run.awaiting_checkpoint_restore && p.restore_fenced)
+            .ok_or_else(|| io::Error::other(format!("receiver {id} has no installed and fenced process")))?;
+        let group = container::cgroup(&p.run).ok_or_else(|| io::Error::other("receiver has no cgroup"))?;
+        let tasks = group.join("cgroup.procs");
+        let read_tasks = || -> io::Result<std::collections::BTreeSet<libc::pid_t>> {
+            std::fs::read_to_string(&tasks)?.lines().map(|line| line.parse().map_err(io::Error::other)).collect()
+        };
+        let before = read_tasks()?;
+        if !before.contains(&p.run.pid) {
+            return Err(io::Error::other(format!("receiver {id} has no installed init in its cgroup")));
+        }
+        let mut handles = Vec::with_capacity(before.len());
+        for pid in &before {
+            let fd = cgroup_kill::pidfd(*pid)?;
+            if !std::fs::read_to_string(format!("/proc/{pid}/status"))?.lines().any(|line| line.starts_with("State:\tT")) {
+                return Err(io::Error::other(format!("receiver {id} has a task that is not stopped")));
+            }
+            cgroup_kill::signal_pidfd(&fd, 0)?;
+            handles.push(fd);
+        }
+        if before != read_tasks()? {
+            return Err(io::Error::other(format!("receiver {id} tasks changed during activation")));
+        }
+        members.insert(id, (checkpoint::private_bridge_namespace(&p.run)?, group.to_owned(), handles));
+    }
+    if members.is_empty() { return Err(io::Error::other("supply at least one checkpoint receiver")); }
+    let mut unfenced = Vec::new();
+    for (namespace, group, _) in members.values() {
+        if let Err(error) = netlink::checkpoint_fence(namespace, false) {
+            for (namespace, group) in unfenced {
+                if let Err(rollback) = netlink::checkpoint_fence(namespace, true) {
+                    eprintln!("checkpoint: could not reinstate receiver fence: {rollback}");
+                    let _ = cgroup_kill::kill(group);
+                }
+            }
+            return Err(error);
+        }
+        unfenced.push((namespace, group.as_path()));
+    }
+    for (_, _, handles) in members.values() {
+        for handle in handles {
+            if let Err(error) = cgroup_kill::signal_pidfd(handle, libc::SIGCONT) {
+                for (_, group, _) in members.values() { let _ = cgroup_kill::kill(group); }
+                return Err(io::Error::other(format!("receiver activation failed: {error}")));
+            }
+        }
+    }
+    for id in members.keys() {
+        procs.get_mut(*id).expect("checked receiver").restore_fenced = false;
+    }
     Ok(())
 }
 

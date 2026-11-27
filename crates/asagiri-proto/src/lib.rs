@@ -64,8 +64,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 19 prepares checkpoint receivers without executing their image command.
 /// 20 installs a restored checkpoint process into a waiting receiver.
 /// 21 fences a checkpoint receiver's network during installation.
+/// 22 activates a group of installed checkpoint receivers.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 21;
+pub const PROTOCOL: u16 = 22;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -209,6 +210,7 @@ pub enum Msg<'a> {
     CheckpointVerifyReceiver { id: &'a str, name: &'a str, volumes: StrList<'a> },
     CheckpointInstallProcess { id: &'a str, name: &'a str, volumes: StrList<'a> },
     CheckpointFenceReceiver { id: &'a str, fenced: bool },
+    CheckpointActivateGroup(StrList<'a>),
     CheckpointMountQuery { id: &'a str },
     CheckpointMounts(StrList<'a>),
     Checkpoints(StrList<'a>),
@@ -885,6 +887,7 @@ mod kind {
     pub const CHECKPOINT_VERIFY_RECEIVER: u16 = 98;
     pub const CHECKPOINT_INSTALL_PROCESS: u16 = 99;
     pub const CHECKPOINT_FENCE_RECEIVER: u16 = 100;
+    pub const CHECKPOINT_ACTIVATE_GROUP: u16 = 101;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1096,6 +1099,10 @@ pub fn encode_checkpoint_install_process<S: AsRef<str>>(out: &mut Vec<u8>, id: &
         put_str(o, name);
         StrList::put(o, volumes);
     });
+}
+
+pub fn encode_checkpoint_activate_group<S: AsRef<str>>(out: &mut Vec<u8>, ids: &[S]) {
+    frame(out, kind::CHECKPOINT_ACTIVATE_GROUP, |o| StrList::put(o, ids));
 }
 
 /// Encodes a `Run` frame straight from the sender's slices, without first
@@ -1354,6 +1361,7 @@ impl Msg<'_> {
                 put_str(o, id);
                 o.push(fenced as u8);
             }),
+            Msg::CheckpointActivateGroup(ids) => encode_raw_reply(out, kind::CHECKPOINT_ACTIVATE_GROUP, ids.count, ids.raw),
             Msg::CheckpointMountQuery { id } => frame(out, kind::CHECKPOINT_MOUNT_QUERY, |o| put_str(o, id)),
             Msg::CheckpointMounts(paths) => encode_raw_reply(out, kind::CHECKPOINT_MOUNTS, paths.count, paths.raw),
             Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
@@ -1688,6 +1696,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::CHECKPOINT_VERIFY_RECEIVER => Msg::CheckpointVerifyReceiver { id: r.str()?, name: r.str()?, volumes: r.list()? },
         kind::CHECKPOINT_INSTALL_PROCESS => Msg::CheckpointInstallProcess { id: r.str()?, name: r.str()?, volumes: r.list()? },
         kind::CHECKPOINT_FENCE_RECEIVER => Msg::CheckpointFenceReceiver { id: r.str()?, fenced: r.u8()? != 0 },
+        kind::CHECKPOINT_ACTIVATE_GROUP => Msg::CheckpointActivateGroup(r.list()?),
         kind::CHECKPOINT_MOUNT_QUERY => Msg::CheckpointMountQuery { id: r.str()? },
         kind::CHECKPOINT_MOUNTS => Msg::CheckpointMounts(r.list()?),
         kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
@@ -1845,6 +1854,11 @@ mod tests {
         assert!(matches!(install, Msg::CheckpointInstallProcess { id: "receiver", name: "handoff", volumes } if volumes.iter().eq(["data"])));
         round(install);
         round(Msg::CheckpointFenceReceiver { id: "receiver", fenced: true });
+        receiver.clear();
+        encode_checkpoint_activate_group(&mut receiver, &["first", "second"]);
+        let activate = decode(&receiver).unwrap();
+        assert!(matches!(activate, Msg::CheckpointActivateGroup(ids) if ids.iter().eq(["first", "second"])));
+        round(activate);
         round(Msg::CheckpointMountQuery { id: "container" });
         let mut mounts = Vec::new();
         encode_checkpoint_mounts(&mut mounts, &["/proc/sys", "/sys/firmware"]);
