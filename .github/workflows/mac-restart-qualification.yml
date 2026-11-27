@@ -1,0 +1,24 @@
+name: Published macOS stale-engine restart
+on:
+  push:
+    branches: [qualification/mac-restart-99]
+    paths:
+      - .github/workflows/mac-restart-qualification.yml
+      - tests/mac-restart-qualification.py
+      - tests/mac-restart-qualification.swift
+permissions:
+  contents: read
+jobs:
+  restart:
+    name: Restart the previous release engine from the new Mac app
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the published bundles and use the native restart button
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASAGIRI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 tests/mac-restart-qualification.py
