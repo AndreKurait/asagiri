@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+tar = "0.4"
 
 [lints]
 workspace = true

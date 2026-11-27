@@ -27,6 +27,17 @@ passes their sparse archive to the macOS jobs. Windows CI receives tested
 Linux binaries and the WSL rootfs through `ASAGIRI_WINDOWS_LINUX_DIR`, then
 builds the complete installer without starting WSL on the packaging runner.
 
+## Guest checkpoint runtime
+
+Build the runtime for the guest architecture, then pass the resulting tar file to the initramfs builder. The Linux build container reads signed Debian snapshot indexes and stages CRIU 4.2.1, its helper programs, shared libraries and xtables plugins. The archive includes the binary and source package versions in `packages.json` and the package notices in `licenses/`. Keep it as a tar file on macOS so Linux names that differ only in case survive packaging.
+
+```sh
+python3 packaging/checkpoint/build.py --arch arm64 --output target/checkpoint/arm64.tar
+ASAGIRI_CRIU_RUNTIME="$PWD/target/checkpoint/arm64.tar" cargo xtask guest --arch arm64
+```
+
+For the Intel guest, use `x86_64` in both commands. The build needs Docker with support for the selected Linux architecture. Choose a new archive path for another build.
+
 ## Linux package assembly
 
 ```sh
