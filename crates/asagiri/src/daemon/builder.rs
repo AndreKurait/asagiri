@@ -1166,14 +1166,19 @@ fn prune_argv(req: &Request, f: &super::filters::Filters) -> Result<Vec<String>,
 /// `buildctl prune --format '{{json .}}'`: one record per line.
 fn parse_prune(text: &str) -> (Vec<String>, u64) {
     let mut ids = Vec::new();
-    let mut space = 0;
-    for v in text.lines().filter(|l| l.starts_with('{')).filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
-        if let Some(id) = v["ID"].as_str() {
+    let mut space = 0u64;
+    for v in text.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
+        if let Some(id) = usage_field(&v, "id", "ID").as_str() {
             ids.push(id.to_owned());
+            space = space.saturating_add(usage_field(&v, "size", "Size").as_u64().unwrap_or(0));
         }
-        space += v["Size"].as_u64().unwrap_or(0);
     }
     (ids, space)
+}
+
+// Stored BuildKit images can predate the lower camel case UsageInfo JSON tags.
+fn usage_field<'a>(record: &'a Value, current: &str, legacy: &str) -> &'a Value {
+    record.get(current).unwrap_or(&record[legacy])
 }
 
 /// `system df`'s BuildCache: BuildKit's records while the builder runs
@@ -1195,10 +1200,13 @@ fn du_rows(text: &str) -> Value {
         records
             .iter()
             .map(|r| {
+                let parents = usage_field(r, "parents", "Parents");
                 json!({
-                    "ID": r["ID"], "Parent": r["Parents"][0], "Parents": r["Parents"], "Type": r["RecordType"],
-                    "Description": r["Description"], "InUse": r["InUse"].as_bool().unwrap_or(false), "Shared": r["Shared"].as_bool().unwrap_or(false),
-                    "Size": r["Size"].as_i64().unwrap_or(0), "CreatedAt": r["CreatedAt"], "LastUsedAt": r["LastUsedAt"], "UsageCount": r["UsageCount"].as_i64().unwrap_or(0),
+                    "ID": usage_field(r, "id", "ID"), "Parent": parents[0], "Parents": parents,
+                    "Type": usage_field(r, "recordType", "RecordType"), "Description": usage_field(r, "description", "Description"),
+                    "InUse": usage_field(r, "inUse", "InUse").as_bool().unwrap_or(false), "Shared": usage_field(r, "shared", "Shared").as_bool().unwrap_or(false),
+                    "Size": usage_field(r, "size", "Size").as_i64().unwrap_or(0), "CreatedAt": usage_field(r, "createdAt", "CreatedAt"),
+                    "LastUsedAt": usage_field(r, "lastUsedAt", "LastUsedAt"), "UsageCount": usage_field(r, "usageCount", "UsageCount").as_i64().unwrap_or(0),
                 })
             })
             .collect(),
@@ -1413,6 +1421,9 @@ mod tests {
         assert_eq!(rows[0]["Type"], "regular");
         assert_eq!(rows[0]["Size"], 42);
         assert_eq!(rows[0]["InUse"], true);
+        let (ids, space) = parse_prune("{\"id\":\"a\",\"size\":10}\n{\"id\":\"b\",\"size\":5}\n");
+        assert_eq!((ids, space), (vec!["a".to_owned(), "b".to_owned()], 15));
+        assert_eq!(du_rows(r#"[{"id":"x","mutable":false,"inUse":true,"size":42,"parents":["p"],"createdAt":"2026-10-30T10:00:00Z","lastUsedAt":null,"usageCount":3,"description":"mount / from exec","recordType":"regular","shared":false}]"#), rows);
     }
 
     #[test]
