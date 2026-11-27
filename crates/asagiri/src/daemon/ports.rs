@@ -797,16 +797,16 @@ fn relay(client: TcpStream, vm: &VmLink, ip: [u8; 4], port: u16, nat: Option<Soc
 /// each half-close passed on.
 fn relay_tcp(client: TcpStream, guest: TcpStream) -> io::Result<()> {
     relayed_tcp(&guest)?;
-    let (mut client_read, mut guest_write) = (client.try_clone()?, guest.try_clone()?);
-    let up = std::thread::Builder::new().name("asagiri-conn-up".into()).spawn(move || {
-        let how = pass_on(copy(&mut client_read, &mut guest_write));
-        let _ = guest_write.shutdown(how);
-    })?;
-    let (mut guest_read, mut client_write) = (guest, client);
-    let how = pass_on(copy(&mut guest_read, &mut client_write));
-    let _ = client_write.shutdown(how);
-    let _ = up.join();
-    Ok(())
+    std::thread::scope(|scope| {
+        let up = std::thread::Builder::new().name("asagiri-conn-up".into()).spawn_scoped(scope, || {
+            let how = pass_on(copy(&mut &client, &mut &guest));
+            let _ = guest.shutdown(how);
+        })?;
+        let how = pass_on(copy(&mut &guest, &mut &client));
+        let _ = client.shutdown(how);
+        let _ = up.join();
+        Ok(())
+    })
 }
 
 /// How long a Linux host waits for a container to answer a connect: it is
