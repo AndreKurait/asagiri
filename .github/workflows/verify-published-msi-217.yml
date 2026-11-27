@@ -1,0 +1,21 @@
+name: Verify published dev.349 MSI on WSL2
+
+on:
+  push:
+    branches: [verify/release-msi-wsl-217]
+
+permissions:
+  contents: read
+
+jobs:
+  released-wsl:
+    name: Two WSL distributions with the published MSI
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check installed binaries, bridge ownership, traffic and teardown
+        shell: pwsh
+        run: ./tests/windows-published-msi-217.ps1
