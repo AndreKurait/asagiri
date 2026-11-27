@@ -212,7 +212,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
                 .and_then(|group| engine.activate_checkpoint_receivers(&group.containers));
             return reply(w, result.map(|()| Value::Null), 204);
         }
-        ("POST", path @ ("/asagiri/checkpoint-capture-group" | "/asagiri/checkpoint-fence" | "/asagiri/checkpoint-release")) => {
+        ("POST", path @ ("/asagiri/checkpoint-capture-group" | "/asagiri/checkpoint-fence" | "/asagiri/checkpoint-release" | "/asagiri/checkpoint-retire")) => {
             if !matches!(caller, super::caller::Caller::Host) {
                 http::error(w, 403, "host connection required")?;
                 return Ok(Next::Close);
@@ -227,6 +227,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
                 let action = match path {
                     "/asagiri/checkpoint-capture-group" => SourceAction::Capture { external_network: g.external_network },
                     "/asagiri/checkpoint-fence" => SourceAction::Fence,
+                    "/asagiri/checkpoint-retire" => SourceAction::Retire,
                     _ => SourceAction::Release,
                 };
                 engine.checkpoint_group(&g.name, &g.containers, action)

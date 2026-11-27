@@ -538,6 +538,7 @@ pub struct Container {
     detached_ports: Vec<super::ports::Binding>,
     /// A paused checkpoint source held across daemon restarts until explicitly released.
     pub checkpoint_fence: Option<String>,
+    checkpoint_retired: bool,
     /// Last successful capture during the current uninterrupted pause.
     paused_checkpoint: Option<String>,
     /// Frozen by `docker pause`.
@@ -637,6 +638,8 @@ struct Saved {
     restart_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checkpoint_fence: Option<String>,
+    #[serde(default)]
+    checkpoint_retired: bool,
     #[serde(default)]
     health: Option<super::health::Health>,
 }
@@ -1735,6 +1738,7 @@ impl Engine {
                     stopped_by_user: s.stopped_by_user,
                     restart_count: s.restart_count,
                     checkpoint_fence: s.checkpoint_fence,
+                    checkpoint_retired: s.checkpoint_retired,
                     paused_checkpoint: None,
                     restart_pending: false,
                     exits: 0,
@@ -1842,6 +1846,7 @@ impl Engine {
                 stopped_by_user: c.stopped_by_user,
                 restart_count: c.restart_count,
                 checkpoint_fence: c.checkpoint_fence.clone(),
+                checkpoint_retired: c.checkpoint_retired,
                 health: st.health.get(&c.id).map(|h| h.health.clone()),
             })
             .collect();
@@ -2430,6 +2435,7 @@ impl Engine {
                 stopped_by_user: false,
                 restart_count: 0,
                 checkpoint_fence: None,
+                checkpoint_retired: false,
                 paused_checkpoint: None,
                 restart_pending: false,
                 exits: 0,

@@ -789,6 +789,24 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(()) => Msg::Ack.encode(&mut out),
                     Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
                 },
+                Ok(Msg::CheckpointRetireSource { id }) => {
+                    match running_cgroup(&procs, id) {
+                        Some((_, group)) => {
+                            let result = std::fs::read_to_string(group.join("cgroup.events"))
+                                .and_then(|events| {
+                                    if !events.lines().any(|line| line == "frozen 1") {
+                                        return Err(io::Error::other("checkpoint source is not frozen"));
+                                    }
+                                    super::cgroup_kill::kill(group)
+                                });
+                            match result {
+                                Ok(()) => Msg::Ack.encode(&mut out),
+                                Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                            }
+                        }
+                        None => Msg::Ack.encode(&mut out),
+                    }
+                }
                 Ok(Msg::CheckpointInstallProcess { id, name, volumes }) => {
                     let result = if restoring.is_some() || checkpoint.is_some() {
                         Err(io::Error::other("another checkpoint operation is in progress"))

@@ -16,6 +16,7 @@ pub enum SourceAction {
     Capture { external_network: bool },
     Fence,
     Release,
+    Retire,
 }
 
 struct CaptureMember<'a> {
@@ -75,7 +76,48 @@ impl Engine {
             SourceAction::Capture { external_network } => self.capture_group_locked(name, &ids, external_network),
             SourceAction::Fence => self.persist_fence(name, &ids, false),
             SourceAction::Release => self.persist_fence(name, &ids, true),
+            SourceAction::Retire => self.retire_checkpoint_sources(name, &ids),
         }
+    }
+
+    fn retire_checkpoint_sources(&self, name: &str, ids: &[String]) -> Result<(), Error> {
+        let running = {
+            let _writing = self.saving.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.lock();
+            let mut running = Vec::new();
+            for id in ids {
+                let c = state.containers.get(id).ok_or_else(|| Error::NotFound(id.clone()))?;
+                if c.checkpoint_fence.as_deref() != Some(name) {
+                    return Err(Error::Conflict(format!("source {id} is not fenced for checkpoint {name}")));
+                }
+                match c.status {
+                    Status::Running if c.paused && c.in_guest => running.push(id),
+                    Status::Exited => {}
+                    _ => return Err(Error::Conflict(format!("source {id} is neither paused nor stopped"))),
+                }
+            }
+            for id in ids {
+                state.containers.get_mut(id).expect("source still locked").checkpoint_retired = true;
+            }
+            let snapshot = Self::encode_records(&state)?;
+            drop(state);
+            // Persist the irreversible transition before terminating any processes.
+            self.write_records(&snapshot.0, true)?;
+            running
+        };
+        if !running.is_empty() {
+            let vm = self.awake().ok_or_else(|| Error::Conflict("source guest stopped during retirement".into()))?;
+            for id in running { vm.retire_checkpoint_source(id)?; }
+        }
+        let timeout = std::time::Duration::from_secs(10);
+        let state = self.lock();
+        let (_state, wait) = self.changed.wait_timeout_while(state, timeout, |state| {
+            ids.iter().any(|id| state.containers.get(id).is_some_and(|c| c.status != Status::Exited))
+        }).unwrap_or_else(|error| error.into_inner());
+        if wait.timed_out() {
+            return Err(Error::Conflict("source exit was not confirmed after retirement".into()));
+        }
+        Ok(())
     }
 
     fn capture_group_locked(&self, name: &str, ids: &[String], external_network: bool) -> Result<(), Error> {
@@ -142,6 +184,9 @@ impl Engine {
         let mut state = self.lock();
         for id in ids {
             let c = state.containers.get(id).ok_or_else(|| Error::NotFound(id.clone()))?;
+            if release && c.checkpoint_retired {
+                return Err(Error::Conflict(format!("checkpoint source {} has been retired", c.name)));
+            }
             if c.checkpoint_fence.as_deref().is_some_and(|saved| saved != name) { c.ensure_unfenced()?; }
             if c.checkpoint_fence.as_deref() == Some(name) { continue; }
             if !release && (c.spec.auto_remove || c.status != Status::Running || !c.paused) {
