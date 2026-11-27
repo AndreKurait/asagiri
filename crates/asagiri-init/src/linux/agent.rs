@@ -49,7 +49,7 @@ type Procs = HashMap<String, Proc>;
 /// How long a hung-up terminal waits before it's polled again.
 const TTY_HUP_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
-pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
+pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::checkpoint::Runtime>) -> io::Result<()> {
     // The VM agent is already PID 1. On a Linux host, orphaned descendants
     // of host-PID containers (including ones without --init) belong to
     // this agent and its existing waitpid loop, not an unrelated host init.
@@ -672,7 +672,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
-                Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out),
+                Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out, runtime),
                 Ok(Msg::CheckpointList { id }) => match super::checkpoint::list(&paths.containers, id) {
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
@@ -680,14 +680,15 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 Ok(Msg::CheckpointCreate { id, name, leave_running }) => {
                     let result = if !leave_running {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
-                    } else if host_process || !Path::new("/bundle/usr/sbin/criu").is_file() {
-                        Err(io::Error::other("guest checkpoint runtime is unavailable"))
                     } else if checkpoint.is_some() {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
-                    } else if let Some((pid, group)) = running_cgroup(&procs, id) {
-                        super::checkpoint::Capture::start(pid, group, &paths.containers.join(id), name)
+                    } else if let Some(runtime) = runtime {
+                        match running_cgroup(&procs, id) {
+                            Some((pid, group)) => super::checkpoint::Capture::start(runtime, pid, group, &paths.containers.join(id), name),
+                            None => Err(io::Error::other(format!("container {id} is not running"))),
+                        }
                     } else {
-                        Err(io::Error::other(format!("container {id} is not running")))
+                        Err(io::Error::other("checkpoint runtime is unavailable"))
                     };
                     match result {
                         Ok(capture) => {

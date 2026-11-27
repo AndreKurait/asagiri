@@ -47,6 +47,8 @@ python3 packaging/checkpoint/source.py --arm64 target/checkpoint/arm64.tar \
 
 ## Linux package assembly
 
+On native Linux, live capture uses the host's `criu`, `iptables-restore`, `ip6tables-restore`, `tar` and `gzip`. Install these with the distribution package manager before starting the engine. The agent checks the kernel with `criu check` at startup. Run `asagiri checkpoint platform` to inspect `liveCapture` and, on Debian systems, the installed CRIU package version. A particular workload can still have devices or mounts CRIU cannot dump. Docker reports the CRIU error when a capture fails.
+
 ```sh
 packaging/linux/fetch-cli.sh target/linux-cli
 sh scripts/ci/build-linux.sh target/portable-bin target/portable-cache target/cargo-registry build

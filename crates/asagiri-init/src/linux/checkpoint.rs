@@ -1,12 +1,110 @@
 use std::collections::BTreeSet;
 use std::fs::{self, DirBuilder};
-use std::io::{self, BufRead, BufReader};
-use std::os::unix::fs::DirBuilderExt;
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
-pub(super) fn platform(out: &mut Vec<u8>) {
+const TOOL_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
+
+#[derive(Debug)]
+pub(super) enum Runtime {
+    Bundled { package_version: Option<String> },
+    Native { executable: PathBuf, package_version: Option<String> },
+}
+
+impl Runtime {
+    pub(super) fn detect(bundled: bool) -> Option<Self> {
+        if let Some(workdir) = super::transport::host_dir() {
+            let executable = system_tool("criu")?;
+            for helper in ["iptables-restore", "ip6tables-restore", "tar", "gzip"] {
+                system_tool(helper)?;
+            }
+            let mut check = Self::native_command(&executable);
+            check.arg("check").current_dir(workdir).stdout(Stdio::null()).stderr(Stdio::null());
+            match probe(&mut check) {
+                Ok(output) if output.status.success() => Some(Self::Native { executable, package_version: native_criu_version() }),
+                result => {
+                    eprintln!("checkpoint: system CRIU kernel check failed: {:?}", result.map(|output| output.status));
+                    None
+                }
+            }
+        } else if bundled && ["/usr/bin/tar", "/usr/bin/gzip", "/usr/sbin/iptables-restore", "/usr/sbin/ip6tables-restore"].iter().all(|path| Path::new(path).is_file()) {
+            Some(Self::Bundled { package_version: bundled_criu_version() })
+        } else { None }
+    }
+
+    fn command(&self) -> Command {
+        match self {
+            Self::Bundled { .. } => {
+                #[cfg(target_arch = "aarch64")]
+                let (loader, libs) = ("/bundle/lib/ld-linux-aarch64.so.1", "/bundle/usr/lib/aarch64-linux-gnu");
+                #[cfg(target_arch = "x86_64")]
+                let (loader, libs) = ("/bundle/lib64/ld-linux-x86-64.so.2", "/bundle/usr/lib/x86_64-linux-gnu");
+                let mut command = Command::new(loader);
+                command.args(["--library-path", libs, "/bundle/usr/sbin/criu"]).env("PATH", TOOL_PATH);
+                command
+            }
+            Self::Native { executable, .. } => Self::native_command(executable),
+        }
+    }
+
+    fn native_command(path: &Path) -> Command {
+        let mut command = Command::new(path);
+        command.env_clear().env("PATH", TOOL_PATH);
+        command
+    }
+
+    fn package_version(&self) -> Option<&str> {
+        match self {
+            Self::Bundled { package_version } | Self::Native { package_version, .. } => package_version.as_deref(),
+        }
+    }
+}
+
+fn native_criu_version() -> Option<String> {
+    let mut query = Command::new(system_tool("dpkg-query")?);
+    query.env_clear().env("PATH", TOOL_PATH).args(["-W", "-f=${Status}\\n${Version}", "criu"])
+        .stdout(Stdio::piped()).stderr(Stdio::null());
+    let output = probe(&mut query).ok()?;
+    let text = std::str::from_utf8(&output.stdout).ok()?;
+    let (status, version) = text.trim_end().split_once('\n')?;
+    (output.status.success() && status.ends_with(" ok installed") && !version.is_empty()).then(|| version.to_owned())
+}
+
+/// Resolve executables in the system binary directories, writable only by root.
+fn system_tool(name: &str) -> Option<PathBuf> {
+    ["/usr/sbin", "/usr/bin"].iter().find_map(|dir| {
+        let input = Path::new(dir).join(name);
+        let path = input.canonicalize().ok()?;
+        if !matches!(path.parent()?.to_str()?, "/usr/sbin" | "/usr/bin") { return None; }
+        for node in input.ancestors().chain(path.ancestors()) {
+            let meta = fs::metadata(node).ok()?;
+            if meta.uid() != 0 || meta.mode() & 0o022 != 0 { return None; }
+        }
+        let meta = fs::metadata(&path).ok()?;
+        (meta.is_file() && meta.mode() & 0o111 != 0).then_some(path)
+    })
+}
+
+fn probe(command: &mut Command) -> io::Result<std::process::Output> {
+    let mut child = command.process_group(0).stdin(Stdio::null()).spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if child.try_wait()?.is_some() { return child.wait_with_output(); }
+        if Instant::now() >= deadline {
+            // SAFETY: this child owns its process group and has not been reaped.
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); }
+            child.wait()?;
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "checkpoint runtime probe timed out"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+pub(super) fn platform(out: &mut Vec<u8>, runtime: Option<&Runtime>) {
     use asagiri_proto::Msg;
     use std::ffi::CStr;
     let mut uts = std::mem::MaybeUninit::<libc::utsname>::uninit();
@@ -19,11 +117,10 @@ pub(super) fn platform(out: &mut Vec<u8>) {
     let uts = unsafe { uts.assume_init() };
     let (arch, kernel) = unsafe { (CStr::from_ptr(uts.machine.as_ptr()), CStr::from_ptr(uts.release.as_ptr())) };
     let features = fs::File::open("/proc/cpuinfo").and_then(|f| common_cpu_features(BufReader::new(f))).ok().flatten();
-    // Native Linux currently has no checkpoint runtime selected by the agent.
-    let version = if super::transport::is_host_process() { None } else { bundled_criu_version() };
+    let version = runtime.and_then(Runtime::package_version);
     Msg::GuestPlatform {
         architecture: &arch.to_string_lossy(), kernel: &kernel.to_string_lossy(),
-        cpu_features: features.as_deref(), criu_package_version: version.as_deref().unwrap_or(""),
+        cpu_features: features.as_deref(), criu_package_version: version.unwrap_or(""),
     }.encode(out);
 }
 
@@ -93,7 +190,7 @@ pub(super) struct Capture {
 }
 
 impl Capture {
-    pub(super) fn start(pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str) -> io::Result<Self> {
+    pub(super) fn start(runtime: &Runtime, pid: libc::pid_t, group: &Path, container_dir: &Path, name: &str) -> io::Result<Self> {
         super::container::valid_id(name)?;
         let root = container_dir.join("checkpoints");
         DirBuilder::new().recursive(true).mode(0o700).create(&root)?;
@@ -109,7 +206,7 @@ impl Capture {
             Err(error) => return Err(error),
         }
         DirBuilder::new().mode(0o700).create(&staging)?;
-        let child = match dump(pid, group, &staging) {
+        let child = match dump(runtime, pid, group, &staging) {
             Ok(child) => child,
             Err(error) => {
                 remove_staging(&staging);
@@ -155,18 +252,34 @@ impl Capture {
         let result = if self.cancelled {
             Err(io::Error::other("container exited during checkpoint capture"))
         } else if !status.success() {
-            if let Ok(log) = fs::read_to_string(self.staging.join("dump.log")) {
-                for line in log.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev() {
-                    eprintln!("checkpoint: {line}");
-                }
-            }
-            Err(io::Error::other(format!("CRIU dump exited with {status}")))
+            let detail = dump_failure(&self.staging.join("dump.log")).unwrap_or_default();
+            Err(io::Error::other(format!("CRIU dump exited with {status}{detail}")))
         } else {
             fs::rename(&self.staging, &self.destination)
         };
         if result.is_err() { remove_staging(&self.staging); }
         result.map(Some)
     }
+}
+
+fn dump_failure(path: &Path) -> io::Result<String> {
+    // CRIU may produce a large trace. Only process its final 16 KiB on the agent loop.
+    let mut file = fs::File::open(path)?;
+    let offset = file.metadata()?.len().saturating_sub(16 * 1024);
+    file.seek(SeekFrom::Start(offset))?;
+    let mut tail = Vec::new();
+    file.take(16 * 1024).read_to_end(&mut tail)?;
+    let text = String::from_utf8_lossy(&tail);
+    let mut lines = text.lines();
+    if offset > 0 { lines.next(); }
+    for line in lines.clone().rev().take(12).collect::<Vec<_>>().into_iter().rev() {
+        eprintln!("checkpoint: {line}");
+    }
+    let Some(error) = lines.find_map(|line| line.split_once(") Error (").map(|(_, message)| message)) else {
+        return Ok(String::new());
+    };
+    let message: String = error.chars().filter(|c| !c.is_control()).take(512).collect();
+    Ok(format!(": Error ({message}"))
 }
 
 impl Drop for Capture {
@@ -186,16 +299,11 @@ fn remove_staging(staging: &Path) {
     }
 }
 
-fn dump(pid: libc::pid_t, group: &Path, images: &Path) -> io::Result<Child> {
-    #[cfg(target_arch = "aarch64")]
-    let (loader, libs) = ("/bundle/lib/ld-linux-aarch64.so.1", "/bundle/usr/lib/aarch64-linux-gnu");
-    #[cfg(target_arch = "x86_64")]
-    let (loader, libs) = ("/bundle/lib64/ld-linux-x86-64.so.2", "/bundle/usr/lib/x86_64-linux-gnu");
-    Command::new(loader)
+fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path) -> io::Result<Child> {
+    runtime.command()
         .process_group(0)
-        .env("PATH", "/usr/bin:/bin:/usr/sbin")
         .current_dir(images)
-        .args(["--library-path", libs, "/bundle/usr/sbin/criu", "dump", "-v4", "--log-file", "dump.log", "--tree"])
+        .args(["dump", "-v4", "--log-file", "dump.log", "--tree"])
         .arg(pid.to_string())
         .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])

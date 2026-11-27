@@ -156,11 +156,12 @@ fn serve(paths: &container::Paths, init_start_ns: u64) -> io::Result<()> {
     let (mem_total_kib, mem_available_kib) = meminfo();
     let mut out = Vec::with_capacity(256);
     let bundled_criu_present = !transport::is_host_process() && std::path::Path::new("/bundle/usr/sbin/criu").is_file();
-    let live_checkpoint = bundled_criu_present && ["/usr/bin/tar", "/usr/bin/gzip", "/usr/sbin/iptables-restore", "/usr/sbin/ip6tables-restore"].iter().all(|path| std::path::Path::new(path).is_file());
+    let runtime = checkpoint::Runtime::detect(bundled_criu_present);
+    let live_checkpoint = runtime.is_some();
     Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib, bundled_criu_present, live_checkpoint })
         .encode(&mut out);
     conn.write_all(&out)?;
-    agent::serve(conn, paths)
+    agent::serve(conn, paths, runtime.as_ref())
 }
 
 /// Re-roots PID 1 onto a tmpfs. The kernel refuses pivot_root while the
