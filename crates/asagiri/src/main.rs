@@ -235,6 +235,7 @@ fn main() -> ExitCode {
         Some("k8s") => k8s::run(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("create-receiver") => checkpoint::create_receiver(&args[2..]),
+        #[cfg(unix)]
         Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("restore-rootfs" | "restore-network-files")) => checkpoint::restore(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("prepare-networks") => checkpoint::prepare_networks(&args[2..]),
