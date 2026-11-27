@@ -198,8 +198,10 @@ pub enum Msg<'a> {
     DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
     CheckpointList { id: &'a str },
     GuestPlatformQuery,
-    /// Protocol 18 also accepts older replies without CPU or package information.
-    GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str },
+    /// Older platform replies can omit CPU, package, or mount target information.
+    GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str, system_mount_targets: Option<&'a str> },
+    CheckpointMountQuery { id: &'a str },
+    CheckpointMounts(StrList<'a>),
     Checkpoints(StrList<'a>),
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
@@ -850,6 +852,8 @@ mod kind {
     pub const CHECKPOINT_CREATE_VOLUMES: u16 = 91;
     // A host requesting network metadata must get an error from older guests.
     pub const CHECKPOINT_CREATE_NETWORK: u16 = 92;
+    pub const CHECKPOINT_MOUNT_QUERY: u16 = 93;
+    pub const CHECKPOINT_MOUNTS: u16 = 94;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -999,6 +1003,11 @@ pub fn encode_fs_events<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
 
 pub fn encode_checkpoints<S: AsRef<str>>(out: &mut Vec<u8>, names: &[S]) {
     encode_reply_lines(out, kind::CHECKPOINTS, names);
+}
+
+/// Encodes the default protected mountpoints observed in a running container.
+pub fn encode_checkpoint_mounts<S: AsRef<str>>(out: &mut Vec<u8>, paths: &[S]) {
+    encode_reply_lines(out, kind::CHECKPOINT_MOUNTS, paths);
 }
 
 /// Encodes a `Listening` reply from the sender's lines.
@@ -1275,13 +1284,16 @@ impl Msg<'_> {
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
+            Msg::CheckpointMountQuery { id } => frame(out, kind::CHECKPOINT_MOUNT_QUERY, |o| put_str(o, id)),
+            Msg::CheckpointMounts(paths) => encode_raw_reply(out, kind::CHECKPOINT_MOUNTS, paths.count, paths.raw),
             Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
-            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version } => frame(out, kind::GUEST_PLATFORM, |o| {
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets } => frame(out, kind::GUEST_PLATFORM, |o| {
                 put_str(o, architecture);
                 put_str(o, kernel);
                 o.push(u8::from(cpu_features.is_some()));
                 if let Some(features) = cpu_features { put_str(o, features); }
                 put_str(o, criu_package_version);
+                if let Some(paths) = system_mount_targets { put_str(o, paths); }
             }),
             Msg::Checkpoints(names) => encode_raw_reply(out, kind::CHECKPOINTS, names.count, names.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
@@ -1600,6 +1612,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::TOP_QUERY => Msg::TopQuery { id: r.str()? },
         kind::TOP => Msg::Top(r.list()?),
         kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
+        kind::CHECKPOINT_MOUNT_QUERY => Msg::CheckpointMountQuery { id: r.str()? },
+        kind::CHECKPOINT_MOUNTS => Msg::CheckpointMounts(r.list()?),
         kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
         kind::GUEST_PLATFORM => {
             let architecture = r.str()?;
@@ -1610,7 +1624,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
                 let features = if r.u8()? != 0 { Some(r.str()?) } else { None };
                 (features, r.str()?)
             };
-            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version }
+            let system_mount_targets = if r.remaining() == 0 { None } else { Some(r.str()?) };
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets }
         }
         kind::CHECKPOINTS => Msg::Checkpoints(r.list()?),
         kind::LISTEN_QUERY => Msg::ListenQuery { id: r.str()? },
@@ -1739,11 +1754,15 @@ mod tests {
         round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
         round(Msg::GuestPlatformQuery);
-        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58", cpu_features: Some("aes fp"), criu_package_version: "4.2.1-1" });
-        round(Msg::GuestPlatform { architecture: "x86_64", kernel: "6.18.58", cpu_features: Some(""), criu_package_version: "" });
+        round(Msg::CheckpointMountQuery { id: "container" });
+        let mut mounts = Vec::new();
+        encode_checkpoint_mounts(&mut mounts, &["/proc/sys", "/sys/firmware"]);
+        assert!(matches!(decode(&mounts), Ok(Msg::CheckpointMounts(paths)) if paths.iter().eq(["/proc/sys", "/sys/firmware"])));
+        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58", cpu_features: Some("aes fp"), criu_package_version: "4.2.1-1", system_mount_targets: Some("/proc/sys /sys/firmware") });
+        round(Msg::GuestPlatform { architecture: "x86_64", kernel: "6.18.58", cpu_features: Some(""), criu_package_version: "", system_mount_targets: None });
         let mut old_platform = Vec::new();
         frame(&mut old_platform, kind::GUEST_PLATFORM, |o| { put_str(o, "x86_64"); put_str(o, "6.18.58"); });
-        assert!(matches!(decode(&old_platform), Ok(Msg::GuestPlatform { architecture: "x86_64", cpu_features: None, criu_package_version: "", .. })));
+        assert!(matches!(decode(&old_platform), Ok(Msg::GuestPlatform { architecture: "x86_64", cpu_features: None, criu_package_version: "", system_mount_targets: None, .. })));
         let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
             mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };
         round(Msg::Stats(full));

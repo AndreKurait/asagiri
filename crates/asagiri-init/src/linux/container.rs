@@ -1971,6 +1971,15 @@ fn copy_host_devices(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+const READONLY_PROC_PATHS: &[&CStr] = &[c"proc/sysrq-trigger", c"proc/irq", c"proc/bus", c"proc/fs"];
+const MASKED_PROC_FILES: &[&CStr] = &[c"proc/kcore", c"proc/keys", c"proc/latency_stats", c"proc/timer_list", c"proc/timer_stats", c"proc/sched_debug", c"proc/interrupts"];
+const MASKED_SYSTEM_DIRS: &[&CStr] = &[c"proc/scsi", c"proc/acpi", c"proc/asound", c"sys/firmware", c"sys/devices/virtual/powercap"];
+
+/// Mountpoints that can appear in a checkpoint of a container using the default protections.
+pub(super) fn protected_system_paths() -> impl Iterator<Item = &'static CStr> {
+    std::iter::once(c"proc/sys").chain(READONLY_PROC_PATHS.iter().chain(MASKED_PROC_FILES).chain(MASKED_SYSTEM_DIRS).copied())
+}
+
 /// Makes the dangerous parts of /proc read-only or hides them, as Docker's
 /// default `readonlyPaths` and `maskedPaths` do. The container is real root
 /// (no user namespace), and these sysctls and files are not namespaced, so
@@ -1985,18 +1994,18 @@ fn harden_proc() -> io::Result<()> {
     sys::remount(c"proc/sys", ro as libc::c_ulong)?;
     // The rest are best-effort: a path the guest kernel lacks is already
     // absent, so failing to cover it is not a hole.
-    for p in [c"proc/sysrq-trigger", c"proc/irq", c"proc/bus", c"proc/fs"] {
+    for &p in READONLY_PROC_PATHS {
         if sys::mount(p, p, c"none", libc::MS_BIND, None).is_ok() {
             let _ = sys::remount(p, ro as libc::c_ulong);
         }
     }
     // Hide files that leak host memory or kernel addresses, by covering them
     // with /dev/null (already created above).
-    for p in [c"proc/kcore", c"proc/keys", c"proc/latency_stats", c"proc/timer_list", c"proc/timer_stats", c"proc/sched_debug", c"proc/interrupts"] {
+    for &p in MASKED_PROC_FILES {
         let _ = sys::mount(c"dev/null", p, c"none", libc::MS_BIND, None);
     }
     // Directories to hide, covered with an empty read-only tmpfs.
-    for p in [c"proc/scsi", c"proc/acpi", c"proc/asound", c"sys/firmware", c"sys/devices/virtual/powercap"] {
+    for &p in MASKED_SYSTEM_DIRS {
         let _ = sys::mount(c"tmpfs", p, c"tmpfs", (libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as libc::c_ulong, Some(c"size=0k"));
     }
     Ok(())

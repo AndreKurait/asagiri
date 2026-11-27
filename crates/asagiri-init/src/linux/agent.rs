@@ -683,6 +683,13 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
                 Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out, runtime),
+                Ok(Msg::CheckpointMountQuery { id }) => match running_pid(&procs, id) {
+                    Some(pid) => match super::checkpoint::mounted_system_paths(pid) {
+                        Ok(paths) => asagiri_proto::encode_checkpoint_mounts(&mut out, &paths),
+                        Err(e) => Msg::Error(&format!("inspect checkpoint mounts: {e}")).encode(&mut out),
+                    },
+                    None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
+                },
                 Ok(Msg::CheckpointList { id }) => match super::checkpoint::list(&paths.containers, id) {
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),

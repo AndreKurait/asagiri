@@ -111,6 +111,37 @@ fn probe(command: &mut Command) -> io::Result<std::process::Output> {
     }
 }
 
+fn protected_paths() -> impl Iterator<Item = String> {
+    super::container::protected_system_paths().map(|p| format!("/{}", p.to_str().expect("static ASCII path")))
+}
+
+fn system_mount_targets() -> io::Result<String> {
+    let mut available = Vec::new();
+    for path in protected_paths() {
+        if Path::new(&path).try_exists()? { available.push(path); }
+    }
+    Ok(available.join(" "))
+}
+
+pub(super) fn mounted_system_paths(pid: libc::pid_t) -> io::Result<Vec<String>> {
+    let table = fs::File::open(format!("/proc/{pid}/mountinfo"))?;
+    protected_mounts_in(BufReader::new(table))
+}
+
+fn protected_mounts_in(table: impl BufRead) -> io::Result<Vec<String>> {
+    let mut lines = table.split(b'\n').peekable();
+    if lines.peek().is_none() { return Err(io::Error::other("empty container mount table")); }
+    let mut wanted: BTreeSet<_> = protected_paths().collect();
+    let mut mounted = Vec::new();
+    for line in lines {
+        let line = line?;
+        // Mountinfo escapes whitespace in path fields. All known targets are ASCII without whitespace.
+        let target = line.split(|&b| b == b' ').nth(4).ok_or_else(|| io::Error::other("invalid mountinfo record"))?;
+        if let Ok(path) = std::str::from_utf8(target) && let Some(path) = wanted.take(path) { mounted.push(path); }
+    }
+    Ok(mounted)
+}
+
 pub(super) fn platform(out: &mut Vec<u8>, runtime: Option<&Runtime>) {
     use asagiri_proto::Msg;
     use std::ffi::CStr;
@@ -125,9 +156,10 @@ pub(super) fn platform(out: &mut Vec<u8>, runtime: Option<&Runtime>) {
     let (arch, kernel) = unsafe { (CStr::from_ptr(uts.machine.as_ptr()), CStr::from_ptr(uts.release.as_ptr())) };
     let features = fs::File::open("/proc/cpuinfo").and_then(|f| common_cpu_features(BufReader::new(f))).ok().flatten();
     let version = runtime.and_then(Runtime::package_version);
+    let targets = system_mount_targets().ok();
     Msg::GuestPlatform {
         architecture: &arch.to_string_lossy(), kernel: &kernel.to_string_lossy(),
-        cpu_features: features.as_deref(), criu_package_version: version.unwrap_or(""),
+        cpu_features: features.as_deref(), criu_package_version: version.unwrap_or(""), system_mount_targets: targets.as_deref(),
     }.encode(out);
 }
 
@@ -343,6 +375,17 @@ fn dump(runtime: &Runtime, run: &super::container::Process, group: &Path, images
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_mounts_use_only_exact_mountpoints() {
+        let table = b"1 0 0:1 / / rw - rootfs rootfs rw\n\
+                      2 1 0:2 / /proc/sys ro - proc proc rw\n\
+                      3 1 0:3 /proc/kcore /data/\xff rw - tmpfs tmpfs rw\n\
+                      4 1 0:2 / /proc/sys ro - proc proc rw\n";
+        assert_eq!(protected_mounts_in(&table[..]).unwrap(), ["/proc/sys"]);
+        assert!(protected_mounts_in(&b""[..]).is_err());
+        assert!(protected_mounts_in(&b"truncated"[..]).is_err());
+    }
 
     #[test]
     fn cpu_features_describe_every_processor() {

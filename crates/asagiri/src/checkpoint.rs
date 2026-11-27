@@ -21,6 +21,7 @@ pub(crate) struct GuestPlatform {
     pub guest_architecture: String,
     pub guest_kernel: String,
     pub cpu_features: Option<BTreeSet<String>>,
+    pub system_mount_targets: Option<BTreeSet<String>>,
     pub criu_package_version: Option<String>,
 }
 
@@ -53,15 +54,25 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     }
     let source = local_platform()?;
     let mut inventory = Vec::with_capacity(containers.len());
+    let mut missing_mounts = BTreeSet::new();
     for container in containers {
         if !client::valid_checkpoint_component(container) {
             return Err(io::Error::other(format!("invalid container name: {container}")));
         }
         let entry = client::get(&format!("/containers/{container}/json"))?;
-        if entry["Id"].as_str().is_none_or(str::is_empty) {
-            return Err(io::Error::other(format!("engine returned an incomplete inspection for {container}")));
-        }
-        inventory.push(dependencies(&entry));
+        let id = entry["Id"].as_str().filter(|s| !s.is_empty())
+            .ok_or_else(|| io::Error::other(format!("engine returned an incomplete inspection for {container}")))?;
+        let mounted: Option<BTreeSet<String>> = if source.guest.system_mount_targets.is_some() && entry["State"]["Running"] == true {
+            Some(serde_json::from_value(client::get(&format!("/asagiri/checkpoint-mounts/{id}"))?)?)
+        } else { None };
+        let missing = mounted.as_ref().zip(destination.guest.system_mount_targets.as_ref()).map(|(paths, targets)| {
+            paths.difference(targets).cloned().collect::<Vec<_>>()
+        });
+        if let Some(paths) = &missing { missing_mounts.extend(paths.iter().cloned()); }
+        let mut row = dependencies(&entry);
+        row["protectedSystemMounts"] = json!(mounted);
+        row["protectedSystemMountsMissingOnDestination"] = json!(missing);
+        inventory.push(row);
     }
     let matches = source.guest.guest_architecture == destination.guest.guest_architecture;
     let report = json!({
@@ -73,6 +84,9 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
     if !matches {
         return Err(io::Error::other(format!("incompatible guest architectures: source {}, destination {}", source.guest.guest_architecture, destination.guest.guest_architecture)));
+    }
+    if !missing_mounts.is_empty() {
+        return Err(io::Error::other(format!("destination lacks required system mount targets: {}", missing_mounts.into_iter().collect::<Vec<_>>().join(", "))));
     }
     Ok(())
 }

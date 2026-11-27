@@ -10,6 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("matching", type=Path, help="checkpoint platform output from the same guest architecture")
     parser.add_argument("mismatching", type=Path, help="checkpoint platform output from a different architecture")
+    parser.add_argument("--read-mountinfo", action="store_true", help="independently verify source mounts in containers that provide cat")
     parser.add_argument("containers", nargs="+", help="names of running source containers")
     args = parser.parse_args()
     cli = os.environ.get("ASAGIRI_BIN", "asagiri")
@@ -31,11 +32,10 @@ def main():
             [cli, "checkpoint", "preflight", "--destination", path, *args.containers],
             text=True, capture_output=True, timeout=60,
         )
-        assert (result.returncode == 0) == matches, result.stderr
         if not matches:
             assert "incompatible guest architectures" in result.stderr
         report = json.loads(result.stdout)
-        expected_destination = {"cpuFeatures": None, "criuPackageVersion": None, **destination}
+        expected_destination = {"cpuFeatures": None, "criuPackageVersion": None, "systemMountTargets": None, **destination}
         assert report["source"] == source and report["destination"] == expected_destination
         assert report["guestArchitectureMatches"] == matches
         source_features, destination_features = source["cpuFeatures"], expected_destination["cpuFeatures"]
@@ -47,6 +47,7 @@ def main():
         assert report["criuPackageVersionsMatch"] == (versions[0] == versions[1] if None not in versions else None)
         assert [row["id"] for row in report["containers"]] == list(original)
         current = inspect()
+        missing_targets = set()
         for row in report["containers"]:
             before, after = original[row["id"]], current[row["id"]]
             assert after["State"]["Pid"] == before["State"]["Pid"]
@@ -57,6 +58,23 @@ def main():
             assert row["dns"] == before["HostConfig"]["Dns"]
             assert row["extraHosts"] == before["HostConfig"]["ExtraHosts"]
             assert "Env" not in row and "Config" not in row
+            mounted = row["protectedSystemMounts"]
+            targets = expected_destination["systemMountTargets"]
+            if source["systemMountTargets"] is not None:
+                assert isinstance(mounted, list) and mounted == sorted(set(mounted))
+                if args.read_mountinfo:
+                    info = subprocess.check_output(["docker", "exec", row["id"], "cat", "/proc/1/mountinfo"])
+                    actual = {line.split()[4] for line in info.splitlines()}
+                    assert mounted == sorted(path for path in source["systemMountTargets"] if path.encode() in actual)
+            else:
+                assert mounted is None
+            expected = None if mounted is None or targets is None else sorted(set(mounted) - set(targets))
+            assert row["protectedSystemMountsMissingOnDestination"] == expected
+            missing_targets.update(expected or [])
+        assert (result.returncode == 0) == (matches and not missing_targets), result.stderr
+        if matches and missing_targets:
+            assert "destination lacks required system mount targets" in result.stderr
+            assert all(path in result.stderr for path in missing_targets)
     print(f"Checkpoint preflight verified both destination architectures and {len(original)} running containers")
 
 

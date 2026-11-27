@@ -34,6 +34,7 @@ pub enum Reply {
     Ack,
     ContainerStats(asagiri_proto::ContainerStats),
     Top(Vec<String>),
+    CheckpointMounts(Vec<String>),
     Checkpoints(Vec<String>),
     GuestPlatform(crate::checkpoint::GuestPlatform),
     Listening(Vec<String>),
@@ -432,10 +433,12 @@ impl VmLink {
                     Ok(Msg::Ack) => Reply::Ack,
                     Ok(Msg::ContainerStats(s)) => Reply::ContainerStats(s),
                     Ok(Msg::Top(lines)) => Reply::Top(lines.iter().map(str::to_owned).collect()),
+                    Ok(Msg::CheckpointMounts(paths)) => Reply::CheckpointMounts(paths.iter().map(str::to_owned).collect()),
                     Ok(Msg::Checkpoints(names)) => Reply::Checkpoints(names.iter().map(str::to_owned).collect()),
-                    Ok(Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version }) => Reply::GuestPlatform(crate::checkpoint::GuestPlatform {
+                    Ok(Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets }) => Reply::GuestPlatform(crate::checkpoint::GuestPlatform {
                         guest_architecture: architecture.to_owned(), guest_kernel: kernel.to_owned(),
                         cpu_features: cpu_features.map(|features| features.split_ascii_whitespace().map(str::to_owned).collect()),
+                        system_mount_targets: system_mount_targets.map(|paths| paths.split_ascii_whitespace().map(str::to_owned).collect()),
                         criu_package_version: (!criu_package_version.is_empty()).then(|| criu_package_version.to_owned()),
                     }),
                     Ok(Msg::Listening(lines)) => Reply::Listening(lines.iter().map(str::to_owned).collect()),
@@ -580,6 +583,14 @@ impl VmLink {
         match self.call(|o| Msg::GuestPlatformQuery.encode(o), None)? {
             Reply::GuestPlatform(platform) => Ok(platform),
             other => Err(io::Error::other(format!("expected guest platform, got {other:?}"))),
+        }
+    }
+
+    pub fn checkpoint_mounts(&self, id: &str) -> io::Result<Vec<String>> {
+        match self.call(|o| Msg::CheckpointMountQuery { id }.encode(o), None)? {
+            Reply::CheckpointMounts(paths) => Ok(paths),
+            Reply::Error(message) => Err(io::Error::other(message)),
+            other => Err(io::Error::other(format!("expected checkpoint mounts, got {other:?}"))),
         }
     }
 

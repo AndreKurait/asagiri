@@ -157,6 +157,14 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             version["Experimental"] = json!(engine.live_checkpoint());
             return reply(w, Ok(version), 200);
         }
+        ("GET", path) if let Some(key) = path.strip_prefix("/asagiri/checkpoint-mounts/") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let mounts = engine.resolve(key).and_then(|id| Ok(json!(engine.vm()?.checkpoint_mounts(&id)?)));
+            return reply(w, mounts, 200);
+        }
         ("GET", "/asagiri/checkpoint-platform") => {
             if !matches!(caller, super::caller::Caller::Host) {
                 http::error(w, 403, "host connection required")?;
