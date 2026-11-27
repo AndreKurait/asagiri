@@ -135,8 +135,13 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             http::error(w, 403, "host connection required")?;
             return Ok(Next::Close);
         }
-        if req.method == "POST" && let Some(name) = name.strip_suffix("/rootfs") && valid_checkpoint_name(name) {
-            return reply(w, engine.restore_checkpoint_rootfs(id, name).map(|()| Value::Null), 200);
+        if req.method == "POST" && let Some((name, part)) = name.split_once('/') && valid_checkpoint_name(name) {
+            let op = match part {
+                "rootfs" => asagiri_proto::copy_op::CHECKPOINT_ROOTFS,
+                "network-files" => asagiri_proto::copy_op::CHECKPOINT_NETWORK_FILES,
+                _ => return reply(w, Err(Error::BadRequest("unknown checkpoint restore operation".into())), 400),
+            };
+            return reply(w, engine.restore_checkpoint_files(id, name, op).map(|()| Value::Null), 200);
         }
         if !valid_checkpoint_name(name) {
             http::error(w, 400, "invalid checkpoint ID")?;

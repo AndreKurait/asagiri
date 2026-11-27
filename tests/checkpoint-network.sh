@@ -35,6 +35,8 @@ check_service() {
 check_service
 # The bind-mounted files are writable independently of the Docker network spec.
 docker exec "$cid" sh -ec 'printf "192.0.2.42\tfrozen.example\n" >>/etc/hosts; printf "# before capture\n" >>/etc/resolv.conf; chmod 0640 /etc/resolv.conf; chown 12345:12345 /etc/resolv.conf'
+# Give the captured hostname a hole. Its bind mount is independent of the UTS hostname.
+docker exec "$cid" sh -ec 'printf x | dd of=/etc/hostname bs=1 seek=131072 conv=notrunc 2>/dev/null'
 for file in hostname hosts resolv.conf; do docker exec "$cid" cat "/etc/$file" >"$work/$file"; done
 docker pause "$cid" >/dev/null
 docker checkpoint create --leave-running "$cid" before-change
@@ -107,6 +109,26 @@ test "$(docker inspect -f '{{.State.Status}}' "$cid")" = created
 if "$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/create.json" >"$work/error" 2>&1; then exit 1; fi
 test "$(docker inspect -f '{{.State.Status}}' "$cid")" = created
 "$asagiri" checkpoint import "$cid" received "$work/checkpoint.tar"
+if "$asagiri" checkpoint restore-network-files "$cid" missing >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'has no network file archive' "$work/error"
+# Import an older checkpoint without the optional archive, then a partial set.
+mkdir "$work/partial"
+tar -xf "$work/checkpoint.tar" -C "$work/partial" inventory.img pstree.img
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/legacy.tar" -C "$work/partial" inventory.img pstree.img
+"$asagiri" checkpoint import "$cid" legacy "$work/legacy.tar"
+if "$asagiri" checkpoint restore-network-files "$cid" legacy >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'has no network file archive' "$work/error"
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/partial/network-files.tar" -C "$work" hosts resolv.conf
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/partial.tar" -C "$work/partial" inventory.img pstree.img network-files.tar
+"$asagiri" checkpoint import "$cid" incomplete "$work/partial.tar"
+if "$asagiri" checkpoint restore-network-files "$cid" incomplete >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'missing network file' "$work/error"
+"$asagiri" checkpoint restore-network-files "$cid" received & first=$!
+"$asagiri" checkpoint restore-network-files "$cid" received & second=$!
+wait "$first"; wait "$second"
+"$asagiri" checkpoint import "$cid" another "$work/checkpoint.tar"
+if "$asagiri" checkpoint restore-network-files "$cid" another >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'different checkpoint' "$work/error"
 busy=$(docker run --pull=never --network bridge -p "127.0.0.1:$host_port:7777" -d alpine:3.21 sleep 180)
 if docker start "$cid" >"$work/error" 2>&1; then exit 1; fi
 test "$(docker inspect -f '{{.State.Running}}' "$cid")" = false
@@ -126,6 +148,25 @@ docker inspect "$cid" | jq -e --slurpfile source "$work/container.json" '
         ($srcNet.value.DNSNames - $dest.NetworkSettings.Networks[$srcNet.key].DNSNames) == [])
 ' >/dev/null
 echo 'PASS stopped receiver retained both endpoint configurations, DNS names, and the allocated host port after start'
+for file in hostname hosts resolv.conf; do
+    docker exec "$cid" cat "/etc/$file" >"$work/restored-$file"
+    cmp "$work/$file" "$work/restored-$file"
+done
+test "$(docker exec "$cid" stat -c '%a %u %g' /etc/resolv.conf)" = '640 12345 12345'
+test "$(docker exec "$cid" stat -c '%b' /etc/hostname)" -lt 256
+docker exec "$cid" awk '$5 == "/etc/hosts" && $6 ~ /nosuid/ && $6 ~ /nodev/ && $6 ~ /noexec/ {ok=1} END {exit !ok}' /proc/self/mountinfo
+if "$asagiri" checkpoint restore-network-files "$cid" received >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'freshly created receiver' "$work/error"
+docker exec "$cid" sh -ec 'printf "192.0.2.44\treceiver.example\n" >>/etc/hosts'
+docker run --rm --pull=never --network "container:$cid" alpine:3.21 cat /etc/hosts >"$work/shared-hosts"
+docker exec "$cid" cat /etc/hosts >"$work/edited-hosts"
+grep -Fq 'receiver.example' "$work/edited-hosts"
+cmp "$work/edited-hosts" "$work/shared-hosts"
+docker restart -t 0 "$cid" >/dev/null
+docker exec "$cid" cat /etc/hosts >"$work/restarted-hosts"
+cmp "$work/edited-hosts" "$work/restarted-hosts"
+check_service
+echo 'PASS restored all three frozen network files, sparse data and ownership; shared receiver edits survived restart'
 
 # An existing built-in bridge and an existing automatically allocated bridge also need the old addresses.
 docker rm -f "$cid" >/dev/null

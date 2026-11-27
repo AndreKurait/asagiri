@@ -1,6 +1,5 @@
 //! Install the checkpoint's OCI changeset as the receiver's actual overlay upper.
 use super::super::{layers, sys};
-use std::ffi::CString;
 use std::fs::{self, DirBuilder, File};
 use std::io;
 use std::os::fd::AsRawFd;
@@ -50,7 +49,7 @@ pub(in super::super) fn restore_rootfs(name: &str, layers: asagiri_proto::StrLis
         sys::check(libc::chdir(c"/".as_ptr()) as _, "enter writable layer")?;
     }
     let root = Path::new("/");
-    super::changeset::visit(&mut input, |_, _, _, member| layers::untar(member, root).map(drop))?;
+    super::changeset::visit(&mut input, super::changeset::ArchiveKind::WritableLayer, |_, _, _, member| layers::untar(member, root).map(drop))?;
     restore_metadata(&mut input)?;
     layers::sync_tree(root)?;
     // SAFETY: both names are fixed components of the still-open receiver directory.
@@ -62,7 +61,7 @@ pub(in super::super) fn restore_rootfs(name: &str, layers: asagiri_proto::StrLis
 /// Apply them and subsecond times after all entries exist, including ".".
 fn restore_metadata(input: &mut File) -> io::Result<()> {
     let mut found_root = false;
-    super::changeset::visit(input, |path, header, fields, _| {
+    super::changeset::visit(input, super::changeset::ArchiveKind::WritableLayer, |path, header, fields, _| {
         if path.file_name().is_some_and(|n| n.as_encoded_bytes().starts_with(b".wh.")) { return Ok(()); }
         if path.file_name().is_none() {
             if found_root || !header.entry_type().is_dir() { return Err(io::Error::other("invalid checkpoint: unexpected writable root")); }
@@ -75,20 +74,7 @@ fn restore_metadata(input: &mut File) -> io::Result<()> {
             fs::set_permissions("/", fs::Permissions::from_mode(header.mode()? & 0o7777))?;
             found_root = true;
         }
-        let target = sys::cstr(path)?;
-        for (name, value) in &fields.attrs {
-            let name = CString::new(name.as_slice())?;
-            // SAFETY: NUL-terminated names, exact value length, no final-link following.
-            sys::check(unsafe { libc::lsetxattr(target.as_ptr(), name.as_ptr(), value.as_ptr().cast(), value.len(), 0) } as _, "restore checkpoint xattr")?;
-        }
-        let atime = fields.atime.unwrap_or(libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_OMIT });
-        let mtime = match fields.mtime {
-            Some(time) => time,
-            None => libc::timespec { tv_sec: header.mtime()?.try_into().map_err(io::Error::other)?, tv_nsec: 0 },
-        };
-        // SAFETY: two initialized timespecs; the target is inside our private chroot.
-        sys::check(unsafe { libc::utimensat(libc::AT_FDCWD, target.as_ptr(), [atime, mtime].as_ptr(), libc::AT_SYMLINK_NOFOLLOW) } as _, "restore checkpoint times")?;
-        Ok(())
+        fields.apply_attributes_and_times(path, header)
     })?;
     if !found_root { return Err(io::Error::other("invalid checkpoint: missing writable root directory")); }
     Ok(())

@@ -276,9 +276,9 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     if matches!(view, View::Cleaning) || roots.cleaning(spec.id) { return Ok(None); }
     if spec.op == copy_op::IN && upload_busy(&spec) { return Ok(None); }
     let root = match spec.op {
-        copy_op::CHECKPOINT_ROOTFS => {
+        copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES => {
             if !matches!(view, View::Stopped) { return Err(io::Error::other("conflict: receiver is running")); }
-            let Some(directory) = roots.restore_upper(paths, spec.id)? else { return Ok(None) };
+            let Some(directory) = roots.restore_directory(paths, spec.id)? else { return Ok(None) };
             Ok(directory)
         }
         copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT => roots.hold_upper(paths, spec.id),
@@ -287,7 +287,7 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     }?;
     let mut preparing = false;
     let result = (|| {
-        if spec.op == copy_op::CHECKPOINT_ROOTFS {
+        if matches!(spec.op, copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) {
             super::super::container::valid_id(spec.path)?;
             Ok(Grant::Root(File::open(root)?.into()))
         } else if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT) {
@@ -343,7 +343,7 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let mut seen = std::collections::HashSet::new();
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
-        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_ROOTFS) { spec.path } else { "" };
+        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) { spec.path } else { "" };
         let volumes: Vec<_> = if spec.op == copy_op::IN { spec.mounts.iter().filter_map(super::super::container::writable_volume).collect() } else { Vec::new() };
         asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &volumes);
         if request.len() > MAX_REQUEST {

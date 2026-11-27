@@ -1,25 +1,28 @@
-//! Read GNU tar's checkpoint changeset. PAX lengths count bytes: an ACL, an
+//! Read the GNU tar archives saved with a checkpoint. PAX lengths count bytes: an ACL, an
 //! xattr value, or a path may contain embedded newlines. Keep file contents on
-//! disk and pass one member at a time through the engine's OCI layer decoder.
+//! disk and pass one member at a time to the network file or OCI layer decoder.
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path};
 
-use super::super::layers;
+use super::super::{layers, sys};
 
-fn invalid() -> io::Error { io::Error::other("invalid checkpoint: malformed writable layer") }
+fn invalid() -> io::Error { io::Error::other("invalid checkpoint: malformed tar archive") }
 
 #[derive(Default)]
 pub(super) struct Fields {
     path: Option<Vec<u8>>,
+    sparse_version: (Option<u8>, Option<u8>),
+    sparse_name: Option<Vec<u8>>,
+    pub(super) sparse_size: Option<u64>,
     link: Option<Vec<u8>>,
     size: Option<u64>,
     uid: Option<u32>,
     gid: Option<u32>,
-    pub(super) mtime: Option<libc::timespec>,
-    pub(super) atime: Option<libc::timespec>,
-    pub(super) attrs: Vec<(Vec<u8>, Vec<u8>)>,
+    mtime: Option<libc::timespec>,
+    atime: Option<libc::timespec>,
+    attrs: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 fn decimal<T: std::str::FromStr>(value: &[u8]) -> io::Result<T> {
@@ -27,6 +30,23 @@ fn decimal<T: std::str::FromStr>(value: &[u8]) -> io::Result<T> {
 }
 
 impl Fields {
+    pub(super) fn apply_attributes_and_times(&self, path: &Path, header: &tar::Header) -> io::Result<()> {
+        let target = sys::cstr(path)?;
+        for (name, value) in &self.attrs {
+            let name = std::ffi::CString::new(name.as_slice())?;
+            // SAFETY: NUL-terminated names, exact value length, no final-link following.
+            sys::check(unsafe { libc::lsetxattr(target.as_ptr(), name.as_ptr(), value.as_ptr().cast(), value.len(), 0) } as _, "restore checkpoint xattr")?;
+        }
+        let atime = self.atime.unwrap_or(libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_OMIT });
+        let mtime = match self.mtime {
+            Some(time) => time,
+            None => libc::timespec { tv_sec: header.mtime()?.try_into().map_err(io::Error::other)?, tv_nsec: 0 },
+        };
+        // SAFETY: two initialized timespecs; the target is a validated path in the private restore directory.
+        sys::check(unsafe { libc::utimensat(libc::AT_FDCWD, target.as_ptr(), [atime, mtime].as_ptr(), libc::AT_SYMLINK_NOFOLLOW) } as _, "restore checkpoint times")?;
+        Ok(())
+    }
+
     fn read_pax(&mut self, mut data: &[u8]) -> io::Result<()> {
         let (mut access_acl, mut default_acl) = (false, false);
         while !data.is_empty() {
@@ -46,7 +66,11 @@ impl Fields {
                 b"atime" => self.atime = Some(layers::pax_node_time(value)?),
                 b"SCHILY.acl.access" => access_acl = true,
                 b"SCHILY.acl.default" => default_acl = true,
-                key if key.starts_with(b"GNU.sparse.") => return Err(io::Error::other("unsupported sparse checkpoint layer encoding")),
+                b"GNU.sparse.major" => self.sparse_version.0 = Some(decimal(value)?),
+                b"GNU.sparse.minor" => self.sparse_version.1 = Some(decimal(value)?),
+                b"GNU.sparse.name" => self.sparse_name = Some(value.to_vec()),
+                b"GNU.sparse.realsize" => self.sparse_size = Some(decimal(value)?),
+                key if key.starts_with(b"GNU.sparse.") => return Err(io::Error::other("unsupported sparse checkpoint encoding")),
                 key => if let Some(name) = key.strip_prefix(b"SCHILY.xattr.") {
                     if name.is_empty() || name.contains(&0) || name.starts_with(b"trusted.overlay.") {
                         return Err(invalid());
@@ -81,7 +105,9 @@ fn long_header(out: &mut Vec<u8>, kind: tar::EntryType, value: &[u8]) -> io::Res
     Ok(())
 }
 
-pub(super) fn visit(input: &mut File, mut member: impl FnMut(&Path, &tar::Header, &Fields, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
+pub(super) enum ArchiveKind { WritableLayer, NetworkFiles }
+
+pub(super) fn visit(input: &mut File, archive: ArchiveKind, mut member: impl FnMut(&Path, &tar::Header, &Fields, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
     input.rewind()?;
     let length = input.metadata()?.len();
     let mut fields = Fields::default();
@@ -108,7 +134,7 @@ pub(super) fn visit(input: &mut File, mut member: impl FnMut(&Path, &tar::Header
         let padded = size.checked_next_multiple_of(512).ok_or_else(invalid)?;
         let end = input.stream_position()?.checked_add(padded).filter(|&n| n <= length).ok_or_else(invalid)?;
         if extension {
-            if size > 16 * 1024 * 1024 { return Err(io::Error::other("invalid checkpoint: oversized writable layer metadata")); }
+            if size > 16 * 1024 * 1024 { return Err(io::Error::other("invalid checkpoint: oversized tar metadata")); }
             let bit = if kind.is_pax_local_extensions() { 1 } else if kind.is_gnu_longname() { 2 } else { 4 };
             if extensions & bit != 0 { return Err(invalid()); }
             extensions |= bit;
@@ -122,6 +148,11 @@ pub(super) fn visit(input: &mut File, mut member: impl FnMut(&Path, &tar::Header
         } else {
             if !(kind.is_file() || kind.is_dir() || kind.is_fifo() || kind.is_symlink() || kind.is_hard_link()
                 || kind.is_character_special() || kind.is_block_special()) { return Err(invalid()); }
+            if fields.sparse_version != (None, None) || fields.sparse_name.is_some() || fields.sparse_size.is_some() {
+                if !matches!(archive, ArchiveKind::NetworkFiles) || fields.sparse_version != (Some(1), Some(0))
+                    || !kind.is_file() || fields.sparse_size.is_none() || fields.sparse_name.is_none() { return Err(invalid()); }
+                fields.path = fields.sparse_name.take();
+            }
             let original = header.path_bytes().into_owned();
             let path = Path::new(std::ffi::OsStr::from_bytes(fields.path.as_deref().unwrap_or(&original)));
             if path.as_os_str().is_empty() || !path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) { return Err(invalid()); }

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 mod changeset;
 mod network_files;
+pub(super) use network_files::{RESTORED_NETWORK_FILES, restore_network_files};
 mod receive;
 pub(super) use receive::receive;
 mod restore_rootfs;

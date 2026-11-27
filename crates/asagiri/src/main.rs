@@ -129,6 +129,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint create [--external-network] CONTAINER NAME
        asagiri checkpoint import CONTAINER NAME INPUT.tar
        asagiri checkpoint restore-rootfs CONTAINER NAME
+       asagiri checkpoint restore-network-files CONTAINER NAME
        asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]
        asagiri checkpoint platform
        asagiri checkpoint preflight --destination PLATFORM.json CONTAINER [CONTAINER...]
@@ -234,7 +235,7 @@ fn main() -> ExitCode {
         Some("k8s") => k8s::run(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("create-receiver") => checkpoint::create_receiver(&args[2..]),
-        Some("checkpoint") if args.get(1).map(String::as_str) == Some("restore-rootfs") => checkpoint::restore_rootfs(&args[2..]),
+        Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("restore-rootfs" | "restore-network-files")) => checkpoint::restore(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("prepare-networks") => checkpoint::prepare_networks(&args[2..]),
         #[cfg(unix)]

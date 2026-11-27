@@ -283,6 +283,8 @@ pub mod copy_op {
     pub const CHECKPOINT_IMPORT: u8 = 9;
     /// Install an imported writable layer on a fresh receiver. Replies with CopyDone or Error.
     pub const CHECKPOINT_ROOTFS: u8 = 10;
+    /// Install the checkpoint's three engine-managed network files for this receiver.
+    pub const CHECKPOINT_NETWORK_FILES: u8 = 11;
 }
 
 pub mod copy_flags {

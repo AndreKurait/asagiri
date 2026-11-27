@@ -3188,15 +3188,27 @@ impl Engine {
         self.open_copy(key, op, path, flags)
     }
 
-    /// Keep the receiver stopped until the guest has committed or rejected the layer.
-    pub fn restore_checkpoint_rootfs(&self, key: &str, name: &str) -> Result<(), Error> {
+    /// Keep the receiver stopped until the guest publishes the requested files.
+    pub fn restore_checkpoint_files(&self, key: &str, name: &str, op: u8) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        if !self.with(&id, |c| c.status == Status::Created)? {
-            return Err(Error::Conflict("checkpoint writable layer requires a freshly created receiver".into()));
-        }
-        let stream = self.open_copy(&id, asagiri_proto::copy_op::CHECKPOINT_ROOTFS, name, 0)?;
+        self.with(&id, |c| {
+            if c.status != Status::Created {
+                return Err(Error::Conflict("checkpoint restore requires a freshly created receiver".into()));
+            }
+            if op == asagiri_proto::copy_op::CHECKPOINT_NETWORK_FILES {
+                if c.spec.network_mode.starts_with("container:") {
+                    return Err(Error::Conflict("receiver uses another container's network files".into()));
+                }
+                let covered = c.spec.mounts.iter().filter_map(|m| m.split('\t').nth(1)).any(|target| {
+                    ["/etc/hosts", "/etc/hostname", "/etc/resolv.conf"].iter().any(|path| std::path::Path::new(path).starts_with(target))
+                });
+                if covered { return Err(Error::Conflict("a receiver mount covers its network files".into())); }
+            }
+            Ok(())
+        })??;
+        let stream = self.open_copy(&id, op, name, 0)?;
         let frame = super::api::guest_frame(&mut std::fs::File::from(stream.fd.try_clone()?))?;
         match asagiri_proto::decode(&frame) {
             Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
@@ -3205,7 +3217,7 @@ impl Engine {
                 if let Some(reason) = message.strip_prefix("conflict: ") { return Err(Error::Conflict(reason.into())); }
                 Err(super::api::copy_error(message))
             }
-            _ => Err(Error::Io(io::Error::other("invalid writable layer restore reply"))),
+            _ => Err(Error::Io(io::Error::other("invalid checkpoint restore reply"))),
         }
     }
 

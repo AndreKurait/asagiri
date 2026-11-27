@@ -145,6 +145,7 @@ struct Prepared {
     net_join: Option<fs::File>,
     /// Generated /etc files to bind over the image's: (source, target relative to the root).
     etc_files: Vec<(CString, CString)>,
+    restored_etc: bool,
     mounts: Vec<Mount>,
     /// For a bridged container: the child waits here until the agent has
     /// set up its network, so the program never starts without it.
@@ -341,11 +342,12 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         prepared.use_profile(profile).map_err(cleanup)?;
     }
     prepared.host = HostApplied { rlimits: host.rlimits.clone(), groups: host.groups.clone(), nodes };
-    // Small, short-lived files: kept in memory (/run is tmpfs), not on the data disk.
+    // Generated files live on tmpfs. Restored files use the receiver’s persistent storage.
     let etc_dir = PathBuf::from("/run/asagiri").join(spec.id);
     let embedded_dns = embedded_dns(spec, net.upstream_dns, net.dns.relay);
     let nameserver = embedded_dns.then(|| embedded_address(spec));
-    let (network_files_dir, etc_files) = write_etc_files(spec, &etc_dir, net.upstream_dns, nameserver).map_err(cleanup)?;
+    let (network_files_dir, etc_files) = write_etc_files(spec, &etc_dir, &paths.containers, net.upstream_dns, nameserver).map_err(cleanup)?;
+    prepared.restored_etc = network_files_dir.starts_with(&paths.containers);
     prepared.etc_files = etc_files;
     prepared.mounts = parse_mounts(spec.mounts).map_err(cleanup)?;
     // A network namespace of its own gets Docker's two defaults: any port
@@ -532,6 +534,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             container: None,
             pid,
             pid_shared: shared_pid_ns.is_some(),
+            late_dns: bridged.then(|| late_dns(spec, &network_files_dir, net.upstream_dns, nameserver)).flatten(),
             network_files_dir,
             image_layers: spec.layers.iter().map(str::to_owned).collect(),
             writable_volumes: spec.mounts.iter().filter_map(writable_volume).map(str::to_owned).collect(),
@@ -540,7 +543,6 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             stdin,
             tty: prepared.tty,
             dns_entries: std::mem::take(&mut dns_entries),
-            late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
             veths: std::mem::take(&mut veths),
             ways_out,
             macvlans: std::mem::take(&mut macvlans.0),
@@ -1075,6 +1077,7 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
         domainname: None,
         net_join: None,
         etc_files: Vec::new(),
+        restored_etc: false,
         mounts: Vec::new(),
         net_ready: None,
         cwd: c(if cwd.is_empty() { "/" } else { cwd })?,
@@ -1096,20 +1099,23 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
 
 /// Prepare the container's three network files and return their backing directory.
 /// Containers sharing a network namespace use the donor's files.
-fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<(PathBuf, Vec<(CString, CString)>)> {
-    fs::create_dir_all(base)?;
-    // `--network container:<id>` shares that container's files, as Docker does.
-    if let Some(target) = net_opts::values(spec.net.opts, net_opts::NETNS).next() {
-        valid_id(target)?;
-        let donor = PathBuf::from("/run/asagiri").join(target);
+fn write_etc_files(spec: &RunSpec<'_>, base: &Path, containers: &Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<(PathBuf, Vec<(CString, CString)>)> {
+    // A namespace sharer binds the donor's exact files, including restored ones.
+    let donor = net_opts::values(spec.net.opts, net_opts::NETNS).next();
+    let owner = donor.unwrap_or(spec.id);
+    valid_id(owner)?;
+    let restored = containers.join(owner).join(super::checkpoint::RESTORED_NETWORK_FILES);
+    let existing = if restored.try_exists()? { Some(restored) } else { donor.map(|id| Path::new("/run/asagiri").join(id)) };
+    if let Some(dir) = existing {
         let mut out = Vec::new();
         for name in ["hosts", "resolv.conf", "hostname"] {
-            let src = donor.join(name);
-            fs::metadata(&src).map_err(|e| io::Error::new(e.kind(), format!("network container {target}: {name}: {e}")))?;
+            let src = dir.join(name);
+            if !fs::symlink_metadata(&src)?.is_file() { return Err(io::Error::other(format!("invalid network file {name} for {owner}"))); }
             out.push((sys::cstr(&src)?, CString::new(format!("etc/{name}")).expect("no NUL")));
         }
-        return Ok((donor, out));
+        return Ok((dir, out));
     }
+    fs::create_dir_all(base)?;
     let domain = net_opts::values(spec.net.opts, net_opts::DOMAINNAME).next().filter(|d| !d.is_empty());
     let mut hosts = String::from("127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n");
     // On an IPv6-only network the IPv4 address is Asagiri's own name for it.
@@ -1528,13 +1534,21 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
 /// Binds `src` over `target` (relative to the container root, looked up
 /// inside it), creating the target (and /etc) first if the image does not
 /// have it.
-fn bind_file(root: BorrowedFd<'_>, src: &CStr, target: &CStr) -> io::Result<()> {
+fn bind_file(root: BorrowedFd<'_>, src: &CStr, target: &CStr, restored: bool) -> io::Result<()> {
     // Only create the target when the image lacks it: opening an existing
     // lower-layer file for writing would copy it up into the writable layer,
     // three times per container, for nothing. A bind mount sits over a
     // lower-layer file just fine, and an O_PATH lookup copies nothing.
-    let at = inroot::open(root, Path::new(std::ffi::OsStr::from_bytes(target.to_bytes())), Last::File)?;
-    sys::mount(src, &at.proc_path(), c"none", libc::MS_BIND, None)
+    let path = Path::new(std::ffi::OsStr::from_bytes(target.to_bytes()));
+    let at = inroot::open(root, path, Last::File)?;
+    sys::mount(src, &at.proc_path(), c"none", libc::MS_BIND, None)?;
+    if restored {
+        // The captured files live on the receiver's data disk. Expose them as
+        // writable data mounts regardless of their captured mode or xattrs.
+        let at = inroot::open(root, path, Last::Exists)?;
+        sys::mount(c"none", &at.proc_path(), c"none", libc::MS_BIND | libc::MS_REMOUNT | libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC, None)?;
+    }
+    Ok(())
 }
 
 /// Docker's `/.dockerenv`: an empty file, 0755, owned by root. Whatever the
@@ -1604,7 +1618,7 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: Raw
     mount_container_filesystems(p.privileged, p.shm_size).unwrap_or_else(|e| fail("mount", e));
     super::hostopts::make_nodes(root, &p.host.nodes).unwrap_or_else(|e| fail("devices", e));
     for (src, target) in &p.etc_files {
-        bind_file(root, src, target).unwrap_or_else(|e| fail(&target.to_string_lossy(), e));
+        bind_file(root, src, target, p.restored_etc).unwrap_or_else(|e| fail(&target.to_string_lossy(), e));
     }
     // SDKs use Docker's marker to detect container execution when cgroup
     // namespaces hide the host's cgroup path. Made before changing user or
