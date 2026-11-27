@@ -18,6 +18,7 @@ RELEASES = (
     ('0.1.15', 'd53714fb4d28647edfa811b63608c788f80bdc2bd0da6d151846821e0d7e0918'),
     ('0.1.16-dev.349', '3d8b05725e0c22558b3528524bd2e8975ee668c6a67717702c08d613d1274426'),
 )
+ACCESSIBILITY = ROOT / 'tests/mac-restart-qualification.swift'
 
 
 def release_app(directory, version, expected):
@@ -74,6 +75,17 @@ def terminate(process):
         process.wait(timeout=20)
 
 
+def wait_for_exit(pid):
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(.2)
+    raise RuntimeError(f'Test app process {pid} did not quit')
+
+
 def qualify():
     if os.environ.get('ASAGIRI_RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('RUNNER_OS') != 'macOS':
         raise RuntimeError('This qualification uses an unmodified production bundle on a disposable hosted Mac')
@@ -95,31 +107,42 @@ def qualify():
                'ASAGIRI_DATA_DIR':str(work/'store'), 'ASAGIRI_NO_FINDER':'1', 'ASAGIRI_IDLE_SECS':'0'}
         env.pop('GH_TOKEN', None)
         env.pop('ASAGIRI_UPDATE_URL', None)
+
+        def launch():
+            return int(subprocess.check_output(['swift', ACCESSIBILITY, 'launch', installed],
+                                               env=env, text=True, timeout=35))
+
         with (work/'old.log').open('w') as log:
             old = subprocess.Popen([binary, 'daemon'], env=env, stdout=log, stderr=log)
-            ui = None
+            ui_pid = None
             try:
                 original_pid = wait_for_version(endpoint, RELEASES[0][0])
                 assert original_pid == old.pid
                 installed.rename(work/'retired.app')
                 update.rename(installed)
-                ui = subprocess.Popen([binary, 'ui'], env=env)
+                ui_pid = launch()
                 assert engine(endpoint) == (original_pid, RELEASES[0][0])
-                print(f'New app open with old daemon {original_pid} serving {RELEASES[0][0]}', flush=True)
-                subprocess.run(['swift', ROOT/'tests/mac-restart-qualification.swift', str(ui.pid)],
+                print(f'New app PID {ui_pid}, old daemon {original_pid} serving {RELEASES[0][0]}', flush=True)
+                subprocess.run(['swift', ACCESSIBILITY, 'restart', str(ui_pid)],
                                env=env, check=True, timeout=75)
                 current_pid = wait_for_version(endpoint, RELEASES[1][0])
                 assert current_pid != original_pid and old.wait(timeout=20) == 0
                 print(f'Restart engine replaced PID {original_pid} with {current_pid}, socket reports {RELEASES[1][0]}', flush=True)
-                subprocess.run(['swift', ROOT/'tests/mac-restart-qualification.swift', str(ui.pid), 'quit'],
+                subprocess.run(['swift', ACCESSIBILITY, 'quit', str(ui_pid)],
                                env=env, check=True, timeout=35)
-                assert ui.wait(timeout=25) == 0
-                ui = subprocess.Popen([binary, 'ui'], env=env)
+                wait_for_exit(ui_pid)
+                ui_pid = None
+                ui_pid = launch()
                 time.sleep(3)
-                assert ui.poll() is None and engine(endpoint) == (current_pid, RELEASES[1][0])
+                os.kill(ui_pid, 0)
+                assert engine(endpoint) == (current_pid, RELEASES[1][0])
                 print('Reopening the app preserved the new daemon PID and version.', flush=True)
             finally:
-                terminate(ui)
+                if ui_pid is not None:
+                    try:
+                        os.kill(ui_pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
                 try:
                     pid, _ = engine(endpoint)
                 except (OSError, http.client.HTTPException):
