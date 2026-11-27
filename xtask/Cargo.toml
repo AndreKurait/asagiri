@@ -7,5 +7,9 @@ publish.workspace = true
 
 [dependencies]
 
+[target.'cfg(target_os = "macos")'.dependencies]
+gzp = { version = "2.0.4", default-features = false, features = ["deflate_zlib_ng"] }
+tempfile = "3"
+
 [lints]
 workspace = true
