@@ -72,6 +72,12 @@ echo 'PASS checkpoint retained the frozen network files, network definitions, en
 docker rm -f "$cid" >/dev/null
 cid=''
 docker network rm "$secondary" "$network" >/dev/null
+jq '.[0].Config | {Image, Entrypoint, Cmd}' "$work/container.json" >"$work/create.json"
+docker ps -aq >"$work/containers-before"
+if "$asagiri" checkpoint create-receiver --wait-for-restore "$work/checkpoint.tar" "$work/create.json" >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'waiting checkpoint receiver requires an archive captured with --external-network' "$work/error"
+docker ps -aq | cmp "$work/containers-before" -
+for net in "$network" "$secondary"; do if docker network inspect "$net" >/dev/null 2>&1; then exit 1; fi; done
 docker network create --label conflicting=true "$secondary" >/dev/null
 if "$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" >"$work/error" 2>&1; then exit 1; fi
 grep -Fq "$secondary differs" "$work/error"
@@ -100,7 +106,6 @@ docker network inspect "$network" "$secondary" | jq -e --slurpfile source "$work
 echo 'PASS both checkpoint networks matched the source, reused destination IDs, and rejected a conflicting group'
 
 # Let the destination operator supply the image and workload. All network fields come from the archive.
-jq '.[0].Config | {Image, Entrypoint, Cmd}' "$work/container.json" >"$work/create.json"
 jq '.HostConfig.NetworkMode="none"' "$work/create.json" >"$work/mismatch.json"
 if "$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/mismatch.json" >"$work/error" 2>&1; then exit 1; fi
 grep -Fq 'NetworkMode in the create request conflicts' "$work/error"

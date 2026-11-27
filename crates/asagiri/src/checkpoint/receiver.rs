@@ -121,6 +121,9 @@ pub(crate) fn create_receiver(args: &[String]) -> io::Result<()> {
     };
     let [archive, request] = args else { return Err(invalid("usage: asagiri checkpoint create-receiver [--wait-for-restore] INPUT.tar CREATE.json")); };
     let inventory = read_inventory(archive)?;
+    if wait && inventory.settings.get("externalNetwork").and_then(Value::as_str) != Some(asagiri_proto::CHECKPOINT_NETNS) {
+        return Err(invalid("a waiting checkpoint receiver requires an archive captured with --external-network on an engine-managed bridge"));
+    }
     let (name, body) = receiver(serde_json::from_reader(io::BufReader::new(File::open(request)?))?, &inventory)?;
     prepare_definitions(inventory.networks)?;
     let path = format!("/asagiri/checkpoint-receivers?name={name}&wait-for-restore={wait}");
