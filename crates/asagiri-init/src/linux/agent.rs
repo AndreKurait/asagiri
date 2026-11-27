@@ -703,6 +703,15 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
                 Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out, runtime),
+                Ok(Msg::CheckpointVerifyReceiver { id, name, volumes }) => {
+                    let result = running_pid(&procs, id)
+                        .ok_or_else(|| io::Error::other("receiver is not running"))
+                        .and_then(|pid| super::checkpoint::external_mounts(&paths.containers, id, pid, name, volumes));
+                    match result {
+                        Ok(_) => Msg::Ack.encode(&mut out),
+                        Err(e) => Msg::Error(&format!("receiver mounts: {e}")).encode(&mut out),
+                    }
+                }
                 Ok(Msg::CheckpointMountQuery { id }) => match running_pid(&procs, id) {
                     Some(pid) => match super::checkpoint::mounted_system_paths(pid) {
                         Ok(paths) => asagiri_proto::encode_checkpoint_mounts(&mut out, &paths),

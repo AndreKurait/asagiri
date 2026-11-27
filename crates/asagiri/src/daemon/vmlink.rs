@@ -595,6 +595,14 @@ impl VmLink {
         self.ack(|out| Msg::CheckpointRestoreInput { id, name }.encode(out))
     }
 
+    pub fn verify_checkpoint_receiver(&self, id: &str, name: &str, volumes: &[String]) -> io::Result<()> {
+        match self.call(|out| asagiri_proto::encode_checkpoint_verify_receiver(out, id, name, volumes), None)? {
+            Reply::Ack => Ok(()),
+            Reply::Error(message) => Err(io::Error::other(message)),
+            other => Err(io::Error::other(format!("expected receiver verification result, got {other:?}"))),
+        }
+    }
+
     pub fn checkpoint_mounts(&self, id: &str) -> io::Result<Vec<String>> {
         match self.call(|o| Msg::CheckpointMountQuery { id }.encode(o), None)? {
             Reply::CheckpointMounts(paths) => Ok(paths),

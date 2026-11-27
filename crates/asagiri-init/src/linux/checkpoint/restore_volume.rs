@@ -11,6 +11,15 @@ use super::super::{container, layers, sys};
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Receipt { container: String, checkpoint: String, source: String, inode: u64 }
 
+pub(super) fn restored_source(data: &Path, name: &str) -> io::Result<String> {
+    let receipt: Receipt = receive::manifest(&data.with_file_name(".restore-receipt"))?;
+    if receipt.checkpoint != name || receipt.inode != fs::symlink_metadata(data)?.ino()
+        || !volumes::valid_name(&receipt.source) {
+        return Err(io::Error::other("destination volume was not restored from this checkpoint"));
+    }
+    Ok(receipt.source)
+}
+
 /// An interrupted extraction may have left a receipt for an unpublished staging inode.
 /// Only the published directory should suppress Docker's initial image copy-up.
 pub(in super::super) fn installed_volume(data: &Path) -> io::Result<bool> {

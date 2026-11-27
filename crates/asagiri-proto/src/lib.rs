@@ -203,6 +203,7 @@ pub enum Msg<'a> {
     /// Older platform replies can omit CPU, package, or mount target information.
     GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str, system_mount_targets: Option<&'a str> },
     CheckpointRestoreInput { id: &'a str, name: &'a str },
+    CheckpointVerifyReceiver { id: &'a str, name: &'a str, volumes: StrList<'a> },
     CheckpointMountQuery { id: &'a str },
     CheckpointMounts(StrList<'a>),
     Checkpoints(StrList<'a>),
@@ -874,6 +875,7 @@ mod kind {
     pub const CHECKPOINT_CREATE_EXTERNAL_NETWORK: u16 = 95;
     pub const CHECKPOINT_RESTORE_INPUT: u16 = 96;
     pub const CHECKPOINT_RESTORED: u16 = 97;
+    pub const CHECKPOINT_VERIFY_RECEIVER: u16 = 98;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1069,6 +1071,14 @@ fn put_net_tail(out: &mut Vec<u8>, ip: [u8; 4], prefix: u8, gateway: [u8; 4]) {
 pub struct RunNetwork<'a, S> {
     pub number: u32,
     pub net: Net<'a, S>,
+}
+
+pub fn encode_checkpoint_verify_receiver<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, name: &str, volumes: &[S]) {
+    frame(out, kind::CHECKPOINT_VERIFY_RECEIVER, |o| {
+        put_str(o, id);
+        put_str(o, name);
+        StrList::put(o, volumes);
+    });
 }
 
 /// Encodes a `Run` frame straight from the sender's slices, without first
@@ -1311,6 +1321,12 @@ impl Msg<'_> {
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
             Msg::CheckpointRestoreInput { id, name } => frame(out, kind::CHECKPOINT_RESTORE_INPUT, |o| { put_str(o, id); put_str(o, name); }),
+            Msg::CheckpointVerifyReceiver { id, name, volumes } => frame(out, kind::CHECKPOINT_VERIFY_RECEIVER, |o| {
+                put_str(o, id);
+                put_str(o, name);
+                put_u32(o, volumes.count);
+                o.extend_from_slice(volumes.raw);
+            }),
             Msg::CheckpointMountQuery { id } => frame(out, kind::CHECKPOINT_MOUNT_QUERY, |o| put_str(o, id)),
             Msg::CheckpointMounts(paths) => encode_raw_reply(out, kind::CHECKPOINT_MOUNTS, paths.count, paths.raw),
             Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
@@ -1642,6 +1658,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::TOP => Msg::Top(r.list()?),
         kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
         kind::CHECKPOINT_RESTORE_INPUT => Msg::CheckpointRestoreInput { id: r.str()?, name: r.str()? },
+        kind::CHECKPOINT_VERIFY_RECEIVER => Msg::CheckpointVerifyReceiver { id: r.str()?, name: r.str()?, volumes: r.list()? },
         kind::CHECKPOINT_MOUNT_QUERY => Msg::CheckpointMountQuery { id: r.str()? },
         kind::CHECKPOINT_MOUNTS => Msg::CheckpointMounts(r.list()?),
         kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
@@ -1785,6 +1802,14 @@ mod tests {
         round(Msg::StatsRequest);
         round(Msg::GuestPlatformQuery);
         round(Msg::CheckpointRestoreInput { id: "receiver", name: "handoff" });
+        let mut receiver = Vec::new();
+        encode_checkpoint_verify_receiver(&mut receiver, "receiver", "handoff", &["data", "cache"]);
+        let verify = decode(&receiver).unwrap();
+        let Msg::CheckpointVerifyReceiver { id: "receiver", name: "handoff", volumes } = verify else {
+            panic!("unexpected receiver verification request");
+        };
+        assert!(volumes.iter().eq(["data", "cache"]));
+        round(verify);
         round(Msg::CheckpointMountQuery { id: "container" });
         let mut mounts = Vec::new();
         encode_checkpoint_mounts(&mut mounts, &["/proc/sys", "/sys/firmware"]);

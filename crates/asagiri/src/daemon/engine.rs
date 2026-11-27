@@ -3197,6 +3197,25 @@ impl Engine {
         self.open_copy(key, op, path, flags)
     }
 
+    pub fn verify_checkpoint_receiver(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _verifying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let volumes = self.with(&id, |c| {
+            if c.status != Status::Running || !c.in_guest {
+                return Err(Error::Conflict("mount verification requires a running receiver".into()));
+            }
+            let volumes: std::collections::BTreeSet<_> = c.spec.mount_info.iter()
+                .filter(|mount| mount["Type"] == "volume")
+                .filter_map(|mount| mount["Name"].as_str())
+                .map(str::to_owned)
+                .collect();
+            Ok(volumes.into_iter().collect::<Vec<_>>())
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.verify_checkpoint_receiver(&id, name, &volumes).map_err(|e| Error::Conflict(e.to_string()))
+    }
+
     pub fn restore_checkpoint_input(&self, key: &str, name: &str) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;

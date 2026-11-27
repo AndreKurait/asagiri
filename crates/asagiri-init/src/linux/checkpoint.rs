@@ -18,6 +18,8 @@ pub(super) use restore_volume::{installed_volume, restore_volume};
 mod pipe_data;
 mod stdio;
 pub(super) use stdio::{Input as CheckpointInput, Replay as InputReplay};
+mod restore_mounts;
+pub(super) use restore_mounts::external_mounts;
 mod restore_rootfs;
 pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;

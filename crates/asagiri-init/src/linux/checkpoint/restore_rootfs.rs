@@ -9,6 +9,14 @@ use std::path::Path;
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Receipt { checkpoint: String, inode: u64 }
 
+pub(super) fn require_installed(base: &Path, name: &str) -> io::Result<()> {
+    let receipt: Receipt = super::receive::manifest(&base.join(".restore-receipt"))?;
+    if receipt.checkpoint != name || receipt.inode != fs::symlink_metadata(base.join("upper"))?.ino() {
+        return Err(io::Error::other("receiver has a different checkpoint writable layer"));
+    }
+    Ok(())
+}
+
 /// This copy worker starts chrooted to the receiver's storage directory. The
 /// broker holds an exclusive lease and has unmounted any cached overlay.
 pub(in super::super) fn restore_rootfs(name: &str, layers: asagiri_proto::StrList<'_>) -> io::Result<()> {

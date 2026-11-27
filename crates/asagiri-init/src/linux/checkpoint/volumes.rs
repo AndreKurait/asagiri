@@ -17,7 +17,7 @@ pub(super) const MANIFEST: &str = "volume-mounts.json";
 #[serde(rename_all = "camelCase")]
 pub(super) struct Mount {
     pub(super) name: String,
-    target: String,
+    pub(super) target: String,
     read_only: bool,
 }
 

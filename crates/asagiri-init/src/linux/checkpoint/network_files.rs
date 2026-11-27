@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use super::super::inroot;
 
 const ARCHIVE: &str = "network-files.tar";
-const FILES: [(&str, &str); 3] = [("hostname", "asagiri-hostname"), ("hosts", "asagiri-hosts"), ("resolv.conf", "asagiri-resolv")];
+pub(super) const FILES: [(&str, &str); 3] = [("hostname", "asagiri-hostname"), ("hosts", "asagiri-hosts"), ("resolv.conf", "asagiri-resolv")];
 const SOURCE: &str = "ASAGIRI_CHECKPOINT_NETWORK_FILES";
 pub(in super::super) const RESTORED_NETWORK_FILES: &str = "restored-network-files";
 
