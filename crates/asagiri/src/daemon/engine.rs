@@ -3234,6 +3234,21 @@ impl Engine {
         })
     }
 
+    pub fn fence_checkpoint_receiver(&self, key: &str, fenced: bool) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.checkpoint_wait || c.paused {
+                return Err(Error::Conflict("network fencing requires a running checkpoint receiver".into()));
+            }
+            Ok(())
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.fence_checkpoint_receiver(&id, fenced).map_err(|error| Error::Conflict(error.to_string()))
+    }
+
     pub fn restore_checkpoint_input(&self, key: &str, name: &str) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;

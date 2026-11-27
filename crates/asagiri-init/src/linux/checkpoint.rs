@@ -45,7 +45,7 @@ pub(super) fn verify_receiver(containers: &Path, run: &super::container::Process
     Ok(())
 }
 
-fn private_bridge_namespace(run: &super::container::Process) -> io::Result<fs::File> {
+pub(super) fn private_bridge_namespace(run: &super::container::Process) -> io::Result<fs::File> {
     let namespace = fs::File::open(format!("/proc/{}/ns/net", run.pid))?;
     let inode = namespace.metadata()?.ino();
     if run.veths.is_empty() || !run.macvlans.is_empty() || inode != run.netns || inode == fs::metadata("/proc/self/ns/net")?.ino() {

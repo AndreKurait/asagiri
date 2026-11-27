@@ -132,6 +132,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint restore-network-files CONTAINER NAME
        asagiri checkpoint restore-stdin CONTAINER NAME
        asagiri checkpoint verify-receiver-mounts CONTAINER NAME
+       asagiri checkpoint fence-receiver|unfence-receiver CONTAINER
        asagiri checkpoint install-process CONTAINER NAME  # leave the restored process stopped
        asagiri checkpoint restore-volume CONTAINER NAME SOURCE_VOLUME NEW_VOLUME
        asagiri checkpoint capture-group [--destination PLATFORM.json] [--external-network] NAME CONTAINER [CONTAINER...]
@@ -244,6 +245,7 @@ fn main() -> ExitCode {
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("restore-volume") => checkpoint::restore_volume(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("restore-rootfs" | "restore-network-files" | "restore-stdin" | "verify-receiver-mounts" | "install-process")) => checkpoint::restore(&args[1..]),
+        Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("fence-receiver" | "unfence-receiver")) => checkpoint::fence_receiver(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("prepare-networks") => checkpoint::prepare_networks(&args[2..]),
         #[cfg(unix)]

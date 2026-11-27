@@ -29,6 +29,7 @@ struct Proc {
     exited: Option<(i32, u64)>,
     input: VecDeque<u8>,
     input_touched: bool,
+    restore_fenced: bool,
     replay: Option<super::checkpoint::InputReplay>,
     close_stdin_when_drained: bool,
     /// When a running TTY process last had its terminal hung up: no one
@@ -538,7 +539,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     {
                         wait_for_lease(&mut dhcp, uplink_deadline);
                     }
-                    let join_pid = asagiri_proto::net_opts::values(spec.net.opts, asagiri_proto::net_opts::NETNS).next().and_then(|t| running_pid(&procs, t));
+                    let join_pid = asagiri_proto::net_opts::values(spec.net.opts, asagiri_proto::net_opts::NETNS).next()
+                        .filter(|t| !procs.get(*t).is_some_and(|p| p.run.awaiting_checkpoint_restore || p.restore_fenced))
+                        .and_then(|t| running_pid(&procs, t));
                     container::spawn(
                     &spec,
                     paths,
@@ -556,7 +559,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
                 Ok(Msg::Exec(spec)) if checkpoint.as_ref().is_some_and(|c| c.container_id == spec.container_id)
-                    || restoring.as_ref().is_some_and(|c| c.container_id == spec.container_id) => {
+                    || procs.get(spec.container_id).is_some_and(|p| p.restore_fenced) => {
                     Msg::Error("container checkpoint in progress").encode(&mut out);
                 }
                 Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {
@@ -727,8 +730,8 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
                 Ok(Msg::Freeze { id, .. } | Msg::NetAttach { id, .. } | Msg::NetDetach { id, .. })
-                    if restoring.as_ref().is_some_and(|r| r.container_id == id) => {
-                    Msg::Error("checkpoint restore in progress").encode(&mut out);
+                    if procs.get(id).is_some_and(|p| p.restore_fenced) => {
+                    Msg::Error("receiver network is fenced for checkpoint restore").encode(&mut out);
                 }
                 Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| c.container_id == id || procs.get(id)
                     .is_some_and(|p| p.run.writable_volumes.iter().any(|name| c.uses_volume(name)))) => {
@@ -773,6 +776,15 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
                 },
+                Ok(Msg::CheckpointFenceReceiver { id, fenced }) => {
+                    let result = if restoring.as_ref().is_some_and(|r| r.container_id == id) {
+                        Err(io::Error::other("checkpoint restore in progress"))
+                    } else { fence_receiver(&mut procs, id, fenced) };
+                    match result {
+                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                    }
+                }
                 Ok(Msg::CheckpointInstallProcess { id, name, volumes }) => {
                     let result = if restoring.is_some() || checkpoint.is_some() {
                         Err(io::Error::other("another checkpoint operation is in progress"))
@@ -781,7 +793,12 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     } else if let Some(runtime) = runtime {
                         procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none())
                             .ok_or_else(|| io::Error::other("receiver is not running"))
-                            .and_then(|p| super::checkpoint::RestoreProcess::start(runtime, &paths.containers, &p.run, name, volumes))
+                            .and_then(|p| {
+                                if !p.restore_fenced {
+                                    return Err(io::Error::other("receiver network must be fenced before restore"));
+                                }
+                                super::checkpoint::RestoreProcess::start(runtime, &paths.containers, &p.run, name, volumes)
+                            })
                     } else {
                         Err(io::Error::other("checkpoint runtime is unavailable"))
                     };
@@ -1099,7 +1116,20 @@ fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
 mod files_view_tests;
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), input_touched: false, replay: None, close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), input_touched: false, restore_fenced: false, replay: None, close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
+}
+
+fn fence_receiver(procs: &mut Procs, id: &str, fenced: bool) -> io::Result<()> {
+    let p = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.container.is_none())
+        .ok_or_else(|| io::Error::other("receiver is not running"))?;
+    if p.restore_fenced == fenced { return Ok(()); }
+    if fenced && !p.run.awaiting_checkpoint_restore {
+        return Err(io::Error::other("fencing requires a waiting receiver"));
+    }
+    let namespace = super::checkpoint::private_bridge_namespace(&p.run)?;
+    super::netlink::checkpoint_fence(&namespace, fenced)?;
+    p.restore_fenced = fenced;
+    Ok(())
 }
 
 fn copy_view(procs: &Procs, id: &str) -> super::copy::View {

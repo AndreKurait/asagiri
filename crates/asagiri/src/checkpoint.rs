@@ -107,6 +107,16 @@ pub(crate) fn restore(args: &[String]) -> io::Result<()> {
     if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
+pub(crate) fn fence_receiver(args: &[String]) -> io::Result<()> {
+    let [action, id] = args else { return Err(io::Error::other("usage: asagiri checkpoint fence-receiver|unfence-receiver CONTAINER")); };
+    if !client::valid_checkpoint_component(id) {
+        return Err(io::Error::other("invalid receiver name"));
+    }
+    let operation = if action == "fence-receiver" { "fence" } else { "unfence" };
+    let response = client::request("POST", &format!("/asagiri/checkpoint-receivers/{id}/{operation}"), None)?;
+    if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
+}
+
 fn local_platform() -> io::Result<Platform> {
     serde_json::from_value(client::get("/asagiri/checkpoint-platform")?).map_err(io::Error::other)
 }
