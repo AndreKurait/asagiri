@@ -50,7 +50,7 @@ done
 tar -xOf "$work/checkpoint.tar" network.json | jq -e --slurpfile inspect "$work/container.json" --slurpfile nets "$work/networks.json" \
     --arg first "$network" --arg second "$secondary" '
     $inspect[0][0] as $c | $c.HostConfig as $h |
-    .version == 1 and .containerId == $c.Id and .containerName == ($c.Name | ltrimstr("/")) and
+    (has("externalNetwork") | not) and .version == 1 and .containerId == $c.Id and .containerName == ($c.Name | ltrimstr("/")) and
     .mode == $h.NetworkMode and .hostname == $c.Config.Hostname and .domainname == $c.Config.Domainname and
     .dns == $h.Dns and .dnsSearch == $h.DnsSearch and .dnsOptions == $h.DnsOptions and .extraHosts == $h.ExtraHosts and
     .endpoints == $c.NetworkSettings.Networks and .endpoints[$first].IPAddress == "10.218.47.9" and

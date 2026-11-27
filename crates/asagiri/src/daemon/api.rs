@@ -130,7 +130,7 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         super::storage::refuse_while_moving(w)?;
         return Ok(Next::Close);
     }
-    if matches!(req.method.as_str(), "GET" | "PUT") && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
+    if matches!(req.method.as_str(), "GET" | "PUT" | "POST") && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
         if !matches!(caller, super::caller::Caller::Host) {
             http::error(w, 403, "host connection required")?;
             return Ok(Next::Close);
@@ -138,6 +138,15 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         if !valid_checkpoint_name(name) {
             http::error(w, 400, "invalid checkpoint ID")?;
             return Ok(Next::Close);
+        }
+        if req.method == "POST" {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields, rename_all = "camelCase")]
+            struct Capture { external_network: bool }
+            let result = serde_json::from_slice::<Capture>(&req.body)
+                .map_err(|e| Error::BadRequest(format!("invalid checkpoint options: {e}")))
+                .and_then(|options| engine.checkpoint_live(id, name, options.external_network));
+            return reply(w, result.map(|()| Value::Null), 201);
         }
         if req.method == "PUT" { return checkpoint_import(req, engine, id, name, w, r); }
         return super::ops::export(engine, id, asagiri_proto::copy_op::CHECKPOINT_EXPORT, name, w);
@@ -580,7 +589,7 @@ fn checkpoint_create(req: &Request, engine: &Engine, id: &str) -> Result<(), Err
     if body.get("CheckpointDir").is_some_and(|dir| dir.as_str() != Some("")) {
         return Err(Error::BadRequest("custom checkpoint directories are unsupported".into()));
     }
-    engine.checkpoint_live(id, name)
+    engine.checkpoint_live(id, name, false)
 }
 
 fn info(engine: &Engine) -> Value {

@@ -34,6 +34,19 @@ impl GuestPlatform {
     }
 }
 
+pub(crate) fn create(args: &[String]) -> io::Result<()> {
+    let (external_network, rest) = match args.split_first() {
+        Some((flag, rest)) if flag == "--external-network" => (true, rest),
+        _ => (false, args),
+    };
+    let [container, name] = rest else { return Err(io::Error::other("usage: asagiri checkpoint create [--external-network] CONTAINER NAME")); };
+    if !client::valid_checkpoint_component(container) || !client::valid_checkpoint_component(name) {
+        return Err(io::Error::other("invalid container or checkpoint name"));
+    }
+    let response = client::request("POST", &format!("/asagiri/checkpoints/{container}/{name}"), Some(&json!({"externalNetwork": external_network})))?;
+    if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
+}
+
 pub(crate) fn fence(args: &[String]) -> io::Result<()> {
     let [action, name, containers @ ..] = args else { return Err(io::Error::other("usage: asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]")); };
     if containers.is_empty() { return Err(io::Error::other("supply at least one source container")); }

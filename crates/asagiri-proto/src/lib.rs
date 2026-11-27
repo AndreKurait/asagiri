@@ -606,7 +606,12 @@ pub struct CheckpointSpec<'a> {
     pub leave_running: bool,
     pub volume_mounts: &'a str,
     pub network: &'a str,
+    /// Recreate the engine-owned bridge namespace on the destination.
+    pub external_network: bool,
 }
+
+/// CRIU resource key for a destination engine-managed network namespace.
+pub const CHECKPOINT_NETNS: &str = "asagiri-network";
 
 /// cgroup limits (`--memory`, `--cpus`, `--cpu-shares`, `--pids-limit`).
 /// Zero means no limit.
@@ -854,6 +859,7 @@ mod kind {
     pub const CHECKPOINT_CREATE_NETWORK: u16 = 92;
     pub const CHECKPOINT_MOUNT_QUERY: u16 = 93;
     pub const CHECKPOINT_MOUNTS: u16 = 94;
+    pub const CHECKPOINT_CREATE_EXTERNAL_NETWORK: u16 = 95;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1263,7 +1269,8 @@ impl Msg<'_> {
                 put_limits(o, &limits);
             }),
             Msg::CheckpointCreate(spec) => {
-                let kind = if !spec.network.is_empty() { kind::CHECKPOINT_CREATE_NETWORK }
+                let kind = if spec.external_network { kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK }
+                    else if !spec.network.is_empty() { kind::CHECKPOINT_CREATE_NETWORK }
                     else if !spec.volume_mounts.is_empty() { kind::CHECKPOINT_CREATE_VOLUMES }
                     else { kind::CHECKPOINT_CREATE };
                 frame(out, kind, |o| {
@@ -1271,7 +1278,7 @@ impl Msg<'_> {
                     put_str(o, spec.name);
                     o.push(u8::from(spec.leave_running));
                     if kind != kind::CHECKPOINT_CREATE { put_str(o, spec.volume_mounts); }
-                    if kind == kind::CHECKPOINT_CREATE_NETWORK { put_str(o, spec.network); }
+                    if matches!(kind, kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK) { put_str(o, spec.network); }
                 });
             }
             Msg::CheckpointResult { error } => frame(out, kind::CHECKPOINT_RESULT, |o| put_str(o, error)),
@@ -1600,10 +1607,11 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::COPY_STAT => Msg::CopyStat { entry: read_entry(&mut r)?, link: r.str()? },
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
-        kind::CHECKPOINT_CREATE | kind::CHECKPOINT_CREATE_VOLUMES | kind::CHECKPOINT_CREATE_NETWORK => Msg::CheckpointCreate(CheckpointSpec {
+        kind::CHECKPOINT_CREATE | kind::CHECKPOINT_CREATE_VOLUMES | kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK => Msg::CheckpointCreate(CheckpointSpec {
             id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0,
             volume_mounts: if kind == kind::CHECKPOINT_CREATE { "" } else { r.str()? },
-            network: if kind == kind::CHECKPOINT_CREATE_NETWORK { r.str()? } else { "" },
+            network: if matches!(kind, kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK) { r.str()? } else { "" },
+            external_network: kind == kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK,
         }),
         kind::CHECKPOINT_RESULT => Msg::CheckpointResult { error: r.str()? },
         kind::FREEZE => Msg::Freeze { id: r.str()?, frozen: r.u8()? != 0 },
@@ -1890,7 +1898,9 @@ mod tests {
         for leave_running in [false, true] {
             for volume_mounts in ["", r#"[{"name":"data","target":"/data","readOnly":false}]"#] {
                 for network in ["", r#"{"version":1,"mode":"none"}"#] {
-                    round(Msg::CheckpointCreate(CheckpointSpec { id: "c1", name: "java-live", leave_running, volume_mounts, network }));
+                    for external_network in [false, true] {
+                        round(Msg::CheckpointCreate(CheckpointSpec { id: "c1", name: "java-live", leave_running, volume_mounts, network, external_network }));
+                    }
                 }
             }
         }

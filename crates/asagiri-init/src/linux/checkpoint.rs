@@ -260,7 +260,7 @@ impl Capture {
         DirBuilder::new().mode(0o700).create(&staging)?;
         let start = || {
             if !spec.network.is_empty() { fs::write(staging.join("network.json"), spec.network)?; }
-            dump(runtime, run, group, &staging, &container_dir, &volume_mounts)
+            dump(runtime, run, group, &staging, &container_dir, &volume_mounts, spec.external_network)
         };
         let child = match start() {
             Ok(child) => child,
@@ -356,7 +356,7 @@ fn remove_staging(staging: &Path) {
     }
 }
 
-fn dump(runtime: &Runtime, run: &super::container::Process, group: &Path, images: &Path, container_dir: &Path, mounts: &[volumes::Mount]) -> io::Result<Child> {
+fn dump(runtime: &Runtime, run: &super::container::Process, group: &Path, images: &Path, container_dir: &Path, mounts: &[volumes::Mount], external_network: bool) -> io::Result<Child> {
     let mut command = runtime.command();
     command
         .process_group(0)
@@ -365,6 +365,13 @@ fn dump(runtime: &Runtime, run: &super::container::Process, group: &Path, images
         .arg(run.pid.to_string())
         .arg("--freeze-cgroup").arg(group)
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"]);
+    if external_network {
+        let inode = fs::metadata(format!("/proc/{}/ns/net", run.pid))?.ino();
+        if run.veths.is_empty() || !run.macvlans.is_empty() || inode != run.netns || inode == fs::metadata("/proc/self/ns/net")?.ino() {
+            return Err(io::Error::other("container does not own a private bridge network namespace"));
+        }
+        command.arg("--external").arg(format!("net[{inode}]:{}", asagiri_proto::CHECKPOINT_NETNS));
+    }
     network_files::prepare(&mut command, &run.network_files_dir);
     writable::prepare(images, &run.image_layers)?;
     command.env("ASAGIRI_CHECKPOINT_CONTAINER_DIR", container_dir);

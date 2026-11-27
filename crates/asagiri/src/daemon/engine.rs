@@ -3633,18 +3633,26 @@ impl Engine {
         self.restore_endpoint_ports(&id)
     }
 
-    pub fn checkpoint_live(&self, key: &str, name: &str) -> Result<(), Error> {
+    pub fn checkpoint_live(&self, key: &str, name: &str, external_network: bool) -> Result<(), Error> {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         self.with(&id, Container::ensure_unfenced)??;
         let networks = self.lock_net().all().to_vec();
-        let (running, mounts, network) = self.with(&id, |c| (
-            c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks).to_string(),
+        let (running, mounts, mut network) = self.with(&id, |c| (
+            c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks),
         ))?;
         if !running {
             return Err(Error::Conflict("checkpoint capture requires a running container".into()));
         }
+        if external_network {
+            let bridges = network["networks"].as_array().is_some_and(|defs| !defs.is_empty() && defs.iter().all(|net| net["Driver"] == "bridge"));
+            if !bridges || network["mode"].as_str().is_none_or(|mode| mode == "host" || mode == "none" || mode.starts_with("container:")) {
+                return Err(Error::Conflict("external-network capture requires a container with its own engine-managed bridge network".into()));
+            }
+            network["externalNetwork"] = serde_json::json!(asagiri_proto::CHECKPOINT_NETNS);
+        }
+        let network = network.to_string();
         let mut volumes = Vec::new();
         for mount in mounts.iter().filter(|m| m["Type"] == "volume") {
             let volume = mount["Name"].as_str().and_then(|name| self.volume_get(name))
@@ -3658,7 +3666,7 @@ impl Engine {
         if manifest.len() + network.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
             return Err(Error::Conflict("checkpoint configuration exceeds the guest protocol limit".into()));
         }
-        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id: &id, name, leave_running: true, volume_mounts: &manifest, network: &network }) {
+        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id: &id, name, leave_running: true, volume_mounts: &manifest, network: &network, external_network }) {
             Ok(()) => {
                 if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.paused) {
                     c.paused_checkpoint = Some(name.to_owned());
