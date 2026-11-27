@@ -200,6 +200,7 @@ pub enum Msg<'a> {
     GuestPlatformQuery,
     /// Older platform replies can omit CPU, package, or mount target information.
     GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str, system_mount_targets: Option<&'a str> },
+    CheckpointRestoreInput { id: &'a str, name: &'a str },
     CheckpointMountQuery { id: &'a str },
     CheckpointMounts(StrList<'a>),
     Checkpoints(StrList<'a>),
@@ -869,6 +870,7 @@ mod kind {
     pub const CHECKPOINT_MOUNT_QUERY: u16 = 93;
     pub const CHECKPOINT_MOUNTS: u16 = 94;
     pub const CHECKPOINT_CREATE_EXTERNAL_NETWORK: u16 = 95;
+    pub const CHECKPOINT_RESTORE_INPUT: u16 = 96;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1300,6 +1302,7 @@ impl Msg<'_> {
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
+            Msg::CheckpointRestoreInput { id, name } => frame(out, kind::CHECKPOINT_RESTORE_INPUT, |o| { put_str(o, id); put_str(o, name); }),
             Msg::CheckpointMountQuery { id } => frame(out, kind::CHECKPOINT_MOUNT_QUERY, |o| put_str(o, id)),
             Msg::CheckpointMounts(paths) => encode_raw_reply(out, kind::CHECKPOINT_MOUNTS, paths.count, paths.raw),
             Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
@@ -1629,6 +1632,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::TOP_QUERY => Msg::TopQuery { id: r.str()? },
         kind::TOP => Msg::Top(r.list()?),
         kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
+        kind::CHECKPOINT_RESTORE_INPUT => Msg::CheckpointRestoreInput { id: r.str()?, name: r.str()? },
         kind::CHECKPOINT_MOUNT_QUERY => Msg::CheckpointMountQuery { id: r.str()? },
         kind::CHECKPOINT_MOUNTS => Msg::CheckpointMounts(r.list()?),
         kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
@@ -1771,6 +1775,7 @@ mod tests {
         round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
         round(Msg::GuestPlatformQuery);
+        round(Msg::CheckpointRestoreInput { id: "receiver", name: "handoff" });
         round(Msg::CheckpointMountQuery { id: "container" });
         let mut mounts = Vec::new();
         encode_checkpoint_mounts(&mut mounts, &["/proc/sys", "/sys/firmware"]);

@@ -3189,6 +3189,24 @@ impl Engine {
         self.open_copy(key, op, path, flags)
     }
 
+    pub fn restore_checkpoint_input(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.open_stdin || c.spec.tty {
+                return Err(Error::Conflict("input replay requires a running receiver with non-TTY stdin".into()));
+            }
+            Ok(())
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.restore_checkpoint_input(&id, name).map_err(|e| match e.to_string().strip_prefix("conflict: ") {
+            Some(reason) => Error::Conflict(reason.into()),
+            None => Error::Io(e),
+        })
+    }
+
     /// Keep the receiver stopped until the guest publishes the requested files.
     pub fn restore_checkpoint_files(&self, key: &str, name: &str, op: u8) -> Result<(), Error> {
         let id = self.resolve(key)?;

@@ -17,7 +17,7 @@ mod restore_volume;
 pub(super) use restore_volume::{installed_volume, restore_volume};
 mod pipe_data;
 mod stdio;
-pub(super) use stdio::Input as CheckpointInput;
+pub(super) use stdio::{Input as CheckpointInput, Replay as InputReplay};
 mod restore_rootfs;
 pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;
@@ -236,6 +236,7 @@ pub(super) struct Capture {
     staging: PathBuf,
     destination: PathBuf,
     _queued_input: Option<fs::File>,
+    _replay_input: Option<fs::File>,
     cancelled: bool,
     finished: bool,
     volume_mounts: Vec<volumes::Mount>,
@@ -274,20 +275,22 @@ impl Capture {
             stdio::capture(&staging, run, input.close_when_drained)?;
             if !spec.network.is_empty() { fs::write(staging.join("network.json"), spec.network)?; }
             let mut command = runtime.command();
+            command.env_remove("ASAGIRI_CHECKPOINT_REPLAY_FILE").env_remove("ASAGIRI_CHECKPOINT_REPLAY_OFFSET");
+            let replay = input.replay.map(|r| r.snapshot(&mut command)).transpose()?.flatten();
             if let Some(file) = &queued {
                 command.env("ASAGIRI_CHECKPOINT_QUEUED_INPUT", format!("/proc/{}/fd/{}", std::process::id(), file.as_raw_fd()));
             } else { command.env_remove("ASAGIRI_CHECKPOINT_QUEUED_INPUT"); }
             let child = dump(command, run, group, &staging, &container_dir, &volume_mounts, spec.external_network)?;
-            Ok((child, queued))
+            Ok((child, queued, replay))
         };
-        let (child, queued) = match start() {
+        let (child, queued, replay) = match start() {
             Ok(child) => child,
             Err(error) => {
                 remove_staging(&staging);
                 return Err(error);
             }
         };
-        Ok(Self { child, target_pid: pid, container_id: run.id.clone(), staging, destination, _queued_input: queued, cancelled: false, finished: false, volume_mounts })
+        Ok(Self { child, target_pid: pid, container_id: run.id.clone(), staging, destination, _queued_input: queued, _replay_input: replay, cancelled: false, finished: false, volume_mounts })
     }
 
     /// Peek without making the target PID reusable. On target exit, stop the

@@ -73,6 +73,12 @@ pub(super) fn capture(images: &Path) -> io::Result<()> {
     if let Some(stdin) = streams.stdin {
         let mut data = File::create_new(images.join("stdin.bin"))?;
         kernel_input(images, stdin.get(), &mut data)?;
+        if let Some(path) = std::env::var_os("ASAGIRI_CHECKPOINT_REPLAY_FILE") {
+            let mut replay = File::open(path)?;
+            let offset = std::env::var("ASAGIRI_CHECKPOINT_REPLAY_OFFSET").map_err(io::Error::other)?.parse().map_err(io::Error::other)?;
+            replay.seek(SeekFrom::Start(offset))?;
+            io::copy(&mut replay, &mut data)?;
+        }
         if let Some(path) = std::env::var_os("ASAGIRI_CHECKPOINT_QUEUED_INPUT") {
             io::copy(&mut File::open(path)?, &mut data)?;
         }

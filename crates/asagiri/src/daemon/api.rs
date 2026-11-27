@@ -136,6 +136,9 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             return Ok(Next::Close);
         }
         if req.method == "POST" && let Some((name, part)) = name.split_once('/') && valid_checkpoint_name(name) {
+            if part == "stdin" {
+                return reply(w, engine.restore_checkpoint_input(id, name).map(|()| Value::Null), 200);
+            }
             if part == "volume" {
                 #[derive(serde::Deserialize)]
                 #[serde(deny_unknown_fields)]

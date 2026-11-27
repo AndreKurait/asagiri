@@ -28,6 +28,8 @@ struct Proc {
     /// Set once reaped: (exit code, when).
     exited: Option<(i32, u64)>,
     input: VecDeque<u8>,
+    input_touched: bool,
+    replay: Option<super::checkpoint::InputReplay>,
     close_stdin_when_drained: bool,
     /// When a running TTY process last had its terminal hung up: no one
     /// held the pty open, as while systemd reopens /dev/console. Kept, and
@@ -40,6 +42,12 @@ struct Proc {
     oom_killed: Option<bool>,
     exit_announced: bool,
     root_released: bool,
+}
+
+impl Proc {
+    fn has_pending_input(&self) -> bool {
+        !self.input.is_empty() || self.replay.as_ref().is_some_and(|r| r.pending())
+    }
 }
 
 // Linux can reuse a reaped PID while its output is draining or its filesystem
@@ -183,7 +191,8 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
             for fd in [&p.run.stdout, &p.run.stderr].into_iter().flatten() {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
             }
-            if let (Some(fd), false) = (&p.run.stdin, p.input.is_empty() && !p.close_stdin_when_drained)
+            if let Some(fd) = &p.run.stdin
+                && (p.has_pending_input() || p.close_stdin_when_drained)
                 && !checkpoint.as_ref().is_some_and(|c| !p.run.tty && c.container_id == p.run.id) {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
             }
@@ -534,7 +543,16 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                 }
                 Ok(Msg::Input { id, data }) => {
                     let mut target = None;
-                    if let Some(p) = procs.values_mut().find(|p| p.run.id == id) {
+                    if let Some(p) = procs.get_mut(id) {
+                        p.input_touched |= !data.is_empty();
+                        // A restored EOF is final even if a new client attaches while
+                        // replay is draining. Return credit only for the discarded frame.
+                        if p.replay.is_some() && (p.close_stdin_when_drained || p.run.stdin.is_none()) {
+                            out.clear();
+                            Msg::InputConsumed { id, bytes: data.len() as u32 }.encode(&mut out);
+                            conn.write_all(&out)?;
+                            continue;
+                        }
                         if let Some(fd) = p.run.stdin.as_ref().map(|f| f.as_raw_fd()) {
                             if p.input.len() + data.len() > MAX_PENDING_INPUT {
                                 p.input.clear();
@@ -554,7 +572,8 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     if let Some(p) = procs.values_mut().find(|p| p.run.id == id) {
                         // A terminal has no separate end of input; keep it open.
                         if !p.run.tty {
-                            if p.input.is_empty() && !checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
+                            p.input_touched = true;
+                            if !p.has_pending_input() && !checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
                                 p.run.stdin = None;
                             } else {
                                 p.close_stdin_when_drained = true;
@@ -691,6 +710,17 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::CheckpointRestoreInput { id, name }) => {
+                    let result = if checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
+                        Err(io::Error::other("conflict: receiver capture in progress"))
+                    } else {
+                        restore_input(&mut procs, &paths.containers, id, name)
+                    };
+                    match result {
+                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Err(e) => Msg::Error(&e.to_string()).encode(&mut out),
+                    }
+                }
                 Ok(Msg::CheckpointList { id }) => match super::checkpoint::list(&paths.containers, id) {
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
@@ -708,7 +738,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     } else if let Some(runtime) = runtime {
                         match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (p, group))) {
                             Some((p, group)) => super::checkpoint::Capture::start(runtime, &p.run, group, &paths.containers, spec,
-                                super::checkpoint::CheckpointInput { queued: &p.input, close_when_drained: p.close_stdin_when_drained },
+                                super::checkpoint::CheckpointInput { queued: &p.input, replay: p.replay.as_ref(), close_when_drained: p.close_stdin_when_drained },
                                 |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, p.run.pid, volume)),
                             None => Err(io::Error::other(format!("container {id} is not running"))),
                         }
@@ -998,7 +1028,7 @@ fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
 mod files_view_tests;
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), input_touched: false, replay: None, close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
 }
 
 fn copy_view(procs: &Procs, id: &str) -> super::copy::View {
@@ -1023,10 +1053,43 @@ fn root_events(roots: &Roots, procs: &Procs, conn: &mut File, out: &mut Vec<u8>)
     Ok(())
 }
 
+fn restore_input(procs: &mut Procs, containers: &Path, id: &str, name: &str) -> io::Result<()> {
+    let p = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.container.is_none())
+        .ok_or_else(|| io::Error::other("conflict: receiver is not running"))?;
+    if let Some(replay) = &p.replay {
+        if replay.name != name { return Err(io::Error::other("conflict: another checkpoint already owns receiver input")); }
+        if let Some(error) = &replay.error { return Err(io::Error::other(error.clone())); }
+        return Ok(());
+    }
+    if p.input_touched || p.run.tty || p.run.stdin.is_none() {
+        return Err(io::Error::other("conflict: receiver requires an unused non-TTY input pipe"));
+    }
+    let (replay, close) = super::checkpoint::InputReplay::open(containers, id, name)?;
+    p.close_stdin_when_drained = close;
+    p.replay = Some(replay);
+    Ok(())
+}
+
 /// Writes as much pending input as the process will take without blocking,
 /// and tells the host how much, so it can send that much more.
 fn flush_input(procs: &mut Procs, fd: RawFd, conn: &mut File, out: &mut Vec<u8>) -> io::Result<()> {
     let Some(p) = procs.values_mut().find(|p| p.run.stdin.as_ref().is_some_and(|f| f.as_raw_fd() == fd)) else { return Ok(()) };
+    if let Some(replay) = &mut p.replay {
+        if let Err(e) = replay.advance(p.run.stdin.as_ref().expect("polled input")) {
+            let error = format!("restore input for {}: {e}", p.run.id);
+            eprintln!("asagiri-init: {error}");
+            replay.fail(error);
+            p.run.stdin = None;
+            if !p.input.is_empty() {
+                out.clear();
+                Msg::InputConsumed { id: &p.run.id, bytes: p.input.len() as u32 }.encode(out);
+                conn.write_all(out)?;
+                p.input.clear();
+            }
+            return Ok(());
+        }
+        if replay.pending() { return Ok(()); }
+    }
     let mut consumed = 0usize;
     while !p.input.is_empty() {
         let (front, _) = p.input.as_slices();

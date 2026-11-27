@@ -586,6 +586,10 @@ impl VmLink {
         }
     }
 
+    pub fn restore_checkpoint_input(&self, id: &str, name: &str) -> io::Result<()> {
+        self.ack(|out| Msg::CheckpointRestoreInput { id, name }.encode(out))
+    }
+
     pub fn checkpoint_mounts(&self, id: &str) -> io::Result<Vec<String>> {
         match self.call(|o| Msg::CheckpointMountQuery { id }.encode(o), None)? {
             Reply::CheckpointMounts(paths) => Ok(paths),
