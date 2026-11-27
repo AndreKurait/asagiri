@@ -88,6 +88,7 @@ pub struct VmLink {
     windows: Arc<Windows>,
     /// The guest's latest `Usage` lines, for `usage`.
     usage: Arc<UsageSlot>,
+    checkpoint: Arc<CheckpointSlot>,
     pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
     cleanup: Arc<CleanupBarrier>,
     /// Owns the VM until retirement has confirmed shutdown and cleanup.
@@ -300,6 +301,32 @@ struct UsageSlot {
     arrived: Condvar,
 }
 
+/// A checkpoint holds one completion slot, separate from ordinary FIFO replies.
+#[derive(Default)]
+struct CheckpointSlot(Mutex<Option<SyncSender<io::Result<()>>>>);
+
+impl CheckpointSlot {
+    fn reserve(&self) -> io::Result<mpsc::Receiver<io::Result<()>>> {
+        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"));
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        *slot = Some(tx);
+        Ok(rx)
+    }
+
+    fn clear(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    fn complete(&self, result: io::Result<()>) {
+        if let Some(tx) = &*self.0.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = tx.try_send(result);
+        }
+    }
+}
+
 impl VmLink {
     pub fn is_lost(&self) -> bool {
         self.windows.is_lost()
@@ -319,7 +346,8 @@ impl VmLink {
         let windows = Arc::new(Windows::default());
         let usage = Arc::new(UsageSlot::default());
         let cleanup = Arc::new(CleanupBarrier::default());
-        Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), cleanup.clone(), on_event)?;
+        let checkpoint = Arc::new(CheckpointSlot::default());
+        Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), checkpoint.clone(), cleanup.clone(), on_event)?;
         Ok(VmLink {
             live_checkpoint,
             writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
@@ -328,6 +356,7 @@ impl VmLink {
             cleanup,
             windows,
             usage,
+            checkpoint,
             connector: vm.connector(),
             _vm: Mutex::new(vm),
             #[cfg(target_os = "macos")]
@@ -340,6 +369,7 @@ impl VmLink {
         queue: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
         wins: Arc<Windows>,
         slot: Arc<UsageSlot>,
+        checkpoint: Arc<CheckpointSlot>,
         cleaning: Arc<CleanupBarrier>,
         on_event: impl Fn(Event<'_>) + Send + 'static,
     ) -> io::Result<std::thread::JoinHandle<()>> {
@@ -363,6 +393,11 @@ impl VmLink {
                         });
                         drop(g);
                         slot.arrived.notify_all();
+                        continue;
+                    }
+                    Ok(Msg::CheckpointResult { error }) => {
+                        let result = if error.is_empty() { Ok(()) } else { Err(io::Error::other(error)) };
+                        checkpoint.complete(result);
                         continue;
                     }
                     Ok(Msg::CleanupPending(id)) => { cleaning.pending(id); continue; }
@@ -412,6 +447,7 @@ impl VmLink {
             // this dead link while the engine is still accounting exits.
             wins.lose();
             cleaning.lost();
+            checkpoint.complete(Err(io::Error::new(io::ErrorKind::BrokenPipe, "the VM stopped during checkpoint capture")));
             for slot in queue.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
                 let _ = slot.send(Reply::Error("the VM stopped".into()));
             }
@@ -542,7 +578,11 @@ impl VmLink {
     }
 
     pub fn checkpoint_live(&self, id: &str, name: &str) -> io::Result<()> {
-        self.ack(|o| Msg::CheckpointCreate { id, name, leave_running: true }.encode(o))
+        let completion = self.checkpoint.reserve()?;
+        let result = self.ack(|o| Msg::CheckpointCreate { id, name, leave_running: true }.encode(o))
+            .and_then(|()| completion.recv().unwrap_or_else(|_| Err(io::Error::other("the VM stopped during checkpoint capture"))));
+        self.checkpoint.clear();
+        result
     }
 
     pub fn freeze(&self, id: &str, frozen: bool) -> io::Result<()> {
@@ -888,7 +928,7 @@ mod tests {
         let windows = Arc::new(Windows::default());
         let reader = VmLink::spawn_reader(
             std::os::fd::OwnedFd::from(socket).into(), pending.clone(), windows.clone(),
-            usage.clone(), Arc::new(CleanupBarrier::default()), |_| {},
+            usage.clone(), Arc::new(CheckpointSlot::default()), Arc::new(CleanupBarrier::default()), |_| {},
         ).unwrap();
 
         let line = "é".repeat(asagiri_proto::MAX_FRAME / 2);
@@ -904,6 +944,48 @@ mod tests {
         assert!(pending.lock().unwrap().is_empty());
         assert!(!windows.lock().lost);
         drop(guest);
+        reader.join().unwrap();
+    }
+
+    #[test]
+    fn checkpoint_completion_does_not_consume_ordered_guest_replies() {
+        use std::time::Duration;
+
+        let wait = Duration::from_secs(5);
+        let (socket, mut guest) = UnixStream::pair().unwrap();
+        guest.set_write_timeout(Some(wait)).unwrap();
+        let (admit, admission) = mpsc::sync_channel(1);
+        let (stats, stats_reply) = mpsc::sync_channel(1);
+        let pending = Arc::new(Mutex::new(VecDeque::from([admit, stats])));
+        let checkpoint = Arc::new(CheckpointSlot::default());
+        let completion = checkpoint.reserve().unwrap();
+        assert_eq!(checkpoint.reserve().unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        let reader = VmLink::spawn_reader(
+            std::os::fd::OwnedFd::from(socket).into(), pending.clone(), Arc::new(Windows::default()),
+            Arc::new(UsageSlot::default()), checkpoint.clone(), Arc::new(CleanupBarrier::default()), |_| {},
+        ).unwrap();
+
+        let mut out = Vec::new();
+        Msg::Ack.encode(&mut out);
+        Msg::ContainerStats(asagiri_proto::ContainerStats { online_cpus: 2, ..Default::default() }).encode(&mut out);
+        guest.write_all(&out).unwrap();
+        assert!(matches!(admission.recv_timeout(wait).unwrap(), Reply::Ack));
+        assert!(matches!(stats_reply.recv_timeout(wait).unwrap(), Reply::ContainerStats(s) if s.online_cpus == 2));
+        assert!(matches!(completion.try_recv(), Err(mpsc::TryRecvError::Empty)));
+
+        let (ping, ping_reply) = mpsc::sync_channel(1);
+        pending.lock().unwrap().push_back(ping);
+        out.clear();
+        Msg::CheckpointResult { error: "" }.encode(&mut out);
+        Msg::Pong(7).encode(&mut out);
+        guest.write_all(&out).unwrap();
+        completion.recv_timeout(wait).unwrap().unwrap();
+        assert!(matches!(ping_reply.recv_timeout(wait).unwrap(), Reply::Pong));
+        checkpoint.clear();
+
+        let cancelled = checkpoint.reserve().unwrap();
+        drop(guest);
+        assert_eq!(cancelled.recv_timeout(wait).unwrap().unwrap_err().kind(), io::ErrorKind::BrokenPipe);
         reader.join().unwrap();
     }
 

@@ -59,8 +59,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 14 carries attached networks in Run so the guest configures them before exec.
 /// 15 includes guest MemAvailable and PSI in memory-pressure notifications.
 /// 16 adds an asynchronous oversized usage reply.
+/// 17 separates checkpoint admission from capture completion.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 16;
+pub const PROTOCOL: u16 = 17;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -174,8 +175,10 @@ pub enum Msg<'a> {
     CopyDone,
     /// Host → guest: change a running container's limits. Answered by `Ack` or `Error`.
     Update { id: &'a str, limits: Limits<'a> },
-    /// Capture the guest-owned container process tree under a named checkpoint.
+    /// Start a named checkpoint capture. An ordered `Ack` admits it.
     CheckpointCreate { id: &'a str, name: &'a str, leave_running: bool },
+    /// Completion of the single admitted capture. An empty error means success.
+    CheckpointResult { error: &'a str },
     /// Host → guest: freeze (pause) or thaw a container. Answered by `Ack` or `Error`.
     Freeze { id: &'a str, frozen: bool },
     /// Host → guest: a container's resource use. Answered by `ContainerStats` or `Error`.
@@ -824,6 +827,7 @@ mod kind {
     pub const SET_UPLINK: u16 = 83;
     pub const CHECKPOINT_LIST: u16 = 86;
     pub const CHECKPOINTS: u16 = 87;
+    pub const CHECKPOINT_RESULT: u16 = 88;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1232,6 +1236,7 @@ impl Msg<'_> {
                 put_str(o, name);
                 o.push(u8::from(leave_running));
             }),
+            Msg::CheckpointResult { error } => frame(out, kind::CHECKPOINT_RESULT, |o| put_str(o, error)),
             Msg::Freeze { id, frozen } => frame(out, kind::FREEZE, |o| {
                 put_str(o, id);
                 o.push(u8::from(frozen));
@@ -1547,6 +1552,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
         kind::CHECKPOINT_CREATE => Msg::CheckpointCreate { id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0 },
+        kind::CHECKPOINT_RESULT => Msg::CheckpointResult { error: r.str()? },
         kind::FREEZE => Msg::Freeze { id: r.str()?, frozen: r.u8()? != 0 },
         kind::STATS_QUERY => Msg::StatsQuery { id: r.str()? },
         kind::CONTAINER_STATS => Msg::ContainerStats(read_container_stats(&mut r)?),
@@ -1806,6 +1812,8 @@ mod tests {
         for leave_running in [false, true] {
             round(Msg::CheckpointCreate { id: "c1", name: "java-live", leave_running });
         }
+        round(Msg::CheckpointResult { error: "" });
+        round(Msg::CheckpointResult { error: "checkpoint did not complete" });
         round(Msg::Freeze { id: "c1", frozen: true });
         round(Msg::StatsQuery { id: "c1" });
         round(Msg::ContainerStats(ContainerStats { read_ns: 1, mem_current: 2, online_cpus: 4, rx_bytes: 9, io_write_bytes: 11, ..Default::default() }));

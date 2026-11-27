@@ -119,6 +119,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     // Drop/stop the direct copy children before their lease table and its
     // filesystem workers, including when an I/O error leaves this loop.
     let mut copy_jobs = super::copy::Broker::new(&roots);
+    let mut checkpoint: Option<super::checkpoint::Capture> = None;
     let mut fds: Vec<libc::pollfd> = Vec::with_capacity(16);
     let mut frame = Vec::with_capacity(4096);
     let mut out = Vec::with_capacity(4096);
@@ -127,6 +128,22 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let mut fs_events = fsnotify::Pending::default();
 
     loop {
+        if let Some(capture) = checkpoint.as_mut() {
+            let result = match capture.poll() {
+                Ok(None) => None,
+                Ok(Some(())) => Some(String::new()),
+                Err(error) => Some(format!("checkpoint: {error}")),
+            };
+            if let Some(error) = result {
+                checkpoint = None;
+                // A target exit may already have woken poll while the dump
+                // still owned its PID. Reap it now without another signal.
+                reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, None);
+                out.clear();
+                Msg::CheckpointResult { error: &error }.encode(&mut out);
+                conn.write_all(&out)?;
+            }
+        }
         roots.start(paths, std::time::Instant::now());
         volumes.start(std::time::Instant::now());
         copy_jobs.advance(paths, |id| copy_view(&procs, id));
@@ -350,7 +367,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
         if fds[1].revents != 0 {
             drain_signals(&sigfd);
-            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes);
+            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, checkpoint.as_mut());
         }
 
         // A private PID 1's exit makes the kernel kill its descendants.
@@ -664,13 +681,18 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
                     } else if host_process || !Path::new("/bundle/usr/sbin/criu").is_file() {
                         Err(io::Error::other("guest checkpoint runtime is unavailable"))
+                    } else if checkpoint.is_some() {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
                     } else if let Some((pid, group)) = running_cgroup(&procs, id) {
-                        super::checkpoint::capture(pid, group, &paths.containers.join(id), name)
+                        super::checkpoint::Capture::start(pid, group, &paths.containers.join(id), name)
                     } else {
                         Err(io::Error::other(format!("container {id} is not running")))
                     };
                     match result {
-                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Ok(capture) => {
+                            checkpoint = Some(capture);
+                            Msg::Ack.encode(&mut out);
+                        }
                         Err(e) => Msg::Error(&format!("checkpoint: {e}")).encode(&mut out),
                     }
                 }
@@ -1082,7 +1104,7 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, 
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, roots, copies, volumes);
+        reap(procs, dns, roots, copies, volumes, None);
         if procs.values().all(|p| p.exited.is_some()) || std::time::Instant::now() >= deadline {
             break;
         }
@@ -1091,7 +1113,7 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, 
     // A worker shares these paths/mounts. Join it before shutdown touches them.
     let removal_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, roots, copies, volumes);
+        reap(procs, dns, roots, copies, volumes, None);
         let removing = roots.poll_shutdown(paths, std::time::Instant::now(), removal_deadline);
         if !removing && procs.values().all(|p| p.cleanup.is_none()) {
             break;
@@ -1150,11 +1172,14 @@ fn drain_signals(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), info.as_mut_ptr().cast(), info.len()) } > 0 {}
 }
 
-fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes) {
+fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes, mut checkpoint: Option<&mut super::checkpoint::Capture>) {
     loop {
         let mut status = 0;
-        // SAFETY: plain waitpid on any child.
-        let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        let candidate = checkpoint.as_deref_mut().map_or(-1, |capture| capture.next_reapable_pid());
+        // While capturing, a positive PID has been observed without being
+        // reaped. Zero means no child is ready for the general reaper.
+        // SAFETY: plain waitpid on any or one observed child.
+        let pid = if candidate == 0 { 0 } else { unsafe { libc::waitpid(candidate, &mut status, libc::WNOHANG) } };
         if pid <= 0 {
             for p in procs.values_mut().filter(|p| p.exited.is_some() && !p.root_released) {
                 container::release_root(&p.run, roots);
