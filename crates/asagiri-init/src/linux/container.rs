@@ -87,6 +87,8 @@ pub struct Process {
     /// Write end for `Input`: a pipe, or a duplicate of the pty master.
     pub stdin: Option<OwnedFd>,
     pub tty: bool,
+    /// Only the receiver's temporary init is running.
+    pub awaiting_checkpoint_restore: bool,
     /// (bridge, ip) registered with the DNS server, to drop on exit.
     pub dns_entries: Vec<(String, [u8; 4])>,
     /// For a container whose resolv.conf names no embedded DNS (the default
@@ -543,6 +545,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             stderr,
             stdin,
             tty: prepared.tty,
+            awaiting_checkpoint_restore: prepared.checkpoint_wait,
             dns_entries: std::mem::take(&mut dns_entries),
             veths: std::mem::take(&mut veths),
             ways_out,
@@ -710,6 +713,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         stderr,
         stdin,
         tty: prepared.tty,
+        awaiting_checkpoint_restore: false,
         dns_entries: Vec::new(),
         late_dns: None,
         veths: Vec::new(),

@@ -759,6 +759,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                             checkpoint = Some(capture);
                             Msg::Ack.encode(&mut out);
                         }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            Msg::Error(&format!("checkpoint conflict: {e}")).encode(&mut out);
+                        }
                         Err(e) => Msg::Error(&format!("checkpoint: {e}")).encode(&mut out),
                     }
                 }

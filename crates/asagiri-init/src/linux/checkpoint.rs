@@ -250,6 +250,9 @@ impl Capture {
     }
 
     pub(super) fn start(runtime: &Runtime, run: &super::container::Process, group: &Path, containers: &Path, spec: asagiri_proto::CheckpointSpec<'_>, input: CheckpointInput<'_>, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
+        if run.awaiting_checkpoint_restore {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "receiver is waiting for checkpoint restore"));
+        }
         let name = spec.name;
         super::container::valid_id(name)?;
         let pid = run.pid;
