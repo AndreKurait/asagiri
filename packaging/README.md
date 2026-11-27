@@ -45,6 +45,37 @@ python3 packaging/checkpoint/source.py --arm64 target/checkpoint/arm64.tar \
   --x86-64 target/checkpoint/x86_64.tar --output target/asagiri-checkpoint-source.tar
 ```
 
+## Transfer a checkpoint privately
+
+A checkpoint can contain credentials, process memory and volume contents. To transfer an export with GnuPG, use a source signing key and a destination encryption key. Exchange and verify their full fingerprints through a trusted channel first. The source needs the destination’s trusted public key. The destination needs the source’s public key and a GnuPG installation that supports `--assert-signer`.
+
+On the source, set `CONTAINER`, `CHECKPOINT`, `SOURCE_FINGERPRINT` and `DESTINATION_FINGERPRINT`. Choose a new `TRANSFER_FILE` path outside the temporary directory.
+
+```sh
+(
+  set -eu
+  umask 077
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  asagiri checkpoint export "$CONTAINER" "$CHECKPOINT" "$work/checkpoint.tar" || exit 1
+  gpg --no-encrypt-to --local-user "$SOURCE_FINGERPRINT" --recipient "$DESTINATION_FINGERPRINT" \
+    --output "$TRANSFER_FILE" --sign --encrypt "$work/checkpoint.tar"
+)
+```
+
+After this succeeds, copy the encrypted file to the destination. Set `TRANSFER_FILE` to its new path, `SOURCE_FINGERPRINT` to the expected signer, and `CONTAINER` and `CHECKPOINT` to the destination container and checkpoint name. Decrypt into a private directory. GnuPG can write plaintext before it finishes verifying an input, so run import only after successful verification.
+
+```sh
+(
+  set -eu
+  umask 077
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  gpg --batch --assert-signer "$SOURCE_FINGERPRINT" --output "$work/checkpoint.tar" --decrypt "$TRANSFER_FILE" || exit 1
+  asagiri checkpoint import "$CONTAINER" "$CHECKPOINT" "$work/checkpoint.tar"
+)
+```
+
 ## Linux package assembly
 
 On native Linux, live capture uses the host's `criu`, `iptables-restore`, `ip6tables-restore`, `tar` and `gzip`. Install these with the distribution package manager before starting the engine. The agent checks the kernel with `criu check` at startup. Run `asagiri checkpoint platform` to inspect `liveCapture` and, on Debian systems, the installed CRIU package version. A particular workload can still have devices or mounts CRIU cannot dump. Docker reports the CRIU error when a capture fails.
