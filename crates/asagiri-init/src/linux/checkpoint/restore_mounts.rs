@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use super::{network_files, receive, restore_rootfs, restore_volume, volumes};
 use super::super::{container, inroot};
 
-pub(in super::super) fn external_mounts(containers: &Path, id: &str, pid: libc::pid_t, name: &str, destinations: asagiri_proto::StrList<'_>) -> io::Result<BTreeMap<String, PathBuf>> {
+pub(super) fn external_mounts(containers: &Path, id: &str, pid: libc::pid_t, name: &str, destinations: asagiri_proto::StrList<'_>) -> io::Result<BTreeMap<String, PathBuf>> {
     container::valid_id(id)?;
     container::valid_id(name)?;
     let base = containers.join(id);

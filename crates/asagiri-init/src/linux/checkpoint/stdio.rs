@@ -1,6 +1,6 @@
 //! Record only pipes whose other end belongs to the Asagiri agent. CRIU keys a pipe by its inode.
 use std::collections::VecDeque;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::num::NonZeroU32;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -109,4 +109,30 @@ pub(super) fn capture(images: &Path, run: &Process, close_when_drained: bool) ->
     streams.validate()?;
     serde_json::to_writer(File::create_new(images.join(MANIFEST))?, &streams)?;
     Ok(())
+}
+
+/// Pin the receiver's child-side pipe ends alongside their saved CRIU identities.
+pub(super) fn restore_pipes(images: &Path, run: &Process) -> io::Result<Vec<(NonZeroU32, File)>> {
+    let streams: CheckpointStdio = super::receive::manifest(&images.join(MANIFEST))?;
+    streams.validate()?;
+    if streams.tty || run.tty {
+        return Err(io::Error::other("checkpoint restore requires non-TTY streams"));
+    }
+    let mut pipes = Vec::new();
+    for (index, saved, agent) in [(0, streams.stdin, &run.stdin), (1, streams.stdout, &run.stdout), (2, streams.stderr, &run.stderr)] {
+        let Some(saved) = saved else { continue; };
+        let agent = agent.as_ref().ok_or_else(|| io::Error::other(format!("receiver is missing engine pipe {index}")))?;
+        let expected = fs::metadata(format!("/proc/self/fd/{}", agent.as_raw_fd()))?;
+        let path = format!("/proc/{}/fd/{index}", run.pid);
+        let same_pipe = |meta: &fs::Metadata| meta.file_type().is_fifo() && (meta.dev(), meta.ino()) == (expected.dev(), expected.ino());
+        if !same_pipe(&fs::metadata(&path)?) {
+            return Err(io::Error::other(format!("receiver descriptor {index} does not match the engine pipe")));
+        }
+        let child = OpenOptions::new().read(index == 0).write(index != 0).open(path)?;
+        if !same_pipe(&child.metadata()?) {
+            return Err(io::Error::other(format!("receiver descriptor {index} does not match the engine pipe")));
+        }
+        pipes.push((saved, child));
+    }
+    Ok(pipes)
 }

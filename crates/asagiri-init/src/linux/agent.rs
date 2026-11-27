@@ -704,12 +704,12 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                 },
                 Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out, runtime),
                 Ok(Msg::CheckpointVerifyReceiver { id, name, volumes }) => {
-                    let result = running_pid(&procs, id)
+                    let result = procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none())
                         .ok_or_else(|| io::Error::other("receiver is not running"))
-                        .and_then(|pid| super::checkpoint::external_mounts(&paths.containers, id, pid, name, volumes));
+                        .and_then(|p| super::checkpoint::verify_receiver(&paths.containers, &p.run, name, volumes));
                     match result {
                         Ok(_) => Msg::Ack.encode(&mut out),
-                        Err(e) => Msg::Error(&format!("receiver mounts: {e}")).encode(&mut out),
+                        Err(e) => Msg::Error(&format!("receiver verification: {e}")).encode(&mut out),
                     }
                 }
                 Ok(Msg::CheckpointMountQuery { id }) => match running_pid(&procs, id) {

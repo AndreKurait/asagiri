@@ -19,7 +19,6 @@ mod pipe_data;
 mod stdio;
 pub(super) use stdio::{Input as CheckpointInput, Replay as InputReplay};
 mod restore_mounts;
-pub(super) use restore_mounts::external_mounts;
 mod restore_rootfs;
 pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;
@@ -27,6 +26,14 @@ mod writable;
 pub(super) use volumes::{FILESYSTEM_HOOK, run_filesystem_hook};
 
 const TOOL_PATH: &str = "/usr/sbin:/usr/bin:/sbin:/bin";
+
+pub(super) fn verify_receiver(containers: &Path, run: &super::container::Process, name: &str, destinations: asagiri_proto::StrList<'_>) -> io::Result<()> {
+    restore_mounts::external_mounts(containers, &run.id, run.pid, name, destinations)?;
+    if run.awaiting_checkpoint_restore {
+        stdio::restore_pipes(&containers.join(&run.id).join("checkpoints").join(name), run)?;
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub(super) enum Runtime {
