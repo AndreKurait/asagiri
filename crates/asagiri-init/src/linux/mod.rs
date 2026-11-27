@@ -1,5 +1,6 @@
 mod agent;
 mod cgroup;
+mod checkpoint;
 mod cgroup_kill;
 mod container;
 mod devices;
@@ -44,6 +45,14 @@ use sys::{boottime_ns, check, mount};
 const DATA: &str = "/var/lib/asagiri";
 
 pub fn main() {
+    if std::env::args_os().next().as_deref().and_then(|arg| std::path::Path::new(arg).file_name()) == Some(checkpoint::FILESYSTEM_HOOK.as_ref()) {
+        if let Err(error) = checkpoint::run_filesystem_hook() {
+            // The missing completion marker prevents publication even when
+            // the hook could not record its error (for example, on ENOSPC).
+            eprintln!("checkpoint filesystem archive: {error}");
+        }
+        return;
+    }
     install_panic_hook();
     let init_start_ns = boottime_ns();
     let result = run(init_start_ns);
@@ -156,10 +165,12 @@ fn serve(paths: &container::Paths, init_start_ns: u64) -> io::Result<()> {
     let (mem_total_kib, mem_available_kib) = meminfo();
     let mut out = Vec::with_capacity(256);
     let bundled_criu_present = !transport::is_host_process() && std::path::Path::new("/bundle/usr/sbin/criu").is_file();
-    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib, bundled_criu_present })
+    let runtime = checkpoint::Runtime::detect(bundled_criu_present);
+    let live_checkpoint = runtime.is_some();
+    Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns, ready_ns: boottime_ns(), mem_total_kib, mem_available_kib, bundled_criu_present, live_checkpoint })
         .encode(&mut out);
     conn.write_all(&out)?;
-    agent::serve(conn, paths)
+    agent::serve(conn, paths, runtime.as_ref())
 }
 
 /// Re-roots PID 1 onto a tmpfs. The kernel refuses pivot_root while the
@@ -175,6 +186,21 @@ fn leave_initramfs() -> io::Result<()> {
     }
     // Keep the optional checkpoint runtime visible after moving to the tmpfs root.
     if std::path::Path::new("/bundle").try_exists()? {
+        // CRIU runs tar and gzip as child processes. Their ELF interpreter
+        // and shared libraries must resolve after switching to the guest root.
+        if std::path::Path::new("/bundle/helpers").is_dir() {
+            for dir in ["bin", "usr", "lib64"] {
+                if std::path::Path::new("/bundle/helpers").join(dir).is_dir() {
+                    std::os::unix::fs::symlink(format!("/bundle/helpers/{dir}"), format!("/root/{dir}"))?;
+                }
+            }
+            for entry in std::fs::read_dir("/bundle/helpers/lib")? {
+                let name = entry?.file_name();
+                if name != "modules" {
+                    std::os::unix::fs::symlink(std::path::Path::new("/bundle/helpers/lib").join(&name), std::path::Path::new("/root/lib").join(name))?;
+                }
+            }
+        }
         std::fs::create_dir("/root/bundle")?;
         mount(c"/bundle", c"/root/bundle", c"", libc::MS_BIND, None)?;
         mount(c"", c"/root/bundle", c"", libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV, None)?;

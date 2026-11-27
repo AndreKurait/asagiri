@@ -28,6 +28,9 @@ struct Proc {
     /// Set once reaped: (exit code, when).
     exited: Option<(i32, u64)>,
     input: VecDeque<u8>,
+    input_touched: bool,
+    restore_fenced: bool,
+    replay: Option<super::checkpoint::InputReplay>,
     close_stdin_when_drained: bool,
     /// When a running TTY process last had its terminal hung up: no one
     /// held the pty open, as while systemd reopens /dev/console. Kept, and
@@ -42,6 +45,12 @@ struct Proc {
     root_released: bool,
 }
 
+impl Proc {
+    fn has_pending_input(&self) -> bool {
+        !self.input.is_empty() || self.replay.as_ref().is_some_and(|r| r.pending())
+    }
+}
+
 // Linux can reuse a reaped PID while its output is draining or its filesystem
 // worker is still running. Container/exec IDs remain reserved until cleanup.
 type Procs = HashMap<String, Proc>;
@@ -49,7 +58,7 @@ type Procs = HashMap<String, Proc>;
 /// How long a hung-up terminal waits before it's polled again.
 const TTY_HUP_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
-pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
+pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::checkpoint::Runtime>) -> io::Result<()> {
     // The VM agent is already PID 1. On a Linux host, orphaned descendants
     // of host-PID containers (including ones without --init) belong to
     // this agent and its existing waitpid loop, not an unrelated host init.
@@ -119,6 +128,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     // Drop/stop the direct copy children before their lease table and its
     // filesystem workers, including when an I/O error leaves this loop.
     let mut copy_jobs = super::copy::Broker::new(&roots);
+    let mut checkpoint: Option<super::checkpoint::Capture> = None;
+    let mut restoring: Option<super::checkpoint::RestoreProcess> = None;
     let mut fds: Vec<libc::pollfd> = Vec::with_capacity(16);
     let mut frame = Vec::with_capacity(4096);
     let mut out = Vec::with_capacity(4096);
@@ -127,9 +138,54 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
     let mut fs_events = fsnotify::Pending::default();
 
     loop {
+        if let Some(restore) = restoring.as_mut() {
+            let result = match restore.poll() {
+                Ok(None) => None,
+                Ok(Some(pid)) => Some(adopt_restored(&mut procs, &mut dns, &restore.container_id, pid)),
+                Err(error) => Some(Err(error)),
+            };
+            if let Some(result) = result {
+                let mut restore = restoring.take().expect("restore has a result");
+                out.clear();
+                let error = match result {
+                    Ok(previous) => {
+                        let pid = procs[&restore.container_id].run.pid;
+                        Msg::CheckpointRestored { id: &restore.container_id, previous_pid: previous as u32, pid: pid as u32 }.encode(&mut out);
+                        String::new()
+                    }
+                    Err(error) => {
+                        restore.clean_failed_restore();
+                        format!("checkpoint: {error}")
+                    }
+                };
+                drop(restore);
+                reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, None);
+                Msg::CheckpointResult { error: &error }.encode(&mut out);
+                conn.write_all(&out)?;
+            }
+        }
+        if let Some(capture) = checkpoint.as_mut() {
+            let result = match capture.poll() {
+                Ok(None) => None,
+                Ok(Some(())) => Some(String::new()),
+                Err(error) => Some(format!("checkpoint: {error}")),
+            };
+            if let Some(error) = result {
+                checkpoint = None;
+                // A target exit may already have woken poll while the dump
+                // still owned its PID. Reap it now without another signal.
+                reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, None);
+                out.clear();
+                Msg::CheckpointResult { error: &error }.encode(&mut out);
+                conn.write_all(&out)?;
+            }
+        }
         roots.start(paths, std::time::Instant::now());
         volumes.start(std::time::Instant::now());
-        copy_jobs.advance(paths, |id| copy_view(&procs, id));
+        copy_jobs.advance(paths, |id| copy_view(&procs, id), |spec| {
+            checkpoint.as_ref().is_some_and(|c| c.container_id == spec.id || spec.mounts.iter().any(|v| c.uses_volume(v)))
+                || restoring.as_ref().is_some_and(|r| r.container_id == spec.id)
+        });
         root_events(&roots, &procs, &mut conn, &mut out)?;
         fds.clear();
         fds.push(libc::pollfd { fd: conn.as_raw_fd(), events: libc::POLLIN, revents: 0 });
@@ -166,13 +222,15 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             for fd in [&p.run.stdout, &p.run.stderr].into_iter().flatten() {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
             }
-            if let (Some(fd), false) = (&p.run.stdin, p.input.is_empty()) {
+            if let Some(fd) = &p.run.stdin
+                && (p.has_pending_input() || p.close_stdin_when_drained)
+                && !checkpoint.as_ref().is_some_and(|c| !p.run.tty && c.container_id == p.run.id) {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
             }
         }
         // SAFETY: `fds` is a valid array of pollfd of the given length.
         let mut timeout = dhcp.as_ref().map_or(-1, Dhcp::timeout_ms);
-        if roots.needs_retry_poll() || volumes.needs_retry_poll() {
+        if roots.needs_retry_poll() || volumes.needs_retry_poll() || restoring.is_some() {
             timeout = if timeout < 0 { 250 } else { timeout.min(250) };
         }
         if hung {
@@ -350,7 +408,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
         if fds[1].revents != 0 {
             drain_signals(&sigfd);
-            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes);
+            let worker = checkpoint.as_mut().map(super::checkpoint::Capture::worker)
+                .or_else(|| restoring.as_mut().map(super::checkpoint::RestoreProcess::worker));
+            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, worker);
         }
 
         // A private PID 1's exit makes the kernel kill its descendants.
@@ -416,6 +476,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
 
         if fds[0].revents != 0 {
             if !read_frame(&mut conn, &mut frame)? {
+                drop(restoring.take());
                 // The host went away: on a Linux host, the daemon died. Its
                 // containers do not outlive it (there is no live restore).
                 if host_process {
@@ -428,6 +489,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
             match asagiri_proto::decode(&frame) {
                 Ok(Msg::Ping(v)) => Msg::Pong(v).encode(&mut out),
                 Ok(Msg::Shutdown) => {
+                    drop(restoring.take());
                     if host_process {
                         // The daemon has stopped them Docker's way already;
                         // what is left is killed and torn down.
@@ -456,6 +518,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Ok(stored) => Msg::LayerStored(stored).encode(&mut out),
                     Err(e) => Msg::Error(&format!("unpack {}: {e}", begin.digest)).encode(&mut out),
                 },
+                Ok(Msg::Run(spec)) if checkpoint.as_ref().is_some_and(|c| spec.mounts.iter().filter_map(container::writable_volume).any(|name| c.uses_volume(name))) => {
+                    Msg::Error("volume checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Run(spec)) if procs.contains_key(spec.id) || roots.removing(spec.id) => {
                     Msg::Error(&format!("container {} is running or being cleaned up", spec.id)).encode(&mut out);
                 }
@@ -474,7 +539,9 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     {
                         wait_for_lease(&mut dhcp, uplink_deadline);
                     }
-                    let join_pid = asagiri_proto::net_opts::values(spec.net.opts, asagiri_proto::net_opts::NETNS).next().and_then(|t| running_pid(&procs, t));
+                    let join_pid = asagiri_proto::net_opts::values(spec.net.opts, asagiri_proto::net_opts::NETNS).next()
+                        .filter(|t| !procs.get(*t).is_some_and(|p| p.run.awaiting_checkpoint_restore || p.restore_fenced))
+                        .and_then(|t| running_pid(&procs, t));
                     container::spawn(
                     &spec,
                     paths,
@@ -491,6 +558,10 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     Err(e) if super::startup::rejected(&e) => Msg::StartRejected(&e.to_string()).encode(&mut out),
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
+                Ok(Msg::Exec(spec)) if checkpoint.as_ref().is_some_and(|c| c.container_id == spec.container_id)
+                    || procs.get(spec.container_id).is_some_and(|p| p.restore_fenced) => {
+                    Msg::Error("container checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {
                     Msg::Error(&format!("exec {} is running or being cleaned up", spec.exec_id)).encode(&mut out);
                 }
@@ -510,14 +581,23 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                 }
                 Ok(Msg::Input { id, data }) => {
                     let mut target = None;
-                    if let Some(p) = procs.values_mut().find(|p| p.run.id == id) {
+                    if let Some(p) = procs.get_mut(id) {
+                        p.input_touched |= !data.is_empty();
+                        // A restored EOF is final even if a new client attaches while
+                        // replay is draining. Return credit only for the discarded frame.
+                        if p.replay.is_some() && (p.close_stdin_when_drained || p.run.stdin.is_none()) {
+                            out.clear();
+                            Msg::InputConsumed { id, bytes: data.len() as u32 }.encode(&mut out);
+                            conn.write_all(&out)?;
+                            continue;
+                        }
                         if let Some(fd) = p.run.stdin.as_ref().map(|f| f.as_raw_fd()) {
                             if p.input.len() + data.len() > MAX_PENDING_INPUT {
                                 p.input.clear();
                                 p.run.stdin = None;
                             } else {
                                 p.input.extend(data);
-                                target = Some(fd);
+                                if p.run.tty || !checkpoint.as_ref().is_some_and(|c| c.container_id == id) { target = Some(fd); }
                             }
                         }
                     }
@@ -530,7 +610,8 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     if let Some(p) = procs.values_mut().find(|p| p.run.id == id) {
                         // A terminal has no separate end of input; keep it open.
                         if !p.run.tty {
-                            if p.input.is_empty() {
+                            p.input_touched = true;
+                            if !p.has_pending_input() && !checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
                                 p.run.stdin = None;
                             } else {
                                 p.close_stdin_when_drained = true;
@@ -648,6 +729,14 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::Freeze { id, .. } | Msg::NetAttach { id, .. } | Msg::NetDetach { id, .. })
+                    if procs.get(id).is_some_and(|p| p.restore_fenced) => {
+                    Msg::Error("receiver network is fenced for checkpoint restore").encode(&mut out);
+                }
+                Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| c.container_id == id || procs.get(id)
+                    .is_some_and(|p| p.run.writable_volumes.iter().any(|name| c.uses_volume(name)))) => {
+                    Msg::Error("container or volume checkpoint in progress").encode(&mut out);
+                }
                 Ok(Msg::Freeze { id, frozen }) => match running_cgroup(&procs, id) {
                     Some((_, path)) => match super::cgroup::freeze(path, frozen) {
                         Ok(()) => Msg::Ack.encode(&mut out),
@@ -655,6 +744,125 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out, runtime),
+                Ok(Msg::CheckpointVerifyReceiver { id, name, volumes }) => {
+                    let result = procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none())
+                        .ok_or_else(|| io::Error::other("receiver is not running"))
+                        .and_then(|p| super::checkpoint::verify_receiver(&paths.containers, &p.run, name, volumes));
+                    match result {
+                        Ok(_) => Msg::Ack.encode(&mut out),
+                        Err(e) => Msg::Error(&format!("receiver verification: {e}")).encode(&mut out),
+                    }
+                }
+                Ok(Msg::CheckpointMountQuery { id }) => match running_pid(&procs, id) {
+                    Some(pid) => match super::checkpoint::mounted_system_paths(pid) {
+                        Ok(paths) => asagiri_proto::encode_checkpoint_mounts(&mut out, &paths),
+                        Err(e) => Msg::Error(&format!("inspect checkpoint mounts: {e}")).encode(&mut out),
+                    },
+                    None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
+                },
+                Ok(Msg::CheckpointRestoreInput { id, name }) => {
+                    let result = if checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
+                        Err(io::Error::other("conflict: receiver capture in progress"))
+                    } else {
+                        restore_input(&mut procs, &paths.containers, id, name)
+                    };
+                    match result {
+                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Err(e) => Msg::Error(&e.to_string()).encode(&mut out),
+                    }
+                }
+                Ok(Msg::CheckpointList { id }) => match super::checkpoint::list(&paths.containers, id) {
+                    Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
+                    Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
+                },
+                Ok(Msg::CheckpointFenceReceiver { id, fenced }) => {
+                    let result = if restoring.as_ref().is_some_and(|r| r.container_id == id) {
+                        Err(io::Error::other("checkpoint restore in progress"))
+                    } else { fence_receiver(&mut procs, id, fenced) };
+                    match result {
+                        Ok(()) => Msg::Ack.encode(&mut out),
+                        Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                    }
+                }
+                Ok(Msg::CheckpointActivateGroup(ids)) => match activate_receivers(&mut procs, ids) {
+                    Ok(()) => Msg::Ack.encode(&mut out),
+                    Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                },
+                Ok(Msg::CheckpointRetireSource { id }) => {
+                    match running_cgroup(&procs, id) {
+                        Some((_, group)) => {
+                            let result = std::fs::read_to_string(group.join("cgroup.events"))
+                                .and_then(|events| {
+                                    if !events.lines().any(|line| line == "frozen 1") {
+                                        return Err(io::Error::other("checkpoint source is not frozen"));
+                                    }
+                                    super::cgroup_kill::kill(group)
+                                });
+                            match result {
+                                Ok(()) => Msg::Ack.encode(&mut out),
+                                Err(error) => Msg::Error(&error.to_string()).encode(&mut out),
+                            }
+                        }
+                        None => Msg::Ack.encode(&mut out),
+                    }
+                }
+                Ok(Msg::CheckpointInstallProcess { id, name, volumes }) => {
+                    let result = if restoring.is_some() || checkpoint.is_some() {
+                        Err(io::Error::other("another checkpoint operation is in progress"))
+                    } else if copy_jobs.writes_root(id) {
+                        Err(io::Error::other("finish the active receiver upload before restore"))
+                    } else if let Some(runtime) = runtime {
+                        procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none())
+                            .ok_or_else(|| io::Error::other("receiver is not running"))
+                            .and_then(|p| {
+                                if !p.restore_fenced {
+                                    return Err(io::Error::other("receiver network must be fenced before restore"));
+                                }
+                                super::checkpoint::RestoreProcess::start(runtime, &paths.containers, &p.run, name, volumes)
+                            })
+                    } else {
+                        Err(io::Error::other("checkpoint runtime is unavailable"))
+                    };
+                    match result {
+                        Ok(restore) => {
+                            restoring = Some(restore);
+                            Msg::Ack.encode(&mut out);
+                        }
+                        Err(error) => Msg::Error(&format!("checkpoint conflict: {error}")).encode(&mut out),
+                    }
+                }
+                Ok(Msg::CheckpointCreate(spec)) => {
+                    let id = spec.id;
+                    let result = if !spec.leave_running {
+                        Err(io::Error::other("only live checkpoint capture is implemented"))
+                    } else if checkpoint.is_some() || restoring.is_some() {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
+                    } else if copy_jobs.writes_root(id) {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "checkpoint has another active writer uploading to this container"))
+                    } else if procs.values().any(|p| p.run.container.as_deref() == Some(id) && p.exited.is_none()) {
+                        Err(io::Error::new(io::ErrorKind::WouldBlock, "finish the active container exec before checkpointing"))
+                    } else if let Some(runtime) = runtime {
+                        match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (p, group))) {
+                            Some((p, group)) => super::checkpoint::Capture::start(runtime, &p.run, group, &paths.containers, spec,
+                                super::checkpoint::CheckpointInput { queued: &p.input, replay: p.replay.as_ref(), close_when_drained: p.close_stdin_when_drained },
+                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, p.run.pid, volume)),
+                            None => Err(io::Error::other(format!("container {id} is not running"))),
+                        }
+                    } else {
+                        Err(io::Error::other("checkpoint runtime is unavailable"))
+                    };
+                    match result {
+                        Ok(capture) => {
+                            checkpoint = Some(capture);
+                            Msg::Ack.encode(&mut out);
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            Msg::Error(&format!("checkpoint conflict: {e}")).encode(&mut out);
+                        }
+                        Err(e) => Msg::Error(&format!("checkpoint: {e}")).encode(&mut out),
+                    }
+                }
                 Ok(Msg::StatsQuery { id }) => match running_cgroup(&procs, id) {
                     Some((pid, path)) => match super::cgroup::stats(path, pid) {
                         Ok(s) => Msg::ContainerStats(s).encode(&mut out),
@@ -895,6 +1103,17 @@ fn running_cgroup<'a>(procs: &'a Procs, id: &str) -> Option<(libc::pid_t, &'a st
     Some((pid, container::cgroup(&procs.get(id)?.run)?))
 }
 
+fn other_volume_writer(procs: &Procs, target: libc::pid_t, volume: &str) -> bool {
+    procs.values().any(|p| {
+        if p.run.pid == target || !p.run.writable_volumes.iter().any(|v| v == volume) { return false; }
+        let Some(group) = container::cgroup(&p.run) else { return false };
+        let Ok(events) = std::fs::read_to_string(group.join("cgroup.events")) else {
+            return p.exited.is_none() || group.exists();
+        };
+        events.lines().any(|line| line == "populated 1") && !events.lines().any(|line| line == "frozen 1")
+    })
+}
+
 /// A reaped entry may retain its terminal while output and cleanup drain.
 fn resize(procs: &Procs, id: &str, rows: u16, cols: u16) {
     if let Some(fd) = procs.values().find(|p| p.run.id == id && p.exited.is_none() && p.run.tty).and_then(|p| p.run.stdout.as_ref()) {
@@ -919,7 +1138,80 @@ fn running_rootfs(procs: &Procs, id: &str) -> Option<std::path::PathBuf> {
 mod files_view_tests;
 
 fn new_proc(run: Process, received_ns: u64, cloned_ns: u64) -> Proc {
-    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
+    Proc { run, received_ns, cloned_ns, exited: None, input: VecDeque::new(), input_touched: false, restore_fenced: false, replay: None, close_stdin_when_drained: false, tty_hup: None, cleanup: None, cleanup_finished: false, oom_killed: None, exit_announced: false, root_released: false }
+}
+
+fn fence_receiver(procs: &mut Procs, id: &str, fenced: bool) -> io::Result<()> {
+    let p = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.container.is_none())
+        .ok_or_else(|| io::Error::other("receiver is not running"))?;
+    if p.restore_fenced == fenced { return Ok(()); }
+    if fenced && !p.run.awaiting_checkpoint_restore {
+        return Err(io::Error::other("fencing requires a waiting receiver"));
+    }
+    let namespace = super::checkpoint::private_bridge_namespace(&p.run)?;
+    super::netlink::checkpoint_fence(&namespace, fenced)?;
+    p.restore_fenced = fenced;
+    Ok(())
+}
+
+fn activate_receivers(procs: &mut Procs, ids: asagiri_proto::StrList<'_>) -> io::Result<()> {
+    use super::{cgroup_kill, checkpoint, netlink};
+    let mut members = std::collections::BTreeMap::new();
+    for id in ids.iter() {
+        if members.contains_key(id) {
+            return Err(io::Error::other("duplicate checkpoint receiver"));
+        }
+        let p = procs.get(id).filter(|p| p.exited.is_none() && !p.run.awaiting_checkpoint_restore && p.restore_fenced)
+            .ok_or_else(|| io::Error::other(format!("receiver {id} has no installed and fenced process")))?;
+        let group = container::cgroup(&p.run).ok_or_else(|| io::Error::other("receiver has no cgroup"))?;
+        let tasks = group.join("cgroup.procs");
+        let read_tasks = || -> io::Result<std::collections::BTreeSet<libc::pid_t>> {
+            std::fs::read_to_string(&tasks)?.lines().map(|line| line.parse().map_err(io::Error::other)).collect()
+        };
+        let before = read_tasks()?;
+        if !before.contains(&p.run.pid) {
+            return Err(io::Error::other(format!("receiver {id} has no installed init in its cgroup")));
+        }
+        let mut handles = Vec::with_capacity(before.len());
+        for pid in &before {
+            let fd = cgroup_kill::pidfd(*pid)?;
+            if !std::fs::read_to_string(format!("/proc/{pid}/status"))?.lines().any(|line| line.starts_with("State:\tT")) {
+                return Err(io::Error::other(format!("receiver {id} has a task that is not stopped")));
+            }
+            cgroup_kill::signal_pidfd(&fd, 0)?;
+            handles.push(fd);
+        }
+        if before != read_tasks()? {
+            return Err(io::Error::other(format!("receiver {id} tasks changed during activation")));
+        }
+        members.insert(id, (checkpoint::private_bridge_namespace(&p.run)?, group.to_owned(), handles));
+    }
+    if members.is_empty() { return Err(io::Error::other("supply at least one checkpoint receiver")); }
+    let mut unfenced = Vec::new();
+    for (namespace, group, _) in members.values() {
+        if let Err(error) = netlink::checkpoint_fence(namespace, false) {
+            for (namespace, group) in unfenced {
+                if let Err(rollback) = netlink::checkpoint_fence(namespace, true) {
+                    eprintln!("checkpoint: could not reinstate receiver fence: {rollback}");
+                    let _ = cgroup_kill::kill(group);
+                }
+            }
+            return Err(error);
+        }
+        unfenced.push((namespace, group.as_path()));
+    }
+    for (_, _, handles) in members.values() {
+        for handle in handles {
+            if let Err(error) = cgroup_kill::signal_pidfd(handle, libc::SIGCONT) {
+                for (_, group, _) in members.values() { let _ = cgroup_kill::kill(group); }
+                return Err(io::Error::other(format!("receiver activation failed: {error}")));
+            }
+        }
+    }
+    for id in members.keys() {
+        procs.get_mut(*id).expect("checked receiver").restore_fenced = false;
+    }
+    Ok(())
 }
 
 fn copy_view(procs: &Procs, id: &str) -> super::copy::View {
@@ -944,10 +1236,43 @@ fn root_events(roots: &Roots, procs: &Procs, conn: &mut File, out: &mut Vec<u8>)
     Ok(())
 }
 
+fn restore_input(procs: &mut Procs, containers: &Path, id: &str, name: &str) -> io::Result<()> {
+    let p = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.container.is_none())
+        .ok_or_else(|| io::Error::other("conflict: receiver is not running"))?;
+    if let Some(replay) = &p.replay {
+        if replay.name != name { return Err(io::Error::other("conflict: another checkpoint already owns receiver input")); }
+        if let Some(error) = &replay.error { return Err(io::Error::other(error.clone())); }
+        return Ok(());
+    }
+    if p.input_touched || p.run.tty || p.run.stdin.is_none() {
+        return Err(io::Error::other("conflict: receiver requires an unused non-TTY input pipe"));
+    }
+    let (replay, close) = super::checkpoint::InputReplay::open(containers, id, name)?;
+    p.close_stdin_when_drained = close;
+    p.replay = Some(replay);
+    Ok(())
+}
+
 /// Writes as much pending input as the process will take without blocking,
 /// and tells the host how much, so it can send that much more.
 fn flush_input(procs: &mut Procs, fd: RawFd, conn: &mut File, out: &mut Vec<u8>) -> io::Result<()> {
     let Some(p) = procs.values_mut().find(|p| p.run.stdin.as_ref().is_some_and(|f| f.as_raw_fd() == fd)) else { return Ok(()) };
+    if let Some(replay) = &mut p.replay {
+        if let Err(e) = replay.advance(p.run.stdin.as_ref().expect("polled input")) {
+            let error = format!("restore input for {}: {e}", p.run.id);
+            eprintln!("asagiri-init: {error}");
+            replay.fail(error);
+            p.run.stdin = None;
+            if !p.input.is_empty() {
+                out.clear();
+                Msg::InputConsumed { id: &p.run.id, bytes: p.input.len() as u32 }.encode(out);
+                conn.write_all(out)?;
+                p.input.clear();
+            }
+            return Ok(());
+        }
+        if replay.pending() { return Ok(()); }
+    }
     let mut consumed = 0usize;
     while !p.input.is_empty() {
         let (front, _) = p.input.as_slices();
@@ -1063,7 +1388,7 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, 
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, roots, copies, volumes);
+        reap(procs, dns, roots, copies, volumes, None);
         if procs.values().all(|p| p.exited.is_some()) || std::time::Instant::now() >= deadline {
             break;
         }
@@ -1072,7 +1397,7 @@ fn stop_containers(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, 
     // A worker shares these paths/mounts. Join it before shutdown touches them.
     let removal_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        reap(procs, dns, roots, copies, volumes);
+        reap(procs, dns, roots, copies, volumes, None);
         let removing = roots.poll_shutdown(paths, std::time::Instant::now(), removal_deadline);
         if !removing && procs.values().all(|p| p.cleanup.is_none()) {
             break;
@@ -1131,11 +1456,26 @@ fn drain_signals(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), info.as_mut_ptr().cast(), info.len()) } > 0 {}
 }
 
-fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes) {
+fn adopt_restored(procs: &mut Procs, dns: &mut super::dns::Dns, id: &str, pid: libc::pid_t) -> io::Result<libc::pid_t> {
+    let proc = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.awaiting_checkpoint_restore)
+        .ok_or_else(|| io::Error::other("receiver stopped before adoption"))?;
+    let previous = proc.run.pid;
+    // SAFETY: the waiting init is our child and its PID has not been reaped.
+    if unsafe { libc::kill(previous, libc::SIGKILL) } != 0 { return Err(io::Error::last_os_error()); }
+    dns.replace_container_pid(previous, pid);
+    proc.run.pid = pid;
+    proc.run.awaiting_checkpoint_restore = false;
+    Ok(previous)
+}
+
+fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes, mut worker: Option<&mut super::checkpoint::Worker>) {
     loop {
         let mut status = 0;
-        // SAFETY: plain waitpid on any child.
-        let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        let candidate = worker.as_deref_mut().map_or(-1, super::checkpoint::Worker::next_reapable_pid);
+        // While capturing, a positive PID has been observed without being
+        // reaped. Zero means no child is ready for the general reaper.
+        // SAFETY: plain waitpid on any or one observed child.
+        let pid = if candidate == 0 { 0 } else { unsafe { libc::waitpid(candidate, &mut status, libc::WNOHANG) } };
         if pid <= 0 {
             for p in procs.values_mut().filter(|p| p.exited.is_some() && !p.root_released) {
                 container::release_root(&p.run, roots);

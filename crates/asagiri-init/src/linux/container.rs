@@ -74,6 +74,12 @@ pub struct Process {
     /// The initial process runs in an existing PID namespace.
     /// False for execs, which do not own a container cgroup to tear down.
     pub pid_shared: bool,
+    /// Immutable image layer digests, in overlay lookup order.
+    pub image_layers: Vec<String>,
+    /// Directory backing the three engine-generated /etc network files, possibly shared with a donor.
+    pub network_files_dir: PathBuf,
+    /// Managed volumes this container can write, used to coordinate checkpoints.
+    pub writable_volumes: Vec<String>,
     /// Pipe read end, or the pty master for a TTY.
     pub stdout: Option<OwnedFd>,
     /// None for a TTY: the terminal merges both streams.
@@ -81,6 +87,8 @@ pub struct Process {
     /// Write end for `Input`: a pipe, or a duplicate of the pty master.
     pub stdin: Option<OwnedFd>,
     pub tty: bool,
+    /// Only the receiver's temporary init is running.
+    pub awaiting_checkpoint_restore: bool,
     /// (bridge, ip) registered with the DNS server, to drop on exit.
     pub dns_entries: Vec<(String, [u8; 4])>,
     /// For a container whose resolv.conf names no embedded DNS (the default
@@ -139,6 +147,7 @@ struct Prepared {
     net_join: Option<fs::File>,
     /// Generated /etc files to bind over the image's: (source, target relative to the root).
     etc_files: Vec<(CString, CString)>,
+    restored_etc: bool,
     mounts: Vec<Mount>,
     /// For a bridged container: the child waits here until the agent has
     /// set up its network, so the program never starts without it.
@@ -160,6 +169,7 @@ struct Prepared {
     shm_size: u64,
     /// `--init`: PID 1 supervises the program instead of being it.
     init: bool,
+    checkpoint_wait: bool,
     /// Ulimits, groups and device nodes from the `opts` lines.
     host: HostApplied,
 }
@@ -263,7 +273,7 @@ fn finish_stdio(parent: ParentStdio, child: ChildStdio) -> io::Result<(Option<Ow
 }
 
 pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net: NetCtx<'_>, donor_pid: impl Fn(&str) -> Option<libc::pid_t>) -> io::Result<Process> {
-    if spec.argv.is_empty() {
+    if spec.argv.is_empty() && spec.flags & run_flags::CHECKPOINT_WAIT == 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command to run"));
     }
     let mut host = super::hostopts::parse(spec.opts)?;
@@ -335,11 +345,13 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
         prepared.use_profile(profile).map_err(cleanup)?;
     }
     prepared.host = HostApplied { rlimits: host.rlimits.clone(), groups: host.groups.clone(), nodes };
-    // Small, short-lived files: kept in memory (/run is tmpfs), not on the data disk.
+    // Generated files live on tmpfs. Restored files use the receiver’s persistent storage.
     let etc_dir = PathBuf::from("/run/asagiri").join(spec.id);
     let embedded_dns = embedded_dns(spec, net.upstream_dns, net.dns.relay);
     let nameserver = embedded_dns.then(|| embedded_address(spec));
-    prepared.etc_files = write_etc_files(spec, &etc_dir, net.upstream_dns, nameserver).map_err(cleanup)?;
+    let (network_files_dir, etc_files) = write_etc_files(spec, &etc_dir, &paths.containers, net.upstream_dns, nameserver).map_err(cleanup)?;
+    prepared.restored_etc = network_files_dir.starts_with(&paths.containers);
+    prepared.etc_files = etc_files;
     prepared.mounts = parse_mounts(spec.mounts).map_err(cleanup)?;
     // A network namespace of its own gets Docker's two defaults: any port
     // and ping without root. Host networking, and `--network container:`
@@ -525,12 +537,16 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             container: None,
             pid,
             pid_shared: shared_pid_ns.is_some(),
+            late_dns: bridged.then(|| late_dns(spec, &network_files_dir, net.upstream_dns, nameserver)).flatten(),
+            network_files_dir,
+            image_layers: spec.layers.iter().map(str::to_owned).collect(),
+            writable_volumes: spec.mounts.iter().filter_map(writable_volume).map(str::to_owned).collect(),
             stdout,
             stderr,
             stdin,
             tty: prepared.tty,
+            awaiting_checkpoint_restore: prepared.checkpoint_wait,
             dns_entries: std::mem::take(&mut dns_entries),
-            late_dns: bridged.then(|| late_dns(spec, &etc_dir, net.upstream_dns, nameserver)).flatten(),
             veths: std::mem::take(&mut veths),
             ways_out,
             macvlans: std::mem::take(&mut macvlans.0),
@@ -690,10 +706,14 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         container: Some(spec.container_id.to_owned()),
         pid,
         pid_shared: false,
+        network_files_dir: PathBuf::new(),
+        image_layers: Vec::new(),
+        writable_volumes: Vec::new(),
         stdout,
         stderr,
         stdin,
         tty: prepared.tty,
+        awaiting_checkpoint_restore: false,
         dns_entries: Vec::new(),
         late_dns: None,
         veths: Vec::new(),
@@ -854,6 +874,18 @@ fn undo_now(t: &Teardown) -> io::Result<()> {
 /// Deletes a named volume's data.
 /// Where volumes live: `<name>/_data` under it.
 pub const VOLUMES: &str = "/var/lib/asagiri/volumes";
+
+/// Names from resolved guest mount lines. A bind of an entire volume or a
+/// directory inside it also gives the container access to that volume.
+pub(super) fn writable_volume(line: &str) -> Option<&str> {
+    let mut fields = line.split('\t');
+    let source = fields.next()?;
+    fields.next()?;
+    if fields.next().unwrap_or_default().split(',').any(|flag| flag == "ro") { return None; }
+    let mut parts = Path::new(source).strip_prefix(VOLUMES).ok()?.iter();
+    let name = parts.next()?.to_str()?;
+    (parts.next()? == "_data").then_some(name)
+}
 
 
 pub fn remove(paths: &Paths, id: &str) -> io::Result<()> {
@@ -1050,6 +1082,7 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
         domainname: None,
         net_join: None,
         etc_files: Vec::new(),
+        restored_etc: false,
         mounts: Vec::new(),
         net_ready: None,
         cwd: c(if cwd.is_empty() { "/" } else { cwd })?,
@@ -1065,26 +1098,30 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
         readonly_rootfs: flags & run_flags::READONLY_ROOTFS != 0,
         shm_size: 64 << 20,
         init: flags & run_flags::INIT != 0,
+        checkpoint_wait: flags & run_flags::CHECKPOINT_WAIT != 0,
         host: HostApplied::default(),
     })
 }
 
-/// Writes the container's /etc/hosts, /etc/resolv.conf and /etc/hostname
-/// beside its writable layer; the child binds them over the image's files.
-fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<Vec<(CString, CString)>> {
-    fs::create_dir_all(base)?;
-    // `--network container:<id>` shares that container's files, as Docker does.
-    if let Some(target) = net_opts::values(spec.net.opts, net_opts::NETNS).next() {
-        valid_id(target)?;
-        let theirs = PathBuf::from("/run/asagiri").join(target);
+/// Prepare the container's three network files and return their backing directory.
+/// Containers sharing a network namespace use the donor's files.
+fn write_etc_files(spec: &RunSpec<'_>, base: &Path, containers: &Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<(PathBuf, Vec<(CString, CString)>)> {
+    // A namespace sharer binds the donor's exact files, including restored ones.
+    let donor = net_opts::values(spec.net.opts, net_opts::NETNS).next();
+    let owner = donor.unwrap_or(spec.id);
+    valid_id(owner)?;
+    let restored = containers.join(owner).join(super::checkpoint::RESTORED_NETWORK_FILES);
+    let existing = if restored.try_exists()? { Some(restored) } else { donor.map(|id| Path::new("/run/asagiri").join(id)) };
+    if let Some(dir) = existing {
         let mut out = Vec::new();
         for name in ["hosts", "resolv.conf", "hostname"] {
-            let src = theirs.join(name);
-            fs::metadata(&src).map_err(|e| io::Error::new(e.kind(), format!("network container {target}: {name}: {e}")))?;
+            let src = dir.join(name);
+            if !fs::symlink_metadata(&src)?.is_file() { return Err(io::Error::other(format!("invalid network file {name} for {owner}"))); }
             out.push((sys::cstr(&src)?, CString::new(format!("etc/{name}")).expect("no NUL")));
         }
-        return Ok(out);
+        return Ok((dir, out));
     }
+    fs::create_dir_all(base)?;
     let domain = net_opts::values(spec.net.opts, net_opts::DOMAINNAME).next().filter(|d| !d.is_empty());
     let mut hosts = String::from("127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n");
     // On an IPv6-only network the IPv4 address is Asagiri's own name for it.
@@ -1126,7 +1163,7 @@ fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 
         fs::write(&src, text)?;
         out.push((sys::cstr(&src)?, CString::new(format!("etc/{name}")).expect("no NUL")));
     }
-    Ok(out)
+    Ok((base.to_owned(), out))
 }
 
 /// The container's resolv.conf. On a user-defined network the embedded DNS
@@ -1400,7 +1437,9 @@ fn apply_mount(root: BorrowedFd<'_>, image: Option<BorrowedFd<'_>>, m: &Mount) -
                     }
                 }
                 let empty = fs::read_dir(src_path).map(|mut d| d.next().is_none()).unwrap_or(false);
-                if empty && !is_generated_mountpoint(&from)? {
+                // An explicitly empty restored volume must stay empty even
+                // when the destination image has files at its mount target.
+                if empty && !super::checkpoint::installed_volume(src_path)? && !is_generated_mountpoint(&from)? {
                     copy_tree(image_path, src_path)?;
                 }
             }
@@ -1503,13 +1542,21 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> io::Result<()> {
 /// Binds `src` over `target` (relative to the container root, looked up
 /// inside it), creating the target (and /etc) first if the image does not
 /// have it.
-fn bind_file(root: BorrowedFd<'_>, src: &CStr, target: &CStr) -> io::Result<()> {
+fn bind_file(root: BorrowedFd<'_>, src: &CStr, target: &CStr, restored: bool) -> io::Result<()> {
     // Only create the target when the image lacks it: opening an existing
     // lower-layer file for writing would copy it up into the writable layer,
     // three times per container, for nothing. A bind mount sits over a
     // lower-layer file just fine, and an O_PATH lookup copies nothing.
-    let at = inroot::open(root, Path::new(std::ffi::OsStr::from_bytes(target.to_bytes())), Last::File)?;
-    sys::mount(src, &at.proc_path(), c"none", libc::MS_BIND, None)
+    let path = Path::new(std::ffi::OsStr::from_bytes(target.to_bytes()));
+    let at = inroot::open(root, path, Last::File)?;
+    sys::mount(src, &at.proc_path(), c"none", libc::MS_BIND, None)?;
+    if restored {
+        // The captured files live on the receiver's data disk. Expose them as
+        // writable data mounts regardless of their captured mode or xattrs.
+        let at = inroot::open(root, path, Last::Exists)?;
+        sys::mount(c"none", &at.proc_path(), c"none", libc::MS_BIND | libc::MS_REMOUNT | libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC, None)?;
+    }
+    Ok(())
 }
 
 /// Docker's `/.dockerenv`: an empty file, 0755, owned by root. Whatever the
@@ -1579,7 +1626,7 @@ fn container_child(p: &Prepared, rootfs: &CStr, io: &ChildStdio, root_ready: Raw
     mount_container_filesystems(p.privileged, p.shm_size).unwrap_or_else(|e| fail("mount", e));
     super::hostopts::make_nodes(root, &p.host.nodes).unwrap_or_else(|e| fail("devices", e));
     for (src, target) in &p.etc_files {
-        bind_file(root, src, target).unwrap_or_else(|e| fail(&target.to_string_lossy(), e));
+        bind_file(root, src, target, p.restored_etc).unwrap_or_else(|e| fail(&target.to_string_lossy(), e));
     }
     // SDKs use Docker's marker to detect container execution when cgroup
     // namespaces hide the host's cgroup path. Made before changing user or
@@ -1721,9 +1768,11 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
     // --init supervises without exec, so CLOEXEC cannot release the agent's
     // inherited sockets, pipes and namespace handles. Stdio is now in place;
     // close everything except its private setup reply before the limits/filter.
-    if console && p.init {
+    if console && (p.init || p.checkpoint_wait) {
         super::pid1::close_inherited(startup.fd()).unwrap_or_else(|e| fail("init descriptors", e));
-        super::pid1::adopt_orphans().unwrap_or_else(|e| fail("init subreaper", e));
+        if p.init && !p.checkpoint_wait {
+            super::pid1::adopt_orphans().unwrap_or_else(|e| fail("init subreaper", e));
+        }
     }
 
     // While still root with every capability: raising a hard limit needs
@@ -1775,6 +1824,26 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
         }
     }
 
+    if console && p.checkpoint_wait {
+        // This child still has a copy of the agent's address space because it
+        // does not exec. Keep it inaccessible to other container processes.
+        // SAFETY: PR_SET_DUMPABLE with zero takes no pointer arguments.
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            fail("protect receiver memory", io::Error::last_os_error());
+        }
+        if p.no_new_privs { profile(); }
+        startup.ready().unwrap_or_else(|e| fail("receiver readiness", e));
+        // The receiver owns its stdio and namespaces until restore replaces it.
+        // Never read the input pipe, launch image code, or hold agent descriptors.
+        loop {
+            // SAFETY: a null descriptor array of length zero and a fixed sleep interval.
+            let timeout = libc::timespec { tv_sec: 3600, tv_nsec: 0 };
+            if unsafe { libc::ppoll(std::ptr::null_mut(), 0, &timeout, std::ptr::null()) } < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted { child_fail(2, "wait for restore", error); }
+            }
+        }
+    }
     if console && p.init {
         if p.no_new_privs { profile(); }
         // Docker has started tini at this point. Its program can still fail
@@ -1946,6 +2015,15 @@ fn copy_host_devices(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+const READONLY_PROC_PATHS: &[&CStr] = &[c"proc/sysrq-trigger", c"proc/irq", c"proc/bus", c"proc/fs"];
+const MASKED_PROC_FILES: &[&CStr] = &[c"proc/kcore", c"proc/keys", c"proc/latency_stats", c"proc/timer_list", c"proc/timer_stats", c"proc/sched_debug", c"proc/interrupts"];
+const MASKED_SYSTEM_DIRS: &[&CStr] = &[c"proc/scsi", c"proc/acpi", c"proc/asound", c"sys/firmware", c"sys/devices/virtual/powercap"];
+
+/// Mountpoints that can appear in a checkpoint of a container using the default protections.
+pub(super) fn protected_system_paths() -> impl Iterator<Item = &'static CStr> {
+    std::iter::once(c"proc/sys").chain(READONLY_PROC_PATHS.iter().chain(MASKED_PROC_FILES).chain(MASKED_SYSTEM_DIRS).copied())
+}
+
 /// Makes the dangerous parts of /proc read-only or hides them, as Docker's
 /// default `readonlyPaths` and `maskedPaths` do. The container is real root
 /// (no user namespace), and these sysctls and files are not namespaced, so
@@ -1960,18 +2038,18 @@ fn harden_proc() -> io::Result<()> {
     sys::remount(c"proc/sys", ro as libc::c_ulong)?;
     // The rest are best-effort: a path the guest kernel lacks is already
     // absent, so failing to cover it is not a hole.
-    for p in [c"proc/sysrq-trigger", c"proc/irq", c"proc/bus", c"proc/fs"] {
+    for &p in READONLY_PROC_PATHS {
         if sys::mount(p, p, c"none", libc::MS_BIND, None).is_ok() {
             let _ = sys::remount(p, ro as libc::c_ulong);
         }
     }
     // Hide files that leak host memory or kernel addresses, by covering them
     // with /dev/null (already created above).
-    for p in [c"proc/kcore", c"proc/keys", c"proc/latency_stats", c"proc/timer_list", c"proc/timer_stats", c"proc/sched_debug", c"proc/interrupts"] {
+    for &p in MASKED_PROC_FILES {
         let _ = sys::mount(c"dev/null", p, c"none", libc::MS_BIND, None);
     }
     // Directories to hide, covered with an empty read-only tmpfs.
-    for p in [c"proc/scsi", c"proc/acpi", c"proc/asound", c"sys/firmware", c"sys/devices/virtual/powercap"] {
+    for &p in MASKED_SYSTEM_DIRS {
         let _ = sys::mount(c"tmpfs", p, c"tmpfs", (libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as libc::c_ulong, Some(c"size=0k"));
     }
     Ok(())

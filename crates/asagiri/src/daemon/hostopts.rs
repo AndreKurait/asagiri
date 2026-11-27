@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 /// The HostConfig keys kept with a container.
-const KEYS: [&str; 9] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode", "Tmpfs", "VolumesFrom"];
+const KEYS: [&str; 10] = ["Ulimits", "Sysctls", "Devices", "DeviceCgroupRules", "GroupAdd", "CgroupParent", "PidMode", "Tmpfs", "VolumesFrom", "ExtraHosts"];
 
 /// `nofile` when the run sets none: what containers get on Docker Desktop
 /// and on Docker Engine under containerd's `LimitNOFILE=infinity`. Without
@@ -57,6 +57,15 @@ pub fn inspect(opts: &Value, key: &str) -> Value {
         (Value::Null, _) => Value::Null,
         (v, _) => v.clone(),
     }
+}
+
+pub fn extra_hosts(opts: &Value, effective: &[String]) -> Value {
+    if opts["ExtraHosts"].is_array() {
+        return opts["ExtraHosts"].clone();
+    }
+    // Older stores retain only the effective "address<TAB>hostname" entries.
+    json!(effective.iter().filter_map(|line| line.split_once('\t'))
+        .map(|(address, name)| format!("{name}:{address}")).collect::<Vec<_>>())
 }
 
 /// `--gpus` and Compose `deploy.resources.reservations.devices` arrive as
@@ -315,6 +324,15 @@ fn sysctl(key: &str, net_host: bool) -> Result<(&'static str, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_hosts_preserves_gateway_names_and_reads_older_stores() {
+        let requested = json!({"ExtraHosts": ["api:host-gateway", "service:2001:db8::1"]});
+        let effective = vec!["198.19.248.254\tapi".to_owned(), "2001:db8::1\tservice".to_owned()];
+        assert_eq!(extra_hosts(&from_host(&requested), &effective), requested["ExtraHosts"]);
+        assert_eq!(extra_hosts(&json!({}), &effective), json!(["api:198.19.248.254", "service:2001:db8::1"]));
+        assert_eq!(extra_hosts(&json!({}), &[]), json!([]));
+    }
 
     #[test]
     fn tmpfs_inspection_options_survive_persistence_without_duplicate_guest_options() {

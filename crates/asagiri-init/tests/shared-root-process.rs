@@ -85,7 +85,7 @@ mod linux {
                 _ => copy::View::Stopped,
             };
             roots.start(paths, Instant::now());
-            copies.advance(paths, view);
+            copies.advance(paths, view, |_| false);
             let mut fds = Vec::new();
             copies.interest(&mut fds);
             // SAFETY: a valid poll array; a short wait also gives children CPU.
@@ -101,7 +101,7 @@ mod linux {
                     assert!(copies.reaped(pid, code) || roots.reaped(pid, code, Instant::now()), "unowned child {pid}");
                 }
             }
-            copies.advance(paths, view);
+            copies.advance(paths, view, |_| false);
         }
 
         fn until(roots: &Roots, copies: &mut copy::Broker<'_>, paths: &Paths, running: Option<(&str, libc::pid_t)>, done: impl Fn() -> bool) {
@@ -253,7 +253,7 @@ mod linux {
             let end = Instant::now() + Duration::from_secs(10);
             let mut reaped = false;
             while !reaped {
-                copies.advance(&paths, |_| copy::View::Stopped);
+                copies.advance(&paths, |_| copy::View::Stopped, |_| false);
                 let mut fds = Vec::new();
                 copies.interest(&mut fds);
                 // SAFETY: valid descriptors owned by this test's copy broker.
@@ -271,7 +271,7 @@ mod linux {
                 assert!(Instant::now() < end, "copy worker did not finish");
             }
             let copied_device = fs::metadata(paths.containers.join(id).join("rootfs")).unwrap().dev();
-            copies.advance(&paths, |_| copy::View::Stopped);
+            copies.advance(&paths, |_| copy::View::Stopped, |_| false);
             client.set_nonblocking(true).unwrap();
             let mut prefix = [0u8; 1];
             let mut reply = Vec::new();

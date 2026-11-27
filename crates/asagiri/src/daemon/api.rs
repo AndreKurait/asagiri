@@ -77,7 +77,11 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
 
 /// Requests whose bodies can be any size: archives and image tarballs.
 fn streams_body(method: &str, path: &str) -> bool {
-    matches!((method, path), ("PUT", p) if p.starts_with("/containers/") && p.ends_with("/archive")) || (method == "POST" && (path == "/images/load" || path == "/images/create" || path == "/build"))
+    match method {
+        "PUT" => (path.starts_with("/containers/") && path.ends_with("/archive")) || path.starts_with("/asagiri/checkpoints/"),
+        "POST" => matches!(path, "/images/load" | "/images/create" | "/build"),
+        _ => false,
+    }
 }
 
 pub(super) enum Next {
@@ -126,6 +130,60 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         super::storage::refuse_while_moving(w)?;
         return Ok(Next::Close);
     }
+    if req.method == "POST" && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoint-receivers/")
+        && let Some((id, action @ ("fence" | "unfence"))) = rest.split_once('/') {
+        if !matches!(caller, super::caller::Caller::Host) {
+            http::error(w, 403, "host connection required")?;
+            return Ok(Next::Close);
+        }
+        return reply(w, engine.fence_checkpoint_receiver(id, action == "fence").map(|()| Value::Null), 200);
+    }
+    if matches!(req.method.as_str(), "GET" | "PUT" | "POST") && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
+        if !matches!(caller, super::caller::Caller::Host) {
+            http::error(w, 403, "host connection required")?;
+            return Ok(Next::Close);
+        }
+        if req.method == "POST" && let Some((name, part)) = name.split_once('/') && valid_checkpoint_name(name) {
+            if part == "verify-mounts" {
+                return reply(w, engine.verify_checkpoint_receiver(id, name).map(|()| Value::Null), 200);
+            }
+            if part == "install-process" {
+                return reply(w, engine.install_checkpoint_process(id, name).map(|()| Value::Null), 200);
+            }
+            if part == "stdin" {
+                return reply(w, engine.restore_checkpoint_input(id, name).map(|()| Value::Null), 200);
+            }
+            if part == "volume" {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Volume { source: String, destination: String }
+                let result = serde_json::from_slice::<Volume>(&req.body).map_err(|e| Error::BadRequest(e.to_string()))
+                    .and_then(|v| engine.restore_checkpoint_volume(id, name, &v.source, &v.destination));
+                return reply(w, result.map(|()| Value::Null), 200);
+            }
+            let op = match part {
+                "rootfs" => asagiri_proto::copy_op::CHECKPOINT_ROOTFS,
+                "network-files" => asagiri_proto::copy_op::CHECKPOINT_NETWORK_FILES,
+                _ => return reply(w, Err(Error::BadRequest("unknown checkpoint restore operation".into())), 400),
+            };
+            return reply(w, engine.restore_checkpoint_files(id, name, op).map(|()| Value::Null), 200);
+        }
+        if !valid_checkpoint_name(name) {
+            http::error(w, 400, "invalid checkpoint ID")?;
+            return Ok(Next::Close);
+        }
+        if req.method == "POST" {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields, rename_all = "camelCase")]
+            struct Capture { external_network: bool }
+            let result = serde_json::from_slice::<Capture>(&req.body)
+                .map_err(|e| Error::BadRequest(format!("invalid checkpoint options: {e}")))
+                .and_then(|options| engine.checkpoint_live(id, name, options.external_network));
+            return reply(w, result.map(|()| Value::Null), 201);
+        }
+        if req.method == "PUT" { return checkpoint_import(req, engine, id, name, w, r); }
+        return super::ops::export(engine, id, asagiri_proto::copy_op::CHECKPOINT_EXPORT, name, w);
+    }
     if let Some(done) = super::ops::route(req, engine, w) {
         return done;
     }
@@ -133,10 +191,90 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
     let m = req.method.as_str();
     match (m, p) {
         ("GET" | "HEAD", "/_ping") => {
-            http::respond_with(w, 200, "text/plain; charset=utf-8", "Builder-Version: 2\r\n", if m == "HEAD" { b"" } else { b"OK" })?;
+            http::respond_with(w, 200, "text/plain; charset=utf-8", &format!("Builder-Version: 2\r\nDocker-Experimental: {}\r\n", engine.live_checkpoint()), if m == "HEAD" { b"" } else { b"OK" })?;
             return Ok(Next::KeepAlive);
         }
-        ("GET", "/version") => return reply(w, Ok(version()), 200),
+        ("GET", "/version") => {
+            let mut version = version();
+            version["Experimental"] = json!(engine.live_checkpoint());
+            return reply(w, Ok(version), 200);
+        }
+        ("POST", "/asagiri/checkpoint-activate-group") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Receivers { containers: Vec<String> }
+            let result = serde_json::from_slice::<Receivers>(&req.body)
+                .map_err(|error| Error::BadRequest(error.to_string()))
+                .and_then(|group| engine.activate_checkpoint_receivers(&group.containers));
+            return reply(w, result.map(|()| Value::Null), 204);
+        }
+        ("POST", path @ ("/asagiri/checkpoint-capture-group" | "/asagiri/checkpoint-fence" | "/asagiri/checkpoint-release" | "/asagiri/checkpoint-retire")) => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct SourceGroup { name: String, containers: Vec<String>, #[serde(default)] external_network: bool }
+            let group = serde_json::from_slice::<SourceGroup>(&req.body).map_err(|e| Error::BadRequest(e.to_string()));
+            let result = group.and_then(|g| {
+                if !valid_checkpoint_name(&g.name) { return Err(Error::BadRequest("invalid checkpoint ID".into())); }
+                use super::engine::SourceAction;
+                let action = match path {
+                    "/asagiri/checkpoint-capture-group" => SourceAction::Capture { external_network: g.external_network },
+                    "/asagiri/checkpoint-fence" => SourceAction::Fence,
+                    "/asagiri/checkpoint-retire" => SourceAction::Retire,
+                    _ => SourceAction::Release,
+                };
+                engine.checkpoint_group(&g.name, &g.containers, action)
+            });
+            return reply(w, result.map(|()| Value::Null), 204);
+        }
+        ("GET", path) if let Some(key) = path.strip_prefix("/asagiri/checkpoint-mounts/") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let mounts = engine.resolve(key).and_then(|id| Ok(json!(engine.vm()?.checkpoint_mounts(&id)?)));
+            return reply(w, mounts, 200);
+        }
+        ("POST", "/asagiri/checkpoint-receivers") => {
+            if !matches!(caller, Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            return reply(w, create_by(req, engine, caller), 201);
+        }
+        ("POST", "/asagiri/checkpoint-networks") => {
+            if !matches!(caller, Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let result = serde_json::from_slice::<Vec<Value>>(&req.body)
+                .map_err(|e| Error::BadRequest(format!("invalid checkpoint networks: {e}")))
+                .and_then(|networks| engine.lock_net().prepare_checkpoint_networks(networks));
+            return reply(w, result, 200);
+        }
+        ("GET", "/asagiri/checkpoint-platform") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let platform = engine.vm().and_then(|vm| {
+                let guest = vm.guest_platform()?;
+                Ok(json!(crate::checkpoint::Platform {
+                    engine_version: env!("CARGO_PKG_VERSION").into(),
+                    engine_os: std::env::consts::OS.into(),
+                    guest,
+                    live_capture: vm.live_checkpoint,
+                }))
+            });
+            return reply(w, platform.map_err(Error::Io), 200);
+        }
         ("POST", "/auth") => return reply(w, auth(req), 200),
         // Asagiri's own: the window's Start and Stop.
         // Start: no longer stopped, and the VM up.
@@ -302,6 +440,8 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         let (id, action) = rest.split_once('/').unwrap_or((rest, ""));
         match (m, action) {
             ("GET", "json") => return reply(w, container_inspect(engine, id), 200),
+            ("GET", "checkpoints") => return reply(w, checkpoint_list(req, engine, id), 200),
+            ("POST", "checkpoints") => return reply(w, checkpoint_create(req, engine, id).map(|()| Value::Null), 201),
             ("POST", "start") => {
                 if req.query("checkpoint").is_some_and(|name| !name.is_empty()) {
                     http::error(w, 501, "restoring a container from a checkpoint is not supported by this engine")?;
@@ -468,6 +608,59 @@ pub(super) fn version() -> Value {
         "GitCommit": "",
         "GoVersion": "n/a (Rust)",
     })
+}
+
+fn valid_checkpoint_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 128 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn checkpoint_import(req: &Request, engine: &Engine, id: &str, name: &str, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    fn acknowledgement(guest: &mut std::fs::File) -> Result<(), Error> {
+        let frame = guest_frame(guest)?;
+        match asagiri_proto::decode(&frame) {
+            Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
+            Ok(asagiri_proto::Msg::Error(message)) => {
+                if let Some(reason) = message.strip_prefix("conflict: ") { return Err(Error::Conflict(reason.into())); }
+                if let Some(reason) = message.strip_prefix("invalid checkpoint: ") { return Err(Error::BadRequest(reason.into())); }
+                Err(copy_error(message))
+            }
+            _ => Err(Error::Io(io::Error::other("invalid checkpoint import acknowledgement"))),
+        }
+    }
+    let result = (|| {
+        let stream = engine.copy(id, asagiri_proto::copy_op::CHECKPOINT_IMPORT, name, 0)?;
+        let mut guest = std::fs::File::from(stream.fd.try_clone()?);
+        acknowledgement(&mut guest)?;
+        send_chunks(&mut http::Body::new(req, r), &mut guest).map_err(|e| Error::BadRequest(e.to_string()))?;
+        acknowledgement(&mut guest)
+    })();
+    match result {
+        Ok(()) => http::empty(w, 201)?,
+        Err(e) => error_with(w, e, "Connection: close\r\n")?,
+    }
+    Ok(Next::Close)
+}
+
+fn checkpoint_list(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {
+    if req.query("dir").is_some_and(|dir| !dir.is_empty()) {
+        return Err(Error::BadRequest("custom checkpoint directories are unsupported".into()));
+    }
+    let id = engine.resolve(id)?;
+    let names = engine.vm()?.checkpoints(&id)?;
+    Ok(Value::Array(names.into_iter().map(|name| json!({"Name": name})).collect()))
+}
+
+fn checkpoint_create(req: &Request, engine: &Engine, id: &str) -> Result<(), Error> {
+    let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid checkpoint request: {e}")))?;
+    let name = body["CheckpointID"].as_str().filter(|s| valid_checkpoint_name(s))
+        .ok_or_else(|| Error::BadRequest("invalid checkpoint ID".into()))?;
+    if !matches!(body.get("Exit"), None | Some(Value::Bool(false))) {
+        return Err(Error::BadRequest("only live checkpoint capture is implemented".into()));
+    }
+    if body.get("CheckpointDir").is_some_and(|dir| dir.as_str() != Some("")) {
+        return Err(Error::BadRequest("custom checkpoint directories are unsupported".into()));
+    }
+    engine.checkpoint_live(id, name, false)
 }
 
 fn info(engine: &Engine) -> Value {
@@ -2343,6 +2536,8 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
             .unwrap_or_else(|| "bridge".to_owned()),
         m => m.to_owned(),
     };
+    let receiver = req.path == "/asagiri/checkpoint-receivers";
+    let checkpoint_wait = receiver && req.flag("wait-for-restore");
     let network = match network_mode.strip_prefix("container:") {
         Some(target) => Some(container_network_mode(&body, engine, target)?),
         None => engine.lock_net().find(&network_mode).map(|n| n.name.clone()),
@@ -2375,10 +2570,10 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
             }
             let (ip, ip6, mac) = endpoint_address(ep)?;
             if let Some(a) = super::network::parse_ip(&ip) {
-                found.check_static(a).map_err(Error::BadRequest)?;
+                if receiver && found.driver == "bridge" { found.check_endpoint_ip(a) } else { found.check_static(a) }.map_err(Error::BadRequest)?;
             }
             if let Some(a) = super::network::parse_ip6(&ip6) {
-                found.check_static6(a).map_err(Error::BadRequest)?;
+                if receiver && found.driver == "bridge" { found.check_endpoint_ip6(a) } else { found.check_static6(a) }.map_err(Error::BadRequest)?;
             }
             if canonical == network_mode {
                 gw_priority = endpoint_priority(ep)?;
@@ -2440,12 +2635,12 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
     let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     // As in Docker: a create with nothing to run is refused here, not at start,
     // where `docker run --rm` would wait for a removal that never comes.
-    if entrypoint.is_empty() && cmd.is_empty() {
+    if !checkpoint_wait && entrypoint.is_empty() && cmd.is_empty() {
         return Err(Error::BadRequest("No command specified".into()));
     }
     // Checked before mounts, which may create volumes.
     let labels = labels_from(&body, &image_cfg)?;
-    let healthcheck = healthcheck_from(&body, &image_cfg)?;
+    let healthcheck = if checkpoint_wait { None } else { healthcheck_from(&body, &image_cfg)? };
     let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
         warnings.push(super::ports::WSL_PUBLISH_WARNING.to_owned());
@@ -2477,6 +2672,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
     let spec = Spec {
         wsl_distro: record_distro,
         engine_service,
+        checkpoint_wait,
         image: image_name.to_owned(),
         image_id: image.config_digest.clone(),
         entrypoint,
@@ -2790,6 +2986,23 @@ fn ipam_config(want4: &str, want6: &str) -> Value {
     if m.is_empty() { Value::Null } else { Value::Object(m) }
 }
 
+/// Called with the container lifecycle held, so endpoint and port changes cannot
+/// race publication of the guest checkpoint.
+pub(super) fn checkpoint_network(c: &Container, networks: &[super::network::Network]) -> Value {
+    let endpoints = endpoints(c, networks);
+    let definitions: Vec<_> = networks.iter()
+        .filter(|net| endpoints.get(&net.name).or_else(|| endpoints.get(&net.id)).is_some_and(|ep| ep["NetworkID"] == net.id))
+        .map(network_definition).collect();
+    json!({
+        "version": 1, "containerId": c.id, "containerName": c.name, "mode": c.spec.network_mode,
+        "openStdin": c.spec.open_stdin, "stdinOnce": c.spec.stdin_once,
+        "hostname": if c.spec.hostname.is_empty() { c.short_id() } else { c.spec.hostname.as_str() }, "domainname": c.spec.domainname,
+        "endpoints": endpoints, "networks": definitions, "ports": ports_map(c), "requestedPorts": requested_ports_map(&c.spec.ports),
+        "exposedPorts": inspect_exposed_ports(&c.spec), "dns": c.spec.dns, "dnsSearch": c.spec.dns_search, "dnsOptions": c.spec.dns_options,
+        "extraHosts": super::hostopts::extra_hosts(&c.spec.host_opts, &c.spec.extra_hosts), "links": c.spec.links,
+    })
+}
+
 /// `GET /containers/{id}/json`: [`inspect`] plus what needs the engine's
 /// networks and healthcheck state.
 fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
@@ -2934,6 +3147,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Status": state_word(c),
             "Running": c.status == Status::Running,
             "Paused": c.paused,
+            "AsagiriCheckpointFence": c.checkpoint_fence,
             "Restarting": false,
             "OOMKilled": c.oom_killed,
             "Dead": false,
@@ -2992,6 +3206,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Dns": c.spec.dns,
             "DnsSearch": c.spec.dns_search,
             "DnsOptions": c.spec.dns_options,
+            "ExtraHosts": super::hostopts::extra_hosts(&c.spec.host_opts, &c.spec.extra_hosts),
             "Links": if c.spec.links.is_empty() { Value::Null } else { json!(c.spec.links.iter().map(|l| format!("/{}:/{}/{}", l.name, c.name, l.alias)).collect::<Vec<_>>()) },
             "RestartPolicy": {"Name": c.spec.restart.name, "MaximumRetryCount": c.spec.restart.max_retries},
             "LogConfig": {"Type": c.spec.log_config.kind, "Config": c.spec.log_config.config},
@@ -3077,6 +3292,12 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
             );
         }
     }
+    let mut value = network_definition(n);
+    value["Containers"] = Value::Object(containers);
+    value
+}
+
+pub(super) fn network_definition(n: &super::network::Network) -> Value {
     let ipam = if n.bridge.is_empty() {
         json!([])
     } else {
@@ -3121,7 +3342,6 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
         "Attachable": n.attachable,
         "Ingress": false,
         "ConfigOnly": false,
-        "Containers": containers,
         "Options": if n.options.is_object() { n.options.clone() } else { json!({}) },
         "Labels": if n.labels.is_object() { n.labels.clone() } else { json!({}) },
     })
@@ -3154,13 +3374,18 @@ fn network_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
 fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let name = body["Name"].as_str().unwrap_or_default();
+    let n = engine.lock_net().create(name, network_create_settings(&body)?).map_err(net_error)?;
+    Ok(json!({"Id": n.id, "Warning": ""}))
+}
+
+pub(super) fn network_create_settings(body: &Value) -> Result<super::network::Settings, Error> {
     let driver = match body["Driver"].as_str().unwrap_or("bridge") {
         "" => "bridge",
         d @ ("bridge" | "macvlan" | "ipvlan") => d,
         d => return Err(Error::BadRequest(format!("Asagiri supports only bridge, macvlan and ipvlan networks, not {d}"))),
     };
     let (ipam, ipam6) = super::network::parse_ipam_both(&body["IPAM"]).map_err(Error::BadRequest)?;
-    let settings = super::network::Settings {
+    Ok(super::network::Settings {
         labels: body["Labels"].clone(),
         macvlan: driver == "macvlan",
         ipvlan: driver == "ipvlan",
@@ -3172,9 +3397,7 @@ fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         ipv6: body["EnableIPv6"].as_bool() == Some(true),
         no_ipv4: body["EnableIPv4"].as_bool() == Some(false),
         ipam6,
-    };
-    let n = engine.lock_net().create(name, settings).map_err(net_error)?;
-    Ok(json!({"Id": n.id, "Warning": ""}))
+    })
 }
 
 fn network_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {

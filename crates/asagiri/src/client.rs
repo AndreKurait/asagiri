@@ -235,7 +235,16 @@ pub fn get_background(path: &str) -> io::Result<Value> {
 }
 
 fn send(method: &str, path: &str, body: Option<&Value>, extra: &str) -> io::Result<Response> {
-    let mut s = connect(Some(Duration::from_secs(120)))?;
+    send_with_timeout(method, path, body, extra, Some(Duration::from_secs(120)))
+}
+
+/// The daemon holds the source group until all captures and the durable fence finish.
+pub(crate) fn checkpoint_group_request(path: &str, body: &Value) -> io::Result<Response> {
+    send_with_timeout("POST", path, Some(body), "", None)
+}
+
+fn send_with_timeout(method: &str, path: &str, body: Option<&Value>, extra: &str, timeout: Option<Duration>) -> io::Result<Response> {
+    let mut s = connect(timeout)?;
     let payload = body.map(Value::to_string).unwrap_or_default();
     // The window's action this is part of, for the engine's log lines.
     let op = crate::diag::op_header();
@@ -246,13 +255,17 @@ fn send(method: &str, path: &str, body: Option<&Value>, extra: &str) -> io::Resu
     )?;
     let mut r = BufReader::new(s);
     let (status, len, chunked) = head(&mut r)?;
+    response_body(&mut r, status, len, chunked)
+}
+
+fn response_body(r: &mut impl BufRead, status: u16, len: Option<usize>, chunked: bool) -> io::Result<Response> {
     let mut body = Vec::new();
     // These never have a body, and the daemon keeps the connection open.
     if status == 204 || status == 304 {
         return Ok(Response { status, body });
     }
     if chunked {
-        while let Some(c) = chunk(&mut r)? {
+        while let Some(c) = chunk(r)? {
             body.extend_from_slice(&c);
         }
     } else if let Some(n) = len {
@@ -368,6 +381,94 @@ impl Stream {
     pub fn next(&mut self) -> Option<Vec<u8>> {
         chunk(&mut self.reader).ok().flatten()
     }
+}
+
+pub(crate) fn valid_checkpoint_component(s: &str) -> bool {
+    !s.is_empty() && !matches!(s, "." | "..") && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+pub fn checkpoint_list(args: &[String]) -> io::Result<()> {
+    let [container] = args else { return Err(io::Error::other("usage: asagiri checkpoint ls CONTAINER")); };
+    if !valid_checkpoint_component(container) { return Err(io::Error::other("invalid container name")); }
+    let response = get(&format!("/containers/{container}/checkpoints"))?;
+    let entries = response.as_array().ok_or_else(|| io::Error::other("invalid checkpoint list"))?;
+    for entry in entries {
+        let name = entry["Name"].as_str().ok_or_else(|| io::Error::other("missing checkpoint name"))?;
+        println!("{name}");
+    }
+    Ok(())
+}
+
+/// Transfer the file into the destination engine's private checkpoint store.
+pub fn checkpoint_import(args: &[String]) -> io::Result<()> {
+    let [container, name, input] = args else {
+        return Err(io::Error::other("usage: asagiri checkpoint import CONTAINER NAME INPUT.tar"));
+    };
+    if !valid_checkpoint_component(container) || !valid_checkpoint_component(name) { return Err(io::Error::other("invalid container or checkpoint name")); }
+    let mut input = std::fs::File::open(input)?;
+    let metadata = input.metadata()?;
+    if !metadata.is_file() { return Err(io::Error::other("expected a regular checkpoint archive file")); }
+    let size = metadata.len();
+    if size == 0 { return Err(io::Error::other("empty checkpoint archive")); }
+    let mut socket = connect(Some(Duration::from_secs(120)))?;
+    write!(socket, "PUT /asagiri/checkpoints/{container}/{name} HTTP/1.1\r\nHost: asagiri\r\nConnection: close\r\nExpect: 100-continue\r\nContent-Type: application/x-tar\r\nContent-Length: {size}\r\n\r\n")?;
+    let mut reader = BufReader::new(socket);
+    let (mut status, mut len, mut chunked) = head(&mut reader)?;
+    if status == 100 {
+        let sent = io::copy(&mut (&mut input).take(size), reader.get_mut());
+        if sent.as_ref().is_ok_and(|&n| n != size) { return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "checkpoint file changed during upload")); }
+        // A guest that rejects a partial upload can return a diagnostic before the last write.
+        let _ = reader.get_ref().shutdown(std::net::Shutdown::Write);
+        (status, len, chunked) = head(&mut reader)?;
+        if status == 201 { sent?; return Ok(()); }
+    }
+    let response = response_body(&mut reader, status, len, chunked)?;
+    let message = response.error();
+    Err(io::Error::other(if message.is_empty() { format!("checkpoint import returned HTTP {status}") } else { message }))
+}
+
+/// Download the checkpoint without holding the process memory image in host RAM.
+pub fn checkpoint_export(args: &[String]) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let [container, name, output] = args else {
+        return Err(io::Error::other("usage: asagiri checkpoint export CONTAINER NAME OUTPUT.tar"));
+    };
+    if !valid_checkpoint_component(container) || !valid_checkpoint_component(name) {
+        return Err(io::Error::other("invalid container or checkpoint name"));
+    }
+    let output = Path::new(output);
+    if output.try_exists()? { return Err(io::ErrorKind::AlreadyExists.into()); }
+    let nonce = getrandom::u64().map_err(io::Error::other)?;
+    let temporary = output.with_file_name(format!(".asagiri-checkpoint-{nonce:016x}.partial"));
+    let mut stream = Stream::open(&format!("/asagiri/checkpoints/{container}/{name}"))?;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
+    let result = (|| {
+        loop {
+            if stream.reader.fill_buf()?.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "checkpoint export ended before the engine confirmed completion"));
+            }
+            let header = crate::local_api::line(&mut stream.reader, &mut 1024)?;
+            let size = u64::from_str_radix(header.split(';').next().unwrap_or(""), 16)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint chunk size"))?;
+            if size == 0 {
+                let mut remaining = 16 * 1024;
+                while !crate::local_api::line(&mut stream.reader, &mut remaining)?.is_empty() {}
+                break;
+            }
+            if io::copy(&mut (&mut stream.reader).take(size), &mut file)? != size {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete checkpoint download"));
+            }
+            if !crate::local_api::line(&mut stream.reader, &mut 2)?.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid checkpoint chunk terminator"));
+            }
+        }
+        file.sync_all()?;
+        std::fs::hard_link(&temporary, output)
+    })();
+    if let Err(error) = std::fs::remove_file(&temporary) {
+        eprintln!("checkpoint: could not remove {}: {error}", temporary.display());
+    }
+    result
 }
 
 /// Runs `cmd` in a running container and returns (exit code, output),

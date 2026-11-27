@@ -17,6 +17,7 @@ use super::removal::Removals;
 #[derive(Default)]
 struct Root {
     users: usize,
+    restoring: bool,
     mounted: bool,
     remove: bool,
     discard_when_idle: bool,
@@ -58,9 +59,30 @@ impl Roots {
         self.lease(paths, id, None)
     }
 
+    /// Give one stopped-receiver restore worker exclusive access to its directory.
+    /// Unmount any cached overlay first so rootfs restore can replace the upper.
+    pub fn restore_directory(&self, paths: &Paths, id: &str) -> io::Result<Option<PathBuf>> {
+        {
+            let mut state = self.0.borrow_mut();
+            if let Some(root) = state.entries.get(id) {
+                if root.users != 0 { return Err(io::Error::other("conflict: receiver filesystem is busy")); }
+                if root.mounted {
+                    state.workers.enqueue(id);
+                    return Ok(None);
+                }
+            }
+        }
+        self.hold_upper(paths, id)?;
+        self.0.borrow_mut().entries.get_mut(id).unwrap().restoring = true;
+        Ok(Some(paths.containers.join(id)))
+    }
+
     fn lease(&self, paths: &Paths, id: &str, layers: Option<StrList<'_>>) -> io::Result<PathBuf> {
         container::valid_id(id)?;
         let mut state = self.0.borrow_mut();
+        if state.entries.get(id).is_some_and(|root| root.restoring) {
+            return Err(io::Error::other("conflict: receiver checkpoint restore in progress"));
+        }
         if state.entries.get(id).is_some_and(|root| root.remove) {
             return Err(io::Error::new(io::ErrorKind::NotFound, "container is being removed"));
         }
@@ -99,6 +121,7 @@ impl Roots {
         let mut state = self.0.borrow_mut();
         let Some(root) = state.entries.get_mut(id) else { return };
         assert!(root.users > 0, "a filesystem lease must be released exactly once");
+        root.restoring = false;
         root.users -= 1;
         if root.users == 0 {
             root.remove |= root.discard_when_idle;

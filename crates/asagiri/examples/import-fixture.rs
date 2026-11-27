@@ -7,6 +7,10 @@
 #[path = "../src/client.rs"]
 mod client;
 #[cfg(target_os = "linux")]
+#[path = "../src/local_api.rs"]
+#[allow(dead_code)] // The production client uses the bounded HTTP line reader.
+mod local_api;
+#[cfg(target_os = "linux")]
 #[path = "../src/wsl_paths.rs"]
 mod wsl_paths;
 #[cfg(target_os = "linux")]

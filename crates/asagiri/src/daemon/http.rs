@@ -465,7 +465,7 @@ fn head(w: &mut impl Write, status: u16, extra: &str) -> io::Result<()> {
     };
     write!(
         w,
-        "HTTP/1.1 {status} {}\r\nApi-Version: {API_VERSION}\r\nDocker-Experimental: false\r\nOstype: linux\r\nServer: Asagiri/{} (linux)\r\n{close}{extra}\r\n",
+        "HTTP/1.1 {status} {}\r\nApi-Version: {API_VERSION}\r\nOstype: linux\r\nServer: Asagiri/{} (linux)\r\n{close}{extra}\r\n",
         reason(status),
         env!("CARGO_PKG_VERSION")
     )

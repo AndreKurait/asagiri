@@ -49,9 +49,9 @@ class PackageTests(unittest.TestCase):
                 for member, data in extra if isinstance(extra, list) else [extra]:
                     tar.addfile(member, io.BytesIO(data))
 
-    def verify(self, arch="arm64", cli=None):
+    def verify(self, arch="arm64", cli=None, initramfs=None):
         with patch.object(PACKAGE, "output", side_effect=[arch, cli or f"Asagiri {self.version}"]):
-            return PACKAGE.verify(self.app, self.archive, self.version, "arm64")
+            return PACKAGE.verify(self.app, self.archive, self.version, "arm64", initramfs)
 
     def test_actual_xtask_template_retains_stable_and_preview_versions(self):
         for version in ("0.1.5", "0.1.6-dev.98"):
@@ -85,6 +85,24 @@ class PackageTests(unittest.TestCase):
     def test_stale_executable_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "different version"):
             self.verify(cli="Asagiri 0.1.6-dev.97")
+
+    def test_initramfs_must_match_the_build_in_both_app_and_archive(self):
+        built = self.root / "built.cpio"
+        built.write_bytes(b"current guest")
+        name = "Asagiri.app/Contents/Resources/guest/initramfs.cpio"
+        packaged = self.root / name
+        packaged.parent.mkdir(parents=True)
+        packaged.write_bytes(built.read_bytes())
+        member = tarfile.TarInfo(name)
+        member.size = built.stat().st_size
+        self.pack(extra=(member, built.read_bytes()))
+        self.assertEqual(self.verify(initramfs=built)["identity_files"][name], PACKAGE.digest(built))
+        built.write_bytes(b"rebuilt guest")
+        with self.assertRaisesRegex(ValueError, "differs from the release build"):
+            self.verify(initramfs=built)
+        packaged.write_bytes(built.read_bytes())
+        with self.assertRaisesRegex(ValueError, "verified app identity"):
+            self.verify(initramfs=built)
 
     def test_wrong_architecture_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "wrong architecture"):

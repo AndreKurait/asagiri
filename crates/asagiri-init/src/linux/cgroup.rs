@@ -71,7 +71,26 @@ fn write_limits(dir: &Path, l: &Limits) -> io::Result<()> {
 
 /// Freezes or thaws every process in the cgroup, and waits until it is so.
 pub fn freeze(dir: &Path, frozen: bool) -> io::Result<()> {
-    fs::write(dir.join("cgroup.freeze"), if frozen { "1" } else { "0" })?;
+    let control = dir.join("cgroup.freeze");
+    let previous = fs::read_to_string(&control)?;
+    let previous = match previous.trim() {
+        "0" => false,
+        "1" => true,
+        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid cgroup freezer state")),
+    };
+    fs::write(&control, if frozen { "1" } else { "0" })?;
+    if let Err(error) = wait_frozen(dir, frozen) {
+        // A timed-out request can still take effect after the caller reports failure.
+        if previous != frozen {
+            fs::write(&control, if previous { "1" } else { "0" }).and_then(|()| wait_frozen(dir, previous))
+                .map_err(|rollback| io::Error::other(format!("{error}; could not restore previous freezer state: {rollback}")))?;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn wait_frozen(dir: &Path, frozen: bool) -> io::Result<()> {
     let want = if frozen { "frozen 1" } else { "frozen 0" };
     for _ in 0..200 {
         if fs::read_to_string(dir.join("cgroup.events"))?.lines().any(|l| l == want) {
@@ -79,7 +98,7 @@ pub fn freeze(dir: &Path, frozen: bool) -> io::Result<()> {
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    Err(io::Error::new(io::ErrorKind::TimedOut, "the container did not freeze in time"))
+    Err(io::Error::new(io::ErrorKind::TimedOut, format!("container did not reach {want} in time")))
 }
 
 fn keyed(text: &str, key: &str) -> u64 {
@@ -319,6 +338,19 @@ pub fn top(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timed_out_freezer_transition_restores_its_previous_request() {
+        let dir = std::env::temp_dir().join(format!("asagiri-freezer-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for (previous, events, requested) in [("0", "frozen 0", true), ("1", "frozen 1", false)] {
+            fs::write(dir.join("cgroup.freeze"), previous).unwrap();
+            fs::write(dir.join("cgroup.events"), events).unwrap();
+            assert_eq!(freeze(&dir, requested).unwrap_err().kind(), io::ErrorKind::TimedOut);
+            assert_eq!(fs::read_to_string(dir.join("cgroup.freeze")).unwrap(), previous);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn a_memory_limit_does_not_need_swap_accounting() {

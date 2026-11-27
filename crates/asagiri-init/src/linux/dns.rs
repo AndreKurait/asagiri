@@ -220,6 +220,15 @@ impl Dns {
         }
     }
 
+    /// A restored init takes ownership of the waiting init's resolver.
+    pub(super) fn replace_container_pid(&mut self, previous: i32, replacement: i32) {
+        for server in &mut self.servers {
+            if let Some((pid, _)) = &mut server.container && *pid == previous {
+                *pid = replacement;
+            }
+        }
+    }
+
     /// Container `pid` is gone: its 127.0.0.11 server goes.
     pub fn drop_container(&mut self, pid: i32) {
         self.servers.retain(|s| !s.container.is_some_and(|(p, _)| p == pid));

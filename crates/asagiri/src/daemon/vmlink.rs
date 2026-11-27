@@ -34,6 +34,9 @@ pub enum Reply {
     Ack,
     ContainerStats(asagiri_proto::ContainerStats),
     Top(Vec<String>),
+    CheckpointMounts(Vec<String>),
+    Checkpoints(Vec<String>),
+    GuestPlatform(crate::checkpoint::GuestPlatform),
     Listening(Vec<String>),
     UsbNodes(Vec<String>),
     Uplink([u8; 4], [u8; 4]),
@@ -68,6 +71,7 @@ impl From<asagiri_proto::FsEntry<'_>> for FileInfo {
 /// Something a container did, routed to the engine.
 #[derive(Debug)]
 pub enum Event<'a> {
+    CheckpointRestored { id: &'a str, previous_pid: u32, pid: u32 },
     Output { id: &'a str, stream: Stream, data: &'a [u8] },
     /// `oom` when the kernel killed a process in it for memory.
     Exited { id: &'a str, code: i32, oom: bool },
@@ -79,6 +83,7 @@ pub enum Event<'a> {
 }
 
 pub struct VmLink {
+    pub live_checkpoint: bool,
     writer: Mutex<Writer>,
     /// Closes the transport without waiting for a writer blocked in the guest.
     control: File,
@@ -86,6 +91,7 @@ pub struct VmLink {
     windows: Arc<Windows>,
     /// The guest's latest `Usage` lines, for `usage`.
     usage: Arc<UsageSlot>,
+    checkpoint: Arc<CheckpointSlot>,
     pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
     cleanup: Arc<CleanupBarrier>,
     /// Owns the VM until retirement has confirmed shutdown and cleanup.
@@ -298,6 +304,32 @@ struct UsageSlot {
     arrived: Condvar,
 }
 
+/// A checkpoint holds one completion slot, separate from ordinary FIFO replies.
+#[derive(Default)]
+struct CheckpointSlot(Mutex<Option<SyncSender<io::Result<()>>>>);
+
+impl CheckpointSlot {
+    fn reserve(&self) -> io::Result<mpsc::Receiver<io::Result<()>>> {
+        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"));
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        *slot = Some(tx);
+        Ok(rx)
+    }
+
+    fn clear(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    fn complete(&self, result: io::Result<()>) {
+        if let Some(tx) = &*self.0.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = tx.try_send(result);
+        }
+    }
+}
+
 impl VmLink {
     pub fn is_lost(&self) -> bool {
         self.windows.is_lost()
@@ -310,21 +342,24 @@ impl VmLink {
 
     /// Starts the reader thread. `on_event` runs on that thread, so it must
     /// not block for long: it holds up every reply behind it.
-    pub fn new(vm: Vm, conn: File, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
+    pub fn new(vm: Vm, conn: File, live_checkpoint: bool, on_event: impl Fn(Event<'_>) + Send + 'static) -> io::Result<VmLink> {
         let pending: Arc<Mutex<VecDeque<SyncSender<Reply>>>> = Arc::new(Mutex::new(VecDeque::new()));
         let reader = conn.try_clone()?;
         let control = conn.try_clone()?;
         let windows = Arc::new(Windows::default());
         let usage = Arc::new(UsageSlot::default());
         let cleanup = Arc::new(CleanupBarrier::default());
-        Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), cleanup.clone(), on_event)?;
+        let checkpoint = Arc::new(CheckpointSlot::default());
+        Self::spawn_reader(reader, pending.clone(), windows.clone(), usage.clone(), checkpoint.clone(), cleanup.clone(), on_event)?;
         Ok(VmLink {
+            live_checkpoint,
             writer: Mutex::new(Writer { conn, out: Vec::with_capacity(4096), blob: vec![0; 256 * 1024] }),
             control,
             pending,
             cleanup,
             windows,
             usage,
+            checkpoint,
             connector: vm.connector(),
             _vm: Mutex::new(vm),
             #[cfg(target_os = "macos")]
@@ -337,6 +372,7 @@ impl VmLink {
         queue: Arc<Mutex<VecDeque<SyncSender<Reply>>>>,
         wins: Arc<Windows>,
         slot: Arc<UsageSlot>,
+        checkpoint: Arc<CheckpointSlot>,
         cleaning: Arc<CleanupBarrier>,
         on_event: impl Fn(Event<'_>) + Send + 'static,
     ) -> io::Result<std::thread::JoinHandle<()>> {
@@ -362,8 +398,17 @@ impl VmLink {
                         slot.arrived.notify_all();
                         continue;
                     }
+                    Ok(Msg::CheckpointResult { error }) => {
+                        let result = if error.is_empty() { Ok(()) } else { Err(io::Error::other(error)) };
+                        checkpoint.complete(result);
+                        continue;
+                    }
                     Ok(Msg::CleanupPending(id)) => { cleaning.pending(id); continue; }
                     Ok(Msg::CleanupDone(id)) => { cleaning.done(id); continue; }
+                    Ok(Msg::CheckpointRestored { id, previous_pid, pid }) => {
+                        on_event(Event::CheckpointRestored { id, previous_pid, pid });
+                        continue;
+                    }
                     Ok(Msg::Exited(e)) => {
                         wins.close(e.id);
                         on_event(Event::Exited { id: e.id, code: e.code, oom: e.oom_killed });
@@ -393,6 +438,14 @@ impl VmLink {
                     Ok(Msg::Ack) => Reply::Ack,
                     Ok(Msg::ContainerStats(s)) => Reply::ContainerStats(s),
                     Ok(Msg::Top(lines)) => Reply::Top(lines.iter().map(str::to_owned).collect()),
+                    Ok(Msg::CheckpointMounts(paths)) => Reply::CheckpointMounts(paths.iter().map(str::to_owned).collect()),
+                    Ok(Msg::Checkpoints(names)) => Reply::Checkpoints(names.iter().map(str::to_owned).collect()),
+                    Ok(Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets }) => Reply::GuestPlatform(crate::checkpoint::GuestPlatform {
+                        guest_architecture: architecture.to_owned(), guest_kernel: kernel.to_owned(),
+                        cpu_features: cpu_features.map(|features| features.split_ascii_whitespace().map(str::to_owned).collect()),
+                        system_mount_targets: system_mount_targets.map(|paths| paths.split_ascii_whitespace().map(str::to_owned).collect()),
+                        criu_package_version: (!criu_package_version.is_empty()).then(|| criu_package_version.to_owned()),
+                    }),
                     Ok(Msg::Listening(lines)) => Reply::Listening(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::UsbNodes(lines)) => Reply::UsbNodes(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::Uplink { ip, gateway }) => Reply::Uplink(ip, gateway),
@@ -408,6 +461,7 @@ impl VmLink {
             // this dead link while the engine is still accounting exits.
             wins.lose();
             cleaning.lost();
+            checkpoint.complete(Err(io::Error::new(io::ErrorKind::BrokenPipe, "the VM stopped during checkpoint capture")));
             for slot in queue.lock().unwrap_or_else(|e| e.into_inner()).drain(..) {
                 let _ = slot.send(Reply::Error("the VM stopped".into()));
             }
@@ -528,6 +582,72 @@ impl VmLink {
 
     pub fn update(&self, id: &str, limits: asagiri_proto::Limits) -> io::Result<()> {
         self.ack(|o| Msg::Update { id, limits }.encode(o))
+    }
+
+    pub fn guest_platform(&self) -> io::Result<crate::checkpoint::GuestPlatform> {
+        match self.call(|o| Msg::GuestPlatformQuery.encode(o), None)? {
+            Reply::GuestPlatform(platform) => Ok(platform),
+            other => Err(io::Error::other(format!("expected guest platform, got {other:?}"))),
+        }
+    }
+
+    pub fn restore_checkpoint_input(&self, id: &str, name: &str) -> io::Result<()> {
+        self.ack(|out| Msg::CheckpointRestoreInput { id, name }.encode(out))
+    }
+
+    pub fn verify_checkpoint_receiver(&self, id: &str, name: &str, volumes: &[String]) -> io::Result<()> {
+        match self.call(|out| asagiri_proto::encode_checkpoint_verify_receiver(out, id, name, volumes), None)? {
+            Reply::Ack => Ok(()),
+            Reply::Error(message) => Err(io::Error::other(message)),
+            other => Err(io::Error::other(format!("expected receiver verification result, got {other:?}"))),
+        }
+    }
+
+    pub fn fence_checkpoint_receiver(&self, id: &str, fenced: bool) -> io::Result<()> {
+        self.ack(|out| Msg::CheckpointFenceReceiver { id, fenced }.encode(out))
+    }
+
+    pub fn activate_checkpoint_receivers(&self, ids: &[String]) -> io::Result<()> {
+        self.ack(|out| asagiri_proto::encode_checkpoint_activate_group(out, ids))
+    }
+
+    pub fn retire_checkpoint_source(&self, id: &str) -> io::Result<()> {
+        self.ack(|out| Msg::CheckpointRetireSource { id }.encode(out))
+    }
+
+    pub fn checkpoint_mounts(&self, id: &str) -> io::Result<Vec<String>> {
+        match self.call(|o| Msg::CheckpointMountQuery { id }.encode(o), None)? {
+            Reply::CheckpointMounts(paths) => Ok(paths),
+            Reply::Error(message) => Err(io::Error::other(message)),
+            other => Err(io::Error::other(format!("expected checkpoint mounts, got {other:?}"))),
+        }
+    }
+
+    pub fn checkpoints(&self, id: &str) -> io::Result<Vec<String>> {
+        match self.call(|o| Msg::CheckpointList { id }.encode(o), None)? {
+            Reply::Checkpoints(names) => Ok(names),
+            other => Err(io::Error::other(format!("expected Checkpoints, got {other:?}"))),
+        }
+    }
+
+    pub fn checkpoint_live(&self, spec: asagiri_proto::CheckpointSpec<'_>) -> io::Result<()> {
+        self.checkpoint_operation(|o| Msg::CheckpointCreate(spec).encode(o))
+    }
+
+    pub fn install_checkpoint_process(&self, id: &str, name: &str, volumes: &[String]) -> io::Result<()> {
+        self.checkpoint_operation(|out| asagiri_proto::encode_checkpoint_install_process(out, id, name, volumes))
+    }
+
+    fn checkpoint_operation(&self, request: impl FnOnce(&mut Vec<u8>)) -> io::Result<()> {
+        let completion = self.checkpoint.reserve()?;
+        let result = self.ack(request)
+            .map_err(|error| match error.to_string().strip_prefix("checkpoint conflict: ") {
+                Some(message) => io::Error::new(io::ErrorKind::WouldBlock, message.to_owned()),
+                None => error,
+            })
+            .and_then(|()| completion.recv().unwrap_or_else(|_| Err(io::Error::other("the VM stopped during the checkpoint operation"))));
+        self.checkpoint.clear();
+        result
     }
 
     pub fn freeze(&self, id: &str, frozen: bool) -> io::Result<()> {
@@ -671,6 +791,14 @@ impl VmLink {
         // thread, which could not wait for one.
         self.send(|o| Msg::Unpublish { id }.encode(o))
     }
+    /// Wait for the guest event loop to process earlier one-way messages.
+    pub fn control_barrier(&self) -> io::Result<()> {
+        match self.call(|out| Msg::Ping(0).encode(out), None)? {
+            Reply::Pong => Ok(()),
+            other => Err(io::Error::other(format!("expected Pong, got {other:?}"))),
+        }
+    }
+
     pub fn remove_volume(&self, name: &str) -> io::Result<()> {
         self.send(|o| Msg::RemoveVolume { name }.encode(o))
     }
@@ -873,7 +1001,7 @@ mod tests {
         let windows = Arc::new(Windows::default());
         let reader = VmLink::spawn_reader(
             std::os::fd::OwnedFd::from(socket).into(), pending.clone(), windows.clone(),
-            usage.clone(), Arc::new(CleanupBarrier::default()), |_| {},
+            usage.clone(), Arc::new(CheckpointSlot::default()), Arc::new(CleanupBarrier::default()), |_| {},
         ).unwrap();
 
         let line = "é".repeat(asagiri_proto::MAX_FRAME / 2);
@@ -889,6 +1017,55 @@ mod tests {
         assert!(pending.lock().unwrap().is_empty());
         assert!(!windows.lock().lost);
         drop(guest);
+        reader.join().unwrap();
+    }
+
+    #[test]
+    fn checkpoint_completion_does_not_consume_ordered_guest_replies() {
+        use std::time::Duration;
+
+        let wait = Duration::from_secs(5);
+        let (socket, mut guest) = UnixStream::pair().unwrap();
+        guest.set_write_timeout(Some(wait)).unwrap();
+        let (admit, admission) = mpsc::sync_channel(1);
+        let (stats, stats_reply) = mpsc::sync_channel(1);
+        let pending = Arc::new(Mutex::new(VecDeque::from([admit, stats])));
+        let checkpoint = Arc::new(CheckpointSlot::default());
+        let completion = checkpoint.reserve().unwrap();
+        let (restored, restored_event) = mpsc::sync_channel(1);
+        assert_eq!(checkpoint.reserve().unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        let reader = VmLink::spawn_reader(
+            std::os::fd::OwnedFd::from(socket).into(), pending.clone(), Arc::new(Windows::default()),
+            Arc::new(UsageSlot::default()), checkpoint.clone(), Arc::new(CleanupBarrier::default()), move |event| {
+                if let Event::CheckpointRestored { id, previous_pid, pid } = event {
+                    restored.send((id.to_owned(), previous_pid, pid)).unwrap();
+                }
+            },
+        ).unwrap();
+
+        let mut out = Vec::new();
+        Msg::Ack.encode(&mut out);
+        Msg::ContainerStats(asagiri_proto::ContainerStats { online_cpus: 2, ..Default::default() }).encode(&mut out);
+        guest.write_all(&out).unwrap();
+        assert!(matches!(admission.recv_timeout(wait).unwrap(), Reply::Ack));
+        assert!(matches!(stats_reply.recv_timeout(wait).unwrap(), Reply::ContainerStats(s) if s.online_cpus == 2));
+        assert!(matches!(completion.try_recv(), Err(mpsc::TryRecvError::Empty)));
+
+        let (ping, ping_reply) = mpsc::sync_channel(1);
+        pending.lock().unwrap().push_back(ping);
+        out.clear();
+        Msg::CheckpointRestored { id: "receiver", previous_pid: 42, pid: 43 }.encode(&mut out);
+        Msg::CheckpointResult { error: "" }.encode(&mut out);
+        Msg::Pong(7).encode(&mut out);
+        guest.write_all(&out).unwrap();
+        completion.recv_timeout(wait).unwrap().unwrap();
+        assert!(matches!(ping_reply.recv_timeout(wait).unwrap(), Reply::Pong));
+        assert_eq!(restored_event.recv_timeout(wait).unwrap(), ("receiver".to_owned(), 42, 43));
+        checkpoint.clear();
+
+        let cancelled = checkpoint.reserve().unwrap();
+        drop(guest);
+        assert_eq!(cancelled.recv_timeout(wait).unwrap().unwrap_err().kind(), io::ErrorKind::BrokenPipe);
         reader.join().unwrap();
     }
 

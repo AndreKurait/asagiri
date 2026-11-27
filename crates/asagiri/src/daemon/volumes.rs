@@ -38,6 +38,7 @@ pub struct Volume {
 pub struct Volumes {
     list: Vec<Volume>,
     path: PathBuf,
+    reserved: std::collections::HashSet<String>,
 }
 
 impl Volumes {
@@ -48,16 +49,42 @@ impl Volumes {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e),
         };
-        Ok(Volumes { list, path })
+        Ok(Volumes { list, path, reserved: Default::default() })
+    }
+
+    fn save_catalog(&self, durable: bool) -> io::Result<()> {
+        let tmp = self.path.with_extension("json.tmp");
+        let file = std::fs::File::create(&tmp)?;
+        serde_json::to_writer(&file, &self.list)?;
+        if durable { file.sync_all()?; }
+        std::fs::rename(tmp, &self.path)?;
+        if durable { std::fs::File::open(self.path.parent().ok_or_else(|| io::Error::other("missing volume catalog directory"))?)?.sync_all()?; }
+        Ok(())
+    }
+
+    pub fn reserve(&mut self, name: &str) -> Result<(), String> {
+        if !self.reserved.insert(name.to_owned()) { return Err("destination volume is busy".into()); }
+        Ok(())
+    }
+
+    pub fn release(&mut self, name: &str) { self.reserved.remove(name); }
+
+    /// An existing Docker volume keeps its creation time, labels and anonymous status.
+    pub fn publish_restored(&mut self, name: &str) -> io::Result<bool> {
+        let created = self.get(name).is_none();
+        if created {
+            let created_ns = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_err(io::Error::other)?.as_nanos() as u64;
+            self.list.push(Volume { name: name.to_owned(), created_ns, labels: serde_json::json!({}), anonymous: false, options: BTreeMap::new() });
+        }
+        if let Err(error) = self.save_catalog(true) {
+            if created { self.list.pop(); }
+            return Err(error);
+        }
+        Ok(created)
     }
 
     fn save(&self) {
-        if let Ok(json) = serde_json::to_vec(&self.list) {
-            let tmp = self.path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, &self.path)) {
-                crate::diag::error!("saving volumes failed", error = e);
-            }
-        }
+        if let Err(e) = self.save_catalog(false) { crate::diag::error!("saving volumes failed", error = e); }
     }
 
     pub fn all(&self) -> &[Volume] {
@@ -76,6 +103,7 @@ impl Volumes {
     /// [`Volumes::ensure`] with the local driver's options for a new volume.
     /// An existing volume keeps its own, as Docker's local driver does.
     pub fn ensure_with(&mut self, name: &str, labels: serde_json::Value, anonymous: bool, options: BTreeMap<String, String>) -> Result<Volume, String> {
+        if self.reserved.contains(name) { return Err("destination volume is busy".into()); }
         if !valid_name(name) {
             return Err(format!("invalid volume name {name:?}: only [a-zA-Z0-9][a-zA-Z0-9_.-] are allowed"));
         }

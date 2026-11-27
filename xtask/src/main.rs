@@ -35,7 +35,7 @@
 //! (latest-mac-x86_64.json), as Apple silicon's carry `-arm64`.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -207,20 +207,25 @@ fn guest(root: &Path, arch: Arch) -> io::Result<()> {
     // The kernel opens /dev/console for PID 1 before any filesystem is mounted.
     cpio.char_dev("dev/console", 0o600, 5, 1);
     cpio.file("init", 0o755, &init);
-    // Optional architecture-specific staging tree for checkpoint qualification.
+    // The Linux archive preserves case-distinct plugin names on macOS.
+    // Existing callers can also supply a target-specific staging directory.
     if let Some(runtime) = std::env::var_os("ASAGIRI_CRIU_RUNTIME") {
         let runtime = Path::new(&runtime);
         let (machine, loader) = match arch {
             Arch::Arm64 => (183, "lib/ld-linux-aarch64.so.1"),
             Arch::X86_64 => (62, "lib64/ld-linux-x86-64.so.2"),
         };
-        for name in ["usr/sbin/criu", loader] {
-            let binary = fs::read(runtime.join(name)).map_err(|e| io::Error::new(e.kind(), format!("checkpoint runtime {name}: {e}")))?;
-            if !guest_elf(&binary, machine) {
-                return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
+        if runtime.is_file() {
+            cpio.checkpoint_archive(runtime, machine, loader)?;
+        } else {
+            for name in ["usr/sbin/criu", loader] {
+                let binary = fs::read(runtime.join(name)).map_err(|e| io::Error::new(e.kind(), format!("checkpoint runtime {name}: {e}")))?;
+                if !guest_elf(&binary, machine) {
+                    return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
+                }
             }
+            cpio.tree("bundle", runtime, machine)?;
         }
-        cpio.tree("bundle", runtime, machine)?;
     }
     let path = arch.guest_out(root)?.join("initramfs.cpio");
     fs::write(&path, cpio.finish())?;
@@ -1125,6 +1130,51 @@ struct Cpio {
 }
 
 impl Cpio {
+    /// Read the Linux staging archive directly so case-sensitive names survive a Mac build.
+    fn checkpoint_archive(&mut self, path: &Path, machine: u8, loader: &str) -> io::Result<()> {
+        use std::collections::HashSet;
+        use std::path::Component;
+        let mut seen = HashSet::new();
+        let mut required = HashSet::from(["usr/sbin/criu", loader]);
+        let mut archive = tar::Archive::new(fs::File::open(path)?);
+        self.dir("bundle");
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let relative = entry.path()?;
+            let mut parts = Vec::new();
+            for component in relative.components() {
+                match component {
+                    Component::CurDir => (),
+                    Component::Normal(name) => parts.push(name.to_str().ok_or_else(|| io::Error::other("non-UTF-8 checkpoint filename"))?),
+                    _ => return Err(io::Error::other("invalid checkpoint archive path")),
+                }
+            }
+            let name = parts.join("/");
+            let kind = entry.header().entry_type();
+            if name.is_empty() && kind.is_dir() { continue; }
+            if name.is_empty() || !seen.insert(name.clone()) {
+                return Err(io::Error::other(format!("empty or duplicate checkpoint archive path: {name}")));
+            }
+            let target = format!("bundle/{name}");
+            if kind.is_dir() {
+                self.dir(&target);
+            } else if kind.is_file() {
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes)?;
+                if (required.remove(name.as_str()) || bytes.starts_with(b"\x7fELF")) && !guest_elf(&bytes, machine) {
+                    return Err(io::Error::other(format!("{name} must be a 64-bit Linux ELF for the selected guest architecture")));
+                }
+                self.file(&target, entry.header().mode()? & 0o777, &bytes);
+            } else {
+                return Err(io::Error::other(format!("unsupported checkpoint archive member: {name}")));
+            }
+        }
+        if let Some(name) = required.into_iter().next() {
+            return Err(io::Error::other(format!("missing checkpoint runtime {name}")));
+        }
+        Ok(())
+    }
+
     fn tree(&mut self, name: &str, root: &Path, machine: u8) -> io::Result<()> {
         self.dir(name);
         let mut entries = fs::read_dir(root)?.collect::<io::Result<Vec<_>>>()?;
@@ -1204,6 +1254,38 @@ impl Cpio {
 #[cfg(test)]
 mod checkpoint_tests {
     use super::*;
+
+    #[test]
+    fn archived_xtables_plugins_keep_both_case_distinct_names() -> io::Result<()> {
+        let path = std::env::temp_dir().join(format!("asagiri-checkpoint-{}.tar", std::process::id()));
+        let result = (|| -> io::Result<()> {
+            let mut tar = tar::Builder::new(fs::File::create_new(&path)?);
+            let mut binary = [0u8; 64];
+            binary[..6].copy_from_slice(b"\x7fELF\x02\x01");
+            binary[18] = 183;
+            for (index, name) in ["usr/sbin/criu", "lib/ld-linux-aarch64.so.1",
+                                   "helpers/libxt_MARK.so", "helpers/libxt_mark.so"].iter().enumerate() {
+                binary[32] = index as u8;
+                let mut header = tar::Header::new_ustar();
+                header.set_size(binary.len() as u64);
+                header.set_mode(0o755);
+                tar.append_data(&mut header, name, &binary[..])?;
+            }
+            tar.finish()?;
+            let mut cpio = Cpio::default();
+            cpio.checkpoint_archive(&path, 183, "lib/ld-linux-aarch64.so.1")?;
+            let bytes = cpio.finish();
+            for (index, name) in [(2, "bundle/helpers/libxt_MARK.so"), (3, "bundle/helpers/libxt_mark.so")] {
+                let at = bytes.windows(name.len()).position(|w| w == name.as_bytes()).unwrap();
+                let data = (at + name.len() + 1).next_multiple_of(4);
+                binary[32] = index;
+                assert_eq!(&bytes[data..data + binary.len()], &binary);
+            }
+            Ok(())
+        })();
+        fs::remove_file(path)?;
+        result
+    }
 
     #[test]
     fn nested_runtime_library_must_match_the_guest_architecture() -> io::Result<()> {

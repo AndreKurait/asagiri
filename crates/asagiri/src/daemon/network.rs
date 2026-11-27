@@ -13,6 +13,8 @@
 //! under fd00::/8 per engine), as Docker's default address pools hand out.
 //! The default `bridge` stays IPv4-only, as Docker's does.
 
+mod checkpoint;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
@@ -296,6 +298,13 @@ impl Network {
         if !self.user_subnet {
             return Err("user specified IP address is supported only when connecting to networks with user configured subnets".into());
         }
+        self.check_endpoint_ip(ip)
+    }
+
+    /// Checkpoint receivers can reclaim an automatically assigned bridge address.
+    /// Both automatic and explicitly configured subnets use the same pool and exclusions.
+    pub(super) fn check_endpoint_ip(&self, ip: [u8; 4]) -> Result<(), String> {
+        if self.bridge.is_empty() { return Err(format!("network {} has no address pool", self.name)); }
         let size = 1u32 << (32 - self.prefix as u32);
         let host = u32::from_be_bytes(ip).wrapping_sub(u32::from_be_bytes(self.subnet));
         if !self.contains(ip) || host == 0 || host == size - 1 {
@@ -313,6 +322,10 @@ impl Network {
         if self.builtin() {
             return Err("user specified IP address is supported on user defined networks only".into());
         }
+        self.check_endpoint_ip6(ip)
+    }
+
+    pub(super) fn check_endpoint_ip6(&self, ip: [u8; 16]) -> Result<(), String> {
         let Some(v6) = &self.v6 else {
             return Err(format!("invalid endpoint settings: an IPv6 address was given, but network {} does not have IPv6 enabled", self.name));
         };
@@ -325,7 +338,7 @@ impl Network {
     }
 
     fn reserve6(&mut self, ip: [u8; 16]) -> Result<(), String> {
-        self.check_static6(ip)?;
+        self.check_endpoint_ip6(ip)?;
         let v6 = self.v6.as_mut().expect("checked");
         let h = v6.host(ip);
         if v6.reserved(ip) || !v6.used.insert(h) {
@@ -336,7 +349,7 @@ impl Network {
 
     /// Takes `ip` for a container that asked for it.
     fn reserve(&mut self, ip: [u8; 4]) -> Result<(), String> {
-        self.check_static(ip)?;
+        self.check_endpoint_ip(ip)?;
         let host = u32::from_be_bytes(ip) - u32::from_be_bytes(self.subnet);
         if self.reserved(ip) || !self.used.insert(host) {
             return Err(format!("Address already in use: {}", ip_str(ip)));
@@ -752,13 +765,20 @@ impl Networks {
     }
 
     fn save(&self) {
-        let user: Vec<&Network> = self.list.iter().filter(|n| !n.builtin()).collect();
-        if let Ok(json) = serde_json::to_vec(&user) {
-            let tmp = self.path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, &self.path)) {
-                crate::diag::error!("saving networks failed", error = e);
-            }
+        if let Err(error) = self.write_networks(false) {
+            crate::diag::error!("saving networks failed", error = error);
         }
+    }
+
+    fn write_networks(&self, durable: bool) -> io::Result<()> {
+        let user: Vec<_> = self.list.iter().filter(|n| !n.builtin()).collect();
+        let tmp = self.path.with_extension("json.tmp");
+        let file = std::fs::File::create(&tmp)?;
+        let mut writer = std::io::BufWriter::new(&file);
+        serde_json::to_writer(&mut writer, &user)?;
+        std::io::Write::flush(&mut writer)?;
+        if durable { file.sync_all()?; }
+        std::fs::rename(tmp, &self.path)
     }
 
     pub fn all(&self) -> &[Network] {
@@ -779,6 +799,13 @@ impl Networks {
     }
 
     pub fn create(&mut self, name: &str, s: Settings) -> Result<Network, String> {
+        let n = self.new_network(name, s)?;
+        self.list.push(n.clone());
+        self.save();
+        Ok(n)
+    }
+
+    fn new_network(&self, name: &str, s: Settings) -> Result<Network, String> {
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
             return Err(format!("invalid network name {name:?}"));
         }
@@ -887,8 +914,6 @@ impl Networks {
             v6,
             used: BTreeSet::new(),
         };
-        self.list.push(n.clone());
-        self.save();
         Ok(n)
     }
 

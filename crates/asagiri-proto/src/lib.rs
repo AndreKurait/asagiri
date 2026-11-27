@@ -59,8 +59,15 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 14 carries attached networks in Run so the guest configures them before exec.
 /// 15 includes guest MemAvailable and PSI in memory-pressure notifications.
 /// 16 adds an asynchronous oversized usage reply.
+/// 17 separates checkpoint admission from capture completion.
+/// 18 queries the running guest's kernel and architecture for checkpoint preflight.
+/// 19 prepares checkpoint receivers without executing their image command.
+/// 20 installs a restored checkpoint process into a waiting receiver.
+/// 21 fences a checkpoint receiver's network during installation.
+/// 22 activates a group of installed checkpoint receivers.
+/// 23 retires frozen checkpoint sources.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 16;
+pub const PROTOCOL: u16 = 23;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -101,6 +108,8 @@ pub enum Msg<'a> {
     /// then any number of `Output`, then `Exited`.
     Run(RunSpec<'a>),
     Started { id: &'a str, pid: u32 },
+    /// Guest → host: an existing container now runs its restored root. Unsolicited.
+    CheckpointRestored { id: &'a str, previous_pid: u32, pid: u32 },
     Output { id: &'a str, stream: Stream, data: &'a [u8] },
     Exited(Exited<'a>),
     /// Filesystem teardown brackets the process exit; only this ID must wait.
@@ -174,6 +183,10 @@ pub enum Msg<'a> {
     CopyDone,
     /// Host → guest: change a running container's limits. Answered by `Ack` or `Error`.
     Update { id: &'a str, limits: Limits<'a> },
+    /// Start a named checkpoint capture. An ordered `Ack` admits it.
+    CheckpointCreate(CheckpointSpec<'a>),
+    /// Completion of the single admitted capture or restore. An empty error means success.
+    CheckpointResult { error: &'a str },
     /// Host → guest: freeze (pause) or thaw a container. Answered by `Ack` or `Error`.
     Freeze { id: &'a str, frozen: bool },
     /// Host → guest: a container's resource use. Answered by `ContainerStats` or `Error`.
@@ -190,6 +203,19 @@ pub enum Msg<'a> {
     NetDetach { id: &'a str, ifname: &'a str, bridge: &'a str, ip: [u8; 4] },
     /// Host → guest: replace a running endpoint's DNS names. Answered by `Ack`.
     DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
+    CheckpointList { id: &'a str },
+    GuestPlatformQuery,
+    /// Older platform replies can omit CPU, package, or mount target information.
+    GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str, system_mount_targets: Option<&'a str> },
+    CheckpointRestoreInput { id: &'a str, name: &'a str },
+    CheckpointVerifyReceiver { id: &'a str, name: &'a str, volumes: StrList<'a> },
+    CheckpointInstallProcess { id: &'a str, name: &'a str, volumes: StrList<'a> },
+    CheckpointFenceReceiver { id: &'a str, fenced: bool },
+    CheckpointActivateGroup(StrList<'a>),
+    CheckpointRetireSource { id: &'a str },
+    CheckpointMountQuery { id: &'a str },
+    CheckpointMounts(StrList<'a>),
+    Checkpoints(StrList<'a>),
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
     ListenQuery { id: &'a str },
@@ -264,6 +290,19 @@ pub mod copy_op {
     /// `docker commit`: the writable layer as an OCI layer tar (whiteouts as
     /// `.wh.` files).
     pub const COMMIT: u8 = 6;
+    /// Framed archive: CopyDone, FsData chunks, then CopyDone or Error.
+    pub const CHECKPOINT_EXPORT: u8 = 8;
+    /// Stream an exported checkpoint into the destination container's private checkpoint directory.
+    pub const CHECKPOINT_IMPORT: u8 = 9;
+    /// Install an imported writable layer on a fresh receiver. Replies with CopyDone or Error.
+    pub const CHECKPOINT_ROOTFS: u8 = 10;
+    /// Install the checkpoint's three engine-managed network files for this receiver.
+    pub const CHECKPOINT_NETWORK_FILES: u8 = 11;
+    /// Restore an imported source volume to a new directory volume. `user` carries
+    /// the source volume name and `mounts` contains the single destination name.
+    pub const CHECKPOINT_VOLUME: u8 = 12;
+    /// Remove a newly captured member while rolling back a failed source group.
+    pub const CHECKPOINT_DISCARD: u8 = 13;
 }
 
 pub mod copy_flags {
@@ -414,6 +453,7 @@ pub struct Hello {
     pub mem_available_kib: u64,
     /// The agent can see the packaged CRIU binary after switching roots.
     pub bundled_criu_present: bool,
+    pub live_checkpoint: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -457,6 +497,8 @@ pub mod run_flags {
     /// program as its child, forwards signals to it, reaps orphans and exits
     /// with the program's status, as tini does for Docker.
     pub const INIT: u32 = 1 << 16;
+    /// Prepare a receiver without executing its image command.
+    pub const CHECKPOINT_WAIT: u32 = 1 << 17;
 }
 
 /// A container's network, as `Run` carries it.
@@ -581,6 +623,21 @@ impl<'a> RunNetworks<'a> {
         (0..self.count).map_while(move |_| r.run_network().ok())
     }
 }
+
+/// Capture-time host configuration accompanies the process and filesystem images.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointSpec<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub leave_running: bool,
+    pub volume_mounts: &'a str,
+    pub network: &'a str,
+    /// Recreate the engine-owned bridge namespace on the destination.
+    pub external_network: bool,
+}
+
+/// CRIU resource key for a destination engine-managed network namespace.
+pub const CHECKPOINT_NETNS: &str = "asagiri-network";
 
 /// cgroup limits (`--memory`, `--cpus`, `--cpu-shares`, `--pids-limit`).
 /// Zero means no limit.
@@ -817,6 +874,26 @@ mod kind {
     pub const START_REJECTED: u16 = 81;
     pub const DNS_RENAME: u16 = 82;
     pub const SET_UPLINK: u16 = 83;
+    pub const CHECKPOINT_LIST: u16 = 86;
+    pub const CHECKPOINTS: u16 = 87;
+    pub const CHECKPOINT_RESULT: u16 = 88;
+    pub const GUEST_PLATFORM_QUERY: u16 = 89;
+    pub const GUEST_PLATFORM: u16 = 90;
+    // An older agent must reject a volume capture rather than ignore the inventory.
+    pub const CHECKPOINT_CREATE_VOLUMES: u16 = 91;
+    // A host requesting network metadata must get an error from older guests.
+    pub const CHECKPOINT_CREATE_NETWORK: u16 = 92;
+    pub const CHECKPOINT_MOUNT_QUERY: u16 = 93;
+    pub const CHECKPOINT_MOUNTS: u16 = 94;
+    pub const CHECKPOINT_CREATE_EXTERNAL_NETWORK: u16 = 95;
+    pub const CHECKPOINT_RESTORE_INPUT: u16 = 96;
+    pub const CHECKPOINT_RESTORED: u16 = 97;
+    pub const CHECKPOINT_VERIFY_RECEIVER: u16 = 98;
+    pub const CHECKPOINT_INSTALL_PROCESS: u16 = 99;
+    pub const CHECKPOINT_FENCE_RECEIVER: u16 = 100;
+    pub const CHECKPOINT_ACTIVATE_GROUP: u16 = 101;
+    pub const CHECKPOINT_RETIRE_SOURCE: u16 = 102;
+    pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
 
@@ -963,6 +1040,15 @@ pub fn encode_fs_events<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
     frame(out, kind::FS_EVENTS, |out| StrList::put(out, lines));
 }
 
+pub fn encode_checkpoints<S: AsRef<str>>(out: &mut Vec<u8>, names: &[S]) {
+    encode_reply_lines(out, kind::CHECKPOINTS, names);
+}
+
+/// Encodes the default protected mountpoints observed in a running container.
+pub fn encode_checkpoint_mounts<S: AsRef<str>>(out: &mut Vec<u8>, paths: &[S]) {
+    encode_reply_lines(out, kind::CHECKPOINT_MOUNTS, paths);
+}
+
 /// Encodes a `Listening` reply from the sender's lines.
 pub fn encode_listening<S: AsRef<str>>(out: &mut Vec<u8>, lines: &[S]) {
     encode_reply_lines(out, kind::LISTENING, lines);
@@ -1002,6 +1088,26 @@ fn put_net_tail(out: &mut Vec<u8>, ip: [u8; 4], prefix: u8, gateway: [u8; 4]) {
 pub struct RunNetwork<'a, S> {
     pub number: u32,
     pub net: Net<'a, S>,
+}
+
+pub fn encode_checkpoint_verify_receiver<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, name: &str, volumes: &[S]) {
+    frame(out, kind::CHECKPOINT_VERIFY_RECEIVER, |o| {
+        put_str(o, id);
+        put_str(o, name);
+        StrList::put(o, volumes);
+    });
+}
+
+pub fn encode_checkpoint_install_process<S: AsRef<str>>(out: &mut Vec<u8>, id: &str, name: &str, volumes: &[S]) {
+    frame(out, kind::CHECKPOINT_INSTALL_PROCESS, |o| {
+        put_str(o, id);
+        put_str(o, name);
+        StrList::put(o, volumes);
+    });
+}
+
+pub fn encode_checkpoint_activate_group<S: AsRef<str>>(out: &mut Vec<u8>, ids: &[S]) {
+    frame(out, kind::CHECKPOINT_ACTIVATE_GROUP, |o| StrList::put(o, ids));
 }
 
 /// Encodes a `Run` frame straight from the sender's slices, without first
@@ -1072,6 +1178,7 @@ impl Msg<'_> {
                     put_u64(o, v);
                 }
                 o.push(u8::from(h.bundled_criu_present));
+                o.push(u8::from(h.live_checkpoint));
             }),
             Msg::Ping(v) => frame(out, kind::PING, |o| put_u64(o, v)),
             Msg::Pong(v) => frame(out, kind::PONG, |o| put_u64(o, v)),
@@ -1123,6 +1230,11 @@ impl Msg<'_> {
             }),
             Msg::Started { id, pid } => frame(out, kind::STARTED, |o| {
                 put_str(o, id);
+                put_u32(o, pid);
+            }),
+            Msg::CheckpointRestored { id, previous_pid, pid } => frame(out, kind::CHECKPOINT_RESTORED, |o| {
+                put_str(o, id);
+                put_u32(o, previous_pid);
                 put_u32(o, pid);
             }),
             Msg::Output { id, stream, data } => frame(out, kind::OUTPUT, |o| {
@@ -1214,6 +1326,20 @@ impl Msg<'_> {
                 put_str(o, id);
                 put_limits(o, &limits);
             }),
+            Msg::CheckpointCreate(spec) => {
+                let kind = if spec.external_network { kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK }
+                    else if !spec.network.is_empty() { kind::CHECKPOINT_CREATE_NETWORK }
+                    else if !spec.volume_mounts.is_empty() { kind::CHECKPOINT_CREATE_VOLUMES }
+                    else { kind::CHECKPOINT_CREATE };
+                frame(out, kind, |o| {
+                    put_str(o, spec.id);
+                    put_str(o, spec.name);
+                    o.push(u8::from(spec.leave_running));
+                    if kind != kind::CHECKPOINT_CREATE { put_str(o, spec.volume_mounts); }
+                    if matches!(kind, kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK) { put_str(o, spec.network); }
+                });
+            }
+            Msg::CheckpointResult { error } => frame(out, kind::CHECKPOINT_RESULT, |o| put_str(o, error)),
             Msg::Freeze { id, frozen } => frame(out, kind::FREEZE, |o| {
                 put_str(o, id);
                 o.push(u8::from(frozen));
@@ -1222,6 +1348,38 @@ impl Msg<'_> {
             Msg::ContainerStats(st) => frame(out, kind::CONTAINER_STATS, |o| put_container_stats(o, &st)),
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
+            Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
+            Msg::CheckpointRestoreInput { id, name } => frame(out, kind::CHECKPOINT_RESTORE_INPUT, |o| { put_str(o, id); put_str(o, name); }),
+            Msg::CheckpointVerifyReceiver { id, name, volumes } => frame(out, kind::CHECKPOINT_VERIFY_RECEIVER, |o| {
+                put_str(o, id);
+                put_str(o, name);
+                put_u32(o, volumes.count);
+                o.extend_from_slice(volumes.raw);
+            }),
+            Msg::CheckpointInstallProcess { id, name, volumes } => frame(out, kind::CHECKPOINT_INSTALL_PROCESS, |o| {
+                put_str(o, id);
+                put_str(o, name);
+                put_u32(o, volumes.count);
+                o.extend_from_slice(volumes.raw);
+            }),
+            Msg::CheckpointFenceReceiver { id, fenced } => frame(out, kind::CHECKPOINT_FENCE_RECEIVER, |o| {
+                put_str(o, id);
+                o.push(fenced as u8);
+            }),
+            Msg::CheckpointActivateGroup(ids) => encode_raw_reply(out, kind::CHECKPOINT_ACTIVATE_GROUP, ids.count, ids.raw),
+            Msg::CheckpointRetireSource { id } => frame(out, kind::CHECKPOINT_RETIRE_SOURCE, |o| put_str(o, id)),
+            Msg::CheckpointMountQuery { id } => frame(out, kind::CHECKPOINT_MOUNT_QUERY, |o| put_str(o, id)),
+            Msg::CheckpointMounts(paths) => encode_raw_reply(out, kind::CHECKPOINT_MOUNTS, paths.count, paths.raw),
+            Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets } => frame(out, kind::GUEST_PLATFORM, |o| {
+                put_str(o, architecture);
+                put_str(o, kernel);
+                o.push(u8::from(cpu_features.is_some()));
+                if let Some(features) = cpu_features { put_str(o, features); }
+                put_str(o, criu_package_version);
+                if let Some(paths) = system_mount_targets { put_str(o, paths); }
+            }),
+            Msg::Checkpoints(names) => encode_raw_reply(out, kind::CHECKPOINTS, names.count, names.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
             Msg::UsbNodesQuery => frame(out, kind::USB_NODES_QUERY, |_| {}),
             Msg::UsbNodes(lines) => encode_raw_reply(out, kind::USB_NODES, lines.count, lines.raw),
@@ -1404,6 +1562,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             mem_total_kib: r.u64()?,
             mem_available_kib: r.u64()?,
             bundled_criu_present: r.remaining() > 0 && r.u8()? != 0,
+            live_checkpoint: r.remaining() > 0 && r.u8()? != 0,
         }),
         kind::PING => Msg::Ping(r.u64()?),
         kind::PONG => Msg::Pong(r.u64()?),
@@ -1465,6 +1624,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             run
         }),
         kind::STARTED => Msg::Started { id: r.str()?, pid: r.u32()? },
+        kind::CHECKPOINT_RESTORED => Msg::CheckpointRestored { id: r.str()?, previous_pid: r.u32()?, pid: r.u32()? },
         kind::OUTPUT => {
             let id = r.str()?;
             let stream = match r.u8()? {
@@ -1525,11 +1685,41 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::COPY_STAT => Msg::CopyStat { entry: read_entry(&mut r)?, link: r.str()? },
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
+        kind::CHECKPOINT_CREATE | kind::CHECKPOINT_CREATE_VOLUMES | kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK => Msg::CheckpointCreate(CheckpointSpec {
+            id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0,
+            volume_mounts: if kind == kind::CHECKPOINT_CREATE { "" } else { r.str()? },
+            network: if matches!(kind, kind::CHECKPOINT_CREATE_NETWORK | kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK) { r.str()? } else { "" },
+            external_network: kind == kind::CHECKPOINT_CREATE_EXTERNAL_NETWORK,
+        }),
+        kind::CHECKPOINT_RESULT => Msg::CheckpointResult { error: r.str()? },
         kind::FREEZE => Msg::Freeze { id: r.str()?, frozen: r.u8()? != 0 },
         kind::STATS_QUERY => Msg::StatsQuery { id: r.str()? },
         kind::CONTAINER_STATS => Msg::ContainerStats(read_container_stats(&mut r)?),
         kind::TOP_QUERY => Msg::TopQuery { id: r.str()? },
         kind::TOP => Msg::Top(r.list()?),
+        kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
+        kind::CHECKPOINT_RESTORE_INPUT => Msg::CheckpointRestoreInput { id: r.str()?, name: r.str()? },
+        kind::CHECKPOINT_VERIFY_RECEIVER => Msg::CheckpointVerifyReceiver { id: r.str()?, name: r.str()?, volumes: r.list()? },
+        kind::CHECKPOINT_INSTALL_PROCESS => Msg::CheckpointInstallProcess { id: r.str()?, name: r.str()?, volumes: r.list()? },
+        kind::CHECKPOINT_FENCE_RECEIVER => Msg::CheckpointFenceReceiver { id: r.str()?, fenced: r.u8()? != 0 },
+        kind::CHECKPOINT_ACTIVATE_GROUP => Msg::CheckpointActivateGroup(r.list()?),
+        kind::CHECKPOINT_RETIRE_SOURCE => Msg::CheckpointRetireSource { id: r.str()? },
+        kind::CHECKPOINT_MOUNT_QUERY => Msg::CheckpointMountQuery { id: r.str()? },
+        kind::CHECKPOINT_MOUNTS => Msg::CheckpointMounts(r.list()?),
+        kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
+        kind::GUEST_PLATFORM => {
+            let architecture = r.str()?;
+            let kernel = r.str()?;
+            let (cpu_features, criu_package_version) = if r.remaining() == 0 {
+                (None, "")
+            } else {
+                let features = if r.u8()? != 0 { Some(r.str()?) } else { None };
+                (features, r.str()?)
+            };
+            let system_mount_targets = if r.remaining() == 0 { None } else { Some(r.str()?) };
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version, system_mount_targets }
+        }
+        kind::CHECKPOINTS => Msg::Checkpoints(r.list()?),
         kind::LISTEN_QUERY => Msg::ListenQuery { id: r.str()? },
         kind::LISTENING => Msg::Listening(r.list()?),
         kind::USB_NODES_QUERY => Msg::UsbNodesQuery,
@@ -1642,19 +1832,50 @@ mod tests {
         });
         assert_eq!(decode(&wire).unwrap(), Msg::Hello(Hello {
             protocol: PROTOCOL, init_start_ns: 11, ready_ns: 22,
-            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false,
+            mem_total_kib: 33, mem_available_kib: 44, bundled_criu_present: false, live_checkpoint: false,
         }));
     }
 
     #[test]
     fn round_trip() {
-        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true }));
+        round(Msg::Hello(Hello { protocol: PROTOCOL, init_start_ns: 1, ready_ns: 2, mem_total_kib: 3, mem_available_kib: 4, bundled_criu_present: true, live_checkpoint: true }));
         round(Msg::Ping(7));
         round(Msg::Pong(7));
         round(Msg::Shutdown);
         round(Msg::Error("boom"));
         round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
+        round(Msg::GuestPlatformQuery);
+        round(Msg::CheckpointRestoreInput { id: "receiver", name: "handoff" });
+        let mut receiver = Vec::new();
+        encode_checkpoint_verify_receiver(&mut receiver, "receiver", "handoff", &["data", "cache"]);
+        let verify = decode(&receiver).unwrap();
+        let Msg::CheckpointVerifyReceiver { id: "receiver", name: "handoff", volumes } = verify else {
+            panic!("unexpected receiver verification request");
+        };
+        assert!(volumes.iter().eq(["data", "cache"]));
+        round(verify);
+        receiver.clear();
+        encode_checkpoint_install_process(&mut receiver, "receiver", "handoff", &["data"]);
+        let install = decode(&receiver).unwrap();
+        assert!(matches!(install, Msg::CheckpointInstallProcess { id: "receiver", name: "handoff", volumes } if volumes.iter().eq(["data"])));
+        round(install);
+        round(Msg::CheckpointFenceReceiver { id: "receiver", fenced: true });
+        receiver.clear();
+        encode_checkpoint_activate_group(&mut receiver, &["first", "second"]);
+        let activate = decode(&receiver).unwrap();
+        assert!(matches!(activate, Msg::CheckpointActivateGroup(ids) if ids.iter().eq(["first", "second"])));
+        round(activate);
+        round(Msg::CheckpointRetireSource { id: "source" });
+        round(Msg::CheckpointMountQuery { id: "container" });
+        let mut mounts = Vec::new();
+        encode_checkpoint_mounts(&mut mounts, &["/proc/sys", "/sys/firmware"]);
+        assert!(matches!(decode(&mounts), Ok(Msg::CheckpointMounts(paths)) if paths.iter().eq(["/proc/sys", "/sys/firmware"])));
+        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58", cpu_features: Some("aes fp"), criu_package_version: "4.2.1-1", system_mount_targets: Some("/proc/sys /sys/firmware") });
+        round(Msg::GuestPlatform { architecture: "x86_64", kernel: "6.18.58", cpu_features: Some(""), criu_package_version: "", system_mount_targets: None });
+        let mut old_platform = Vec::new();
+        frame(&mut old_platform, kind::GUEST_PLATFORM, |o| { put_str(o, "x86_64"); put_str(o, "6.18.58"); });
+        assert!(matches!(decode(&old_platform), Ok(Msg::GuestPlatform { architecture: "x86_64", cpu_features: None, criu_package_version: "", system_mount_targets: None, .. })));
         let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
             mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };
         round(Msg::Stats(full));
@@ -1671,6 +1892,7 @@ mod tests {
         round(Msg::LayerBegin(LayerBegin { digest: "sha256:ab", media_type: "x+gzip", size: 9 }));
         round(Msg::LayerStored(LayerStored { unpacked_bytes: 1, elapsed_ns: 2 }));
         round(Msg::Started { id: "c1", pid: 42 });
+        round(Msg::CheckpointRestored { id: "c1", previous_pid: 42, pid: 51 });
         round(Msg::Output { id: "c1", stream: Stream::Stderr, data: b"hi\n" });
         round(Msg::CleanupPending("c1"));
         round(Msg::CleanupDone("c1"));
@@ -1779,6 +2001,17 @@ mod tests {
         round(Msg::CopyStat { entry: FsEntry { name: "hosts", mode: 0o100644, size: 9, mtime: 3, mtime_nsec: 4, ino: 5 }, link: "" });
         round(Msg::CopyDone);
         round(Msg::Update { id: "c1", limits: Limits { memory_max: 1, cpu_quota: 2, cpu_period: 3, cpu_weight: 4, pids_max: 5, shm_size: 6, memory_swap: -1, memory_reservation: 7, cpuset_cpus: "0-3", cpuset_mems: "0" } });
+        for leave_running in [false, true] {
+            for volume_mounts in ["", r#"[{"name":"data","target":"/data","readOnly":false}]"#] {
+                for network in ["", r#"{"version":1,"mode":"none"}"#] {
+                    for external_network in [false, true] {
+                        round(Msg::CheckpointCreate(CheckpointSpec { id: "c1", name: "java-live", leave_running, volume_mounts, network, external_network }));
+                    }
+                }
+            }
+        }
+        round(Msg::CheckpointResult { error: "" });
+        round(Msg::CheckpointResult { error: "checkpoint did not complete" });
         round(Msg::Freeze { id: "c1", frozen: true });
         round(Msg::StatsQuery { id: "c1" });
         round(Msg::ContainerStats(ContainerStats { read_ns: 1, mem_current: 2, online_cpus: 4, rx_bytes: 9, io_write_bytes: 11, ..Default::default() }));

@@ -556,6 +556,31 @@ fn nft_in(family: u8, msg: u16, flags: u16) -> Msg {
     m
 }
 
+/// Fence IPv4 and IPv6 together in a receiver's private network namespace.
+pub(super) fn checkpoint_fence(netns: &std::fs::File, enabled: bool) -> io::Result<()> {
+    const TABLE: &str = "asagiri_checkpoint";
+    let family = libc::NFPROTO_INET as u8;
+    in_netns(netns, || {
+        let mut nl = Netlink::open(libc::NETLINK_NETFILTER)?;
+        if !enabled {
+            let mut table = nft_in(family, NFT_MSG_DELTABLE, NLM_F_ACK);
+            table.attr_str(1, TABLE);
+            return nl.request(&mut batch(vec![table]));
+        }
+        let mut table = nft_in(family, NFT_MSG_NEWTABLE, NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+        table.attr_str(1, TABLE);
+        let mut messages = vec![table];
+        for (name, hook) in [("input", 1), ("output", 3)] {
+            let mut chain = nft_in(family, NFT_MSG_NEWCHAIN, NLM_F_ACK | NLM_F_CREATE);
+            chain.attr_str(1, TABLE).attr_str(3, name).attr_str(7, "filter");
+            chain.nest(4).attr_be32(1, hook).attr_be32(2, (-310i32) as u32).end();
+            chain.attr_be32(5, libc::NF_DROP as u32);
+            messages.push(chain);
+        }
+        nl.request(&mut batch(messages))
+    })
+}
+
 /// A nat chain on `hook` (NF_INET_*) at `priority`.
 fn nat_chain(name: &str, hook: u32, priority: i32) -> Msg {
     let mut chain = nft(NFT_MSG_NEWCHAIN, NLM_F_ACK | NLM_F_CREATE);

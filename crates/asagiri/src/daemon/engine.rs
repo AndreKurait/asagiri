@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 use asagiri_image::{Image, Store};
 use asagiri_proto::{Stream, run_flags};
 
+mod checkpoint_fence;
+pub(super) use checkpoint_fence::SourceAction;
+
 use super::network::Networks;
 use super::vmlink::{Event, VmLink};
 
@@ -147,6 +150,8 @@ pub struct Spec {
     /// set this; Docker request labels and fields never grant this status.
     #[serde(default)]
     pub engine_service: bool,
+    #[serde(default)]
+    pub checkpoint_wait: bool,
     pub image: String,
     pub image_id: String,
     pub entrypoint: Vec<String>,
@@ -530,6 +535,11 @@ pub struct Container {
     pub forwards: Option<super::ports::Forwards>,
     /// Actual host ports to restore when a live primary endpoint changes.
     detached_ports: Vec<super::ports::Binding>,
+    /// A paused checkpoint source held across daemon restarts until explicitly released.
+    pub checkpoint_fence: Option<String>,
+    checkpoint_retired: bool,
+    /// Last successful capture during the current uninterrupted pause.
+    paused_checkpoint: Option<String>,
     /// Frozen by `docker pause`.
     pub paused: bool,
     /// Addresses on `spec.extra_networks` while running, as (network, ip).
@@ -625,6 +635,10 @@ struct Saved {
     vm_stopped: bool,
     stopped_by_user: bool,
     restart_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    checkpoint_fence: Option<String>,
+    #[serde(default)]
+    checkpoint_retired: bool,
     #[serde(default)]
     health: Option<super::health::Health>,
 }
@@ -835,7 +849,7 @@ fn ns(t: SystemTime) -> u64 {
 }
 
 fn recover_after_vm_loss(c: &Container) -> bool {
-    c.vm_stopped && c.status == Status::Exited && !c.stopped_by_user && !c.spec.auto_remove
+    c.checkpoint_fence.is_none() && c.vm_stopped && c.status == Status::Exited && !c.stopped_by_user && !c.spec.auto_remove
         && matches!(c.spec.restart.name.as_str(), "always" | "unless-stopped")
 }
 
@@ -983,9 +997,10 @@ impl Engine {
             ..Default::default()
         })
         .inspect_err(|e| crate::diag::error!("VM did not boot", error = e))?;
+        let live_checkpoint = guest.hello.live_checkpoint;
         let (vm, conn) = guest.into_parts();
         let me = self.me.get().cloned().unwrap_or_default();
-        let vm = Arc::new(VmLink::new(vm, conn, move |ev| {
+        let vm = Arc::new(VmLink::new(vm, conn, live_checkpoint, move |ev| {
             if let Some(engine) = me.upgrade() {
                 engine.on_event(ev);
             }
@@ -1667,6 +1682,10 @@ impl Engine {
         self.awake()
     }
 
+    pub fn live_checkpoint(&self) -> bool {
+        self.awake().is_some_and(|vm| vm.live_checkpoint)
+    }
+
     /// Whether the VM is running right now.
     pub fn is_awake(&self) -> bool {
         self.awake().is_some()
@@ -1717,6 +1736,9 @@ impl Engine {
                     vm_stopped: was_running || s.vm_stopped,
                     stopped_by_user: s.stopped_by_user,
                     restart_count: s.restart_count,
+                    checkpoint_fence: s.checkpoint_fence,
+                    checkpoint_retired: s.checkpoint_retired,
+                    paused_checkpoint: None,
                     restart_pending: false,
                     exits: 0,
                     size: None,
@@ -1797,42 +1819,63 @@ impl Engine {
     }
 
     fn save_records(&self) -> std::io::Result<()> {
-        // Snapshot and replacement must follow the same writer order.
         let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
-        let json = {
-            let st = self.lock();
-            let saved: Vec<Saved> = st
-                .containers
-                .values()
-                .filter(|c| !c.spec.auto_remove)
-                .map(|c| Saved {
-                    id: c.id.clone(),
-                    name: c.name.clone(),
-                    spec: c.spec.clone(),
-                    layers: c.layers.clone(),
-                    created_ns: ns(c.created),
-                    status: c.status,
-                    started_ns: c.started.map(ns),
-                    finished_ns: c.finished.map(ns),
-                    exit_code: c.exit_code,
-                    start_error: c.start_error.clone(),
-                    oom_killed: c.oom_killed,
-                    vm_stopped: c.vm_stopped,
-                    stopped_by_user: c.stopped_by_user,
-                    restart_count: c.restart_count,
-                    health: st.health.get(&c.id).map(|h| h.health.clone()),
-                })
-                .collect();
-            serde_json::to_vec(&saved)
-        };
-        let json = json.map_err(std::io::Error::other)?;
+        let (json, fenced) = Self::encode_records(&self.lock())?;
+        self.write_records(&json, fenced)
+    }
+
+    fn encode_records(st: &State) -> std::io::Result<(Vec<u8>, bool)> {
+        let saved: Vec<Saved> = st
+            .containers
+            .values()
+            .filter(|c| !c.spec.auto_remove)
+            .map(|c| Saved {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                spec: c.spec.clone(),
+                layers: c.layers.clone(),
+                created_ns: ns(c.created),
+                status: c.status,
+                started_ns: c.started.map(ns),
+                finished_ns: c.finished.map(ns),
+                exit_code: c.exit_code,
+                start_error: c.start_error.clone(),
+                oom_killed: c.oom_killed,
+                vm_stopped: c.vm_stopped,
+                stopped_by_user: c.stopped_by_user,
+                restart_count: c.restart_count,
+                checkpoint_fence: c.checkpoint_fence.clone(),
+                checkpoint_retired: c.checkpoint_retired,
+                health: st.health.get(&c.id).map(|h| h.health.clone()),
+            })
+            .collect();
+        // Later background saves must preserve the durability of a successful fence.
+        let fenced = saved.iter().any(|c| c.checkpoint_fence.is_some());
+        Ok((serde_json::to_vec(&saved)?, fenced))
+    }
+
+    // The caller holds the saving lock from snapshot through atomic replacement.
+    fn write_records(&self, json: &[u8], durable: bool) -> std::io::Result<()> {
+        use std::io::Write;
         let tmp = self.records.with_extension("json.tmp");
-        std::fs::write(&tmp, &json)?;
-        std::fs::rename(tmp, &self.records)
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(json)?;
+        if durable { file.sync_all()?; }
+        std::fs::rename(tmp, &self.records)?;
+        if durable { std::fs::File::open(self.records.parent().expect("container records have a parent"))?.sync_all()?; }
+        Ok(())
     }
 
     fn on_event(&self, ev: Event<'_>) {
         match ev {
+            Event::CheckpointRestored { id, previous_pid, pid } => {
+                if pid > 1 && previous_pid > 1
+                    && let Some(container) = self.lock().containers.get_mut(id)
+                    && container.status == Status::Running && container.in_guest && container.pid == previous_pid
+                {
+                    container.pid = pid;
+                }
+            }
             Event::Output { id, stream, data } => {
                 let mut st = self.lock();
                 if let Some(c) = st.containers.get_mut(id) {
@@ -1892,6 +1935,7 @@ impl Engine {
                         c.extra_ifs.clear();
                         self.release_ip6s(c);
                         c.paused = false;
+                        c.paused_checkpoint = None;
                         closed_ports = c.forwards.take();
                         c.finished = Some(SystemTime::now());
                         // Dropping the senders ends every attach stream.
@@ -1907,7 +1951,7 @@ impl Engine {
                         // Not for the engine's own stop (Stop, the VM's sleep on
                         // request): Start brings those back.
                         let engine_stop = SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst) || self.parking.load(std::sync::atomic::Ordering::SeqCst) || self.is_stopped();
-                        if wants && !c.spec.auto_remove && !engine_stop {
+                        if wants && !c.spec.auto_remove && !engine_stop && c.checkpoint_fence.is_none() {
                             let backoff = restart_backoff(c.restart_count);
                             c.restart_count = c.restart_count.saturating_add(1);
                             c.restart_pending = true;
@@ -1991,6 +2035,7 @@ impl Engine {
                     c.extra_ifs.clear();
                     self.release_ip6s(c);
                     c.paused = false;
+                    c.paused_checkpoint = None;
                     c.pid = 0;
                     if c.status == Status::Running {
                         c.status = Status::Exited;
@@ -2388,6 +2433,9 @@ impl Engine {
                 vm_stopped: false,
                 stopped_by_user: false,
                 restart_count: 0,
+                checkpoint_fence: None,
+                checkpoint_retired: false,
+                paused_checkpoint: None,
                 restart_pending: false,
                 exits: 0,
                 size: None,
@@ -2441,13 +2489,14 @@ impl Engine {
             let st = self.lock();
             let id = resolve(&st, key)?;
             let c = &st.containers[&id];
+            c.ensure_unfenced()?;
             if c.status == Status::Running || (reason == Start::VmRecovery && !recover_after_vm_loss(c))
                 || (reason == Start::Restart && c.stopped_by_user)
                 || (matches!(reason, Start::Restart | Start::DaemonRestart) && !c.restart_pending)
             {
                 return Ok(());
             }
-            if c.spec.entrypoint.is_empty() && c.spec.cmd.is_empty() {
+            if !c.spec.checkpoint_wait && c.spec.entrypoint.is_empty() && c.spec.cmd.is_empty() {
                 return Err(Error::BadRequest("no command specified".into()));
             }
         }
@@ -2506,7 +2555,7 @@ impl Engine {
                 return Ok(());
             }
             let argv = c.argv();
-            if argv.is_empty() {
+            if argv.is_empty() && !c.spec.checkpoint_wait {
                 return Err(Error::BadRequest("no command specified".into()));
             }
             #[cfg(target_os = "macos")]
@@ -2673,6 +2722,9 @@ impl Engine {
         }
         if spec.init == Some(true) {
             flags |= run_flags::INIT;
+        }
+        if spec.checkpoint_wait {
+            flags |= run_flags::CHECKPOINT_WAIT;
         }
         flags |= spec.security_flags();
         let hosts = hosts_lines(&spec.extra_hosts, links);
@@ -3152,6 +3204,144 @@ impl Engine {
         // start/remove; an already-open copy stream keeps its existing lifetime.
         let lifecycle = self.lifecycle(key)?;
         let _copying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.open_copy(key, op, path, flags)
+    }
+
+    pub fn verify_checkpoint_receiver(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _verifying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let volumes = self.with(&id, |c| {
+            if c.status != Status::Running || !c.in_guest {
+                return Err(Error::Conflict("mount verification requires a running receiver".into()));
+            }
+            Ok(checkpoint_receiver_volumes(c))
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.verify_checkpoint_receiver(&id, name, &volumes).map_err(|e| Error::Conflict(e.to_string()))
+    }
+
+    pub fn install_checkpoint_process(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let volumes = self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.checkpoint_wait || c.paused {
+                return Err(Error::Conflict("process installation requires a running checkpoint receiver".into()));
+            }
+            Ok(checkpoint_receiver_volumes(c))
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.install_checkpoint_process(&id, name, &volumes).map_err(|error| {
+            if error.kind() == io::ErrorKind::WouldBlock { Error::Conflict(error.to_string()) }
+            else { Error::Io(error) }
+        })
+    }
+
+    pub fn fence_checkpoint_receiver(&self, key: &str, fenced: bool) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.checkpoint_wait || c.paused {
+                return Err(Error::Conflict("network fencing requires a running checkpoint receiver".into()));
+            }
+            Ok(())
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.fence_checkpoint_receiver(&id, fenced).map_err(|error| Error::Conflict(error.to_string()))
+    }
+
+    pub fn restore_checkpoint_input(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.open_stdin || c.spec.tty {
+                return Err(Error::Conflict("input replay requires a running receiver with non-TTY stdin".into()));
+            }
+            Ok(())
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.restore_checkpoint_input(&id, name).map_err(|e| match e.to_string().strip_prefix("conflict: ") {
+            Some(reason) => Error::Conflict(reason.into()),
+            None => Error::Io(e),
+        })
+    }
+
+    /// Keep the receiver stopped until the guest publishes the requested files.
+    pub fn restore_checkpoint_files(&self, key: &str, name: &str, op: u8) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, |c| {
+            if c.status != Status::Created {
+                return Err(Error::Conflict("checkpoint restore requires a freshly created receiver".into()));
+            }
+            if op == asagiri_proto::copy_op::CHECKPOINT_NETWORK_FILES {
+                if c.spec.network_mode.starts_with("container:") {
+                    return Err(Error::Conflict("receiver uses another container's network files".into()));
+                }
+                let covered = c.spec.mounts.iter().filter_map(|m| m.split('\t').nth(1)).any(|target| {
+                    ["/etc/hosts", "/etc/hostname", "/etc/resolv.conf"].iter().any(|path| std::path::Path::new(path).starts_with(target))
+                });
+                if covered { return Err(Error::Conflict("a receiver mount covers its network files".into())); }
+            }
+            Ok(())
+        })??;
+        let stream = self.open_copy(&id, op, name, 0)?;
+        Self::restore_reply(&stream)
+    }
+
+    fn restore_reply(stream: &asagiri_vmm::VsockStream) -> Result<(), Error> {
+        let frame = super::api::guest_frame(&mut std::fs::File::from(stream.fd.try_clone()?))?;
+        match asagiri_proto::decode(&frame) {
+            Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
+            Ok(asagiri_proto::Msg::Error(message)) => {
+                let message = message.strip_prefix("error: ").unwrap_or(message);
+                if let Some(reason) = message.strip_prefix("conflict: ") { return Err(Error::Conflict(reason.into())); }
+                Err(super::api::copy_error(message))
+            }
+            _ => Err(Error::Io(io::Error::other("invalid checkpoint restore reply"))),
+        }
+    }
+
+    /// Restore into a new volume before attaching any destination containers.
+    /// The catalog reservation prevents another create, attach or delete during
+    /// extraction. A successful catalog entry is visible only after publication.
+    pub fn restore_checkpoint_volume(&self, key: &str, name: &str, source: &str, destination: &str) -> Result<(), Error> {
+        if !super::volumes::valid_name(source) || !super::volumes::valid_name(destination) { return Err(Error::BadRequest("invalid volume name".into())); }
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.with(&id, |c| c.status == Status::Created)? { return Err(Error::Conflict("checkpoint restore requires a freshly created receiver".into())); }
+        let vm = self.vm()?;
+        vm.wait_cleanup(&id)?;
+        {
+            let mut volumes = self.lock_volumes();
+            if volumes.get(destination).is_some_and(|v| !v.options.is_empty()) { return Err(Error::Conflict("destination uses external volume driver options".into())); }
+            volumes.reserve(destination).map_err(Error::Conflict)?;
+        }
+        let result = (|| {
+            // Volume removal is one-way on the control link. Complete earlier
+            // removals before publishing on the independent archive connection.
+            vm.control_barrier()?;
+            let stream = vm.connect(asagiri_proto::COPY_PORT)?;
+            let mut frame = Vec::new();
+            asagiri_proto::encode_copy(&mut frame, asagiri_proto::copy_op::CHECKPOINT_VOLUME, &id, name, 0, &[] as &[&str], source, &[destination]);
+            std::io::Write::write_all(&mut std::fs::File::from(stream.fd.try_clone()?), &frame)?;
+            Self::restore_reply(&stream)?;
+            self.lock_volumes().publish_restored(destination).map_err(Error::Io)
+        })();
+        self.lock_volumes().release(destination);
+        if result? { self.emit_volume("create", destination); }
+        Ok(())
+    }
+
+    fn open_copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
         let (id, layers, user, mounts, readonly_rootfs) = {
             let st = self.lock();
             let id = resolve(&st, key)?;
@@ -3604,12 +3794,74 @@ impl Engine {
         self.restore_endpoint_ports(&id)
     }
 
+    pub fn checkpoint_live(&self, key: &str, name: &str, external_network: bool) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let (volumes, network) = self.checkpoint_config(&id, name, external_network)?;
+        self.capture_prepared(&id, name, external_network, &volumes, &network)
+    }
+
+    fn checkpoint_config(&self, id: &str, name: &str, external_network: bool) -> Result<(String, String), Error> {
+        self.with(id, Container::ensure_unfenced)??;
+        let networks = self.lock_net().all().to_vec();
+        let (running, mounts, mut network) = self.with(id, |c| (
+            c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks),
+        ))?;
+        if !running {
+            return Err(Error::Conflict("checkpoint capture requires a running container".into()));
+        }
+        if external_network {
+            let bridges = network["networks"].as_array().is_some_and(|defs| !defs.is_empty() && defs.iter().all(|net| net["Driver"] == "bridge"));
+            if !bridges || network["mode"].as_str().is_none_or(|mode| mode == "host" || mode == "none" || mode.starts_with("container:")) {
+                return Err(Error::Conflict("external-network capture requires a container with its own engine-managed bridge network".into()));
+            }
+            network["externalNetwork"] = serde_json::json!(asagiri_proto::CHECKPOINT_NETNS);
+        }
+        let network = network.to_string();
+        let mut volumes = Vec::new();
+        for mount in mounts.iter().filter(|m| m["Type"] == "volume") {
+            let volume = mount["Name"].as_str().and_then(|name| self.volume_get(name))
+                .ok_or_else(|| Error::Conflict("checkpoint volume metadata is missing".into()))?;
+            if !volume.options.is_empty() {
+                return Err(Error::Conflict(format!("checkpoint of volume {} with external driver options is unsupported", volume.name)));
+            }
+            volumes.push(serde_json::json!({"name": volume.name, "target": mount["Destination"], "readOnly": mount["RW"] == false}));
+        }
+        let manifest = if volumes.is_empty() { String::new() } else { serde_json::Value::Array(volumes).to_string() };
+        if manifest.len() + network.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
+            return Err(Error::Conflict("checkpoint configuration exceeds the guest protocol limit".into()));
+        }
+        Ok((manifest, network))
+    }
+
+    fn capture_prepared(&self, id: &str, name: &str, external_network: bool, volumes: &str, network: &str) -> Result<(), Error> {
+        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id, name, leave_running: true, volume_mounts: volumes, network, external_network }) {
+            Ok(()) => {
+                if let Some(c) = self.lock().containers.get_mut(id).filter(|c| c.paused) {
+                    c.paused_checkpoint = Some(name.to_owned());
+                }
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(Error::Conflict(error.to_string())),
+            Err(error) => Err(Error::Io(error)),
+        }
+    }
+
     /// `docker pause` / `docker unpause`.
     pub fn pause(&self, key: &str, paused: bool) -> Result<(), Error> {
         let id = self.resolve(key)?;
+        // Serialize freezer transitions with live capture and other lifecycle operations.
+        let lifecycle = self.lifecycle(&id)?;
+        let _transition = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.pause_locked(&id, paused)
+    }
+
+    fn pause_locked(&self, id: &str, paused: bool) -> Result<(), Error> {
         {
             let st = self.lock();
-            let c = st.containers.get(&id).expect("resolved");
+            let c = st.containers.get(id).ok_or_else(|| Error::NotFound(id.to_owned()))?;
+            if !paused { c.ensure_unfenced()?; }
             if c.status != Status::Running {
                 return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
             }
@@ -3617,20 +3869,21 @@ impl Engine {
                 return Err(Error::Conflict(format!("Container {} is {}paused", &id[..12], if paused { "already " } else { "not " })));
             }
         }
-        self.vm()?.freeze(&id, paused)?;
-        if let Some(c) = self.lock().containers.get_mut(&id) {
+        self.vm()?.freeze(id, paused)?;
+        if let Some(c) = self.lock().containers.get_mut(id) {
             c.paused = paused;
+            c.paused_checkpoint = None;
         }
         // Docker probes only running, unpaused containers.
         if paused {
-            if let Some(h) = self.lock().health.get_mut(&id) {
+            if let Some(h) = self.lock().health.get_mut(id) {
                 close_monitor(h);
             }
             self.changed.notify_all();
         } else {
-            self.health_resume(&id);
+            self.health_resume(id);
         }
-        self.emit_container(if paused { "pause" } else { "unpause" }, &id, &[]);
+        self.emit_container(if paused { "pause" } else { "unpause" }, id, &[]);
         Ok(())
     }
 
@@ -3826,6 +4079,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut stopping = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         *stopping = super::lifecycle_advance::advance(*stopping);
         self.thaw_for_signal(&id);
         let cancelled = self.mark_stopped(&id);
@@ -3886,6 +4140,7 @@ impl Engine {
                 if vm.freeze(id, false).is_ok() {
                     if let Some(c) = self.lock().containers.get_mut(id) {
                         c.paused = false;
+                        c.paused_checkpoint = None;
                     }
                     self.health_resume(id);
                 }
@@ -3919,6 +4174,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut killing = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         self.thaw_for_signal(&id);
         if !self.wait_started(&id) {
             if (signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32)
@@ -3967,6 +4223,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut removing = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         if self.is_running(&id) {
             if !force {
                 return Err(Error::Conflict(format!(
@@ -4092,18 +4349,15 @@ impl Engine {
         if !users.is_empty() && !force {
             return Err(Error::Conflict(format!("remove {name}: volume is in use - [{}]", users.join(", "))));
         }
-        self.delete_volume_data(name);
-        Ok(())
-    }
-
-    /// Forgets a volume and deletes its data in the guest.
-    fn delete_volume_data(&self, name: &str) {
-        if self.lock_volumes().forget(name) {
-            if let Ok(vm) = self.vm() {
-                let _ = vm.remove_volume(name);
-            }
-            self.emit_volume("destroy", name);
+        {
+            let mut volumes = self.lock_volumes();
+            volumes.reserve(name).map_err(Error::Conflict)?;
+            if !volumes.forget(name) { volumes.release(name); return Ok(()); }
         }
+        if let Ok(vm) = self.vm() { let _ = vm.remove_volume(name); }
+        self.lock_volumes().release(name);
+        self.emit_volume("destroy", name);
+        Ok(())
     }
 
     /// `docker exec` step one: record what to run.
@@ -4335,6 +4589,7 @@ impl Engine {
     pub fn shutdown(&self) {
         crate::diag::info!("VM stopping for shutdown");
         SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _power = self.power.lock().unwrap_or_else(|e| e.into_inner());
         self.save();
         for log in self.each(|c| Some(c.log.clone())) {
             lock_log(&log).flush();
@@ -4376,6 +4631,15 @@ impl Attachment {
             },
         }
     }
+}
+
+fn checkpoint_receiver_volumes(c: &Container) -> Vec<String> {
+    let volumes: std::collections::BTreeSet<_> = c.spec.mount_info.iter()
+        .filter(|mount| mount["Type"] == "volume")
+        .filter_map(|mount| mount["Name"].as_str())
+        .map(str::to_owned)
+        .collect();
+    volumes.into_iter().collect()
 }
 
 fn take_network_address<T>(addresses: &mut Vec<(String, T)>, network: &str) -> Option<T> {
@@ -4592,7 +4856,7 @@ fn vm_end(sleeping: bool, shutting_down: bool) -> VmEnd {
 /// user stopped it (`docker stop`), as Docker's daemon does.
 fn comes_back(c: &Container) -> bool {
     let policy = c.spec.restart.name.as_str();
-    (policy == "always" || (policy == "unless-stopped" && !c.stopped_by_user)) && !c.spec.auto_remove
+    c.checkpoint_fence.is_none() && (policy == "always" || (policy == "unless-stopped" && !c.stopped_by_user)) && !c.spec.auto_remove
 }
 
 /// Containers that join another's network or link to others start after
@@ -4889,11 +5153,12 @@ impl Engine {
         // (id, when to SIGKILL it, when it was SIGKILLed)
         let mut pending: Vec<(String, std::time::Instant, Option<std::time::Instant>)> = Vec::new();
         for id in ids {
-            let Some((sig, secs)) = self.lock().containers.get(id).map(|c| (c.spec.stop_signal.unwrap_or(libc::SIGTERM as u32), c.spec.stop_timeout.unwrap_or(DEFAULT_STOP_TIMEOUT)))
+            let Some((sig, secs, fenced)) = self.lock().containers.get(id).map(|c| (c.spec.stop_signal.unwrap_or(libc::SIGTERM as u32), c.spec.stop_timeout.unwrap_or(DEFAULT_STOP_TIMEOUT), c.checkpoint_fence.is_some()))
             else {
                 continue;
             };
-            self.thaw_for_signal(id);
+            // A signal handler must never run after a source handoff. SIGKILL terminates frozen tasks.
+            let sig = if fenced { libc::SIGKILL as u32 } else { self.thaw_for_signal(id); sig };
             if engine {
                 self.emit_container("kill", id, &[("signal", sig.to_string())]);
             }

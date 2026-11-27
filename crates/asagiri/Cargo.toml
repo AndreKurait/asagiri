@@ -41,6 +41,8 @@ libc = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 asagiri-vmm = { path = "../asagiri-vmm" }
+# Read the checkpoint network inventory while seeking past process images.
+tar = { version = "0.4", default-features = false }
 # Docker's BuildKit driver uses HTTP/2 over the existing local engine socket.
 h2 = "0.4"
 bytes = "1"

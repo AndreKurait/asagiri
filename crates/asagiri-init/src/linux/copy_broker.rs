@@ -46,6 +46,8 @@ struct Worker {
     written: usize,
     exited: Option<i32>,
     preparing: bool,
+    /// Present for an admitted upload, including one to a root with no volumes.
+    upload_volumes: Option<Vec<String>>,
 }
 
 pub struct Broker<'a> {
@@ -90,7 +92,7 @@ impl<'a> Broker<'a> {
         }
         drop(child);
         self.workers.push(Worker { pid, client, control: Some(ours), phase: Phase::Awaiting,
-            lease: None, completion_root: None, reply: None, written: 0, exited: None, preparing: false });
+            lease: None, completion_root: None, reply: None, written: 0, exited: None, preparing: false, upload_volumes: None });
         Ok(())
     }
 
@@ -118,13 +120,21 @@ impl<'a> Broker<'a> {
         }
     }
 
+    pub fn writes_volume(&self, name: &str) -> bool {
+        self.workers.iter().any(|w| w.exited.is_none() && w.upload_volumes.as_ref().is_some_and(|volumes| volumes.iter().any(|v| v == name)))
+    }
+
+    pub fn writes_root(&self, id: &str) -> bool {
+        self.workers.iter().any(|w| w.exited.is_none() && w.upload_volumes.is_some() && w.lease.as_deref() == Some(id))
+    }
+
     /// Also revisits a pending root after its prior cleanup completes. View
     /// lookup happens here, never from a snapshot taken at accept/fork time.
-    pub fn advance(&mut self, paths: &Paths, view: impl Fn(&str) -> View) {
+    pub fn advance(&mut self, paths: &Paths, view: impl Fn(&str) -> View, upload_busy: impl Fn(&asagiri_proto::CopySpec<'_>) -> bool) {
         for worker in &mut self.workers {
             if worker.exited.is_none() {
                 if let Phase::Pending(request) = &worker.phase {
-                    match grant(self.roots, paths, request, &view) {
+                    match grant(self.roots, paths, request, &view, &upload_busy, &mut worker.upload_volumes) {
                         Ok(Some((reply, id, preparing))) => {
                             worker.lease = Some(id);
                             worker.preparing = preparing;
@@ -253,7 +263,7 @@ impl Worker {
     }
 }
 
-fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> View) -> io::Result<Option<(Grant, String, bool)>> {
+fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> View, upload_busy: &impl Fn(&asagiri_proto::CopySpec<'_>) -> bool, upload_volumes: &mut Option<Vec<String>>) -> io::Result<Option<(Grant, String, bool)>> {
     let spec = match asagiri_proto::decode(request) {
         Ok(Msg::Copy(spec)) => spec,
         _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid root request")),
@@ -264,14 +274,36 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     }
     let view = view(spec.id);
     if matches!(view, View::Cleaning) || roots.cleaning(spec.id) { return Ok(None); }
+    if spec.op == copy_op::IN && upload_busy(&spec) { return Ok(None); }
     let root = match spec.op {
-        copy_op::DIFF | copy_op::COMMIT => roots.hold_upper(paths, spec.id),
+        copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME => {
+            if !matches!(view, View::Stopped) { return Err(io::Error::other("conflict: receiver is running")); }
+            let Some(directory) = roots.restore_directory(paths, spec.id)? else { return Ok(None) };
+            Ok(directory)
+        }
+        copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD => roots.hold_upper(paths, spec.id),
         copy_op::IN | copy_op::OUT | copy_op::STAT | copy_op::EXPORT => roots.acquire(paths, spec.id, spec.layers),
         _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "unknown copy operation")),
     }?;
     let mut preparing = false;
     let result = (|| {
-        if matches!(spec.op, copy_op::DIFF | copy_op::COMMIT) {
+        if spec.op == copy_op::CHECKPOINT_VOLUME {
+            super::super::container::valid_id(spec.path)?;
+            Ok(Grant::Text(b"checkpoint-volume".to_vec()))
+        } else if matches!(spec.op, copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) {
+            super::super::container::valid_id(spec.path)?;
+            Ok(Grant::Root(File::open(root)?.into()))
+        } else if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD) {
+            super::super::container::valid_id(spec.path)?;
+            let mut dir = paths.containers.join(spec.id).join("checkpoints");
+            if spec.op == copy_op::CHECKPOINT_IMPORT {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+            } else if spec.op == copy_op::CHECKPOINT_EXPORT {
+                dir.push(spec.path);
+            }
+            Ok(Grant::Root(File::open(dir)?.into()))
+        } else if matches!(spec.op, copy_op::DIFF | copy_op::COMMIT) {
             Ok(Grant::Text(b"upper".to_vec()))
         } else if let View::Running(pid) = view && spec.op != copy_op::EXPORT {
             // Pin the live root while the PID is still owned. A delayed copy
@@ -291,6 +323,7 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     })();
     match result {
         Ok(grant) => {
+            if spec.op == copy_op::IN { *upload_volumes = Some(spec.mounts.iter().map(str::to_owned).collect()); }
             if preparing { roots.begin_copy(); }
             Ok(Some((grant, spec.id.to_owned(), preparing)))
         }
@@ -313,13 +346,23 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let mut seen = std::collections::HashSet::new();
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
-        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, "", 0, &layers, "", &[]);
+        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME) { spec.path } else { "" };
+        let volumes: Vec<_> = if spec.op == copy_op::IN { spec.mounts.iter().filter_map(super::super::container::writable_volume).collect() } else { Vec::new() };
+        asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &volumes);
         if request.len() > MAX_REQUEST {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "copy layer list exceeds the root request limit"));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "copy metadata exceeds the root request limit"));
         }
         send(control.as_raw_fd(), &request)?;
         let grant = sys::recv_fd(control.as_raw_fd())?;
         match grant {
+            sys::Received::Message(ref message) if message == "checkpoint-volume" => {
+                let mut volumes = spec.mounts.iter();
+                let destination = volumes.next().filter(|_| volumes.next().is_none()).ok_or_else(|| io::Error::other("expected one destination volume"))?;
+                super::super::checkpoint::restore_volume(paths, spec.id, spec.path, spec.user, destination)?;
+                let mut reply = Vec::new();
+                Msg::CopyDone.encode(&mut reply);
+                Ok(reply)
+            }
             sys::Received::Message(ref message) if message == "upper" => {
                 super::layer_job(&mut conn, &spec, paths)?;
                 Ok(Vec::new())

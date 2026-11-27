@@ -107,6 +107,7 @@ dependencies = [
  "flate2",
  "libc",
  "ruzstd",
+ "serde",
  "serde_json",
  "tar",
 ]
@@ -3074,6 +3075,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "gzp",
+ "tar",
  "tempfile",
 ]
 
