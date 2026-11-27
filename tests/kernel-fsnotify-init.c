@@ -30,6 +30,7 @@ static const char contents[] = "unchanged guest fixture\n";
 static struct fixture_state {
     uint32_t file_node;
     unsigned char first_byte;
+    unsigned char written_byte;
 } *fixture;
 
 static _Noreturn void poweroff(void)
@@ -73,7 +74,7 @@ static struct fuse_attr attributes(uint64_t node)
     if (node == FUSE_ROOT_ID || node == 4) {
         attr.mode = S_IFDIR | 0755;
         attr.nlink = 2;
-    } else if (node == 2 || node == 5) {
+    } else if (node == 2 || node == 5 || node == 6) {
         attr.mode = S_IFREG | 0644;
         attr.size = sizeof(contents) - 1;
         attr.blocks = 1;
@@ -119,7 +120,7 @@ static _Noreturn void serve_fuse(int fd)
             const char *name = data;
             require(memchr(name, '\0', (size_t)length - sizeof(*in)) != NULL, "terminated FUSE name");
             uint64_t node = !strcmp(name, "file") ? __atomic_load_n(&fixture->file_node, __ATOMIC_RELAXED) :
-                            !strcmp(name, "link") ? 3 : !strcmp(name, "nested") ? 4 : 0;
+                            !strcmp(name, "dirty") ? 6 : !strcmp(name, "link") ? 3 : !strcmp(name, "nested") ? 4 : 0;
             if (!node) {
                 reply(fd, in->unique, ENOENT, NULL, 0);
                 break;
@@ -167,7 +168,18 @@ static _Noreturn void serve_fuse(int fd)
         case FUSE_FORGET:
         case FUSE_BATCH_FORGET:
             break; /* These requests have no reply. */
-        case FUSE_WRITE:
+        case FUSE_WRITE: {
+            /* The dirty-page control explicitly syncs this file after injection. */
+            require(in->nodeid == 6 && (size_t)length >= sizeof(*in) + sizeof(struct fuse_write_in),
+                    "write belongs to the dirty-page fixture");
+            const struct fuse_write_in *req = data;
+            require(req->offset == 0 && req->size > 0 &&
+                    (size_t)length >= sizeof(*in) + sizeof(*req) + req->size, "complete dirty-page write");
+            __atomic_store_n(&fixture->written_byte, *(const unsigned char *)(req + 1), __ATOMIC_RELAXED);
+            struct fuse_write_out out = {.size = req->size};
+            reply(fd, in->unique, 0, &out, sizeof(out));
+            break;
+        }
         case FUSE_SETATTR:
         case FUSE_CREATE:
         case FUSE_UNLINK:
@@ -230,13 +242,34 @@ static void check_repeated_edits(int control, int file)
 {
     const char line[] = "M\t/mnt/mac/file\n";
     const char edits[] = {'1', '2', contents[0]};
+    const volatile char *mapped = mmap(NULL, sizeof(contents) - 1, PROT_READ, MAP_SHARED, file, 0);
+    require(mapped != MAP_FAILED && mapped[0] == contents[0], "fault the clean shared page before editing");
     for (size_t i = 0; i < sizeof(edits); ++i) {
         __atomic_store_n(&fixture->first_byte, edits[i], __ATOMIC_RELAXED);
         require(write(control, line, sizeof(line) - 1) == sizeof(line) - 1,
                 "inject same-inode edit");
         read_held_byte(file, edits[i]);
+        require(mapped[0] == edits[i], "clean shared mapping sees each in-place edit");
     }
+    require(munmap((void *)mapped, sizeof(contents) - 1) == 0, "unmap file after edits");
     dprintf(STDOUT_FILENO, "ASAGIRI_FSNOTIFY_CONTROL_PASS: repeated edits refresh the held descriptor without reopen\n");
+}
+
+static void check_dirty_edit(int control)
+{
+    const char line[] = "M\t/mnt/mac/dirty\n";
+    int file = open("/mnt/mac/dirty", O_RDWR | O_CLOEXEC);
+    require(file >= 0, "open writable fixture");
+    volatile char *mapped = mmap(NULL, sizeof(contents) - 1, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    require(mapped != MAP_FAILED, "map writable fixture");
+    mapped[0] = 'G';
+    require(write(control, line, sizeof(line) - 1) == sizeof(line) - 1, "inject edit with dirty guest data");
+    require(mapped[0] == 'G', "dirty mapping retains the guest byte");
+    read_held_byte(file, 'G');
+    require(!__atomic_load_n(&fixture->written_byte, __ATOMIC_RELAXED), "injection did not write the fixture");
+    require(msync((void *)mapped, sizeof(contents) - 1, MS_SYNC) == 0, "sync guest write");
+    require(__atomic_load_n(&fixture->written_byte, __ATOMIC_RELAXED) == 'G', "explicit sync stored the guest byte");
+    require(munmap((void *)mapped, sizeof(contents) - 1) == 0 && close(file) == 0, "close writable fixture");
 }
 
 static void drain(int fd)
@@ -393,6 +426,7 @@ int main(void)
     notify(control, events, directory, file_watch, 'A', IN_ATTRIB, IN_ATTRIB);
     unchanged(file);
     check_repeated_edits(control, file);
+    check_dirty_edit(control);
     child_control(control, 0);
     child_control(control, 1);
     rejected(control, events, "M\t/outside/guard\n", "outside-share path", EINVAL);
