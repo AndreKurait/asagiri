@@ -12,6 +12,8 @@ mod network_files;
 pub(super) use network_files::{RESTORED_NETWORK_FILES, restore_network_files};
 mod receive;
 pub(super) use receive::receive;
+mod restore_volume;
+pub(super) use restore_volume::{installed_volume, restore_volume};
 mod restore_rootfs;
 pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;

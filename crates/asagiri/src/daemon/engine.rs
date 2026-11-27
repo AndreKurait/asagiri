@@ -3209,6 +3209,10 @@ impl Engine {
             Ok(())
         })??;
         let stream = self.open_copy(&id, op, name, 0)?;
+        Self::restore_reply(&stream)
+    }
+
+    fn restore_reply(stream: &asagiri_vmm::VsockStream) -> Result<(), Error> {
         let frame = super::api::guest_frame(&mut std::fs::File::from(stream.fd.try_clone()?))?;
         match asagiri_proto::decode(&frame) {
             Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
@@ -3219,6 +3223,38 @@ impl Engine {
             }
             _ => Err(Error::Io(io::Error::other("invalid checkpoint restore reply"))),
         }
+    }
+
+    /// Restore into a new volume before attaching any destination containers.
+    /// The catalog reservation prevents another create, attach or delete during
+    /// extraction. A successful catalog entry is visible only after publication.
+    pub fn restore_checkpoint_volume(&self, key: &str, name: &str, source: &str, destination: &str) -> Result<(), Error> {
+        if !super::volumes::valid_name(source) || !super::volumes::valid_name(destination) { return Err(Error::BadRequest("invalid volume name".into())); }
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.with(&id, |c| c.status == Status::Created)? { return Err(Error::Conflict("checkpoint restore requires a freshly created receiver".into())); }
+        let vm = self.vm()?;
+        vm.wait_cleanup(&id)?;
+        {
+            let mut volumes = self.lock_volumes();
+            if volumes.get(destination).is_some_and(|v| !v.options.is_empty()) { return Err(Error::Conflict("destination uses external volume driver options".into())); }
+            volumes.reserve(destination).map_err(Error::Conflict)?;
+        }
+        let result = (|| {
+            // Volume removal is one-way on the control link. Complete earlier
+            // removals before publishing on the independent archive connection.
+            vm.control_barrier()?;
+            let stream = vm.connect(asagiri_proto::COPY_PORT)?;
+            let mut frame = Vec::new();
+            asagiri_proto::encode_copy(&mut frame, asagiri_proto::copy_op::CHECKPOINT_VOLUME, &id, name, 0, &[] as &[&str], source, &[destination]);
+            std::io::Write::write_all(&mut std::fs::File::from(stream.fd.try_clone()?), &frame)?;
+            Self::restore_reply(&stream)?;
+            self.lock_volumes().publish_restored(destination).map_err(Error::Io)
+        })();
+        self.lock_volumes().release(destination);
+        if result? { self.emit_volume("create", destination); }
+        Ok(())
     }
 
     fn open_copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
@@ -4212,18 +4248,15 @@ impl Engine {
         if !users.is_empty() && !force {
             return Err(Error::Conflict(format!("remove {name}: volume is in use - [{}]", users.join(", "))));
         }
-        self.delete_volume_data(name);
-        Ok(())
-    }
-
-    /// Forgets a volume and deletes its data in the guest.
-    fn delete_volume_data(&self, name: &str) {
-        if self.lock_volumes().forget(name) {
-            if let Ok(vm) = self.vm() {
-                let _ = vm.remove_volume(name);
-            }
-            self.emit_volume("destroy", name);
+        {
+            let mut volumes = self.lock_volumes();
+            volumes.reserve(name).map_err(Error::Conflict)?;
+            if !volumes.forget(name) { volumes.release(name); return Ok(()); }
         }
+        if let Ok(vm) = self.vm() { let _ = vm.remove_volume(name); }
+        self.lock_volumes().release(name);
+        self.emit_volume("destroy", name);
+        Ok(())
     }
 
     /// `docker exec` step one: record what to run.

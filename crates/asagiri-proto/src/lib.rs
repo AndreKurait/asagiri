@@ -285,6 +285,9 @@ pub mod copy_op {
     pub const CHECKPOINT_ROOTFS: u8 = 10;
     /// Install the checkpoint's three engine-managed network files for this receiver.
     pub const CHECKPOINT_NETWORK_FILES: u8 = 11;
+    /// Restore an imported source volume to a new directory volume. `user` carries
+    /// the source volume name and `mounts` contains the single destination name.
+    pub const CHECKPOINT_VOLUME: u8 = 12;
 }
 
 pub mod copy_flags {

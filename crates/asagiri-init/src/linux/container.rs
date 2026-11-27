@@ -1431,7 +1431,9 @@ fn apply_mount(root: BorrowedFd<'_>, image: Option<BorrowedFd<'_>>, m: &Mount) -
                     }
                 }
                 let empty = fs::read_dir(src_path).map(|mut d| d.next().is_none()).unwrap_or(false);
-                if empty && !is_generated_mountpoint(&from)? {
+                // An explicitly empty restored volume must stay empty even
+                // when the destination image has files at its mount target.
+                if empty && !super::checkpoint::installed_volume(src_path)? && !is_generated_mountpoint(&from)? {
                     copy_tree(image_path, src_path)?;
                 }
             }

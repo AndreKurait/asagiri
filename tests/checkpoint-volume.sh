@@ -3,6 +3,8 @@
 set -eu
 work=$(mktemp -d)
 volume=''
+restored_volume="checkpoint-volume-${work##*/}"
+empty_volume="$restored_volume-empty"
 writer=''
 peer=''
 receiver=''
@@ -13,6 +15,8 @@ cleanup() {
     if [ -n "$peer" ]; then docker rm -f "$peer" >/dev/null || true; fi
     if [ -n "$writer" ]; then docker rm -f "$writer" >/dev/null || true; fi
     if [ -n "$volume" ]; then docker volume rm "$volume" >/dev/null || true; fi
+    docker volume rm "$empty_volume" >/dev/null 2>&1 || true
+    docker volume rm "$restored_volume" >/dev/null 2>&1 || true
     rm -rf "$work"
 }
 trap cleanup EXIT
@@ -33,6 +37,9 @@ writer=$(docker run -d --pull=never --network none -v "$volume:/data" -v "$volum
     chmod 640 /data/state
     ln /data/state /data/hard
     ln -s state /data/link
+    printf literal >/data/.wh.literal
+    printf x | dd of=/data/sparse bs=1 seek=131072 2>/dev/null
+    mkfifo /data/fifo
     mkfifo /tmp/query /tmp/reply
     while read -r value </tmp/query; do
         printf "%s" "$value" >&3
@@ -99,6 +106,37 @@ receiver=$(docker create --pull=never --network none alpine:3.21 sh -ec '
     printf restored >/checkpoint-files/b
     test "$(cat /checkpoint-files/a)" = restored')
 "$asagiri" checkpoint import "$receiver" received "$work/checkpoint.tar"
+if "$asagiri" checkpoint restore-volume "$receiver" received "$volume" "$volume" >"$work/status" 2>&1; then exit 1; fi
+grep -Fq 'destination volume already has data' "$work/status"
+test "$(docker exec "$peer" cat /shared/state)" = AB
+# The nested archive is validated during restore. A truncated capture must
+# leave the new name available to a complete retry.
+mkdir -p "$work/partial/volumes/$volume"
+tar -xf "$work/checkpoint.tar" -C "$work/partial" inventory.img pstree.img volume-mounts.json "volumes/$volume/data.tar"
+dd if="$work/partial/volumes/$volume/data.tar" of="$work/incomplete.tar" bs=512 count=6 2>/dev/null
+mv "$work/incomplete.tar" "$work/partial/volumes/$volume/data.tar"
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/partial.tar" -C "$work/partial" inventory.img pstree.img volume-mounts.json volumes
+"$asagiri" checkpoint import "$receiver" partial "$work/partial.tar"
+if "$asagiri" checkpoint restore-volume "$receiver" partial "$volume" "$restored_volume" >"$work/status" 2>&1; then exit 1; fi
+if docker volume inspect "$restored_volume" >/dev/null 2>&1; then exit 1; fi
+"$asagiri" checkpoint restore-volume "$receiver" received "$volume" "$restored_volume" & first=$!
+"$asagiri" checkpoint restore-volume "$receiver" received "$volume" "$restored_volume" & second=$!
+wait "$first"; wait "$second"
+docker run --rm --pull=never --network none -v "$restored_volume:/data" -v "$restored_volume:/mirror:ro" alpine:3.21 sh -ec '
+    test "$(cat /data/state)" = A
+    test /data/state -ef /mirror/hard
+    test "$(stat -c %a /data/state)" = 640
+    test "$(readlink /data/link)" = state && test -p /data/fifo
+    test "$(cat /data/.wh.literal)" = literal
+    test "$(stat -c %s /data/sparse)" = 131073 && test "$(stat -c %b /data/sparse)" -lt 256
+    printf D >>/data/hard; test "$(cat /mirror/state)" = AD'
+# Restoring an empty volume over an image directory must suppress initial image copy-up.
+mkdir "$work/empty-tree"
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/partial/volumes/$volume/data.tar" -C "$work/empty-tree" .
+COPYFILE_DISABLE=1 tar --format=ustar -cf "$work/empty.tar" -C "$work/partial" inventory.img pstree.img volume-mounts.json volumes
+"$asagiri" checkpoint import "$receiver" empty "$work/empty.tar"
+"$asagiri" checkpoint restore-volume "$receiver" empty "$volume" "$empty_volume"
+docker run --rm --pull=never --network none -v "$empty_volume:/etc/crontabs" alpine:3.21 sh -ec 'test -z "$(ls -A /etc/crontabs)"'
 docker cp "$receiver:/etc/issue" "$work/before-restore"
 test -s "$work/before-restore"
 "$asagiri" checkpoint restore-rootfs "$receiver" received
@@ -118,6 +156,7 @@ if "$asagiri" checkpoint restore-rootfs "$occupied" received >"$work/status" 2>&
 grep -Fq 'receiver writable layer is not empty' "$work/status"
 docker cp "$occupied:/keep" "$work/retained"
 cmp "$work/keep" "$work/retained"
+echo 'PASS destination volume restored once, preserved sparse files, links, FIFO and literal whiteout filename, and stayed independent of the live source'
 echo 'PASS ordinary receiver start saw restored writable files, OCI deletions, links and FIFOs; a used writable layer was preserved'
 tar -xOf "$work/checkpoint.tar" volume-mounts.json >"$work/mounts"
 grep -Fq "\"name\":\"$volume\",\"target\":\"/data\",\"readOnly\":false" "$work/mounts"

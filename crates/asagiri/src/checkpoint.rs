@@ -59,6 +59,13 @@ pub(crate) fn fence(args: &[String]) -> io::Result<()> {
     if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
+pub(crate) fn restore_volume(args: &[String]) -> io::Result<()> {
+    let [id, name, source, destination] = args else { return Err(io::Error::other("usage: asagiri checkpoint restore-volume CONTAINER NAME SOURCE_VOLUME NEW_VOLUME")); };
+    if !client::valid_checkpoint_component(id) || !client::valid_checkpoint_component(name) { return Err(io::Error::other("invalid container or checkpoint name")); }
+    let response = client::request("POST", &format!("/asagiri/checkpoints/{id}/{name}/volume"), Some(&json!({"source":source,"destination":destination})))?;
+    if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
+}
+
 pub(crate) fn restore(args: &[String]) -> io::Result<()> {
     let [action, id, name] = args else { return Err(io::Error::other("usage: asagiri checkpoint restore-rootfs|restore-network-files CONTAINER NAME")); };
     let resource = match action.as_str() {

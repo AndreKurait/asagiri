@@ -276,7 +276,7 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     if matches!(view, View::Cleaning) || roots.cleaning(spec.id) { return Ok(None); }
     if spec.op == copy_op::IN && upload_busy(&spec) { return Ok(None); }
     let root = match spec.op {
-        copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES => {
+        copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME => {
             if !matches!(view, View::Stopped) { return Err(io::Error::other("conflict: receiver is running")); }
             let Some(directory) = roots.restore_directory(paths, spec.id)? else { return Ok(None) };
             Ok(directory)
@@ -287,7 +287,10 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
     }?;
     let mut preparing = false;
     let result = (|| {
-        if matches!(spec.op, copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) {
+        if spec.op == copy_op::CHECKPOINT_VOLUME {
+            super::super::container::valid_id(spec.path)?;
+            Ok(Grant::Text(b"checkpoint-volume".to_vec()))
+        } else if matches!(spec.op, copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) {
             super::super::container::valid_id(spec.path)?;
             Ok(Grant::Root(File::open(root)?.into()))
         } else if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT) {
@@ -343,7 +346,7 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let mut seen = std::collections::HashSet::new();
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
-        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) { spec.path } else { "" };
+        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME) { spec.path } else { "" };
         let volumes: Vec<_> = if spec.op == copy_op::IN { spec.mounts.iter().filter_map(super::super::container::writable_volume).collect() } else { Vec::new() };
         asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &volumes);
         if request.len() > MAX_REQUEST {
@@ -352,6 +355,14 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         send(control.as_raw_fd(), &request)?;
         let grant = sys::recv_fd(control.as_raw_fd())?;
         match grant {
+            sys::Received::Message(ref message) if message == "checkpoint-volume" => {
+                let mut volumes = spec.mounts.iter();
+                let destination = volumes.next().filter(|_| volumes.next().is_none()).ok_or_else(|| io::Error::other("expected one destination volume"))?;
+                super::super::checkpoint::restore_volume(paths, spec.id, spec.path, spec.user, destination)?;
+                let mut reply = Vec::new();
+                Msg::CopyDone.encode(&mut reply);
+                Ok(reply)
+            }
             sys::Received::Message(ref message) if message == "upper" => {
                 super::layer_job(&mut conn, &spec, paths)?;
                 Ok(Vec::new())

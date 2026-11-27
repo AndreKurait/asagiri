@@ -750,6 +750,14 @@ impl VmLink {
         // thread, which could not wait for one.
         self.send(|o| Msg::Unpublish { id }.encode(o))
     }
+    /// Wait for the guest event loop to process earlier one-way messages.
+    pub fn control_barrier(&self) -> io::Result<()> {
+        match self.call(|out| Msg::Ping(0).encode(out), None)? {
+            Reply::Pong => Ok(()),
+            other => Err(io::Error::other(format!("expected Pong, got {other:?}"))),
+        }
+    }
+
     pub fn remove_volume(&self, name: &str) -> io::Result<()> {
         self.send(|o| Msg::RemoveVolume { name }.encode(o))
     }

@@ -136,6 +136,14 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             return Ok(Next::Close);
         }
         if req.method == "POST" && let Some((name, part)) = name.split_once('/') && valid_checkpoint_name(name) {
+            if part == "volume" {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Volume { source: String, destination: String }
+                let result = serde_json::from_slice::<Volume>(&req.body).map_err(|e| Error::BadRequest(e.to_string()))
+                    .and_then(|v| engine.restore_checkpoint_volume(id, name, &v.source, &v.destination));
+                return reply(w, result.map(|()| Value::Null), 200);
+            }
             let op = match part {
                 "rootfs" => asagiri_proto::copy_op::CHECKPOINT_ROOTFS,
                 "network-files" => asagiri_proto::copy_op::CHECKPOINT_NETWORK_FILES,

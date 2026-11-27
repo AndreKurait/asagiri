@@ -21,14 +21,17 @@ pub(super) struct Mount {
     read_only: bool,
 }
 
+pub(super) fn valid_name(name: &str) -> bool {
+    name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+}
+
 impl Mount {
     fn source(&self) -> PathBuf { Path::new(VOLUMES).join(&self.name).join("_data") }
 
     pub(super) fn archive_dir(&self, images: &Path) -> PathBuf { images.join("volumes").join(&self.name) }
 
     pub(super) fn validate(&self) -> io::Result<()> {
-        if !self.name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
-            || !self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
+        if !valid_name(&self.name) {
             return Err(io::Error::other("invalid checkpoint volume name"));
         }
         let path = Path::new(&self.target);

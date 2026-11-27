@@ -511,7 +511,7 @@ fn hardlink_metadata<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: 
 /// tar-rs treats these POSIX types as regular files. Create the node without
 /// opening it (a FIFO could block, and device I/O must never run during unpack).
 /// Like whiteouts, parents must be real directories in this private layer.
-fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Path) -> io::Result<()> {
+pub(super) fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Path) -> io::Result<()> {
     if entry.size() != 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "special layer entry has a payload"));
     }

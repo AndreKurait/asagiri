@@ -45,7 +45,7 @@ pub(in super::super) fn receive<R: Read>(name: &str, layers: asagiri_proto::StrL
     result
 }
 
-fn manifest<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
+pub(super) fn manifest<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
     let file = File::open(path).map_err(invalid)?;
     // The source builds these manifests from a single protocol frame.
     if file.metadata()?.len() > asagiri_proto::MAX_FRAME as u64 * 2 { return Err(invalid("oversized checkpoint manifest")); }
