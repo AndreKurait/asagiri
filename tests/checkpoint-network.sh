@@ -30,13 +30,23 @@ check_service() {
     test "$(docker run --rm --pull=never --network "$network" alpine:3.21 wget -q -T 5 -O - http://before:8080/)" = checkpoint-host
 }
 check_service
+# The bind-mounted files are writable independently of the Docker network spec.
+docker exec "$cid" sh -ec 'printf "192.0.2.42\tfrozen.example\n" >>/etc/hosts; printf "# before capture\n" >>/etc/resolv.conf; chmod 0640 /etc/resolv.conf; chown 12345:12345 /etc/resolv.conf'
+for file in hostname hosts resolv.conf; do docker exec "$cid" cat "/etc/$file" >"$work/$file"; done
 docker pause "$cid" >/dev/null
 docker checkpoint create --leave-running "$cid" before-change
 docker unpause "$cid" >/dev/null
+docker exec "$cid" sh -ec 'printf "192.0.2.43\tlater.example\n" >>/etc/hosts; printf "# after capture\n" >>/etc/resolv.conf'
 check_service
 docker network disconnect "$secondary" "$cid"
 docker inspect "$cid" | jq -e --arg name "$secondary" '.[0].NetworkSettings.Networks | has($name) | not' >/dev/null
 "$asagiri" checkpoint export "$cid" before-change "$work/checkpoint.tar"
+tar -xOf "$work/checkpoint.tar" network-files.tar >"$work/network-files.tar"
+test "$(tar -tf "$work/network-files.tar" | LC_ALL=C sort)" = "$(printf '%s\n' hostname hosts resolv.conf)"
+for file in hostname hosts resolv.conf; do
+    tar -xOf "$work/network-files.tar" "$file" >"$work/exported-$file"
+    cmp "$work/$file" "$work/exported-$file"
+done
 tar -xOf "$work/checkpoint.tar" network.json | jq -e --slurpfile inspect "$work/container.json" --slurpfile nets "$work/networks.json" \
     --arg first "$network" --arg second "$secondary" '
     $inspect[0][0] as $c | $c.HostConfig as $h |
@@ -51,4 +61,4 @@ tar -xOf "$work/checkpoint.tar" network.json | jq -e --slurpfile inspect "$work/
     (.ports["8080/tcp"] | any(.HostIp == "127.0.0.1" and (.HostPort | tonumber) > 0)) and
     .requestedPorts["8080/tcp"][0].HostPort == "0"
 ' >/dev/null
-echo 'PASS checkpoint exported capture-time network definitions, endpoints, DNS and allocated ports after disconnect'
+echo 'PASS checkpoint retained the frozen network files, network definitions, endpoints, DNS and allocated ports after source changes'

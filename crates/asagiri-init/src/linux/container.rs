@@ -76,6 +76,8 @@ pub struct Process {
     pub pid_shared: bool,
     /// Immutable image layer digests, in overlay lookup order.
     pub image_layers: Vec<String>,
+    /// Directory backing the three engine-generated /etc network files, possibly shared with a donor.
+    pub network_files_dir: PathBuf,
     /// Managed volumes this container can write, used to coordinate checkpoints.
     pub writable_volumes: Vec<String>,
     /// Pipe read end, or the pty master for a TTY.
@@ -343,7 +345,8 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
     let etc_dir = PathBuf::from("/run/asagiri").join(spec.id);
     let embedded_dns = embedded_dns(spec, net.upstream_dns, net.dns.relay);
     let nameserver = embedded_dns.then(|| embedded_address(spec));
-    prepared.etc_files = write_etc_files(spec, &etc_dir, net.upstream_dns, nameserver).map_err(cleanup)?;
+    let (network_files_dir, etc_files) = write_etc_files(spec, &etc_dir, net.upstream_dns, nameserver).map_err(cleanup)?;
+    prepared.etc_files = etc_files;
     prepared.mounts = parse_mounts(spec.mounts).map_err(cleanup)?;
     // A network namespace of its own gets Docker's two defaults: any port
     // and ping without root. Host networking, and `--network container:`
@@ -529,6 +532,7 @@ pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net
             container: None,
             pid,
             pid_shared: shared_pid_ns.is_some(),
+            network_files_dir,
             image_layers: spec.layers.iter().map(str::to_owned).collect(),
             writable_volumes: spec.mounts.iter().filter_map(writable_volume).map(str::to_owned).collect(),
             stdout,
@@ -696,6 +700,7 @@ pub fn exec(spec: &ExecSpec<'_>, target_pid: libc::pid_t, paths: &Paths) -> io::
         container: Some(spec.container_id.to_owned()),
         pid,
         pid_shared: false,
+        network_files_dir: PathBuf::new(),
         image_layers: Vec::new(),
         writable_volumes: Vec::new(),
         stdout,
@@ -1089,21 +1094,21 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
     })
 }
 
-/// Writes the container's /etc/hosts, /etc/resolv.conf and /etc/hostname
-/// beside its writable layer; the child binds them over the image's files.
-fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<Vec<(CString, CString)>> {
+/// Prepare the container's three network files and return their backing directory.
+/// Containers sharing a network namespace use the donor's files.
+fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 4]], embedded: Option<[u8; 4]>) -> io::Result<(PathBuf, Vec<(CString, CString)>)> {
     fs::create_dir_all(base)?;
     // `--network container:<id>` shares that container's files, as Docker does.
     if let Some(target) = net_opts::values(spec.net.opts, net_opts::NETNS).next() {
         valid_id(target)?;
-        let theirs = PathBuf::from("/run/asagiri").join(target);
+        let donor = PathBuf::from("/run/asagiri").join(target);
         let mut out = Vec::new();
         for name in ["hosts", "resolv.conf", "hostname"] {
-            let src = theirs.join(name);
+            let src = donor.join(name);
             fs::metadata(&src).map_err(|e| io::Error::new(e.kind(), format!("network container {target}: {name}: {e}")))?;
             out.push((sys::cstr(&src)?, CString::new(format!("etc/{name}")).expect("no NUL")));
         }
-        return Ok(out);
+        return Ok((donor, out));
     }
     let domain = net_opts::values(spec.net.opts, net_opts::DOMAINNAME).next().filter(|d| !d.is_empty());
     let mut hosts = String::from("127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n");
@@ -1146,7 +1151,7 @@ fn write_etc_files(spec: &RunSpec<'_>, base: &std::path::Path, upstream: &[[u8; 
         fs::write(&src, text)?;
         out.push((sys::cstr(&src)?, CString::new(format!("etc/{name}")).expect("no NUL")));
     }
-    Ok(out)
+    Ok((base.to_owned(), out))
 }
 
 /// The container's resolv.conf. On a user-defined network the embedded DNS

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod network_files;
 mod receive;
 pub(super) use receive::receive;
 mod volumes;
@@ -227,7 +228,7 @@ impl Capture {
         DirBuilder::new().mode(0o700).create(&staging)?;
         let start = || {
             if !spec.network.is_empty() { fs::write(staging.join("network.json"), spec.network)?; }
-            dump(runtime, pid, group, &staging, &container_dir, &run.image_layers, &volume_mounts)
+            dump(runtime, run, group, &staging, &container_dir, &volume_mounts)
         };
         let child = match start() {
             Ok(child) => child,
@@ -323,17 +324,17 @@ fn remove_staging(staging: &Path) {
     }
 }
 
-fn dump(runtime: &Runtime, pid: libc::pid_t, group: &Path, images: &Path, container_dir: &Path, layers: &[String], mounts: &[volumes::Mount]) -> io::Result<Child> {
+fn dump(runtime: &Runtime, run: &super::container::Process, group: &Path, images: &Path, container_dir: &Path, mounts: &[volumes::Mount]) -> io::Result<Child> {
     let mut command = runtime.command();
     command
         .process_group(0)
         .current_dir(images)
         .args(["dump", "-v4", "--log-file", "dump.log", "--tree"])
-        .arg(pid.to_string())
+        .arg(run.pid.to_string())
         .arg("--freeze-cgroup").arg(group)
-        .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])
-        .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"]);
-    writable::prepare(images, layers)?;
+        .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"]);
+    network_files::prepare(&mut command, &run.network_files_dir);
+    writable::prepare(images, &run.image_layers)?;
     command.env("ASAGIRI_CHECKPOINT_CONTAINER_DIR", container_dir);
     volumes::prepare(&mut command, images, mounts)?;
     command.spawn()

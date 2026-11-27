@@ -90,6 +90,7 @@ fn capture_filesystems(images: &Path) -> io::Result<()> {
     let mounts: Vec<Mount> = serde_json::from_reader(File::open(images.join(MANIFEST))?)?;
     let pid: u32 = std::env::var("CRTOOLS_INIT_PID").map_err(io::Error::other)?.parse().map_err(io::Error::other)?;
     let root = inroot::open_root(Path::new(&format!("/proc/{pid}/root")))?;
+    super::network_files::capture(root.as_fd(), images)?;
     let mountinfo = fs::read("/proc/self/mountinfo")?;
     let mut archived = BTreeSet::new();
     for mount in &mounts {
