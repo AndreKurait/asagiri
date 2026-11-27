@@ -36,6 +36,9 @@ fn marker(tar: &mut tar::Builder<File>, name: &Path) -> io::Result<()> {
     let mut header = tar::Header::new_ustar();
     header.set_size(0);
     header.set_mode(0o644);
+    header.set_uid(0);
+    header.set_gid(0);
+    header.set_mtime(0);
     tar.append_data(&mut header, name, io::empty())
 }
 

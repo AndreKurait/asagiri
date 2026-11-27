@@ -76,9 +76,12 @@ asagiri checkpoint prepare-networks backend.tar frontend.tar
 ```sh
 receiver=$(asagiri checkpoint create-receiver frontend.tar frontend-create.json)
 asagiri checkpoint import "$receiver" received frontend.tar
+asagiri checkpoint restore-rootfs "$receiver" received
 ```
 
-The engine claims the configured addresses and ports on start. A busy address or port can still prevent activation. An ordinary start runs the destination image’s command. Resuming the captured process in the prepared namespace still requires CRIU and destination filesystem staging.
+`restore-rootfs` installs the captured writable layer over the receiver’s original image. It requires a freshly created container with an empty writable layer. Files copied into the receiver before restore cause a conflict. The command retains changes to image files, deletions, opaque directories, hard links, ownership and Linux extended attributes. Repeating it with the same checkpoint on the stopped receiver reuses the installed layer. You can use `docker cp` to inspect restored files before start.
+
+The engine claims the configured addresses and ports on start. A busy address or port can still prevent activation. An ordinary start runs the destination image’s command on the restored filesystem. Resuming the captured process still requires CRIU, restoring named volumes and supplying the captured network files.
 
 Import stores the checkpoint. Manual restore opens the prepared endpoint’s network namespace and passes that descriptor to CRIU with `--inherit-fd fd[N]:asagiri-network`, where `N` is the open descriptor number. In two-container ARM64 tests between Mac and Debian engines on one physical Mac, the frontend kept its TCP connection to the backend in both directions. The external client reconnected to the original published port after source shutdown. On live rollback, the same external client socket remained usable.
 

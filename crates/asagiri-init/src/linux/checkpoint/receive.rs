@@ -57,16 +57,7 @@ fn check_inventory(stage: &Path, layers: asagiri_proto::StrList<'_>) -> io::Resu
         if !stage.join(required).is_file() { return Err(invalid(format!("missing {required}"))); }
     }
     if stage.join("rootfs").try_exists()? {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Manifest { base_layers: Vec<String>, media_type: String }
-        let saved: Manifest = manifest(&stage.join("rootfs/manifest.json"))?;
-        if !stage.join("rootfs/layer.tar").is_file() || saved.media_type != writable::MEDIA_TYPE {
-            return Err(invalid("incomplete writable layer"));
-        }
-        if !saved.base_layers.iter().rev().map(String::as_str).eq(layers.iter()) {
-            return Err(io::Error::other("conflict: destination image layers differ from checkpoint"));
-        }
+        check_writable(&stage.join("rootfs"), layers)?;
     }
     let inventory = stage.join(volumes::MANIFEST);
     if inventory.try_exists()? || stage.join("volumes").try_exists()? {
@@ -75,6 +66,20 @@ fn check_inventory(stage: &Path, layers: asagiri_proto::StrList<'_>) -> io::Resu
             mount.validate().map_err(invalid)?;
             if !mount.archive_dir(stage).join("data.tar").is_file() { return Err(invalid(format!("missing archive for volume {}", mount.name))); }
         }
+    }
+    Ok(())
+}
+
+pub(super) fn check_writable(rootfs: &Path, layers: asagiri_proto::StrList<'_>) -> io::Result<()> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Manifest { base_layers: Vec<String>, media_type: String }
+    let saved: Manifest = manifest(&rootfs.join("manifest.json"))?;
+    if !rootfs.join("layer.tar").is_file() || saved.media_type != writable::MEDIA_TYPE {
+        return Err(invalid("incomplete writable layer"));
+    }
+    if !saved.base_layers.iter().rev().map(String::as_str).eq(layers.iter()) {
+        return Err(io::Error::other("conflict: destination image layers differ from checkpoint"));
     }
     Ok(())
 }

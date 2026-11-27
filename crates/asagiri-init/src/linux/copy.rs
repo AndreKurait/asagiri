@@ -54,6 +54,10 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
             })?;
             Msg::CopyDone.encode(&mut reply);
         }
+        copy_op::CHECKPOINT_ROOTFS => {
+            super::checkpoint::restore_rootfs(spec.path, spec.layers)?;
+            Msg::CopyDone.encode(&mut reply);
+        }
         copy_op::CHECKPOINT_EXPORT => {
             done(conn)?;
             export(&mut CheckpointWriter { conn, frame: Vec::new() })?;

@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod changeset;
 mod network_files;
 mod receive;
 pub(super) use receive::receive;
+mod restore_rootfs;
+pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;
 mod writable;
 pub(super) use volumes::{FILESYSTEM_HOOK, run_filesystem_hook};

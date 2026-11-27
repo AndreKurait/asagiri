@@ -3185,6 +3185,31 @@ impl Engine {
         // start/remove; an already-open copy stream keeps its existing lifetime.
         let lifecycle = self.lifecycle(key)?;
         let _copying = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.open_copy(key, op, path, flags)
+    }
+
+    /// Keep the receiver stopped until the guest has committed or rejected the layer.
+    pub fn restore_checkpoint_rootfs(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.with(&id, |c| c.status == Status::Created)? {
+            return Err(Error::Conflict("checkpoint writable layer requires a freshly created receiver".into()));
+        }
+        let stream = self.open_copy(&id, asagiri_proto::copy_op::CHECKPOINT_ROOTFS, name, 0)?;
+        let frame = super::api::guest_frame(&mut std::fs::File::from(stream.fd.try_clone()?))?;
+        match asagiri_proto::decode(&frame) {
+            Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
+            Ok(asagiri_proto::Msg::Error(message)) => {
+                let message = message.strip_prefix("error: ").unwrap_or(message);
+                if let Some(reason) = message.strip_prefix("conflict: ") { return Err(Error::Conflict(reason.into())); }
+                Err(super::api::copy_error(message))
+            }
+            _ => Err(Error::Io(io::Error::other("invalid writable layer restore reply"))),
+        }
+    }
+
+    fn open_copy(&self, key: &str, op: u8, path: &str, flags: u32) -> Result<asagiri_vmm::VsockStream, Error> {
         let (id, layers, user, mounts, readonly_rootfs) = {
             let st = self.lock();
             let id = resolve(&st, key)?;

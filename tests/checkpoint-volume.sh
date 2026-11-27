@@ -5,7 +5,11 @@ work=$(mktemp -d)
 volume=''
 writer=''
 peer=''
+receiver=''
+occupied=''
 cleanup() {
+    if [ -n "$receiver" ]; then docker rm -f "$receiver" >/dev/null || true; fi
+    if [ -n "$occupied" ]; then docker rm -f "$occupied" >/dev/null || true; fi
     if [ -n "$peer" ]; then docker rm -f "$peer" >/dev/null || true; fi
     if [ -n "$writer" ]; then docker rm -f "$writer" >/dev/null || true; fi
     if [ -n "$volume" ]; then docker volume rm "$volume" >/dev/null || true; fi
@@ -83,6 +87,38 @@ test "$work/writable/checkpoint-files/a" -ef "$work/writable/checkpoint-files/b"
 test "$(readlink "$work/writable/checkpoint-files/symlink")" = a
 test -n "$(find "$work/writable/checkpoint-files/a" -perm 0640 -print)"
 echo 'PASS writable layer retained checkpoint-time bytes, links, file deletion and opaque directory'
+receiver=$(docker create --pull=never --network none alpine:3.21 sh -ec '
+    test "$(cat /etc/alpine-release)" = before
+    test ! -e /etc/issue && test ! -e /etc/crontabs/root
+    test "$(cat /etc/crontabs/new)" = fresh
+    test /checkpoint-files/a -ef /checkpoint-files/b
+    test "$(cat /checkpoint-files/b)" = linked
+    test "$(readlink /checkpoint-files/symlink)" = a
+    test "$(stat -c %a /checkpoint-files/a)" = 640
+    test -p /tmp/query && test -p /tmp/reply
+    printf restored >/checkpoint-files/b
+    test "$(cat /checkpoint-files/a)" = restored')
+"$asagiri" checkpoint import "$receiver" received "$work/checkpoint.tar"
+docker cp "$receiver:/etc/issue" "$work/before-restore"
+test -s "$work/before-restore"
+"$asagiri" checkpoint restore-rootfs "$receiver" received
+test "$(docker inspect -f '{{.State.Status}}' "$receiver")" = created
+docker cp "$receiver:/checkpoint-files/a" "$work/from-receiver"
+test "$(cat "$work/from-receiver")" = linked
+"$asagiri" checkpoint restore-rootfs "$receiver" received
+docker start -a "$receiver"
+test "$(docker inspect -f '{{.State.ExitCode}}' "$receiver")" = 0
+if "$asagiri" checkpoint restore-rootfs "$receiver" received >"$work/status" 2>&1; then exit 1; fi
+grep -Fq 'freshly created receiver' "$work/status"
+occupied=$(docker create --pull=never --network none alpine:3.21 true)
+printf keep >"$work/keep"
+docker cp "$work/keep" "$occupied:/keep"
+"$asagiri" checkpoint import "$occupied" received "$work/checkpoint.tar"
+if "$asagiri" checkpoint restore-rootfs "$occupied" received >"$work/status" 2>&1; then exit 1; fi
+grep -Fq 'receiver writable layer is not empty' "$work/status"
+docker cp "$occupied:/keep" "$work/retained"
+cmp "$work/keep" "$work/retained"
+echo 'PASS ordinary receiver start saw restored writable files, OCI deletions, links and FIFOs; a used writable layer was preserved'
 tar -xOf "$work/checkpoint.tar" volume-mounts.json >"$work/mounts"
 grep -Fq "\"name\":\"$volume\",\"target\":\"/data\",\"readOnly\":false" "$work/mounts"
 grep -Fq "\"name\":\"$volume\",\"target\":\"/mirror\",\"readOnly\":true" "$work/mounts"

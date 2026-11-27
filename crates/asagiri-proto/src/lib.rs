@@ -281,6 +281,8 @@ pub mod copy_op {
     pub const CHECKPOINT_EXPORT: u8 = 8;
     /// Stream an exported checkpoint into the destination container's private checkpoint directory.
     pub const CHECKPOINT_IMPORT: u8 = 9;
+    /// Install an imported writable layer on a fresh receiver. Replies with CopyDone or Error.
+    pub const CHECKPOINT_ROOTFS: u8 = 10;
 }
 
 pub mod copy_flags {

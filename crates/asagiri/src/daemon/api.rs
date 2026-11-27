@@ -135,6 +135,9 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             http::error(w, 403, "host connection required")?;
             return Ok(Next::Close);
         }
+        if req.method == "POST" && let Some(name) = name.strip_suffix("/rootfs") && valid_checkpoint_name(name) {
+            return reply(w, engine.restore_checkpoint_rootfs(id, name).map(|()| Value::Null), 200);
+        }
         if !valid_checkpoint_name(name) {
             http::error(w, 400, "invalid checkpoint ID")?;
             return Ok(Next::Close);

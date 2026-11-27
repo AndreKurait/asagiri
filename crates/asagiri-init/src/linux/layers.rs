@@ -173,7 +173,7 @@ fn install(root: &Path, digest: &str, tmp: &Path, final_dir: &Path) -> io::Resul
 /// workloads; syncfs would wait for all of their dirty files too. Symlinks and
 /// special nodes have no regular file data to flush; their directory persists
 /// their creation. Never open a device/FIFO or follow an image's symlink.
-fn sync_tree(path: &Path) -> io::Result<()> {
+pub(super) fn sync_tree(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     let directory = fs::OpenOptions::new().read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(path)?;
@@ -259,7 +259,7 @@ fn unpack(blob: &mut impl Read, media_type: &str, dest: &Path, compressed: u64) 
 /// Unpacks a layer tarball, translating OCI whiteouts into the form overlayfs
 /// reads: `.wh.name` becomes a 0:0 character device `name`, and
 /// `.wh..wh..opq` marks its directory opaque.
-fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
+pub(super) fn untar(reader: impl Read, dest: &Path) -> io::Result<u64> {
     let mut archive = tar::Archive::new(super::tarnum::GoNumbers::new(reader));
     archive.set_preserve_permissions(true);
     archive.set_preserve_ownerships(true);
@@ -495,10 +495,9 @@ fn hardlink_metadata<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: 
         }
     }
     if stat.st_mode & libc::S_IFMT != libc::S_IFLNK {
-        let pinned = std::ffi::CString::new(format!("/proc/self/fd/{}", file.as_raw_fd())).unwrap();
-        // SAFETY: procfs names our pinned non-symlink inode. chmod performs no
-        // device/FIFO I/O, and follows no archive-supplied path components.
-        sys::check(unsafe { libc::chmod(pinned.as_ptr(), mode) } as _, "chmod hard-link inode")?;
+        // SAFETY: the parent is pinned, name is one component, and the final
+        // inode was checked above. Only this worker can change the private layer.
+        sys::check(unsafe { libc::fchmodat(parent.as_raw_fd(), name.as_ptr(), mode, 0) } as _, "chmod hard-link inode")?;
     }
     let times = [mtime; 2];
     // SAFETY: an owned in-layer parent and its just-created directory entry.
@@ -607,7 +606,7 @@ fn unpack_special<R: Read>(entry: &mut tar::Entry<'_, R>, dest: &Path, path: &Pa
 /// PAX decimals may precede the epoch or exceed nanosecond precision. Avoid
 /// floating-point rounding; truncate excess fractional digits toward zero,
 /// then normalize a negative fraction into a nonnegative timespec nanosecond.
-fn pax_node_time(value: &[u8]) -> io::Result<libc::timespec> {
+pub(super) fn pax_node_time(value: &[u8]) -> io::Result<libc::timespec> {
     let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid PAX layer timestamp");
     let value = std::str::from_utf8(value).map_err(|_| invalid())?;
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));

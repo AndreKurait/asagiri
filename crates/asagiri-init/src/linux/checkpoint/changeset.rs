@@ -1,0 +1,180 @@
+//! Read GNU tar's checkpoint changeset. PAX lengths count bytes: an ACL, an
+//! xattr value, or a path may contain embedded newlines. Keep file contents on
+//! disk and pass one member at a time through the engine's OCI layer decoder.
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Component, Path};
+
+use super::super::layers;
+
+fn invalid() -> io::Error { io::Error::other("invalid checkpoint: malformed writable layer") }
+
+#[derive(Default)]
+pub(super) struct Fields {
+    path: Option<Vec<u8>>,
+    link: Option<Vec<u8>>,
+    size: Option<u64>,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    pub(super) mtime: Option<libc::timespec>,
+    pub(super) atime: Option<libc::timespec>,
+    pub(super) attrs: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+fn decimal<T: std::str::FromStr>(value: &[u8]) -> io::Result<T> {
+    std::str::from_utf8(value).ok().and_then(|s| s.parse().ok()).ok_or_else(invalid)
+}
+
+impl Fields {
+    fn read_pax(&mut self, mut data: &[u8]) -> io::Result<()> {
+        let (mut access_acl, mut default_acl) = (false, false);
+        while !data.is_empty() {
+            let space = data.iter().position(|&b| b == b' ').ok_or_else(invalid)?;
+            let size: usize = decimal(&data[..space])?;
+            let (line, rest) = data.split_at_checked(size).ok_or_else(invalid)?;
+            let record = line.get(space + 1..).and_then(|s| s.strip_suffix(b"\n")).ok_or_else(invalid)?;
+            let equals = record.iter().position(|&b| b == b'=').ok_or_else(invalid)?;
+            let (key, value) = (&record[..equals], &record[equals + 1..]);
+            match key {
+                b"path" => self.path = Some(value.to_vec()),
+                b"linkpath" => self.link = Some(value.to_vec()),
+                b"size" => self.size = Some(decimal(value)?),
+                b"uid" => self.uid = Some(decimal(value)?),
+                b"gid" => self.gid = Some(decimal(value)?),
+                b"mtime" => self.mtime = Some(layers::pax_node_time(value)?),
+                b"atime" => self.atime = Some(layers::pax_node_time(value)?),
+                b"SCHILY.acl.access" => access_acl = true,
+                b"SCHILY.acl.default" => default_acl = true,
+                key if key.starts_with(b"GNU.sparse.") => return Err(io::Error::other("unsupported sparse checkpoint layer encoding")),
+                key => if let Some(name) = key.strip_prefix(b"SCHILY.xattr.") {
+                    if name.is_empty() || name.contains(&0) || name.starts_with(b"trusted.overlay.") {
+                        return Err(invalid());
+                    }
+                    self.attrs.push((name.to_vec(), value.to_vec()));
+                },
+            }
+            data = rest;
+        }
+        // Asagiri captures --acls and --xattrs together. The binary Linux ACL
+        // preserves numeric IDs without resolving names on the destination.
+        for (present, name) in [(access_acl, b"system.posix_acl_access".as_slice()), (default_acl, b"system.posix_acl_default".as_slice())] {
+            if present && !self.attrs.iter().any(|(key, _)| key == name) {
+                return Err(io::Error::other("invalid checkpoint: missing binary Linux ACL"));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn long_header(out: &mut Vec<u8>, kind: tar::EntryType, value: &[u8]) -> io::Result<()> {
+    if value.is_empty() || value.contains(&0) || value.len() >= libc::PATH_MAX as usize { return Err(invalid()); }
+    let mut header = tar::Header::new_gnu();
+    header.set_path("././@LongLink")?;
+    header.set_entry_type(kind);
+    header.set_size(value.len() as u64 + 1);
+    header.set_cksum();
+    out.extend_from_slice(header.as_bytes());
+    out.extend_from_slice(value);
+    out.push(0);
+    out.resize(out.len().next_multiple_of(512), 0);
+    Ok(())
+}
+
+pub(super) fn visit(input: &mut File, mut member: impl FnMut(&Path, &tar::Header, &Fields, &mut dyn Read) -> io::Result<()>) -> io::Result<()> {
+    input.rewind()?;
+    let length = input.metadata()?.len();
+    let mut fields = Fields::default();
+    let mut extensions = 0u8;
+    loop {
+        let mut header = tar::Header::new_old();
+        input.read_exact(header.as_mut_bytes())?;
+        if header.as_bytes().iter().all(|&b| b == 0) {
+            let remaining = length.checked_sub(input.stream_position()?).ok_or_else(invalid)?;
+            if extensions != 0 || remaining < 512 || !remaining.is_multiple_of(512) { return Err(invalid()); }
+            let mut buffer = [0; 8192];
+            loop {
+                let n = input.read(&mut buffer)?;
+                if n == 0 { return Ok(()); }
+                if buffer[..n].iter().any(|&b| b != 0) { return Err(invalid()); }
+            }
+        }
+        let checksum = header.cksum()?;
+        header.set_cksum();
+        if header.cksum()? != checksum { return Err(invalid()); }
+        let kind = header.entry_type();
+        let extension = kind.is_pax_local_extensions() || kind.is_gnu_longname() || kind.is_gnu_longlink();
+        let size = if extension { header.entry_size()? } else { fields.size.unwrap_or(header.entry_size()?) };
+        let padded = size.checked_next_multiple_of(512).ok_or_else(invalid)?;
+        let end = input.stream_position()?.checked_add(padded).filter(|&n| n <= length).ok_or_else(invalid)?;
+        if extension {
+            if size > 16 * 1024 * 1024 { return Err(io::Error::other("invalid checkpoint: oversized writable layer metadata")); }
+            let bit = if kind.is_pax_local_extensions() { 1 } else if kind.is_gnu_longname() { 2 } else { 4 };
+            if extensions & bit != 0 { return Err(invalid()); }
+            extensions |= bit;
+            let mut data = vec![0; size as usize];
+            input.read_exact(&mut data)?;
+            if kind.is_pax_local_extensions() { fields.read_pax(&data)?; }
+            else {
+                if data.pop() != Some(0) { return Err(invalid()); }
+                if kind.is_gnu_longname() { fields.path = Some(data); } else { fields.link = Some(data); }
+            }
+        } else {
+            if !(kind.is_file() || kind.is_dir() || kind.is_fifo() || kind.is_symlink() || kind.is_hard_link()
+                || kind.is_character_special() || kind.is_block_special()) { return Err(invalid()); }
+            let original = header.path_bytes().into_owned();
+            let path = Path::new(std::ffi::OsStr::from_bytes(fields.path.as_deref().unwrap_or(&original)));
+            if path.as_os_str().is_empty() || !path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) { return Err(invalid()); }
+            if let Some(uid) = fields.uid { header.set_uid(uid.into()); }
+            if let Some(gid) = fields.gid { header.set_gid(gid.into()); }
+            // Early checkpoint writers left the synthetic OCI whiteout's
+            // ownership fields blank. The kernel marker has no source owner.
+            let marker = path.file_name().is_some_and(|s| s.as_encoded_bytes().starts_with(b".wh."));
+            if marker {
+                if !kind.is_file() || size != 0 { return Err(invalid()); }
+                header.set_uid(0);
+                header.set_gid(0);
+                header.set_mtime(0);
+            } else if header.uid()? >= u64::from(u32::MAX) || header.gid()? >= u64::from(u32::MAX) { return Err(invalid()); }
+            if let Some(time) = fields.mtime { header.set_mtime(time.tv_sec.max(0) as u64); }
+            header.set_size(size);
+            header.set_cksum();
+            let mut prefix = Vec::new();
+            if let Some(path) = &fields.path { long_header(&mut prefix, tar::EntryType::GNULongName, path)?; }
+            if let Some(link) = &fields.link { long_header(&mut prefix, tar::EntryType::GNULongLink, link)?; }
+            let mut stream = prefix.as_slice().chain(header.as_bytes().as_slice()).chain((&mut *input).take(padded));
+            member(path, &header, &fields, &mut stream)?;
+            fields = Fields::default();
+            extensions = 0;
+        }
+        input.seek(SeekFrom::Start(end))?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_multiline_acl_and_binary_xattr_in_gnu_pax_records() {
+        let mut tar = tar::Builder::new(Vec::new());
+        let binary = b"\x02\0\0\0\n\xff";
+        tar.append_pax_extensions([
+            ("SCHILY.acl.access", b"user::rwx\ngroup::r-x\nother::--x".as_slice()),
+            ("SCHILY.xattr.system.posix_acl_access", binary.as_slice()),
+            ("path", b"./line\nbreak".as_slice()),
+            ("mtime", b"1710000011.123456789".as_slice()),
+        ]).unwrap();
+        let bytes = tar.into_inner().unwrap();
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let mut entries = archive.entries().unwrap().raw(true);
+        let mut payload = Vec::new();
+        entries.next().unwrap().unwrap().read_to_end(&mut payload).unwrap();
+        let mut fields = Fields::default();
+        fields.read_pax(&payload).unwrap();
+        assert_eq!(fields.path.as_deref(), Some(b"./line\nbreak".as_slice()));
+        assert_eq!(fields.attrs, [(b"system.posix_acl_access".to_vec(), binary.to_vec())]);
+        assert_eq!(fields.mtime.unwrap().tv_nsec, 123456789);
+        assert!(Fields::default().read_pax(&payload[..payload.len() - 1]).is_err());
+    }
+}
