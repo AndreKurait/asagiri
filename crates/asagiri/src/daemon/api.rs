@@ -2848,6 +2848,22 @@ fn ipam_config(want4: &str, want6: &str) -> Value {
     if m.is_empty() { Value::Null } else { Value::Object(m) }
 }
 
+/// Called with the container lifecycle held, so endpoint and port changes cannot
+/// race publication of the guest checkpoint.
+pub(super) fn checkpoint_network(c: &Container, networks: &[super::network::Network]) -> Value {
+    let endpoints = endpoints(c, networks);
+    let definitions: Vec<_> = networks.iter()
+        .filter(|net| endpoints.get(&net.name).or_else(|| endpoints.get(&net.id)).is_some_and(|ep| ep["NetworkID"] == net.id))
+        .map(network_definition).collect();
+    json!({
+        "version": 1, "containerId": c.id, "containerName": c.name, "mode": c.spec.network_mode,
+        "hostname": if c.spec.hostname.is_empty() { c.short_id() } else { c.spec.hostname.as_str() }, "domainname": c.spec.domainname,
+        "endpoints": endpoints, "networks": definitions, "ports": ports_map(c), "requestedPorts": requested_ports_map(&c.spec.ports),
+        "exposedPorts": inspect_exposed_ports(&c.spec), "dns": c.spec.dns, "dnsSearch": c.spec.dns_search, "dnsOptions": c.spec.dns_options,
+        "extraHosts": super::hostopts::extra_hosts(&c.spec.host_opts, &c.spec.extra_hosts), "links": c.spec.links,
+    })
+}
+
 /// `GET /containers/{id}/json`: [`inspect`] plus what needs the engine's
 /// networks and healthcheck state.
 fn container_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
@@ -3136,6 +3152,12 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
             );
         }
     }
+    let mut value = network_definition(n);
+    value["Containers"] = Value::Object(containers);
+    value
+}
+
+fn network_definition(n: &super::network::Network) -> Value {
     let ipam = if n.bridge.is_empty() {
         json!([])
     } else {
@@ -3180,7 +3202,6 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
         "Attachable": n.attachable,
         "Ingress": false,
         "ConfigOnly": false,
-        "Containers": containers,
         "Options": if n.options.is_object() { n.options.clone() } else { json!({}) },
         "Labels": if n.labels.is_object() { n.labels.clone() } else { json!({}) },
     })

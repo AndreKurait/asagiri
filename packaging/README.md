@@ -51,6 +51,8 @@ On native Linux, live capture uses the host's `criu`, `iptables-restore`, `ip6ta
 
 For engine-managed directory volumes, the CRIU post-dump hook runs GNU tar while the source process tree is stopped. The checkpoint contains `volume-mounts.json` and one `volumes/<name>/data.tar` per distinct volume. The manifest records `name`, `target` and `readOnly`. CRIU uses `asagiri-volume-<name>` as the external mount identifier. The archive preserves numeric ownership, permissions, links, sparse files, extended attributes and ACLs supported by GNU tar and the filesystem. Coordinate writes from outside the engine separately. `tests/checkpoint-volume.sh` exercises capture and export with two containers sharing a volume.
 
+`asagiri checkpoint export` also includes a version 1 `network.json` for captures made with the current host and guest. It records the source network definitions, endpoint addresses and aliases, DNS and host overrides, exposed ports, requested bindings, and the host ports actually allocated. The engine records these while holding the container lifecycle lock. A later network change does not alter a saved checkpoint. Older checkpoints can lack this file. Destination network creation and connection restoration are still pending. Run `tests/checkpoint-network.sh` against an isolated engine with Alpine 3.21, `jq`, and `curl` to compare the export with Docker's inspection output.
+
 ```sh
 packaging/linux/fetch-cli.sh target/linux-cli
 sh scripts/ci/build-linux.sh target/portable-bin target/portable-cache target/cargo-registry build

@@ -177,7 +177,7 @@ pub enum Msg<'a> {
     /// Host → guest: change a running container's limits. Answered by `Ack` or `Error`.
     Update { id: &'a str, limits: Limits<'a> },
     /// Start a named checkpoint capture. An ordered `Ack` admits it.
-    CheckpointCreate { id: &'a str, name: &'a str, leave_running: bool, volume_mounts: &'a str },
+    CheckpointCreate(CheckpointSpec<'a>),
     /// Completion of the single admitted capture. An empty error means success.
     CheckpointResult { error: &'a str },
     /// Host → guest: freeze (pause) or thaw a container. Answered by `Ack` or `Error`.
@@ -594,6 +594,16 @@ impl<'a> RunNetworks<'a> {
     }
 }
 
+/// Capture-time host configuration accompanies the process and filesystem images.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointSpec<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub leave_running: bool,
+    pub volume_mounts: &'a str,
+    pub network: &'a str,
+}
+
 /// cgroup limits (`--memory`, `--cpus`, `--cpu-shares`, `--pids-limit`).
 /// Zero means no limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -836,6 +846,8 @@ mod kind {
     pub const GUEST_PLATFORM: u16 = 90;
     // An older agent must reject a volume capture rather than ignore the inventory.
     pub const CHECKPOINT_CREATE_VOLUMES: u16 = 91;
+    // A host requesting network metadata must get an error from older guests.
+    pub const CHECKPOINT_CREATE_NETWORK: u16 = 92;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1239,12 +1251,18 @@ impl Msg<'_> {
                 put_str(o, id);
                 put_limits(o, &limits);
             }),
-            Msg::CheckpointCreate { id, name, leave_running, volume_mounts } => frame(out, if volume_mounts.is_empty() { kind::CHECKPOINT_CREATE } else { kind::CHECKPOINT_CREATE_VOLUMES }, |o| {
-                put_str(o, id);
-                put_str(o, name);
-                o.push(u8::from(leave_running));
-                if !volume_mounts.is_empty() { put_str(o, volume_mounts); }
-            }),
+            Msg::CheckpointCreate(spec) => {
+                let kind = if !spec.network.is_empty() { kind::CHECKPOINT_CREATE_NETWORK }
+                    else if !spec.volume_mounts.is_empty() { kind::CHECKPOINT_CREATE_VOLUMES }
+                    else { kind::CHECKPOINT_CREATE };
+                frame(out, kind, |o| {
+                    put_str(o, spec.id);
+                    put_str(o, spec.name);
+                    o.push(u8::from(spec.leave_running));
+                    if kind != kind::CHECKPOINT_CREATE { put_str(o, spec.volume_mounts); }
+                    if kind == kind::CHECKPOINT_CREATE_NETWORK { put_str(o, spec.network); }
+                });
+            }
             Msg::CheckpointResult { error } => frame(out, kind::CHECKPOINT_RESULT, |o| put_str(o, error)),
             Msg::Freeze { id, frozen } => frame(out, kind::FREEZE, |o| {
                 put_str(o, id);
@@ -1568,8 +1586,11 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::COPY_STAT => Msg::CopyStat { entry: read_entry(&mut r)?, link: r.str()? },
         kind::COPY_DONE => Msg::CopyDone,
         kind::UPDATE => Msg::Update { id: r.str()?, limits: read_limits(&mut r)? },
-        kind::CHECKPOINT_CREATE => Msg::CheckpointCreate { id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0, volume_mounts: "" },
-        kind::CHECKPOINT_CREATE_VOLUMES => Msg::CheckpointCreate { id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0, volume_mounts: r.str()? },
+        kind::CHECKPOINT_CREATE | kind::CHECKPOINT_CREATE_VOLUMES | kind::CHECKPOINT_CREATE_NETWORK => Msg::CheckpointCreate(CheckpointSpec {
+            id: r.str()?, name: r.str()?, leave_running: r.u8()? != 0,
+            volume_mounts: if kind == kind::CHECKPOINT_CREATE { "" } else { r.str()? },
+            network: if kind == kind::CHECKPOINT_CREATE_NETWORK { r.str()? } else { "" },
+        }),
         kind::CHECKPOINT_RESULT => Msg::CheckpointResult { error: r.str()? },
         kind::FREEZE => Msg::Freeze { id: r.str()?, frozen: r.u8()? != 0 },
         kind::STATS_QUERY => Msg::StatsQuery { id: r.str()? },
@@ -1847,7 +1868,9 @@ mod tests {
         round(Msg::Update { id: "c1", limits: Limits { memory_max: 1, cpu_quota: 2, cpu_period: 3, cpu_weight: 4, pids_max: 5, shm_size: 6, memory_swap: -1, memory_reservation: 7, cpuset_cpus: "0-3", cpuset_mems: "0" } });
         for leave_running in [false, true] {
             for volume_mounts in ["", r#"[{"name":"data","target":"/data","readOnly":false}]"#] {
-                round(Msg::CheckpointCreate { id: "c1", name: "java-live", leave_running, volume_mounts });
+                for network in ["", r#"{"version":1,"mode":"none"}"#] {
+                    round(Msg::CheckpointCreate(CheckpointSpec { id: "c1", name: "java-live", leave_running, volume_mounts, network }));
+                }
             }
         }
         round(Msg::CheckpointResult { error: "" });

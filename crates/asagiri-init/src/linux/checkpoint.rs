@@ -200,11 +200,12 @@ impl Capture {
         self.volume_mounts.iter().any(|m| m.name == name)
     }
 
-    pub(super) fn start(runtime: &Runtime, run: &super::container::Process, group: &Path, containers: &Path, name: &str, volume_inventory: &str, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
+    pub(super) fn start(runtime: &Runtime, run: &super::container::Process, group: &Path, containers: &Path, spec: asagiri_proto::CheckpointSpec<'_>, busy: impl Fn(&str) -> bool) -> io::Result<Self> {
+        let name = spec.name;
         super::container::valid_id(name)?;
         let pid = run.pid;
         let container_dir = containers.join(&run.id);
-        let volume_mounts = volumes::inventory(volume_inventory, pid)?;
+        let volume_mounts = volumes::inventory(spec.volume_mounts, pid)?;
         if let Some(mount) = volume_mounts.iter().find(|m| busy(&m.name)) {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, format!("volume {} has another active writer; pause its containers and finish uploads before checkpointing", mount.name)));
         }
@@ -222,7 +223,11 @@ impl Capture {
             Err(error) => return Err(error),
         }
         DirBuilder::new().mode(0o700).create(&staging)?;
-        let child = match dump(runtime, pid, group, &staging, &container_dir, &run.image_layers, &volume_mounts) {
+        let start = || {
+            if !spec.network.is_empty() { fs::write(staging.join("network.json"), spec.network)?; }
+            dump(runtime, pid, group, &staging, &container_dir, &run.image_layers, &volume_mounts)
+        };
+        let child = match start() {
             Ok(child) => child,
             Err(error) => {
                 remove_staging(&staging);

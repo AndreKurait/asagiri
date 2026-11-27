@@ -3610,7 +3610,10 @@ impl Engine {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        let (running, mounts) = self.with(&id, |c| (c.status == Status::Running, c.spec.mount_info.clone()))?;
+        let networks = self.lock_net().all().to_vec();
+        let (running, mounts, network) = self.with(&id, |c| (
+            c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks).to_string(),
+        ))?;
         if !running {
             return Err(Error::Conflict("checkpoint capture requires a running container".into()));
         }
@@ -3624,10 +3627,10 @@ impl Engine {
             volumes.push(serde_json::json!({"name": volume.name, "target": mount["Destination"], "readOnly": mount["RW"] == false}));
         }
         let manifest = if volumes.is_empty() { String::new() } else { serde_json::Value::Array(volumes).to_string() };
-        if manifest.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
-            return Err(Error::Conflict("checkpoint volume inventory exceeds the guest protocol limit".into()));
+        if manifest.len() + network.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
+            return Err(Error::Conflict("checkpoint configuration exceeds the guest protocol limit".into()));
         }
-        match self.vm()?.checkpoint_live(&id, name, &manifest) {
+        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id: &id, name, leave_running: true, volume_mounts: &manifest, network: &network }) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(Error::Conflict(error.to_string())),
             Err(error) => Err(Error::Io(error)),

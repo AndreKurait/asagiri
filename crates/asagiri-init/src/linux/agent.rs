@@ -687,8 +687,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
                 },
-                Ok(Msg::CheckpointCreate { id, name, leave_running, volume_mounts }) => {
-                    let result = if !leave_running {
+                Ok(Msg::CheckpointCreate(spec)) => {
+                    let id = spec.id;
+                    let result = if !spec.leave_running {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
                     } else if checkpoint.is_some() {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
@@ -698,7 +699,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "finish the active container exec before checkpointing"))
                     } else if let Some(runtime) = runtime {
                         match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (&p.run, group))) {
-                            Some((run, group)) => super::checkpoint::Capture::start(runtime, run, group, &paths.containers, name, volume_mounts,
+                            Some((run, group)) => super::checkpoint::Capture::start(runtime, run, group, &paths.containers, spec,
                                 |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, run.pid, volume)),
                             None => Err(io::Error::other(format!("container {id} is not running"))),
                         }
