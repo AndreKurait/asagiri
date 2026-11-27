@@ -91,12 +91,13 @@ pub(crate) fn restore_volume(args: &[String]) -> io::Result<()> {
 }
 
 pub(crate) fn restore(args: &[String]) -> io::Result<()> {
-    let [action, id, name] = args else { return Err(io::Error::other("usage: asagiri checkpoint restore-rootfs|restore-network-files|restore-stdin|verify-receiver-mounts CONTAINER NAME")); };
+    let [action, id, name] = args else { return Err(io::Error::other("usage: asagiri checkpoint restore-rootfs|restore-network-files|restore-stdin|verify-receiver-mounts|install-process CONTAINER NAME")); };
     let resource = match action.as_str() {
         "restore-rootfs" => "rootfs",
         "restore-network-files" => "network-files",
         "restore-stdin" => "stdin",
         "verify-receiver-mounts" => "verify-mounts",
+        "install-process" => "install-process",
         _ => return Err(io::Error::other("unknown checkpoint restore operation")),
     };
     if !client::valid_checkpoint_component(id) || !client::valid_checkpoint_component(name) {

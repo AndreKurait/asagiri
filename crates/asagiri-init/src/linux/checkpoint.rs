@@ -19,6 +19,8 @@ mod pipe_data;
 mod stdio;
 pub(super) use stdio::{Input as CheckpointInput, Replay as InputReplay};
 mod restore_mounts;
+mod restore_process;
+pub(super) use restore_process::RestoreProcess;
 mod restore_rootfs;
 pub(super) use restore_rootfs::restore_rootfs;
 mod volumes;
@@ -379,8 +381,8 @@ impl Capture {
         Ok(Self { worker: Worker::new(child, pid), container_id: run.id.clone(), staging, destination, _queued_input: queued, _replay_input: replay, volume_mounts })
     }
 
-    pub(super) fn next_reapable_pid(&mut self) -> libc::pid_t {
-        self.worker.next_reapable_pid()
+    pub(super) fn worker(&mut self) -> &mut Worker {
+        &mut self.worker
     }
 
     pub(super) fn poll(&mut self) -> io::Result<Option<()>> {

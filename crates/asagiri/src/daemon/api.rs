@@ -139,6 +139,9 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             if part == "verify-mounts" {
                 return reply(w, engine.verify_checkpoint_receiver(id, name).map(|()| Value::Null), 200);
             }
+            if part == "install-process" {
+                return reply(w, engine.install_checkpoint_process(id, name).map(|()| Value::Null), 200);
+            }
             if part == "stdin" {
                 return reply(w, engine.restore_checkpoint_input(id, name).map(|()| Value::Null), 200);
             }

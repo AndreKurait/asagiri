@@ -3210,15 +3210,28 @@ impl Engine {
             if c.status != Status::Running || !c.in_guest {
                 return Err(Error::Conflict("mount verification requires a running receiver".into()));
             }
-            let volumes: std::collections::BTreeSet<_> = c.spec.mount_info.iter()
-                .filter(|mount| mount["Type"] == "volume")
-                .filter_map(|mount| mount["Name"].as_str())
-                .map(str::to_owned)
-                .collect();
-            Ok(volumes.into_iter().collect::<Vec<_>>())
+            Ok(checkpoint_receiver_volumes(c))
         })??;
         let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
         vm.verify_checkpoint_receiver(&id, name, &volumes).map_err(|e| Error::Conflict(e.to_string()))
+    }
+
+    pub fn install_checkpoint_process(&self, key: &str, name: &str) -> Result<(), Error> {
+        let id = self.resolve(key)?;
+        let lifecycle = self.lifecycle(&id)?;
+        let _restoring = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let volumes = self.with(&id, |c| {
+            c.ensure_unfenced()?;
+            if c.status != Status::Running || !c.in_guest || !c.spec.checkpoint_wait || c.paused {
+                return Err(Error::Conflict("process installation requires a running checkpoint receiver".into()));
+            }
+            Ok(checkpoint_receiver_volumes(c))
+        })??;
+        let vm = self.awake().ok_or_else(|| Error::Conflict("receiver guest stopped".into()))?;
+        vm.install_checkpoint_process(&id, name, &volumes).map_err(|error| {
+            if error.kind() == io::ErrorKind::WouldBlock { Error::Conflict(error.to_string()) }
+            else { Error::Io(error) }
+        })
     }
 
     pub fn restore_checkpoint_input(&self, key: &str, name: &str) -> Result<(), Error> {
@@ -4594,6 +4607,15 @@ impl Attachment {
             },
         }
     }
+}
+
+fn checkpoint_receiver_volumes(c: &Container) -> Vec<String> {
+    let volumes: std::collections::BTreeSet<_> = c.spec.mount_info.iter()
+        .filter(|mount| mount["Type"] == "volume")
+        .filter_map(|mount| mount["Name"].as_str())
+        .map(str::to_owned)
+        .collect();
+    volumes.into_iter().collect()
 }
 
 fn take_network_address<T>(addresses: &mut Vec<(String, T)>, network: &str) -> Option<T> {

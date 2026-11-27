@@ -619,13 +619,21 @@ impl VmLink {
     }
 
     pub fn checkpoint_live(&self, spec: asagiri_proto::CheckpointSpec<'_>) -> io::Result<()> {
+        self.checkpoint_operation(|o| Msg::CheckpointCreate(spec).encode(o))
+    }
+
+    pub fn install_checkpoint_process(&self, id: &str, name: &str, volumes: &[String]) -> io::Result<()> {
+        self.checkpoint_operation(|out| asagiri_proto::encode_checkpoint_install_process(out, id, name, volumes))
+    }
+
+    fn checkpoint_operation(&self, request: impl FnOnce(&mut Vec<u8>)) -> io::Result<()> {
         let completion = self.checkpoint.reserve()?;
-        let result = self.ack(|o| Msg::CheckpointCreate(spec).encode(o))
+        let result = self.ack(request)
             .map_err(|error| match error.to_string().strip_prefix("checkpoint conflict: ") {
                 Some(message) => io::Error::new(io::ErrorKind::WouldBlock, message.to_owned()),
                 None => error,
             })
-            .and_then(|()| completion.recv().unwrap_or_else(|_| Err(io::Error::other("the VM stopped during checkpoint capture"))));
+            .and_then(|()| completion.recv().unwrap_or_else(|_| Err(io::Error::other("the VM stopped during the checkpoint operation"))));
         self.checkpoint.clear();
         result
     }

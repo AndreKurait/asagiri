@@ -128,6 +128,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
     // filesystem workers, including when an I/O error leaves this loop.
     let mut copy_jobs = super::copy::Broker::new(&roots);
     let mut checkpoint: Option<super::checkpoint::Capture> = None;
+    let mut restoring: Option<super::checkpoint::RestoreProcess> = None;
     let mut fds: Vec<libc::pollfd> = Vec::with_capacity(16);
     let mut frame = Vec::with_capacity(4096);
     let mut out = Vec::with_capacity(4096);
@@ -136,6 +137,32 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
     let mut fs_events = fsnotify::Pending::default();
 
     loop {
+        if let Some(restore) = restoring.as_mut() {
+            let result = match restore.poll() {
+                Ok(None) => None,
+                Ok(Some(pid)) => Some(adopt_restored(&mut procs, &mut dns, &restore.container_id, pid)),
+                Err(error) => Some(Err(error)),
+            };
+            if let Some(result) = result {
+                let mut restore = restoring.take().expect("restore has a result");
+                out.clear();
+                let error = match result {
+                    Ok(previous) => {
+                        let pid = procs[&restore.container_id].run.pid;
+                        Msg::CheckpointRestored { id: &restore.container_id, previous_pid: previous as u32, pid: pid as u32 }.encode(&mut out);
+                        String::new()
+                    }
+                    Err(error) => {
+                        restore.clean_failed_restore();
+                        format!("checkpoint: {error}")
+                    }
+                };
+                drop(restore);
+                reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, None);
+                Msg::CheckpointResult { error: &error }.encode(&mut out);
+                conn.write_all(&out)?;
+            }
+        }
         if let Some(capture) = checkpoint.as_mut() {
             let result = match capture.poll() {
                 Ok(None) => None,
@@ -154,7 +181,10 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
         }
         roots.start(paths, std::time::Instant::now());
         volumes.start(std::time::Instant::now());
-        copy_jobs.advance(paths, |id| copy_view(&procs, id), |spec| checkpoint.as_ref().is_some_and(|c| c.container_id == spec.id || spec.mounts.iter().any(|v| c.uses_volume(v))));
+        copy_jobs.advance(paths, |id| copy_view(&procs, id), |spec| {
+            checkpoint.as_ref().is_some_and(|c| c.container_id == spec.id || spec.mounts.iter().any(|v| c.uses_volume(v)))
+                || restoring.as_ref().is_some_and(|r| r.container_id == spec.id)
+        });
         root_events(&roots, &procs, &mut conn, &mut out)?;
         fds.clear();
         fds.push(libc::pollfd { fd: conn.as_raw_fd(), events: libc::POLLIN, revents: 0 });
@@ -199,7 +229,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
         }
         // SAFETY: `fds` is a valid array of pollfd of the given length.
         let mut timeout = dhcp.as_ref().map_or(-1, Dhcp::timeout_ms);
-        if roots.needs_retry_poll() || volumes.needs_retry_poll() {
+        if roots.needs_retry_poll() || volumes.needs_retry_poll() || restoring.is_some() {
             timeout = if timeout < 0 { 250 } else { timeout.min(250) };
         }
         if hung {
@@ -377,7 +407,9 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
 
         if fds[1].revents != 0 {
             drain_signals(&sigfd);
-            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, checkpoint.as_mut());
+            let worker = checkpoint.as_mut().map(super::checkpoint::Capture::worker)
+                .or_else(|| restoring.as_mut().map(super::checkpoint::RestoreProcess::worker));
+            reap(&mut procs, &mut dns, &roots, &mut copy_jobs, &mut volumes, worker);
         }
 
         // A private PID 1's exit makes the kernel kill its descendants.
@@ -443,6 +475,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
 
         if fds[0].revents != 0 {
             if !read_frame(&mut conn, &mut frame)? {
+                drop(restoring.take());
                 // The host went away: on a Linux host, the daemon died. Its
                 // containers do not outlive it (there is no live restore).
                 if host_process {
@@ -455,6 +488,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
             match asagiri_proto::decode(&frame) {
                 Ok(Msg::Ping(v)) => Msg::Pong(v).encode(&mut out),
                 Ok(Msg::Shutdown) => {
+                    drop(restoring.take());
                     if host_process {
                         // The daemon has stopped them Docker's way already;
                         // what is left is killed and torn down.
@@ -521,7 +555,8 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Err(e) if super::startup::rejected(&e) => Msg::StartRejected(&e.to_string()).encode(&mut out),
                     Err(e) => Msg::Error(&format!("run {}: {e}", spec.id)).encode(&mut out),
                 },
-                Ok(Msg::Exec(spec)) if checkpoint.as_ref().is_some_and(|c| c.container_id == spec.container_id) => {
+                Ok(Msg::Exec(spec)) if checkpoint.as_ref().is_some_and(|c| c.container_id == spec.container_id)
+                    || restoring.as_ref().is_some_and(|c| c.container_id == spec.container_id) => {
                     Msg::Error("container checkpoint in progress").encode(&mut out);
                 }
                 Ok(Msg::Exec(spec)) if procs.contains_key(spec.exec_id) => {
@@ -691,6 +726,10 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::Freeze { id, .. } | Msg::NetAttach { id, .. } | Msg::NetDetach { id, .. })
+                    if restoring.as_ref().is_some_and(|r| r.container_id == id) => {
+                    Msg::Error("checkpoint restore in progress").encode(&mut out);
+                }
                 Ok(Msg::Freeze { id, frozen: false }) if checkpoint.as_ref().is_some_and(|c| c.container_id == id || procs.get(id)
                     .is_some_and(|p| p.run.writable_volumes.iter().any(|name| c.uses_volume(name)))) => {
                     Msg::Error("container or volume checkpoint in progress").encode(&mut out);
@@ -734,11 +773,31 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),
                 },
+                Ok(Msg::CheckpointInstallProcess { id, name, volumes }) => {
+                    let result = if restoring.is_some() || checkpoint.is_some() {
+                        Err(io::Error::other("another checkpoint operation is in progress"))
+                    } else if copy_jobs.writes_root(id) {
+                        Err(io::Error::other("finish the active receiver upload before restore"))
+                    } else if let Some(runtime) = runtime {
+                        procs.get(id).filter(|p| p.run.container.is_none() && p.exited.is_none())
+                            .ok_or_else(|| io::Error::other("receiver is not running"))
+                            .and_then(|p| super::checkpoint::RestoreProcess::start(runtime, &paths.containers, &p.run, name, volumes))
+                    } else {
+                        Err(io::Error::other("checkpoint runtime is unavailable"))
+                    };
+                    match result {
+                        Ok(restore) => {
+                            restoring = Some(restore);
+                            Msg::Ack.encode(&mut out);
+                        }
+                        Err(error) => Msg::Error(&format!("checkpoint conflict: {error}")).encode(&mut out),
+                    }
+                }
                 Ok(Msg::CheckpointCreate(spec)) => {
                     let id = spec.id;
                     let result = if !spec.leave_running {
                         Err(io::Error::other("only live checkpoint capture is implemented"))
-                    } else if checkpoint.is_some() {
+                    } else if checkpoint.is_some() || restoring.is_some() {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "a checkpoint capture is already in progress"))
                     } else if copy_jobs.writes_root(id) {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "checkpoint has another active writer uploading to this container"))
@@ -1285,10 +1344,22 @@ fn drain_signals(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), info.as_mut_ptr().cast(), info.len()) } > 0 {}
 }
 
-fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes, mut checkpoint: Option<&mut super::checkpoint::Capture>) {
+fn adopt_restored(procs: &mut Procs, dns: &mut super::dns::Dns, id: &str, pid: libc::pid_t) -> io::Result<libc::pid_t> {
+    let proc = procs.get_mut(id).filter(|p| p.exited.is_none() && p.run.awaiting_checkpoint_restore)
+        .ok_or_else(|| io::Error::other("receiver stopped before adoption"))?;
+    let previous = proc.run.pid;
+    // SAFETY: the waiting init is our child and its PID has not been reaped.
+    if unsafe { libc::kill(previous, libc::SIGKILL) } != 0 { return Err(io::Error::last_os_error()); }
+    dns.replace_container_pid(previous, pid);
+    proc.run.pid = pid;
+    proc.run.awaiting_checkpoint_restore = false;
+    Ok(previous)
+}
+
+fn reap(procs: &mut Procs, dns: &mut super::dns::Dns, roots: &Roots, copies: &mut super::copy::Broker<'_>, volumes: &mut super::volumes::Volumes, mut worker: Option<&mut super::checkpoint::Worker>) {
     loop {
         let mut status = 0;
-        let candidate = checkpoint.as_deref_mut().map_or(-1, |capture| capture.next_reapable_pid());
+        let candidate = worker.as_deref_mut().map_or(-1, super::checkpoint::Worker::next_reapable_pid);
         // While capturing, a positive PID has been observed without being
         // reaped. Zero means no child is ready for the general reaper.
         // SAFETY: plain waitpid on any or one observed child.
