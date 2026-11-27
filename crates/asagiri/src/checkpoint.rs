@@ -1,4 +1,7 @@
 //! Checkpoint compatibility inventory and source handoff controls.
+mod networks;
+pub(crate) use networks::prepare_networks;
+
 use crate::client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

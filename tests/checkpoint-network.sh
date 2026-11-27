@@ -12,8 +12,9 @@ cleanup() {
 }
 trap cleanup EXIT
 asagiri=${ASAGIRI_BIN:-asagiri}
-docker network create --subnet 10.218.47.0/24 --label purpose=checkpoint "$network" >/dev/null
-docker network create --internal "$secondary" >/dev/null
+docker network create --subnet 10.218.47.0/24 --ip-range 10.218.47.0/26 --aux-address reserved=10.218.47.12 \
+    --ipv6 --subnet fd83:218:47::/64 -o com.docker.network.driver.mtu=1450 --label purpose=checkpoint "$network" >/dev/null
+docker network create --internal --attachable "$secondary" >/dev/null
 cid=$(docker run -d --pull=never --network "$network" --ip 10.218.47.9 --network-alias before \
     --hostname checkpoint-host --dns 192.0.2.53 --dns-search example.test --dns-option ndots:2 \
     --add-host local.example:192.0.2.1 -p 127.0.0.1::8080/tcp alpine:3.21 sh -ec '
@@ -62,3 +63,34 @@ tar -xOf "$work/checkpoint.tar" network.json | jq -e --slurpfile inspect "$work/
     .requestedPorts["8080/tcp"][0].HostPort == "0"
 ' >/dev/null
 echo 'PASS checkpoint retained the frozen network files, network definitions, endpoints, DNS and allocated ports after source changes'
+
+# Restore the two bridge definitions into an engine that no longer has either.
+docker rm -f "$cid" >/dev/null
+cid=''
+docker network rm "$secondary" "$network" >/dev/null
+docker network create --label conflicting=true "$secondary" >/dev/null
+if "$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" >"$work/error" 2>&1; then exit 1; fi
+grep -Fq "$secondary differs" "$work/error"
+if docker network inspect "$network" >/dev/null 2>&1; then exit 1; fi
+test "$(docker network inspect -f '{{index .Labels "conflicting"}}' "$secondary")" = true
+docker network rm "$secondary" >/dev/null
+if [ -n "${NETWORK_TEST_RECORDS:-}" ]; then
+    mkdir "$NETWORK_TEST_RECORDS.tmp"
+    if "$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" >"$work/error" 2>&1; then exit 1; fi
+    rmdir "$NETWORK_TEST_RECORDS.tmp"
+    for net in "$network" "$secondary"; do if docker network inspect "$net" >/dev/null 2>&1; then exit 1; fi; done
+fi
+"$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" "$work/checkpoint.tar" >"$work/prepared.json" & first=$!
+"$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" >"$work/concurrent.json" & second=$!
+wait "$first"; wait "$second"
+jq -es 'all(.[]; length == 2) and ((.[0] | map_values(.id)) == (.[1] | map_values(.id))) and
+    any(.[]; all(.[]; .created == true)) and any(.[]; all(.[]; .created == false))' \
+    "$work/prepared.json" "$work/concurrent.json" >/dev/null
+docker network inspect "$network" "$secondary" | jq -e --slurpfile source "$work/networks.json" '
+    def config: map(del(.Id, .Created, .Containers)) | sort_by(.Name);
+    config == ($source[0] | config)
+' >/dev/null
+"$asagiri" checkpoint prepare-networks "$work/checkpoint.tar" | jq -e --slurpfile before "$work/prepared.json" '
+    all(.[]; .created == false) and map_values(.id) == ($before[0] | map_values(.id))
+' >/dev/null
+echo 'PASS both checkpoint networks matched the source, reused destination IDs, and rejected a conflicting group'

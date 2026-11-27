@@ -124,6 +124,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri usb [list] | attach DEVICE | detach DEVICE   USB devices for containers, beta (Mac: pass through to the VM)
        asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
+       asagiri checkpoint prepare-networks INPUT.tar [INPUT.tar...]
        asagiri checkpoint create [--external-network] CONTAINER NAME
        asagiri checkpoint import CONTAINER NAME INPUT.tar
        asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]
@@ -229,6 +230,8 @@ fn main() -> ExitCode {
         Some("config") => daemon_config::run(&args[1..]),
         #[cfg(unix)]
         Some("k8s") => k8s::run(&args[1..]),
+        #[cfg(unix)]
+        Some("checkpoint") if args.get(1).map(String::as_str) == Some("prepare-networks") => checkpoint::prepare_networks(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("create") => checkpoint::create(&args[2..]),
         #[cfg(unix)]

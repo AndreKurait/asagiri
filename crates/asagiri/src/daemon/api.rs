@@ -188,6 +188,16 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             let mounts = engine.resolve(key).and_then(|id| Ok(json!(engine.vm()?.checkpoint_mounts(&id)?)));
             return reply(w, mounts, 200);
         }
+        ("POST", "/asagiri/checkpoint-networks") => {
+            if !matches!(caller, Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let result = serde_json::from_slice::<Vec<Value>>(&req.body)
+                .map_err(|e| Error::BadRequest(format!("invalid checkpoint networks: {e}")))
+                .and_then(|networks| engine.lock_net().prepare_checkpoint_networks(networks));
+            return reply(w, result, 200);
+        }
         ("GET", "/asagiri/checkpoint-platform") => {
             if !matches!(caller, super::caller::Caller::Host) {
                 http::error(w, 403, "host connection required")?;
@@ -3222,7 +3232,7 @@ fn network_json(engine: &Engine, n: &super::network::Network, with_members: bool
     value
 }
 
-fn network_definition(n: &super::network::Network) -> Value {
+pub(super) fn network_definition(n: &super::network::Network) -> Value {
     let ipam = if n.bridge.is_empty() {
         json!([])
     } else {
@@ -3299,13 +3309,18 @@ fn network_inspect(engine: &Engine, key: &str) -> Result<Value, Error> {
 fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
     let body: Value = serde_json::from_slice(&req.body).map_err(|e| Error::BadRequest(format!("invalid JSON: {e}")))?;
     let name = body["Name"].as_str().unwrap_or_default();
+    let n = engine.lock_net().create(name, network_create_settings(&body)?).map_err(net_error)?;
+    Ok(json!({"Id": n.id, "Warning": ""}))
+}
+
+pub(super) fn network_create_settings(body: &Value) -> Result<super::network::Settings, Error> {
     let driver = match body["Driver"].as_str().unwrap_or("bridge") {
         "" => "bridge",
         d @ ("bridge" | "macvlan" | "ipvlan") => d,
         d => return Err(Error::BadRequest(format!("Asagiri supports only bridge, macvlan and ipvlan networks, not {d}"))),
     };
     let (ipam, ipam6) = super::network::parse_ipam_both(&body["IPAM"]).map_err(Error::BadRequest)?;
-    let settings = super::network::Settings {
+    Ok(super::network::Settings {
         labels: body["Labels"].clone(),
         macvlan: driver == "macvlan",
         ipvlan: driver == "ipvlan",
@@ -3317,9 +3332,7 @@ fn network_create(req: &Request, engine: &Engine) -> Result<Value, Error> {
         ipv6: body["EnableIPv6"].as_bool() == Some(true),
         no_ipv4: body["EnableIPv4"].as_bool() == Some(false),
         ipam6,
-    };
-    let n = engine.lock_net().create(name, settings).map_err(net_error)?;
-    Ok(json!({"Id": n.id, "Warning": ""}))
+    })
 }
 
 fn network_prune(req: &Request, engine: &Engine) -> Result<Value, Error> {

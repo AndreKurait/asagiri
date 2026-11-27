@@ -13,6 +13,8 @@
 //! under fd00::/8 per engine), as Docker's default address pools hand out.
 //! The default `bridge` stays IPv4-only, as Docker's does.
 
+mod checkpoint;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
@@ -752,13 +754,20 @@ impl Networks {
     }
 
     fn save(&self) {
-        let user: Vec<&Network> = self.list.iter().filter(|n| !n.builtin()).collect();
-        if let Ok(json) = serde_json::to_vec(&user) {
-            let tmp = self.path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, &self.path)) {
-                crate::diag::error!("saving networks failed", error = e);
-            }
+        if let Err(error) = self.write_networks(false) {
+            crate::diag::error!("saving networks failed", error = error);
         }
+    }
+
+    fn write_networks(&self, durable: bool) -> io::Result<()> {
+        let user: Vec<_> = self.list.iter().filter(|n| !n.builtin()).collect();
+        let tmp = self.path.with_extension("json.tmp");
+        let file = std::fs::File::create(&tmp)?;
+        let mut writer = std::io::BufWriter::new(&file);
+        serde_json::to_writer(&mut writer, &user)?;
+        std::io::Write::flush(&mut writer)?;
+        if durable { file.sync_all()?; }
+        std::fs::rename(tmp, &self.path)
     }
 
     pub fn all(&self) -> &[Network] {
@@ -779,6 +788,13 @@ impl Networks {
     }
 
     pub fn create(&mut self, name: &str, s: Settings) -> Result<Network, String> {
+        let n = self.new_network(name, s)?;
+        self.list.push(n.clone());
+        self.save();
+        Ok(n)
+    }
+
+    fn new_network(&self, name: &str, s: Settings) -> Result<Network, String> {
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
             return Err(format!("invalid network name {name:?}"));
         }
@@ -887,8 +903,6 @@ impl Networks {
             v6,
             used: BTreeSet::new(),
         };
-        self.list.push(n.clone());
-        self.save();
         Ok(n)
     }
 
