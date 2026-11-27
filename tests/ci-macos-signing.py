@@ -122,6 +122,15 @@ class SigningTests(unittest.TestCase):
         self.assertLess(staple_app, build_dmg)
         self.assertLess(build_dmg, staple_dmg)
         self.assertLess(staple_dmg, pack)
+        extract = calls[pack + 1]
+        self.assertEqual(extract[:2], ("/usr/bin/tar", "-xzf"))
+        self.assertTrue(extract[2].endswith("/Asagiri-0.1.0-arm64.tar.gz"))
+        extracted_app = str(Path(extract[-1]) / "Asagiri.app")
+        self.assertEqual(calls[pack + 2:], [
+            ("codesign", "--verify", "--deep", "--strict", extracted_app),
+            ("xcrun", "stapler", "validate", extracted_app),
+            ("spctl", "--assess", "--type", "execute", "--verbose=2", extracted_app),
+        ])
         self.assertEqual(sum(args[:3] == ("xcrun", "notarytool", "submit") for args in calls), 2)
         self.assertFalse((directory / "notary-app.zip").exists())
         self.assertTrue(any(args[:4] == ("spctl", "--assess", "--type", "execute") for args in calls))
