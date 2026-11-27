@@ -6,6 +6,7 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 - Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
 - The macOS menu bar preserves the engine action you select while the engine is recovering (#527).
 - The macOS updater validates archive paths and bundle contents before extraction. Release packaging compresses both Mac update archives in parallel (#521, #523).
+- Published TCP connections on macOS use half as many relay socket descriptors per connection, leaving more descriptors available for concurrent connections (#528).
 - Windows Buildx includes the upstream certificate validation fix, and Build history recognizes workers using equivalent local pipe endpoints (#497, #498). Linux clients in an integrated WSL distribution can discover its Docker socket, and the Windows dashboard resolves Compose project paths inside WSL (#478, #485).
 - WSL distributions coordinate host networking before assigning bridge addresses, with rollback when an address is rejected (#519).
 - Linux ignores published ports for containers using host networking and reports when the kernel cannot place a new process atomically in its cgroup (#483, #495).
