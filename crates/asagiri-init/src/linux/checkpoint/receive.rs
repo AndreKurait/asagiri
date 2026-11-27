@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 
-use super::{volumes, writable};
+use super::{stdio, volumes, writable};
 
 fn invalid(message: impl std::fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, format!("invalid checkpoint: {message}"))
@@ -59,6 +59,15 @@ fn check_inventory(stage: &Path, layers: asagiri_proto::StrList<'_>) -> io::Resu
     if stage.join("rootfs").try_exists()? {
         check_writable(&stage.join("rootfs"), layers)?;
     }
+    let streams = stage.join(stdio::MANIFEST);
+    let input = stage.join("stdin.bin");
+    if streams.try_exists()? {
+        let stdio: stdio::CheckpointStdio = manifest(&streams)?;
+        stdio.validate().map_err(invalid)?;
+        if stdio.stdin.is_some() != input.try_exists()? || (stdio.stdin.is_some() && !input.is_file()) {
+            return Err(invalid("inconsistent checkpoint input data"));
+        }
+    } else if input.try_exists()? { return Err(invalid("input data without stdio inventory")); }
     let inventory = stage.join(volumes::MANIFEST);
     if inventory.try_exists()? || stage.join("volumes").try_exists()? {
         let mounts: Vec<volumes::Mount> = manifest(&inventory)?;

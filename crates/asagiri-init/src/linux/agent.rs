@@ -183,7 +183,8 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
             for fd in [&p.run.stdout, &p.run.stderr].into_iter().flatten() {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
             }
-            if let (Some(fd), false) = (&p.run.stdin, p.input.is_empty()) {
+            if let (Some(fd), false) = (&p.run.stdin, p.input.is_empty() && !p.close_stdin_when_drained)
+                && !checkpoint.as_ref().is_some_and(|c| !p.run.tty && c.container_id == p.run.id) {
                 fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 });
             }
         }
@@ -540,7 +541,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                                 p.run.stdin = None;
                             } else {
                                 p.input.extend(data);
-                                target = Some(fd);
+                                if p.run.tty || !checkpoint.as_ref().is_some_and(|c| c.container_id == id) { target = Some(fd); }
                             }
                         }
                     }
@@ -553,7 +554,7 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     if let Some(p) = procs.values_mut().find(|p| p.run.id == id) {
                         // A terminal has no separate end of input; keep it open.
                         if !p.run.tty {
-                            if p.input.is_empty() {
+                            if p.input.is_empty() && !checkpoint.as_ref().is_some_and(|c| c.container_id == id) {
                                 p.run.stdin = None;
                             } else {
                                 p.close_stdin_when_drained = true;
@@ -705,9 +706,10 @@ pub(super) fn serve(mut conn: File, paths: &Paths, runtime: Option<&super::check
                     } else if procs.values().any(|p| p.run.container.as_deref() == Some(id) && p.exited.is_none()) {
                         Err(io::Error::new(io::ErrorKind::WouldBlock, "finish the active container exec before checkpointing"))
                     } else if let Some(runtime) = runtime {
-                        match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (&p.run, group))) {
-                            Some((run, group)) => super::checkpoint::Capture::start(runtime, run, group, &paths.containers, spec,
-                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, run.pid, volume)),
+                        match procs.get(id).filter(|p| p.exited.is_none()).and_then(|p| container::cgroup(&p.run).map(|group| (p, group))) {
+                            Some((p, group)) => super::checkpoint::Capture::start(runtime, &p.run, group, &paths.containers, spec,
+                                super::checkpoint::CheckpointInput { queued: &p.input, close_when_drained: p.close_stdin_when_drained },
+                                |volume| copy_jobs.writes_volume(volume) || other_volume_writer(&procs, p.run.pid, volume)),
                             None => Err(io::Error::other(format!("container {id} is not running"))),
                         }
                     } else {

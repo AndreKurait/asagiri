@@ -11,6 +11,8 @@ fn invalid(message: impl Into<String>) -> io::Error { io::Error::new(io::ErrorKi
 #[serde(rename_all = "camelCase")]
 struct NetworkConfig {
     container_name: String,
+    open_stdin: Option<bool>,
+    stdin_once: Option<bool>,
     mode: String,
     hostname: String,
     domainname: String,
@@ -43,6 +45,15 @@ fn receiver(config: Value, inventory: &Inventory) -> io::Result<(String, Value)>
     }
     let Value::Object(mut body) = config else { return Err(invalid("expected a Docker container-create JSON object")); };
     if body.get("Image").and_then(Value::as_str).is_none_or(str::is_empty) { return Err(invalid("supply Image in the destination create request")); }
+    if let Some(streams) = &inventory.stdio {
+        set_field(&mut body, "Tty", json!(streams.tty))?;
+        if !streams.tty {
+            set_field(&mut body, "OpenStdin", json!(streams.stdin.is_some()))?;
+        } else if let Some(open) = saved.open_stdin {
+            set_field(&mut body, "OpenStdin", json!(open))?;
+        }
+        if let Some(once) = saved.stdin_once { set_field(&mut body, "StdinOnce", json!(once))?; }
+    }
     let mut endpoints = Map::new();
     let mut primary = None;
     for net in &inventory.networks {

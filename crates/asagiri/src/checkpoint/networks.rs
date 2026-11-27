@@ -3,12 +3,17 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+#[path = "../../../asagiri-proto/src/checkpoint_stdio.rs"]
+mod stdio;
+use stdio::CheckpointStdio;
 
 #[derive(Deserialize)]
 pub(super) struct Inventory {
     version: u64,
     pub(super) networks: Vec<Value>,
     pub(super) endpoints: Map<String, Value>,
+    #[serde(skip)]
+    pub(super) stdio: Option<CheckpointStdio>,
     #[serde(flatten)]
     pub(super) settings: Map<String, Value>,
 }
@@ -18,7 +23,8 @@ fn inventory(mut file: impl Read + Seek) -> io::Result<Inventory> {
     file.seek(SeekFrom::Start(0))?;
     let mut archive = tar::Archive::new(&mut file);
     let mut end = 0;
-    let mut result = None;
+    let mut result: Option<Inventory> = None;
+    let mut stdio = None;
     let mut long_name = None;
     for entry in archive.entries_with_seek()?.raw(true) {
         let mut entry = entry?;
@@ -35,12 +41,22 @@ fn inventory(mut file: impl Read + Seek) -> io::Result<Inventory> {
             continue;
         }
         if !kind.is_file() && !kind.is_dir() { return Err(io::Error::other("unexpected checkpoint archive member type")); }
-        let is_inventory = long_name.take().map_or_else(|| entry.path_bytes().as_ref() == b"network.json", |name| name == b"network.json");
-        if is_inventory {
-            if result.is_some() || !kind.is_file() || entry.size() > asagiri_proto::MAX_FRAME as u64 { return Err(io::Error::other("invalid checkpoint network inventory")); }
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
-            result = Some(serde_json::from_slice(&bytes)?);
+        let name = long_name.take();
+        let path = entry.path_bytes();
+        let member = name.as_deref().unwrap_or(&path);
+        if member == b"network.json" || member == b"stdio.json" {
+            if !kind.is_file() || entry.size() > asagiri_proto::MAX_FRAME as u64 {
+                return Err(io::Error::other("invalid checkpoint inventory member"));
+            }
+            if member == b"network.json" {
+                if result.is_some() { return Err(io::Error::other("duplicate checkpoint network inventory")); }
+                result = Some(serde_json::from_reader(&mut entry)?);
+            } else {
+                if stdio.is_some() { return Err(io::Error::other("duplicate checkpoint stdio inventory")); }
+                let streams: CheckpointStdio = serde_json::from_reader(&mut entry)?;
+                streams.validate()?;
+                stdio = Some(streams);
+            }
         }
     }
     if long_name.is_some() { return Err(io::Error::other("missing checkpoint member after extended path")); }
@@ -52,7 +68,9 @@ fn inventory(mut file: impl Read + Seek) -> io::Result<Inventory> {
         if n == 0 { break; }
         if buf[..n].iter().any(|&byte| byte != 0) { return Err(io::Error::other("data after checkpoint archive end")); }
     }
-    result.ok_or_else(|| io::Error::other("checkpoint lacks network.json"))
+    let mut result = result.ok_or_else(|| io::Error::other("checkpoint lacks network.json"))?;
+    result.stdio = stdio;
+    Ok(result)
 }
 
 pub(super) fn read_inventory(path: &str) -> io::Result<Inventory> {

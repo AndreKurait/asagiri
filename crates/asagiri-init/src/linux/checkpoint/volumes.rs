@@ -88,6 +88,7 @@ pub(in super::super) fn run_filesystem_hook() -> io::Result<()> {
 }
 
 fn capture_filesystems(images: &Path) -> io::Result<()> {
+    super::pipe_data::capture(images)?;
     let container = std::env::var_os("ASAGIRI_CHECKPOINT_CONTAINER_DIR").ok_or_else(|| io::Error::other("missing checkpoint container directory"))?;
     super::writable::capture(Path::new(&container), images)?;
     let mounts: Vec<Mount> = serde_json::from_reader(File::open(images.join(MANIFEST))?)?;

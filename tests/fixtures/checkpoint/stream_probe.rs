@@ -30,6 +30,8 @@ impl State {
         self.file.write_all(&[byte])?;
         self.file.sync_data()?;
         self.count += 1;
+        println!("stdout {} {byte}", self.nonce);
+        eprintln!("stderr {} {byte}", self.nonce);
         Ok(())
     }
 }
@@ -52,6 +54,18 @@ struct Proxy {
 
 impl Proxy {
     fn reply(&mut self, byte: u8, client: &mut TcpStream) -> io::Result<()> {
+        if byte == b'P' {
+            unsafe extern "C" { fn ioctl(fd: i32, request: usize, ...) -> i32; }
+            let mut available = 0i32;
+            // Linux FIONREAD on the fixture's own input pipe, without consuming the byte.
+            if unsafe { ioctl(0, 0x541b, &mut available) } != 0 { return Err(io::Error::last_os_error()); }
+            return writeln!(client, "pending {available}");
+        }
+        if byte == b'I' {
+            let mut value = [0];
+            io::stdin().read_exact(&mut value)?;
+            return writeln!(client, "stdin {} {}", self.state.nonce, value[0]);
+        }
         if byte == b'?' {
             let address = (self.backend.as_str(), 17061)
                 .to_socket_addrs()?

@@ -2962,6 +2962,7 @@ pub(super) fn checkpoint_network(c: &Container, networks: &[super::network::Netw
         .map(network_definition).collect();
     json!({
         "version": 1, "containerId": c.id, "containerName": c.name, "mode": c.spec.network_mode,
+        "openStdin": c.spec.open_stdin, "stdinOnce": c.spec.stdin_once,
         "hostname": if c.spec.hostname.is_empty() { c.short_id() } else { c.spec.hostname.as_str() }, "domainname": c.spec.domainname,
         "endpoints": endpoints, "networks": definitions, "ports": ports_map(c), "requestedPorts": requested_ports_map(&c.spec.ports),
         "exposedPorts": inspect_exposed_ports(&c.spec), "dns": c.spec.dns, "dnsSearch": c.spec.dns_search, "dnsOptions": c.spec.dns_options,

@@ -2,7 +2,7 @@
 # See packaging/README.md for the two-engine handoff and the single-engine rollback test.
 set -euo pipefail
 umask 077
-mode=${1:?expected capture, rollback, verify or verify-volumes}
+mode=${1:?expected capture, rollback, verify, verify-stdio or verify-volumes}
 if [[ $mode == verify-volumes ]]; then
     if [[ $# != 3 || $2 == "$3" ]]; then
         echo 'supply the two distinct destination volume names after reboot' >&2
@@ -28,6 +28,14 @@ request() {
     IFS= read -r -t 10 reply <&3
 }
 
+stop_attach() {
+    if [[ -n ${attach_pid:-} ]]; then
+        kill -KILL "$attach_pid" 2>/dev/null || true
+        wait "$attach_pid" 2>/dev/null || true
+        attach_pid=
+    fi
+}
+
 check_writes() {
     local front back
     read -r front back <"$expected/nonces"
@@ -40,6 +48,35 @@ check_writes() {
     test "$reply" = "$(cat "$expected/connection")"
     echo 'PASS both original workloads, stream endpoints and DNS address'
 }
+
+# The source and receiver IDs differ. Use the two local IDs supplied by the operator.
+if [[ $mode == verify-stdio ]]; then
+    expected=$work
+    backend=${3:?supply the backend container ID}; frontend=${4:?supply the frontend container ID}
+    read -r front back <"$expected/nonces"
+    logs=$(mktemp -d)
+    trap 'stop_attach; rm -rf "$logs"' EXIT
+    for id in "$backend" "$frontend"; do
+        nonce=$back; [[ $id == "$backend" ]] || nonce=$front
+        # Docker separates stdout and stderr for a non-TTY container.
+        docker logs "$id" >"$logs/stdout" 2>"$logs/stderr"
+        for byte in 67 68; do
+            grep -Fxq "stdout $nonce $byte" "$logs/stdout"
+            grep -Fxq "stderr $nonce $byte" "$logs/stderr"
+        done
+    done
+    read -r port <"$expected/port"
+    exec 3<>"/dev/tcp/127.0.0.1/$port"
+    request I
+    test "$reply" = "stdin $front 90"
+    # Docker can keep streaming output after its client has sent EOF.
+    printf 'K' | docker attach --sig-proxy=false "$frontend" >"$logs/attach.out" 2>"$logs/attach.err" &
+    attach_pid=$!
+    request I
+    test "$reply" = "stdin $front 75"
+    echo 'PASS Docker logged both output streams separately and the frontend read buffered input followed by new attach input'
+    exit 0
+fi
 
 case "$mode" in
 verify)
@@ -72,7 +109,7 @@ for alias in backend frontend; do
     fi
     volume=$(docker volume create)
     # macOS ships Bash 3, which treats an empty array as unset under nounset.
-    id=$(docker create --pull=never --network "$network" --ip "$ip" --network-alias "$alias" \
+    id=$(docker create -i --pull=never --network "$network" --ip "$ip" --network-alias "$alias" \
         ${publish[@]+"${publish[@]}"} -v "$volume:/data" alpine:3.21 /tmp/stream-probe "$role")
     containers+=("$id"); volumes+=("$volume")
     printf '%s %s %s\n' "$alias" "$id" "$volume" >>"$work/members"
@@ -135,6 +172,15 @@ if [[ $mode == rollback ]]; then
     test "$reply" = "$(cat "$expected/connection")"
     echo 'PASS failed second capture preserved the earlier capture, pause state and live connection'
 fi
+# Wait for the engine to write this byte into the real workload pipe, then leave it unread.
+mkfifo "$work/input"
+exec 8<>"$work/input"
+docker attach --sig-proxy=false "${containers[1]}" <"$work/input" 8>&- >"$work/buffer-attach.out" 2>"$work/buffer-attach.err" &
+attach_pid=$!
+trap stop_attach EXIT
+printf Z >&8
+for ((i=0; i<100; i++)); do request P; [[ $reply == 'pending 1' ]] && break; sleep .05; done
+test "$reply" = 'pending 1'
 echo 'PAUSING both source workloads'
 if [[ -n $destination ]]; then
     "$asagiri" checkpoint capture-group --destination "$destination" --external-network stream "${containers[@]}" >"$work/preflight.json"
@@ -160,6 +206,7 @@ else
     "$asagiri" checkpoint release stream "${containers[@]}"
     docker unpause "${containers[@]}" >/dev/null
     check_writes
+    bash "$0" verify-stdio "$expected" "${containers[@]}"
     for id in "${containers[@]}"; do test "$(docker exec "$id" cat /data/stream)" = ABCD; done
     docker rm -f "${containers[@]}" >/dev/null
     docker volume rm "${volumes[@]}" >/dev/null
