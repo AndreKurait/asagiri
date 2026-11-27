@@ -74,7 +74,7 @@ pub(crate) fn source_group(args: &[String]) -> io::Result<()> {
     let Some((name, containers)) = rest.split_first() else { return Err(io::Error::other("missing checkpoint name")); };
     if containers.is_empty() { return Err(io::Error::other("supply at least one source container")); }
     // Bind the capture to the same immutable IDs whose dependencies were inspected.
-    let inspected = destination.map(|file| verify_destination(file, containers)).transpose()?;
+    let inspected = destination.map(|file| verify_destination(file, containers, true)).transpose()?;
     let body = json!({"name": name, "containers": inspected.as_deref().unwrap_or(containers), "externalNetwork": external_network});
     let path = format!("/asagiri/checkpoint-{action}");
     let response = if action == "capture-group" {
@@ -117,10 +117,10 @@ pub(crate) fn print_platform() -> io::Result<()> {
 pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     let [option, file, containers @ ..] = args else { return Err(usage()); };
     if option != "--destination" || containers.is_empty() { return Err(usage()); }
-    verify_destination(file, containers).map(|_| ())
+    verify_destination(file, containers, false).map(|_| ())
 }
 
-fn verify_destination(file: &str, containers: &[String]) -> io::Result<Vec<String>> {
+fn verify_destination(file: &str, containers: &[String], require_runtime: bool) -> io::Result<Vec<String>> {
     let destination: Platform = serde_json::from_reader(File::open(file)?)?;
     if destination.guest.guest_architecture.is_empty() || destination.guest.guest_kernel.is_empty()
         || destination.engine_os.is_empty() || destination.engine_version.is_empty()
@@ -164,6 +164,9 @@ fn verify_destination(file: &str, containers: &[String]) -> io::Result<Vec<Strin
     }
     if !missing_mounts.is_empty() {
         return Err(io::Error::other(format!("destination lacks required system mount targets: {}", missing_mounts.into_iter().collect::<Vec<_>>().join(", "))));
+    }
+    if require_runtime && !destination.live_capture {
+        return Err(io::Error::other("destination checkpoint runtime is unavailable"));
     }
     Ok(ids)
 }

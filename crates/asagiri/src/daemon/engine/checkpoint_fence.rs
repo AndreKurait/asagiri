@@ -52,6 +52,9 @@ impl Engine {
 
     fn capture_group_locked(&self, name: &str, ids: &[String], external_network: bool) -> Result<(), Error> {
         let vm = self.vm()?;
+        if !vm.live_checkpoint {
+            return Err(Error::Conflict("source checkpoint runtime is unavailable".into()));
+        }
         let mut configs = Vec::with_capacity(ids.len());
         for id in ids {
             let (paused, previous_capture, auto_remove) = self.with(id, |c| (c.paused, c.paused_checkpoint.clone(), c.spec.auto_remove))?;

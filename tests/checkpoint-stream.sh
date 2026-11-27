@@ -144,6 +144,16 @@ if [[ $mode == rollback ]]; then
         test -z "$("$asagiri" checkpoint ls "$id")"
     done
     echo 'PASS incompatible destination rejected before either workload was paused'
+    sed -E 's/("liveCapture"[[:space:]]*:[[:space:]]*)true/\1false/' "$work/local-platform.json" >"$work/no-runtime.json"
+    if "$asagiri" checkpoint capture-group --destination "$work/no-runtime.json" stream "${containers[@]}" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'destination checkpoint runtime is unavailable' "$work/error"
+    for id in "${containers[@]}"; do
+        test "$(docker inspect -f '{{.State.Paused}}' "$id")" = false
+        test -z "$("$asagiri" checkpoint ls "$id")"
+    done
+    request '?'
+    test "$reply" = "$(cat "$expected/connection")"
+    echo 'PASS destination without checkpoint runtime left both workloads running'
     # The first member has an earlier capture in this pause. Keep its snapshot and pause on failure.
     ordered=($(printf '%s\n' "${containers[@]}" | LC_ALL=C sort))
     first=${ordered[0]}; second=${ordered[1]}
