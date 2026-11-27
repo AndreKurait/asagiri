@@ -5,7 +5,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 mod changeset;
@@ -256,16 +256,73 @@ pub(super) fn list(containers: &Path, id: &str) -> io::Result<Vec<String>> {
 /// The agent reserves a single capture and never reaps its target PID while
 /// CRIU could still use it.
 pub(super) struct Capture {
-    child: Child,
-    target_pid: libc::pid_t,
+    worker: Worker,
     pub(super) container_id: String,
     staging: PathBuf,
     destination: PathBuf,
     _queued_input: Option<fs::File>,
     _replay_input: Option<fs::File>,
+    volume_mounts: Vec<volumes::Mount>,
+}
+
+/// Reserves both the CRIU child and the container PID until the worker exits.
+pub(super) struct Worker {
+    child: Child,
+    target_pid: libc::pid_t,
     cancelled: bool,
     finished: bool,
-    volume_mounts: Vec<volumes::Mount>,
+}
+
+impl Worker {
+    /// The child must have been spawned in its own process group.
+    pub(super) fn new(child: Child, target_pid: libc::pid_t) -> Self {
+        Self { child, target_pid, cancelled: false, finished: false }
+    }
+
+    pub(super) fn poll(&mut self) -> io::Result<Option<ExitStatus>> {
+        let status = self.child.try_wait()?;
+        self.finished = status.is_some();
+        Ok(status)
+    }
+
+    /// Cancel on target exit without allowing its PID to be reused first.
+    pub(super) fn next_reapable_pid(&mut self) -> libc::pid_t {
+        loop {
+            // SAFETY: waitid writes a local siginfo_t. WNOWAIT leaves the exit for its reaper.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let rc = unsafe { libc::waitid(libc::P_ALL, 0, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
+            if rc != 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted { continue; }
+                return 0;
+            }
+            let pid = unsafe { info.si_pid() };
+            if pid == self.target_pid {
+                self.cancel();
+                return 0;
+            }
+            if pid == self.child.id() as libc::pid_t { return 0; }
+            return pid;
+        }
+    }
+
+    fn cancel(&mut self) {
+        if !self.cancelled && !self.finished {
+            self.cancelled = true;
+            // SAFETY: this child has not been reaped and owns its process group.
+            unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL); }
+        }
+    }
+
+    fn stop_and_wait(&mut self) {
+        if !self.finished {
+            self.cancel();
+            self.finished = self.child.wait().is_ok();
+        }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) { self.stop_and_wait(); }
 }
 
 impl Capture {
@@ -319,43 +376,16 @@ impl Capture {
                 return Err(error);
             }
         };
-        Ok(Self { child, target_pid: pid, container_id: run.id.clone(), staging, destination, _queued_input: queued, _replay_input: replay, cancelled: false, finished: false, volume_mounts })
+        Ok(Self { worker: Worker::new(child, pid), container_id: run.id.clone(), staging, destination, _queued_input: queued, _replay_input: replay, volume_mounts })
     }
 
-    /// Peek without making the target PID reusable. On target exit, stop the
-    /// capture first and let the next SIGCHLD finish it before reaping the target.
     pub(super) fn next_reapable_pid(&mut self) -> libc::pid_t {
-        loop {
-            // SAFETY: waitid writes to a valid local siginfo_t. The WNOWAIT
-            // flag leaves any child's exit available to its reaper.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            let rc = unsafe { libc::waitid(libc::P_ALL, 0, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
-            if rc != 0 {
-                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted { continue; }
-                return 0;
-            }
-            let pid = unsafe { info.si_pid() };
-            if pid == self.target_pid {
-                self.cancel();
-                return 0;
-            }
-            if pid == self.child.id() as libc::pid_t { return 0; }
-            return pid;
-        }
-    }
-
-    fn cancel(&mut self) {
-        if !self.cancelled {
-            self.cancelled = true;
-            // SAFETY: this child has not been reaped and owns its process group.
-            unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL); }
-        }
+        self.worker.next_reapable_pid()
     }
 
     pub(super) fn poll(&mut self) -> io::Result<Option<()>> {
-        let Some(status) = self.child.try_wait()? else { return Ok(None) };
-        self.finished = true;
-        let result = if self.cancelled {
+        let Some(status) = self.worker.poll()? else { return Ok(None) };
+        let result = if self.worker.cancelled {
             Err(io::Error::other("container exited during checkpoint capture"))
         } else if !status.success() {
             let detail = dump_failure(&self.staging.join("dump.log")).unwrap_or_default();
@@ -391,9 +421,8 @@ fn dump_failure(path: &Path) -> io::Result<String> {
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        if !self.finished {
-            self.cancel();
-            let _ = self.child.wait();
+        if !self.worker.finished {
+            self.worker.stop_and_wait();
             remove_staging(&self.staging);
         }
     }
