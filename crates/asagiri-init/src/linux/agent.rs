@@ -672,6 +672,7 @@ pub fn serve(mut conn: File, paths: &Paths) -> io::Result<()> {
                     },
                     None => Msg::Error(&format!("container {id} is not running")).encode(&mut out),
                 },
+                Ok(Msg::GuestPlatformQuery) => super::checkpoint::platform(&mut out),
                 Ok(Msg::CheckpointList { id }) => match super::checkpoint::list(&paths.containers, id) {
                     Ok(names) => asagiri_proto::encode_checkpoints(&mut out, &names),
                     Err(e) => Msg::Error(&format!("list checkpoints: {e}")).encode(&mut out),

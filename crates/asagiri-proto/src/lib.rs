@@ -60,8 +60,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 15 includes guest MemAvailable and PSI in memory-pressure notifications.
 /// 16 adds an asynchronous oversized usage reply.
 /// 17 separates checkpoint admission from capture completion.
+/// 18 queries the running guest's kernel and architecture for checkpoint preflight.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 17;
+pub const PROTOCOL: u16 = 18;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -196,6 +197,8 @@ pub enum Msg<'a> {
     /// Host → guest: replace a running endpoint's DNS names. Answered by `Ack`.
     DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
     CheckpointList { id: &'a str },
+    GuestPlatformQuery,
+    GuestPlatform { architecture: &'a str, kernel: &'a str },
     Checkpoints(StrList<'a>),
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
@@ -828,6 +831,8 @@ mod kind {
     pub const CHECKPOINT_LIST: u16 = 86;
     pub const CHECKPOINTS: u16 = 87;
     pub const CHECKPOINT_RESULT: u16 = 88;
+    pub const GUEST_PLATFORM_QUERY: u16 = 89;
+    pub const GUEST_PLATFORM: u16 = 90;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1246,6 +1251,11 @@ impl Msg<'_> {
             Msg::TopQuery { id } => frame(out, kind::TOP_QUERY, |o| put_str(o, id)),
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
+            Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
+            Msg::GuestPlatform { architecture, kernel } => frame(out, kind::GUEST_PLATFORM, |o| {
+                put_str(o, architecture);
+                put_str(o, kernel);
+            }),
             Msg::Checkpoints(names) => encode_raw_reply(out, kind::CHECKPOINTS, names.count, names.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
             Msg::UsbNodesQuery => frame(out, kind::USB_NODES_QUERY, |_| {}),
@@ -1559,6 +1569,8 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::TOP_QUERY => Msg::TopQuery { id: r.str()? },
         kind::TOP => Msg::Top(r.list()?),
         kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
+        kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
+        kind::GUEST_PLATFORM => Msg::GuestPlatform { architecture: r.str()?, kernel: r.str()? },
         kind::CHECKPOINTS => Msg::Checkpoints(r.list()?),
         kind::LISTEN_QUERY => Msg::ListenQuery { id: r.str()? },
         kind::LISTENING => Msg::Listening(r.list()?),
@@ -1685,6 +1697,8 @@ mod tests {
         round(Msg::Error("boom"));
         round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
+        round(Msg::GuestPlatformQuery);
+        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58" });
         let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
             mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };
         round(Msg::Stats(full));

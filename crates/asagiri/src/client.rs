@@ -370,7 +370,7 @@ impl Stream {
     }
 }
 
-fn valid_checkpoint_component(s: &str) -> bool {
+pub(crate) fn valid_checkpoint_component(s: &str) -> bool {
     !s.is_empty() && !matches!(s, "." | "..") && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 

@@ -151,6 +151,23 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             version["Experimental"] = json!(engine.live_checkpoint());
             return reply(w, Ok(version), 200);
         }
+        ("GET", "/asagiri/checkpoint-platform") => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            let platform = engine.vm().and_then(|vm| {
+                let (architecture, kernel) = vm.guest_platform()?;
+                Ok(json!(crate::checkpoint::Platform {
+                    engine_version: env!("CARGO_PKG_VERSION").into(),
+                    engine_os: std::env::consts::OS.into(),
+                    guest_architecture: architecture,
+                    guest_kernel: kernel,
+                    live_capture: vm.live_checkpoint,
+                }))
+            });
+            return reply(w, platform.map_err(Error::Io), 200);
+        }
         ("POST", "/auth") => return reply(w, auth(req), 200),
         // Asagiri's own: the window's Start and Stop.
         // Start: no longer stopped, and the VM up.
@@ -3034,6 +3051,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Dns": c.spec.dns,
             "DnsSearch": c.spec.dns_search,
             "DnsOptions": c.spec.dns_options,
+            "ExtraHosts": super::hostopts::extra_hosts(&c.spec.host_opts, &c.spec.extra_hosts),
             "Links": if c.spec.links.is_empty() { Value::Null } else { json!(c.spec.links.iter().map(|l| format!("/{}:/{}/{}", l.name, c.name, l.alias)).collect::<Vec<_>>()) },
             "RestartPolicy": {"Name": c.spec.restart.name, "MaximumRetryCount": c.spec.restart.max_retries},
             "LogConfig": {"Type": c.spec.log_config.kind, "Config": c.spec.log_config.config},

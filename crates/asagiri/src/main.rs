@@ -33,6 +33,8 @@ mod hostrelay;
 #[cfg(unix)]
 mod cli_pins;
 #[cfg(unix)]
+mod checkpoint;
+#[cfg(unix)]
 mod client;
 #[cfg(unix)]
 mod wsl_paths;
@@ -122,6 +124,8 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri usb [list] | attach DEVICE | detach DEVICE   USB devices for containers, beta (Mac: pass through to the VM)
        asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
+       asagiri checkpoint platform
+       asagiri checkpoint preflight --destination PLATFORM.json CONTAINER [CONTAINER...]
        asagiri machine create NAME [--distro D] | list | shell NAME | stop | delete NAME
        asagiri import [orbstack | desktop-linux] [--list]
        asagiri bench [--runs N] [--image IMAGE] [--network none|bridge]
@@ -226,6 +230,10 @@ fn main() -> ExitCode {
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("ls") => client::checkpoint_list(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("export") => client::checkpoint_export(&args[2..]),
+        #[cfg(unix)]
+        Some("checkpoint") if args.get(1).map(String::as_str) == Some("platform") && args.len() == 2 => checkpoint::print_platform(),
+        #[cfg(unix)]
+        Some("checkpoint") if args.get(1).map(String::as_str) == Some("preflight") => checkpoint::preflight(&args[2..]),
         #[cfg(unix)]
         Some("machine") => machine::run(&args[1..]),
         #[cfg(unix)]

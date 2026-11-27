@@ -5,6 +5,21 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
+pub(super) fn platform(out: &mut Vec<u8>) {
+    use asagiri_proto::Msg;
+    use std::ffi::CStr;
+    let mut uts = std::mem::MaybeUninit::<libc::utsname>::uninit();
+    // SAFETY: uname fills the whole structure and NUL-terminates its strings on success.
+    if unsafe { libc::uname(uts.as_mut_ptr()) } != 0 {
+        Msg::Error(&format!("guest uname: {}", io::Error::last_os_error())).encode(out);
+        return;
+    }
+    // SAFETY: uname succeeded above; both pointers remain valid for the encoding.
+    let uts = unsafe { uts.assume_init() };
+    let (arch, kernel) = unsafe { (CStr::from_ptr(uts.machine.as_ptr()), CStr::from_ptr(uts.release.as_ptr())) };
+    Msg::GuestPlatform { architecture: &arch.to_string_lossy(), kernel: &kernel.to_string_lossy() }.encode(out);
+}
+
 pub(super) fn list(containers: &Path, id: &str) -> io::Result<Vec<String>> {
     super::container::valid_id(id)?;
     let entries = match fs::read_dir(containers.join(id).join("checkpoints")) {
