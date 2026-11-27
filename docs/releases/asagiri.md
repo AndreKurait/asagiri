@@ -4,7 +4,14 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 
 - On Macs with multiple virtual bridges, the fallback uplink selects the bridge that learned the guest MAC address. Off-host connectivity remains under investigation in #213.
 - Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
-- Both guest kernel configurations enable prerequisites for checkpointing (#507). Cross-machine restore is tracked in #506.
+- The macOS menu bar preserves the engine action you select while the engine is recovering (#527).
+- The macOS updater validates archive paths and bundle contents before extraction. Release packaging compresses both Mac update archives in parallel (#521, #523).
+- Windows Buildx includes the upstream certificate validation fix, and Build history recognizes workers using equivalent local pipe endpoints (#497, #498). Linux clients in an integrated WSL distribution can discover its Docker socket, and the Windows dashboard resolves Compose project paths inside WSL (#478, #485).
+- WSL distributions coordinate host networking before assigning bridge addresses, with rollback when an address is rejected (#519).
+- Linux ignores published ports for containers using host networking and reports when the kernel cannot place a new process atomically in its cgroup (#483, #495).
+- The registry mirror serves manifest and index digests from their original bytes. A re-pull repairs a corrupt cached manifest even when its size is unchanged (#499).
+- Build history finds builds using implicit contexts, and cache prune reports usage from current BuildKit output (#502, #525).
+- Both guest kernel configurations enable prerequisites for checkpointing, and both guest architectures can bundle CRIU. A restore request with a missing checkpoint leaves the container stopped. Cross-machine restore is tracked in #506 (#507, #508, #512, #514).
 
 ## Earlier releases
 
