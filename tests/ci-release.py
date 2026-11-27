@@ -354,13 +354,17 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.provenance(REPO, COMMIT, "0.1.0-dev.62", env)
 
-    def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False, jammy=False, windows_tests=False):
+    def package_recovery(self, *, candidate=None, jobs=None, checks=None, qemu=False, jammy=False, windows_tests=False, checkpoint=False):
         candidate = self.release_run() if candidate is None else candidate
-        jobs = ([{"name": name, "status": "completed", "conclusion": "success"}
-                 for name in sorted(release.PACKAGE_JOBS | ({release.QEMU_JOB} if qemu else set()) | ({release.JAMMY_JOB} if jammy else set()) | ({release.WINDOWS_TEST_JOB} if windows_tests else set()))] + [
-                    {"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
-                     "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]}]
-                if jobs is None else jobs)
+        markers = {release.QEMU_RELEASE: (qemu, {release.QEMU_JOB}),
+                   release.JAMMY_SCRIPT: (jammy, {release.JAMMY_JOB}),
+                   release.WINDOWS_TEST_SCRIPT: (windows_tests, {release.WINDOWS_TEST_JOB}),
+                   release.CHECKPOINT_RECIPE: (checkpoint, release.CHECKPOINT_JOBS)}
+        if jobs is None:
+            required = release.PACKAGE_JOBS.union(*(names for enabled, names in markers.values() if enabled))
+            jobs = [{"name": name, "status": "completed", "conclusion": "success"} for name in sorted(required)]
+            jobs.append({"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                         "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]})
         checks = self.checks() if checks is None else checks
         def api(_, path):
             if path == "actions/runs/123":
@@ -373,12 +377,22 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, "api", side_effect=api), \
                 patch.object(release, "run", side_effect=[
                     SimpleNamespace(stdout=""),
-                    SimpleNamespace(stdout="\n".join(path for path, present in ((release.QEMU_RELEASE, qemu), (release.JAMMY_SCRIPT, jammy), (release.WINDOWS_TEST_SCRIPT, windows_tests)) if present)),
+                    SimpleNamespace(stdout="\n".join(path for path, (enabled, _) in markers.items() if enabled)),
                     SimpleNamespace(stdout="0.1.0\n")]) as run:
             result = release.recover_packages(REPO, "123")
         self.assertEqual(run.call_args_list[0].args,
                          ("git", "merge-base", "--is-ancestor", COMMIT, "origin/main"))
         return result
+
+    def test_checkpoint_recovery_requires_sources_for_the_packaged_revision(self):
+        self.assertEqual(self.package_recovery(checkpoint=True), (COMMIT, "0.1.0-dev.62", True, 1))
+        for missing in release.CHECKPOINT_JOBS:
+            required = (release.PACKAGE_JOBS | release.CHECKPOINT_JOBS) - {missing}
+            jobs = [{"name": name, "status": "completed", "conclusion": "success"} for name in required]
+            jobs.append({"name": release.PUBLISH_JOB, "status": "completed", "conclusion": "failure",
+                         "steps": [{"name": "Attest the release artifacts", "conclusion": "failure"}]})
+            with self.subTest(missing=missing), self.assertRaisesRegex(SystemExit, "every native packaging"):
+                self.package_recovery(checkpoint=True, jobs=jobs)
 
     def test_package_recovery_retains_original_version_and_source(self):
         self.assertEqual(self.package_recovery(), (COMMIT, "0.1.0-dev.62", True, 1))
@@ -437,9 +451,11 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.package_recovery(checks=self.checks()[1:])
 
-    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False, qemu=True, appimage=True):
+    def package_assets(self, dist, version="0.1.0-dev.34", *, normalized=False, qemu=True, appimage=True, checkpoint=True):
         package_version = version.replace("-", "." if normalized else "~", 1)
         names = {"asagiri-kernel-source.tar.xz"}
+        if checkpoint:
+            names.add(release.CHECKPOINT_SOURCE)
         if qemu:
             names.add(release.QEMU_SOURCE)
         for arch, deb in (("x86_64", "amd64"), ("aarch64", "arm64")):
@@ -473,7 +489,7 @@ class ReleaseTests(unittest.TestCase):
                 manifest = json.loads((dist / "release-manifest.json").read_text())
                 self.assertEqual(manifest["commit"], COMMIT)
                 self.assertEqual(manifest["version"], version)
-                self.assertEqual(len(manifest["assets"]), 26)
+                self.assertEqual(len(manifest["assets"]), 27)
                 self.assertEqual({asset["name"] for asset in manifest["assets"]}, set(original))
                 self.assertNotIn("~", (dist / "SHA256SUMS").read_text())
                 for asset in manifest["assets"]:
@@ -487,7 +503,7 @@ class ReleaseTests(unittest.TestCase):
             root = Path(folder)
             dist = root / "dist"
             dist.mkdir()
-            self.package_assets(dist, qemu=False, appimage=False)
+            self.package_assets(dist, qemu=False, appimage=False, checkpoint=False)
             with patch.dict(release.os.environ, {"GITHUB_ACTIONS": "false"}):
                 release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
                                                 commit=COMMIT, repo=REPO, source_root=root))
@@ -505,6 +521,13 @@ class ReleaseTests(unittest.TestCase):
                 release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34",
                                                 commit=COMMIT, repo=REPO))
             self.assertEqual({path.name: path.read_bytes() for path in dist.iterdir()}, original)
+
+    def test_checkpoint_release_requires_source_archive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            dist = Path(folder)
+            self.package_assets(dist, checkpoint=False)
+            with self.assertRaisesRegex(SystemExit, release.CHECKPOINT_SOURCE):
+                release.collect(SimpleNamespace(directory=dist, version="0.1.0-dev.34", commit=COMMIT, repo=REPO))
 
     def test_emulator_cannot_publish_without_its_source_archive(self):
         with tempfile.TemporaryDirectory() as folder:

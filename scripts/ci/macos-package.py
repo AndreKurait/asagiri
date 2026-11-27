@@ -66,7 +66,7 @@ def verify_archive(archive, expected):
             raise ValueError("The update archive does not contain the verified app identity")
 
 
-def verify(app, archive, version, arch):
+def verify(app, archive, version, arch, initramfs=None):
     if arch not in ("arm64", "x86_64"):
         raise ValueError("Unsupported Mac architecture")
     plist = app / "Contents/Info.plist"
@@ -81,6 +81,12 @@ def verify(app, archive, version, arch):
         "Asagiri.app/Contents/Info.plist": digest(plist),
         "Asagiri.app/Contents/MacOS/asagiri": digest(executable),
     }
+    if initramfs is not None:
+        name = "Contents/Resources/guest/initramfs.cpio"
+        built_digest = digest(initramfs)
+        if digest(app / name) != built_digest:
+            raise ValueError("The packaged guest initramfs differs from the release build")
+        expected[f"Asagiri.app/{name}"] = built_digest
     verify_archive(archive, expected)
     return {
         "schema": 1, "version": version, "architecture": arch,
@@ -95,9 +101,10 @@ def main():
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--arch", choices=("arm64", "x86_64"), required=True)
+    parser.add_argument("--initramfs", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = verify(args.app, args.archive, args.version, args.arch)
+    result = verify(args.app, args.archive, args.version, args.arch, args.initramfs)
     result["verified_at"] = datetime.now(timezone.utc).isoformat()
     text = json.dumps(result, indent=2) + "\n"
     if args.output:

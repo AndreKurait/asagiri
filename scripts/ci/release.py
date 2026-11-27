@@ -31,6 +31,10 @@ QEMU_RELEASE = "packaging/qemu/release.json"
 WINDOWS_TEST_SCRIPT = "scripts/ci/windows-launcher-tests.ps1"
 WINDOWS_TEST_JOB = "Windows launcher tests"
 QEMU_SOURCE = "asagiri-qemu-source.tar.xz"
+CHECKPOINT_RECIPE = "packaging/checkpoint/source.py"
+CHECKPOINT_JOBS = {"Checkpoint runtime corresponding source", "Mac guest checkpoint runtime (arm64)",
+                   "Mac guest checkpoint runtime (x86_64)"}
+CHECKPOINT_SOURCE = "asagiri-checkpoint-source.tar"
 
 
 def run(*args, check=True):
@@ -221,11 +225,12 @@ def recover_packages(repo, run_id):
         raise SystemExit("Only a failed official main or version-tag release can supply packages")
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
     jobs = pages(repo, f"actions/runs/{run_id}/jobs?filter=latest", "jobs")
-    marker_jobs = {QEMU_RELEASE: QEMU_JOB, JAMMY_SCRIPT: JAMMY_JOB, WINDOWS_TEST_SCRIPT: WINDOWS_TEST_JOB}
+    marker_jobs = {QEMU_RELEASE: {QEMU_JOB}, JAMMY_SCRIPT: {JAMMY_JOB}, WINDOWS_TEST_SCRIPT: {WINDOWS_TEST_JOB},
+                   CHECKPOINT_RECIPE: CHECKPOINT_JOBS}
     markers = run("git", "ls-tree", "--name-only", commit, *marker_jobs).stdout.splitlines()
     if set(markers) - marker_jobs.keys():
         raise SystemExit("Unexpected release packaging declaration")
-    expected_jobs = PACKAGE_JOBS | {marker_jobs[path] for path in markers}
+    expected_jobs = PACKAGE_JOBS.union(*(marker_jobs[path] for path in markers))
     if len(jobs) != len(expected_jobs) + 1 or {job["name"] for job in jobs} != expected_jobs | {PUBLISH_JOB}:
         raise SystemExit("Recovery requires every native packaging and installer job")
     for job in jobs:
@@ -411,6 +416,8 @@ def collect(args):
         expected.update(f"Asagiri-{version}-{arch}.AppImage" for arch in ("x86_64", "aarch64"))
     # A newer publisher can recover an older source release. Its package
     # contract comes from that source checkout, not the publisher's revision.
+    if (getattr(args, "source_root", ROOT) / CHECKPOINT_RECIPE).is_file():
+        expected.add(CHECKPOINT_SOURCE)
     marker = getattr(args, "source_root", ROOT) / QEMU_RELEASE
     if marker.exists():
         if marker.is_symlink() or json.loads(marker.read_text()) != {"schema": 1, "source_asset": QEMU_SOURCE}:

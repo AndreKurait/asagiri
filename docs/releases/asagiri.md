@@ -5,6 +5,7 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 - On Macs with multiple virtual bridges, the fallback uplink selects the bridge that learned the guest MAC address. Off-host connectivity remains under investigation in #213.
 - Mac bind mounts replay file notifications from container start so the first edit can reach an existing watcher (#504).
 - Both guest kernel configurations enable prerequisites for checkpointing (#507). Cross-machine restore is tracked in #506.
+- The Apple Silicon and Intel Mac packages bundle CRIU and its helpers. `docker checkpoint create --leave-running` captures a container, and `asagiri checkpoint export` saves the named checkpoint to a tar file. The release asset `asagiri-checkpoint-source.tar` contains the matching Debian sources and build recipes for both architectures.
 
 ## Earlier releases
 

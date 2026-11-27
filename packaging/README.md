@@ -38,6 +38,13 @@ ASAGIRI_CRIU_RUNTIME="$PWD/target/checkpoint/arm64.tar" cargo xtask guest --arch
 
 For the Intel guest, use `x86_64` in both commands. The build needs Docker with support for the selected Linux architecture. Choose a new archive path for another build.
 
+Release CI builds each runtime on a Linux runner of the matching architecture. The macOS packaging job verifies that the app and update archive both contain the initramfs from that build. The `asagiri-checkpoint-source.tar` release asset includes both guest inventories, the runtime archive digests, the build recipes, and the complete Debian source packages. To build this asset locally, run the following command with the two runtime archives.
+
+```sh
+python3 packaging/checkpoint/source.py --arm64 target/checkpoint/arm64.tar \
+  --x86-64 target/checkpoint/x86_64.tar --output target/asagiri-checkpoint-source.tar
+```
+
 ## Linux package assembly
 
 ```sh
