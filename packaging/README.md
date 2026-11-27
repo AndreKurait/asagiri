@@ -80,7 +80,9 @@ asagiri checkpoint import "$receiver" received frontend.tar
 
 The engine claims the configured addresses and ports on start. A busy address or port can still prevent activation. An ordinary start runs the destination image’s command. Resuming the captured process in the prepared namespace still requires CRIU and destination filesystem staging.
 
-Import stores the checkpoint. Manual restore opens the prepared endpoint’s network namespace and passes that descriptor to CRIU with `--inherit-fd fd[N]:asagiri-network`, where `N` is the open descriptor number. In a two-container ARM64 Mac-to-Debian test, the frontend kept its TCP connection to the backend. An external client reconnected to the original published port after source shutdown. On live rollback, the same external client socket remained usable.
+Import stores the checkpoint. Manual restore opens the prepared endpoint’s network namespace and passes that descriptor to CRIU with `--inherit-fd fd[N]:asagiri-network`, where `N` is the open descriptor number. In two-container ARM64 tests between Mac and Debian engines on one physical Mac, the frontend kept its TCP connection to the backend in both directions. The external client reconnected to the original published port after source shutdown. On live rollback, the same external client socket remained usable.
+
+For connected workloads, coordinate socket restore across the group. A Debian-to-Mac diagnostic restored both process trees into their destination namespaces, but its first request failed when the endpoints could exchange packets during restore. The passing procedure temporarily held traffic between the two peer addresses inside the destination namespaces. It ran CRIU from each receiver’s cgroup with `--manage-cgroups=ignore --leave-stopped`, checked that both restored PIDs belonged to the intended cgroups and network namespaces, removed the temporary peer rules, and continued both processes. The Mac engine provided the endpoints and published port. A diagnostic guest performed the filesystem staging and CRIU calls.
 
 To repeat the network checks, use disposable engines with Alpine 3.21 already loaded and the `10.218.47.0/24` subnet available. Compile the static workload for the Linux guest architecture. For ARM64 with the Rust musl target installed, run the following commands. `rollback` creates a new private output directory.
 
@@ -91,7 +93,9 @@ rustc --edition=2024 --target aarch64-unknown-linux-musl -C linker=rust-lld -O \
 bash tests/checkpoint-stream.sh rollback "$work/rollback" "$work/stream-probe"
 ```
 
-For a handoff, replace `rollback` with `capture` and give it a new output directory. When it prints `FENCED`, stop the disposable source engine. The probe checks that its original external connection ends. Transfer the two archives privately and retain the `expected` directory for comparison. Restore both workloads into matching destination endpoints, then run `bash tests/checkpoint-stream.sh verify /path/to/expected` on the destination. The test opens the published port, checks both RAM-only identities and counters, compares the TCP endpoints, and resolves the backend name from the restored frontend. Each destination volume should contain `ABCD` in `/data/stream` after a reboot.
+For a handoff, replace `rollback` with `capture` and give it a new output directory. When it prints `FENCED`, stop the disposable source engine. The probe checks that its original external connection ends. Transfer the two archives privately and retain the `expected` directory for comparison. Restore both workloads into matching destination endpoints, then run `bash tests/checkpoint-stream.sh verify /path/to/expected` on the destination. The test opens the published port, checks both RAM-only identities and counters, compares the TCP endpoints, and resolves the backend name from the restored frontend.
+
+After rebooting the destination, run `bash tests/checkpoint-stream.sh verify-volumes BACKEND_VOLUME FRONTEND_VOLUME` with the names of the two destination volumes. The check mounts each existing volume read-only in a fresh container and compares `/data/stream` byte for byte with `ABCD`.
 
 ## Transfer a checkpoint privately
 

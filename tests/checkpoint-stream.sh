@@ -2,7 +2,24 @@
 # See packaging/README.md for the two-engine handoff and the single-engine rollback test.
 set -euo pipefail
 umask 077
-mode=${1:?expected capture, rollback or verify}
+mode=${1:?expected capture, rollback, verify or verify-volumes}
+if [[ $mode == verify-volumes ]]; then
+    if [[ $# != 3 || $2 == "$3" ]]; then
+        echo 'supply the two distinct destination volume names after reboot' >&2
+        exit 2
+    fi
+    shift
+    for volume do
+        [[ $volume =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]
+        test "$(docker volume inspect --format '{{.Name}}' "$volume")" = "$volume"
+    done
+    for volume do
+        docker run --rm --pull=never --network none -v "$volume:/data:ro" alpine:3.21 \
+            sh -ec 'printf %s ABCD | cmp - /data/stream'
+    done
+    echo 'PASS both destination volumes retained ABCD'
+    exit 0
+fi
 work=${2:?supply a new private directory on source, or its expected directory on destination}
 asagiri=${ASAGIRI_BIN:-asagiri}
 
