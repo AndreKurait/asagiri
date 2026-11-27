@@ -51,7 +51,9 @@ def stage(arch):
     copy('/' + loader, helpers / loader)
     libs = helpers / 'lib' / triplet
     for command in ['tar', 'gzip', 'sh', 'ip', 'iptables', 'ip6tables', 'iptables-save',
-                    'ip6tables-save', 'iptables-restore', 'ip6tables-restore']:
+                    'ip6tables-save', 'iptables-restore', 'ip6tables-restore',
+                    'iptables-legacy-save', 'ip6tables-legacy-save',
+                    'iptables-legacy-restore', 'ip6tables-legacy-restore']:
         path = shutil.which(command)
         if not path:
             raise RuntimeError(f'missing {command}')

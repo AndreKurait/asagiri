@@ -30,7 +30,7 @@ class GuestKernelRequirements(unittest.TestCase):
             41: "TASK_IO_ACCOUNTING",
             72: "FUSE_FS USER_NS",
             494: "NETWORK_FILESYSTEMS NFS_FS NFS_V3 NFS_V4 NFS_V4_1",
-            506: "EXPERT CHECKPOINT_RESTORE PROC_SYSCTL PROC_PAGE_MONITOR",
+            506: "EXPERT CHECKPOINT_RESTORE PROC_SYSCTL PROC_PAGE_MONITOR IPV6_ROUTER_PREF IPV6_ROUTE_INFO IPV6_OPTIMISTIC_DAD",
             254: "BLK_DEV_LOOP EXT4_FS",
         }
         for arch, text in (("arm64", base), ("x86_64", x86 + (KERNEL / "asagiri-x86_64.config").read_text())):

@@ -68,6 +68,27 @@ static void verify_passsec(int family, int type, int protocol) {
     CHECK(close(fd) == 0, "close checkpoint probe socket");
 }
 
+/* CRIU writes these IPv6 namespace settings on restore, even for a
+ * container whose only interface is loopback. Exercise each write handler. */
+static void verify_checkpoint_sysctls(void) {
+    const char *paths[] = {
+        "/proc/sys/net/ipv6/conf/all/accept_ra_rt_info_min_plen",
+        "/proc/sys/net/ipv6/conf/all/accept_ra_rt_info_max_plen",
+        "/proc/sys/net/ipv6/conf/all/optimistic_dad",
+        "/proc/sys/net/ipv6/conf/all/use_optimistic",
+    };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
+        int fd = open(paths[i], O_RDWR);
+        CHECK(fd >= 0, paths[i]);
+        char value[32];
+        ssize_t count = read(fd, value, sizeof(value));
+        CHECK(count > 0, "read IPv6 checkpoint sysctl");
+        CHECK(lseek(fd, 0, SEEK_SET) == 0 && write(fd, value, (size_t)count) == count,
+              "restore IPv6 checkpoint sysctl");
+        CHECK(close(fd) == 0, "close IPv6 sysctl");
+    }
+}
+
 static void verify_copy_up_birth_time(void) {
     const char *dirs[] = {"/mnt/lower", "/mnt/upper", "/mnt/work", "/mnt/merged"};
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
@@ -116,6 +137,7 @@ int main(void) {
     CHECK(control >= 0, "open loop-control");
     verify_passsec(AF_UNIX, SOCK_STREAM, 0);
     verify_passsec(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    verify_checkpoint_sysctls();
 #ifdef __aarch64__
     verify_vdso_hashes();
 #endif
