@@ -1,5 +1,6 @@
+use std::collections::BTreeSet;
 use std::fs::{self, DirBuilder};
-use std::io;
+use std::io::{self, BufRead, BufReader};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,47 @@ pub(super) fn platform(out: &mut Vec<u8>) {
     // SAFETY: uname succeeded above; both pointers remain valid for the encoding.
     let uts = unsafe { uts.assume_init() };
     let (arch, kernel) = unsafe { (CStr::from_ptr(uts.machine.as_ptr()), CStr::from_ptr(uts.release.as_ptr())) };
-    Msg::GuestPlatform { architecture: &arch.to_string_lossy(), kernel: &kernel.to_string_lossy() }.encode(out);
+    let features = fs::File::open("/proc/cpuinfo").and_then(|f| common_cpu_features(BufReader::new(f))).ok().flatten();
+    // Native Linux currently has no checkpoint runtime selected by the agent.
+    let version = if super::transport::is_host_process() { None } else { bundled_criu_version() };
+    Msg::GuestPlatform {
+        architecture: &arch.to_string_lossy(), kernel: &kernel.to_string_lossy(),
+        cpu_features: features.as_deref(), criu_package_version: version.as_deref().unwrap_or(""),
+    }.encode(out);
+}
+
+/// Linux lists flags per processor. A missing list on any CPU makes the
+/// intersection unknown, including when an older kernel omits these fields.
+fn common_cpu_features(cpuinfo: impl BufRead) -> io::Result<Option<String>> {
+    let mut common: Option<BTreeSet<String>> = None;
+    let mut needs_flags = false;
+    for line in cpuinfo.lines() {
+        let line = line?;
+        let Some((key, value)) = line.split_once(':') else { continue };
+        match key.trim() {
+            "processor" => {
+                if needs_flags { return Ok(None); }
+                needs_flags = true;
+            }
+            "flags" | "Features" if needs_flags => {
+                let flags: BTreeSet<_> = value.split_ascii_whitespace().collect();
+                match &mut common {
+                    Some(common) => common.retain(|flag| flags.contains(flag.as_str())),
+                    None => common = Some(flags.into_iter().map(str::to_owned).collect()),
+                }
+                needs_flags = false;
+            }
+            _ => {}
+        }
+    }
+    if needs_flags { return Ok(None); }
+    Ok(common.map(|flags| flags.into_iter().collect::<Vec<_>>().join(" ")))
+}
+
+fn bundled_criu_version() -> Option<String> {
+    let inventory: serde_json::Value = serde_json::from_reader(BufReader::new(fs::File::open("/bundle/packages.json").ok()?)).ok()?;
+    let criu = inventory["packages"].as_array()?.iter().find(|package| package["package"] == "criu")?;
+    criu["version"].as_str().map(str::to_owned)
 }
 
 pub(super) fn list(containers: &Path, id: &str) -> io::Result<Vec<String>> {
@@ -160,4 +201,19 @@ fn dump(pid: libc::pid_t, group: &Path, images: &Path) -> io::Result<Child> {
         .args(["--images-dir", ".", "--leave-running", "--shell-job", "--tcp-established"])
         .args(["--external", "mnt[/etc/hostname]:asagiri-hostname", "--external", "mnt[/etc/hosts]:asagiri-hosts", "--external", "mnt[/etc/resolv.conf]:asagiri-resolv"])
         .spawn()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_features_describe_every_processor() {
+        let parse = |s: &str| common_cpu_features(s.as_bytes()).unwrap();
+        assert_eq!(parse("processor: 0\nflags: aes sse avx\n\nprocessor: 1\nflags: sse aes\n"), Some("aes sse".into()));
+        assert_eq!(parse("processor: 0\nFeatures: fp\n\nprocessor: 1\nFeatures: aes"), Some(String::new()));
+        assert_eq!(parse("processor: 0\nFeatures: fp\n\nprocessor: 1\n"), None);
+        assert_eq!(parse("processor: 0\n\nprocessor: 1\nflags: sse\n"), None);
+        assert_eq!(parse(""), None);
+    }
 }

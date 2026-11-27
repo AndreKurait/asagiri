@@ -35,7 +35,7 @@ pub enum Reply {
     ContainerStats(asagiri_proto::ContainerStats),
     Top(Vec<String>),
     Checkpoints(Vec<String>),
-    GuestPlatform { architecture: String, kernel: String },
+    GuestPlatform(crate::checkpoint::GuestPlatform),
     Listening(Vec<String>),
     UsbNodes(Vec<String>),
     Uplink([u8; 4], [u8; 4]),
@@ -433,7 +433,11 @@ impl VmLink {
                     Ok(Msg::ContainerStats(s)) => Reply::ContainerStats(s),
                     Ok(Msg::Top(lines)) => Reply::Top(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::Checkpoints(names)) => Reply::Checkpoints(names.iter().map(str::to_owned).collect()),
-                    Ok(Msg::GuestPlatform { architecture, kernel }) => Reply::GuestPlatform { architecture: architecture.to_owned(), kernel: kernel.to_owned() },
+                    Ok(Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version }) => Reply::GuestPlatform(crate::checkpoint::GuestPlatform {
+                        guest_architecture: architecture.to_owned(), guest_kernel: kernel.to_owned(),
+                        cpu_features: cpu_features.map(|features| features.split_ascii_whitespace().map(str::to_owned).collect()),
+                        criu_package_version: (!criu_package_version.is_empty()).then(|| criu_package_version.to_owned()),
+                    }),
                     Ok(Msg::Listening(lines)) => Reply::Listening(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::UsbNodes(lines)) => Reply::UsbNodes(lines.iter().map(str::to_owned).collect()),
                     Ok(Msg::Uplink { ip, gateway }) => Reply::Uplink(ip, gateway),
@@ -572,9 +576,9 @@ impl VmLink {
         self.ack(|o| Msg::Update { id, limits }.encode(o))
     }
 
-    pub fn guest_platform(&self) -> io::Result<(String, String)> {
+    pub fn guest_platform(&self) -> io::Result<crate::checkpoint::GuestPlatform> {
         match self.call(|o| Msg::GuestPlatformQuery.encode(o), None)? {
-            Reply::GuestPlatform { architecture, kernel } => Ok((architecture, kernel)),
+            Reply::GuestPlatform(platform) => Ok(platform),
             other => Err(io::Error::other(format!("expected guest platform, got {other:?}"))),
         }
     }

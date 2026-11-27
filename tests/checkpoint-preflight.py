@@ -35,8 +35,16 @@ def main():
         if not matches:
             assert "incompatible guest architectures" in result.stderr
         report = json.loads(result.stdout)
-        assert report["source"] == source and report["destination"] == destination
+        expected_destination = {"cpuFeatures": None, "criuPackageVersion": None, **destination}
+        assert report["source"] == source and report["destination"] == expected_destination
         assert report["guestArchitectureMatches"] == matches
+        source_features, destination_features = source["cpuFeatures"], expected_destination["cpuFeatures"]
+        missing = None
+        if matches and source_features is not None and destination_features is not None:
+            missing = sorted(set(source_features) - set(destination_features))
+        assert report["sourceCpuFeaturesMissingOnDestination"] == missing
+        versions = (source["criuPackageVersion"], expected_destination["criuPackageVersion"])
+        assert report["criuPackageVersionsMatch"] == (versions[0] == versions[1] if None not in versions else None)
         assert [row["id"] for row in report["containers"]] == list(original)
         current = inspect()
         for row in report["containers"]:

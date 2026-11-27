@@ -7,6 +7,7 @@ Asagiri is an independent Docker-compatible engine derived from Kiri.
 - Both guest kernel configurations enable prerequisites for checkpointing (#507). Cross-machine restore is tracked in #506.
 - The Apple Silicon and Intel Mac packages bundle CRIU and its helpers. `docker checkpoint create --leave-running` captures a container, and `asagiri checkpoint export` saves the named checkpoint to a tar file. The release asset `asagiri-checkpoint-source.tar` contains the matching Debian sources and build recipes for both architectures.
 - Before a handoff, run `asagiri checkpoint platform > destination.json` on the destination and copy that file to the source. Run `asagiri checkpoint preflight --destination destination.json CONTAINER [CONTAINER...]` on the source to inventory mounts, devices, DNS, networks and published ports. This read-only check reports each guest's kernel and returns a nonzero status if the architectures differ. A matching architecture is one prerequisite for restore.
+- For guests of the same architecture, preflight lists source CPU features missing from the destination. It also reports whether the packaged CRIU versions match when both engines supply a version. A `null` comparison means the required information is unavailable or the CPU architectures differ. These fields help review a handoff before testing restore.
 
 ## Earlier releases
 

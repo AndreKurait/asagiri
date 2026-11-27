@@ -198,7 +198,8 @@ pub enum Msg<'a> {
     DnsRename { id: &'a str, bridge: &'a str, ip: [u8; 4], names: StrList<'a> },
     CheckpointList { id: &'a str },
     GuestPlatformQuery,
-    GuestPlatform { architecture: &'a str, kernel: &'a str },
+    /// Protocol 18 also accepts older replies without CPU or package information.
+    GuestPlatform { architecture: &'a str, kernel: &'a str, cpu_features: Option<&'a str>, criu_package_version: &'a str },
     Checkpoints(StrList<'a>),
     /// Host → guest: the TCP sockets a running container listens on.
     /// Answered by `Listening` or `Error`; an older agent answers `Error`.
@@ -1252,9 +1253,12 @@ impl Msg<'_> {
             Msg::Top(lines) => encode_raw_reply(out, kind::TOP, lines.count, lines.raw),
             Msg::CheckpointList { id } => frame(out, kind::CHECKPOINT_LIST, |o| put_str(o, id)),
             Msg::GuestPlatformQuery => frame(out, kind::GUEST_PLATFORM_QUERY, |_| {}),
-            Msg::GuestPlatform { architecture, kernel } => frame(out, kind::GUEST_PLATFORM, |o| {
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version } => frame(out, kind::GUEST_PLATFORM, |o| {
                 put_str(o, architecture);
                 put_str(o, kernel);
+                o.push(u8::from(cpu_features.is_some()));
+                if let Some(features) = cpu_features { put_str(o, features); }
+                put_str(o, criu_package_version);
             }),
             Msg::Checkpoints(names) => encode_raw_reply(out, kind::CHECKPOINTS, names.count, names.raw),
             Msg::ListenQuery { id } => frame(out, kind::LISTEN_QUERY, |o| put_str(o, id)),
@@ -1570,7 +1574,17 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
         kind::TOP => Msg::Top(r.list()?),
         kind::CHECKPOINT_LIST => Msg::CheckpointList { id: r.str()? },
         kind::GUEST_PLATFORM_QUERY => Msg::GuestPlatformQuery,
-        kind::GUEST_PLATFORM => Msg::GuestPlatform { architecture: r.str()?, kernel: r.str()? },
+        kind::GUEST_PLATFORM => {
+            let architecture = r.str()?;
+            let kernel = r.str()?;
+            let (cpu_features, criu_package_version) = if r.remaining() == 0 {
+                (None, "")
+            } else {
+                let features = if r.u8()? != 0 { Some(r.str()?) } else { None };
+                (features, r.str()?)
+            };
+            Msg::GuestPlatform { architecture, kernel, cpu_features, criu_package_version }
+        }
         kind::CHECKPOINTS => Msg::Checkpoints(r.list()?),
         kind::LISTEN_QUERY => Msg::ListenQuery { id: r.str()? },
         kind::LISTENING => Msg::Listening(r.list()?),
@@ -1698,7 +1712,11 @@ mod tests {
         round(Msg::StartRejected("exec: \"/missing\": no such file or directory"));
         round(Msg::StatsRequest);
         round(Msg::GuestPlatformQuery);
-        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58" });
+        round(Msg::GuestPlatform { architecture: "aarch64", kernel: "6.18.58", cpu_features: Some("aes fp"), criu_package_version: "4.2.1-1" });
+        round(Msg::GuestPlatform { architecture: "x86_64", kernel: "6.18.58", cpu_features: Some(""), criu_package_version: "" });
+        let mut old_platform = Vec::new();
+        frame(&mut old_platform, kind::GUEST_PLATFORM, |o| { put_str(o, "x86_64"); put_str(o, "6.18.58"); });
+        assert!(matches!(decode(&old_platform), Ok(Msg::GuestPlatform { architecture: "x86_64", cpu_features: None, criu_package_version: "", .. })));
         let full = Stats { uptime_ns: 5, mem_total_kib: 6, mem_available_kib: 7, agent_rss_kib: 8, mem_used_kib: 9,
             mem_stall: 9173, oom_kills: 2, mem_working_set_kib: 10, mem_refaults: 42 };
         round(Msg::Stats(full));

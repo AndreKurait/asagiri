@@ -157,12 +157,11 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
                 return Ok(Next::Close);
             }
             let platform = engine.vm().and_then(|vm| {
-                let (architecture, kernel) = vm.guest_platform()?;
+                let guest = vm.guest_platform()?;
                 Ok(json!(crate::checkpoint::Platform {
                     engine_version: env!("CARGO_PKG_VERSION").into(),
                     engine_os: std::env::consts::OS.into(),
-                    guest_architecture: architecture,
-                    guest_kernel: kernel,
+                    guest,
                     live_capture: vm.live_checkpoint,
                 }))
             });

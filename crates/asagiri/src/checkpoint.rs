@@ -2,6 +2,7 @@
 use crate::client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::{fs::File, io};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -9,9 +10,27 @@ use std::{fs::File, io};
 pub(crate) struct Platform {
     pub engine_version: String,
     pub engine_os: String,
+    #[serde(flatten)]
+    pub guest: GuestPlatform,
+    pub live_capture: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GuestPlatform {
     pub guest_architecture: String,
     pub guest_kernel: String,
-    pub live_capture: bool,
+    pub cpu_features: Option<BTreeSet<String>>,
+    pub criu_package_version: Option<String>,
+}
+
+impl GuestPlatform {
+    fn missing_features(&self, destination: &Self) -> Option<Vec<String>> {
+        if self.guest_architecture != destination.guest_architecture { return None; }
+        let source = self.cpu_features.as_ref()?;
+        let destination = destination.cpu_features.as_ref()?;
+        Some(source.difference(destination).cloned().collect())
+    }
 }
 
 fn local_platform() -> io::Result<Platform> {
@@ -27,7 +46,7 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     let [option, file, containers @ ..] = args else { return Err(usage()); };
     if option != "--destination" || containers.is_empty() { return Err(usage()); }
     let destination: Platform = serde_json::from_reader(File::open(file)?)?;
-    if destination.guest_architecture.is_empty() || destination.guest_kernel.is_empty()
+    if destination.guest.guest_architecture.is_empty() || destination.guest.guest_kernel.is_empty()
         || destination.engine_os.is_empty() || destination.engine_version.is_empty()
     {
         return Err(io::Error::other("incomplete destination platform record"));
@@ -44,14 +63,16 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
         }
         inventory.push(dependencies(&entry));
     }
-    let matches = source.guest_architecture == destination.guest_architecture;
+    let matches = source.guest.guest_architecture == destination.guest.guest_architecture;
     let report = json!({
         "source": source, "destination": destination,
         "guestArchitectureMatches": matches, "containers": inventory,
+        "sourceCpuFeaturesMissingOnDestination": source.guest.missing_features(&destination.guest),
+        "criuPackageVersionsMatch": source.guest.criu_package_version.as_ref().zip(destination.guest.criu_package_version.as_ref()).map(|(a, b)| a == b),
     });
     println!("{}", serde_json::to_string_pretty(&report)?);
     if !matches {
-        return Err(io::Error::other(format!("incompatible guest architectures: source {}, destination {}", source.guest_architecture, destination.guest_architecture)));
+        return Err(io::Error::other(format!("incompatible guest architectures: source {}, destination {}", source.guest.guest_architecture, destination.guest.guest_architecture)));
     }
     Ok(())
 }
