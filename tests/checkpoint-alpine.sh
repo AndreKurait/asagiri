@@ -45,3 +45,12 @@ test "$(query B)" = "$nonce"
 test "$(docker exec "$cid" cat /tmp/heartbeat)" = AB
 test "$(docker inspect --format '{{.State.Pid}}' "$cid")" = "$pid"
 echo 'PASS checkpoint exported with memory pages and source retained its PID, shell nonce and open file offset'
+
+docker rm -f "$cid" >/dev/null
+cid=''
+printf '%s\n' '{"Image":"alpine:3.21","Cmd":["true"]}' >"$work/create.json"
+cid=$("$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/create.json")
+test "$(docker inspect -f '{{.State.Status}} {{.HostConfig.NetworkMode}}' "$cid")" = 'created none'
+"$asagiri" checkpoint import "$cid" received "$work/checkpoint.tar"
+test "$("$asagiri" checkpoint ls "$cid")" = received
+echo 'PASS offline receiver was created in none networking and imported the checkpoint'

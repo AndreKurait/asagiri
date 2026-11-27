@@ -298,6 +298,13 @@ impl Network {
         if !self.user_subnet {
             return Err("user specified IP address is supported only when connecting to networks with user configured subnets".into());
         }
+        self.check_endpoint_ip(ip)
+    }
+
+    /// Checkpoint receivers can reclaim an automatically assigned bridge address.
+    /// Both automatic and explicitly configured subnets use the same pool and exclusions.
+    pub(super) fn check_endpoint_ip(&self, ip: [u8; 4]) -> Result<(), String> {
+        if self.bridge.is_empty() { return Err(format!("network {} has no address pool", self.name)); }
         let size = 1u32 << (32 - self.prefix as u32);
         let host = u32::from_be_bytes(ip).wrapping_sub(u32::from_be_bytes(self.subnet));
         if !self.contains(ip) || host == 0 || host == size - 1 {
@@ -315,6 +322,10 @@ impl Network {
         if self.builtin() {
             return Err("user specified IP address is supported on user defined networks only".into());
         }
+        self.check_endpoint_ip6(ip)
+    }
+
+    pub(super) fn check_endpoint_ip6(&self, ip: [u8; 16]) -> Result<(), String> {
         let Some(v6) = &self.v6 else {
             return Err(format!("invalid endpoint settings: an IPv6 address was given, but network {} does not have IPv6 enabled", self.name));
         };
@@ -327,7 +338,7 @@ impl Network {
     }
 
     fn reserve6(&mut self, ip: [u8; 16]) -> Result<(), String> {
-        self.check_static6(ip)?;
+        self.check_endpoint_ip6(ip)?;
         let v6 = self.v6.as_mut().expect("checked");
         let h = v6.host(ip);
         if v6.reserved(ip) || !v6.used.insert(h) {
@@ -338,7 +349,7 @@ impl Network {
 
     /// Takes `ip` for a container that asked for it.
     fn reserve(&mut self, ip: [u8; 4]) -> Result<(), String> {
-        self.check_static(ip)?;
+        self.check_endpoint_ip(ip)?;
         let host = u32::from_be_bytes(ip) - u32::from_be_bytes(self.subnet);
         if self.reserved(ip) || !self.used.insert(host) {
             return Err(format!("Address already in use: {}", ip_str(ip)));

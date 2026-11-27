@@ -125,6 +125,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
        asagiri checkpoint prepare-networks INPUT.tar [INPUT.tar...]
+       asagiri checkpoint create-receiver INPUT.tar CREATE.json
        asagiri checkpoint create [--external-network] CONTAINER NAME
        asagiri checkpoint import CONTAINER NAME INPUT.tar
        asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]
@@ -230,6 +231,8 @@ fn main() -> ExitCode {
         Some("config") => daemon_config::run(&args[1..]),
         #[cfg(unix)]
         Some("k8s") => k8s::run(&args[1..]),
+        #[cfg(unix)]
+        Some("checkpoint") if args.get(1).map(String::as_str) == Some("create-receiver") => checkpoint::create_receiver(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("prepare-networks") => checkpoint::prepare_networks(&args[2..]),
         #[cfg(unix)]

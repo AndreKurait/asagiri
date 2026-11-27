@@ -1,5 +1,7 @@
 //! Checkpoint compatibility inventory and source handoff controls.
 mod networks;
+mod receiver;
+pub(crate) use receiver::create_receiver;
 pub(crate) use networks::prepare_networks;
 
 use crate::client;

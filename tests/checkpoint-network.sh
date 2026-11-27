@@ -5,9 +5,11 @@ work=$(mktemp -d)
 network=checkpoint-net-${work##*/}
 secondary=$network-other
 cid=''
+busy=''
 cleanup() {
     if [ -n "$cid" ]; then docker rm -f "$cid" >/dev/null || true; fi
-    docker network rm "$secondary" "$network" >/dev/null || true
+    if [ -n "$busy" ]; then docker rm -f "$busy" >/dev/null || true; fi
+    for n in "$secondary" "$network"; do docker network rm "$n" >/dev/null 2>&1 || true; done
     rm -rf "$work"
 }
 trap cleanup EXIT
@@ -94,3 +96,66 @@ docker network inspect "$network" "$secondary" | jq -e --slurpfile source "$work
     all(.[]; .created == false) and map_values(.id) == ($before[0] | map_values(.id))
 ' >/dev/null
 echo 'PASS both checkpoint networks matched the source, reused destination IDs, and rejected a conflicting group'
+
+# Let the destination operator supply the image and workload. All network fields come from the archive.
+jq '.[0].Config | {Image, Entrypoint, Cmd}' "$work/container.json" >"$work/create.json"
+jq '.HostConfig.NetworkMode="none"' "$work/create.json" >"$work/mismatch.json"
+if "$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/mismatch.json" >"$work/error" 2>&1; then exit 1; fi
+grep -Fq 'NetworkMode in the create request conflicts' "$work/error"
+cid=$("$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/create.json")
+test "$(docker inspect -f '{{.State.Status}}' "$cid")" = created
+if "$asagiri" checkpoint create-receiver "$work/checkpoint.tar" "$work/create.json" >"$work/error" 2>&1; then exit 1; fi
+test "$(docker inspect -f '{{.State.Status}}' "$cid")" = created
+"$asagiri" checkpoint import "$cid" received "$work/checkpoint.tar"
+busy=$(docker run --pull=never --network bridge -p "127.0.0.1:$host_port:7777" -d alpine:3.21 sleep 180)
+if docker start "$cid" >"$work/error" 2>&1; then exit 1; fi
+test "$(docker inspect -f '{{.State.Running}}' "$cid")" = false
+test "$(docker port "$busy" 7777/tcp)" = "127.0.0.1:$host_port"
+docker rm -f "$busy" >/dev/null
+busy=''
+docker start "$cid" >/dev/null
+check_service
+docker inspect "$cid" | jq -e --slurpfile source "$work/container.json" '
+    def endpoint: {IPAddress,GlobalIPv6Address,MacAddress,GwPriority,Gateway,IPv6Gateway};
+    def network: .NetworkSettings | {Ports, Networks:(.Networks | map_values(endpoint))};
+    def host: .HostConfig | {NetworkMode,Dns,DnsSearch,DnsOptions,ExtraHosts};
+    .[0] as $dest | $source[0][0] as $src |
+    ($dest|network) == ($src|network) and ($dest|host) == ($src|host) and
+    $dest.Name == $src.Name and $dest.Config.Hostname == $src.Config.Hostname and
+    all($src.NetworkSettings.Networks | to_entries[]; . as $srcNet |
+        ($srcNet.value.DNSNames - $dest.NetworkSettings.Networks[$srcNet.key].DNSNames) == [])
+' >/dev/null
+echo 'PASS stopped receiver retained both endpoint configurations, DNS names, and the allocated host port after start'
+
+# An existing built-in bridge and an existing automatically allocated bridge also need the old addresses.
+docker rm -f "$cid" >/dev/null
+cid=''
+docker network rm "$secondary" "$network" >/dev/null
+secondary=$network-auto
+docker network create "$secondary" >/dev/null
+cid=$(docker run -d --pull=never --network bridge alpine:3.21 sleep 180)
+docker network connect --alias attached "$secondary" "$cid"
+docker inspect "$cid" >"$work/auto.json"
+docker pause "$cid" >/dev/null
+"$asagiri" checkpoint create --external-network "$cid" auto
+"$asagiri" checkpoint export "$cid" auto "$work/auto.tar"
+docker rm -f "$cid" >/dev/null
+cid=''
+ip=$(jq -er '.[0].NetworkSettings.Networks.bridge.IPAddress' "$work/auto.json")
+if docker create --pull=never --network bridge --ip "$ip" alpine:3.21 true >"$work/error" 2>&1; then exit 1; fi
+grep -q 'user defined networks only' "$work/error"
+printf '%s\n' '{"Image":"alpine:3.21","Cmd":["sleep","180"]}' >"$work/auto-request.json"
+# Use the captured addresses, then exercise a destination collision and retry.
+busy=$(docker run --pull=never --network bridge -d alpine:3.21 sleep 180)
+test "$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' "$busy")" = "$ip"
+cid=$("$asagiri" checkpoint create-receiver "$work/auto.tar" "$work/auto-request.json")
+if docker start "$cid" >"$work/error" 2>&1; then exit 1; fi
+grep -qi 'address already in use' "$work/error"
+docker rm -f "$busy" >/dev/null
+busy=''
+docker start "$cid" >/dev/null
+docker inspect "$cid" | jq -e --slurpfile source "$work/auto.json" '
+    def endpoint: .NetworkSettings.Networks | map_values({IPAddress,GlobalIPv6Address,MacAddress});
+    (.[0]|endpoint) == ($source[0][0]|endpoint)
+' >/dev/null
+echo 'PASS receiver reclaimed default and automatically assigned bridge addresses after a collision cleared'

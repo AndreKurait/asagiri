@@ -188,6 +188,13 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             let mounts = engine.resolve(key).and_then(|id| Ok(json!(engine.vm()?.checkpoint_mounts(&id)?)));
             return reply(w, mounts, 200);
         }
+        ("POST", "/asagiri/checkpoint-receivers") => {
+            if !matches!(caller, Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            return reply(w, create_by(req, engine, caller), 201);
+        }
         ("POST", "/asagiri/checkpoint-networks") => {
             if !matches!(caller, Caller::Host) {
                 http::error(w, 403, "host connection required")?;
@@ -2475,6 +2482,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
             .unwrap_or_else(|| "bridge".to_owned()),
         m => m.to_owned(),
     };
+    let receiver = req.path == "/asagiri/checkpoint-receivers";
     let network = match network_mode.strip_prefix("container:") {
         Some(target) => Some(container_network_mode(&body, engine, target)?),
         None => engine.lock_net().find(&network_mode).map(|n| n.name.clone()),
@@ -2507,10 +2515,10 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
             }
             let (ip, ip6, mac) = endpoint_address(ep)?;
             if let Some(a) = super::network::parse_ip(&ip) {
-                found.check_static(a).map_err(Error::BadRequest)?;
+                if receiver && found.driver == "bridge" { found.check_endpoint_ip(a) } else { found.check_static(a) }.map_err(Error::BadRequest)?;
             }
             if let Some(a) = super::network::parse_ip6(&ip6) {
-                found.check_static6(a).map_err(Error::BadRequest)?;
+                if receiver && found.driver == "bridge" { found.check_endpoint_ip6(a) } else { found.check_static6(a) }.map_err(Error::BadRequest)?;
             }
             if canonical == network_mode {
                 gw_priority = endpoint_priority(ep)?;

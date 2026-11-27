@@ -5,10 +5,12 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 
 #[derive(Deserialize)]
-struct Inventory {
+pub(super) struct Inventory {
     version: u64,
-    networks: Vec<Value>,
-    endpoints: Map<String, Value>,
+    pub(super) networks: Vec<Value>,
+    pub(super) endpoints: Map<String, Value>,
+    #[serde(flatten)]
+    pub(super) settings: Map<String, Value>,
 }
 
 fn inventory(mut file: impl Read + Seek) -> io::Result<Inventory> {
@@ -53,27 +55,37 @@ fn inventory(mut file: impl Read + Seek) -> io::Result<Inventory> {
     result.ok_or_else(|| io::Error::other("checkpoint lacks network.json"))
 }
 
+pub(super) fn read_inventory(path: &str) -> io::Result<Inventory> {
+    let record = File::open(path).and_then(inventory).map_err(|e| io::Error::other(format!("{path}: {e}")))?;
+    if record.version != 1 { return Err(io::Error::other(format!("{path}: unsupported network inventory version {}", record.version))); }
+    for (name, ep) in &record.endpoints {
+        if !ep["NetworkID"].is_string() || !record.networks.iter().any(|net| net["Id"] == ep["NetworkID"] && (net["Name"] == name.as_str() || net["Id"] == name.as_str())) {
+            return Err(io::Error::other(format!("{path}: missing network definition for {name}")));
+        }
+    }
+    for net in &record.networks {
+        if !record.endpoints.values().any(|ep| ep["NetworkID"].is_string() && ep["NetworkID"] == net["Id"]) {
+            return Err(io::Error::other(format!("{path}: network definition without an endpoint")));
+        }
+    }
+    Ok(record)
+}
+
+pub(super) fn prepare_definitions(definitions: Vec<Value>) -> io::Result<Value> {
+    let response = client::request("POST", "/asagiri/checkpoint-networks", Some(&Value::Array(definitions)))?;
+    if !response.ok() { return Err(io::Error::other(response.error())); }
+    Ok(response.json())
+}
+
 pub(crate) fn prepare_networks(archives: &[String]) -> io::Result<()> {
     if archives.is_empty() { return Err(io::Error::other("usage: asagiri checkpoint prepare-networks INPUT.tar [INPUT.tar...]")); }
     let mut definitions = Vec::new();
     for path in archives {
-        let record = File::open(path).and_then(inventory).map_err(|e| io::Error::other(format!("{path}: {e}")))?;
-        if record.version != 1 { return Err(io::Error::other(format!("{path}: unsupported network inventory version {}", record.version))); }
-        for (name, ep) in &record.endpoints {
-            if !ep["NetworkID"].is_string() || !record.networks.iter().any(|net| net["Id"] == ep["NetworkID"] && (net["Name"] == name.as_str() || net["Id"] == name.as_str())) {
-                return Err(io::Error::other(format!("{path}: missing network definition for {name}")));
-            }
-        }
-        for net in record.networks {
-            if !record.endpoints.values().any(|ep| ep["NetworkID"].is_string() && ep["NetworkID"] == net["Id"]) {
-                return Err(io::Error::other(format!("{path}: network definition without an endpoint")));
-            }
+        for net in read_inventory(path)?.networks {
             if !definitions.contains(&net) { definitions.push(net); }
         }
     }
-    let response = client::request("POST", "/asagiri/checkpoint-networks", Some(&Value::Array(definitions)))?;
-    if !response.ok() { return Err(io::Error::other(response.error())); }
-    println!("{}", serde_json::to_string_pretty(&response.json())?);
+    println!("{}", serde_json::to_string_pretty(&prepare_definitions(definitions)?)?);
     Ok(())
 }
 
