@@ -7033,6 +7033,11 @@ function paintEngine() {
   if (document.body.classList.contains("rail")) document.querySelector(".vm").title = `${tr(VM)}: ${label}`;
   const b = $("vm-toggle");
   b.hidden = false;
+  const action = shown === "running" ? "stop" : "start";
+  if (b.dataset.action !== action) {
+    b.dataset.action = action;
+    b.dataset.changed = String(performance.now());
+  }
   b.textContent = shown === "running" ? tr("Stop") : shown === "booting" ? tr("Starting…") : shown === "stopping" ? tr("Stopping…") : tr("Start");
   b.classList.toggle("primary", shown !== "running");
   b.disabled = shown === "booting" || shown === "stopping";
@@ -8474,7 +8479,24 @@ document.addEventListener("keydown", (ev) => {
     f.focus(); f.select();
   }
 });
-$("vm-toggle").addEventListener("click", () => powerEngine(engineShown().shown === "running" ? "stop" : "start"));
+/* Kiri #704 (59dcd059): recovery can turn Start into Stop during a press. */
+const vmToggle = $("vm-toggle");
+vmToggle.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  const { dataset } = ev.currentTarget;
+  const justBecameStop = dataset.action === "stop" && performance.now() - Number(dataset.changed) < 500;
+  dataset.pressed = justBecameStop ? "start" : dataset.action;
+});
+function clearVmTogglePress(ev) {
+  delete ev.currentTarget.dataset.pressed;
+}
+vmToggle.addEventListener("pointercancel", clearVmTogglePress);
+vmToggle.addEventListener("click", (ev) => {
+  const { action, pressed } = ev.currentTarget.dataset;
+  clearVmTogglePress(ev);
+  if (ev.detail && pressed && pressed !== action) return;
+  powerEngine(action ?? (engineShown().on ? "stop" : "start"));
+});
 
 /* Window chrome: a mouse-down on empty header or sidebar space drags the
    window, and a double-click zooms it, like a native title bar. */
