@@ -103,6 +103,8 @@ pub enum Msg<'a> {
     /// then any number of `Output`, then `Exited`.
     Run(RunSpec<'a>),
     Started { id: &'a str, pid: u32 },
+    /// Guest → host: an existing container now runs its restored root. Unsolicited.
+    CheckpointRestored { id: &'a str, previous_pid: u32, pid: u32 },
     Output { id: &'a str, stream: Stream, data: &'a [u8] },
     Exited(Exited<'a>),
     /// Filesystem teardown brackets the process exit; only this ID must wait.
@@ -871,6 +873,7 @@ mod kind {
     pub const CHECKPOINT_MOUNTS: u16 = 94;
     pub const CHECKPOINT_CREATE_EXTERNAL_NETWORK: u16 = 95;
     pub const CHECKPOINT_RESTORE_INPUT: u16 = 96;
+    pub const CHECKPOINT_RESTORED: u16 = 97;
     pub const CHECKPOINT_CREATE: u16 = 85;
     pub const USAGE_TOO_LARGE: u16 = 84;
 }
@@ -1188,6 +1191,11 @@ impl Msg<'_> {
             }),
             Msg::Started { id, pid } => frame(out, kind::STARTED, |o| {
                 put_str(o, id);
+                put_u32(o, pid);
+            }),
+            Msg::CheckpointRestored { id, previous_pid, pid } => frame(out, kind::CHECKPOINT_RESTORED, |o| {
+                put_str(o, id);
+                put_u32(o, previous_pid);
                 put_u32(o, pid);
             }),
             Msg::Output { id, stream, data } => frame(out, kind::OUTPUT, |o| {
@@ -1559,6 +1567,7 @@ pub fn decode(frame: &[u8]) -> Result<Msg<'_>, DecodeError> {
             run
         }),
         kind::STARTED => Msg::Started { id: r.str()?, pid: r.u32()? },
+        kind::CHECKPOINT_RESTORED => Msg::CheckpointRestored { id: r.str()?, previous_pid: r.u32()?, pid: r.u32()? },
         kind::OUTPUT => {
             let id = r.str()?;
             let stream = match r.u8()? {
@@ -1801,6 +1810,7 @@ mod tests {
         round(Msg::LayerBegin(LayerBegin { digest: "sha256:ab", media_type: "x+gzip", size: 9 }));
         round(Msg::LayerStored(LayerStored { unpacked_bytes: 1, elapsed_ns: 2 }));
         round(Msg::Started { id: "c1", pid: 42 });
+        round(Msg::CheckpointRestored { id: "c1", previous_pid: 42, pid: 51 });
         round(Msg::Output { id: "c1", stream: Stream::Stderr, data: b"hi\n" });
         round(Msg::CleanupPending("c1"));
         round(Msg::CleanupDone("c1"));

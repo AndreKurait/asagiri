@@ -71,6 +71,7 @@ impl From<asagiri_proto::FsEntry<'_>> for FileInfo {
 /// Something a container did, routed to the engine.
 #[derive(Debug)]
 pub enum Event<'a> {
+    CheckpointRestored { id: &'a str, previous_pid: u32, pid: u32 },
     Output { id: &'a str, stream: Stream, data: &'a [u8] },
     /// `oom` when the kernel killed a process in it for memory.
     Exited { id: &'a str, code: i32, oom: bool },
@@ -404,6 +405,10 @@ impl VmLink {
                     }
                     Ok(Msg::CleanupPending(id)) => { cleaning.pending(id); continue; }
                     Ok(Msg::CleanupDone(id)) => { cleaning.done(id); continue; }
+                    Ok(Msg::CheckpointRestored { id, previous_pid, pid }) => {
+                        on_event(Event::CheckpointRestored { id, previous_pid, pid });
+                        continue;
+                    }
                     Ok(Msg::Exited(e)) => {
                         wins.close(e.id);
                         on_event(Event::Exited { id: e.id, code: e.code, oom: e.oom_killed });
@@ -995,10 +1000,15 @@ mod tests {
         let pending = Arc::new(Mutex::new(VecDeque::from([admit, stats])));
         let checkpoint = Arc::new(CheckpointSlot::default());
         let completion = checkpoint.reserve().unwrap();
+        let (restored, restored_event) = mpsc::sync_channel(1);
         assert_eq!(checkpoint.reserve().unwrap_err().kind(), io::ErrorKind::WouldBlock);
         let reader = VmLink::spawn_reader(
             std::os::fd::OwnedFd::from(socket).into(), pending.clone(), Arc::new(Windows::default()),
-            Arc::new(UsageSlot::default()), checkpoint.clone(), Arc::new(CleanupBarrier::default()), |_| {},
+            Arc::new(UsageSlot::default()), checkpoint.clone(), Arc::new(CleanupBarrier::default()), move |event| {
+                if let Event::CheckpointRestored { id, previous_pid, pid } = event {
+                    restored.send((id.to_owned(), previous_pid, pid)).unwrap();
+                }
+            },
         ).unwrap();
 
         let mut out = Vec::new();
@@ -1012,11 +1022,13 @@ mod tests {
         let (ping, ping_reply) = mpsc::sync_channel(1);
         pending.lock().unwrap().push_back(ping);
         out.clear();
+        Msg::CheckpointRestored { id: "receiver", previous_pid: 42, pid: 43 }.encode(&mut out);
         Msg::CheckpointResult { error: "" }.encode(&mut out);
         Msg::Pong(7).encode(&mut out);
         guest.write_all(&out).unwrap();
         completion.recv_timeout(wait).unwrap().unwrap();
         assert!(matches!(ping_reply.recv_timeout(wait).unwrap(), Reply::Pong));
+        assert_eq!(restored_event.recv_timeout(wait).unwrap(), ("receiver".to_owned(), 42, 43));
         checkpoint.clear();
 
         let cancelled = checkpoint.reserve().unwrap();

@@ -1862,6 +1862,14 @@ impl Engine {
 
     fn on_event(&self, ev: Event<'_>) {
         match ev {
+            Event::CheckpointRestored { id, previous_pid, pid } => {
+                if pid > 1 && previous_pid > 1
+                    && let Some(container) = self.lock().containers.get_mut(id)
+                    && container.status == Status::Running && container.in_guest && container.pid == previous_pid
+                {
+                    container.pid = pid;
+                }
+            }
             Event::Output { id, stream, data } => {
                 let mut st = self.lock();
                 if let Some(c) = st.containers.get_mut(id) {
