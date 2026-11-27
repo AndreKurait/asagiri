@@ -1,0 +1,29 @@
+--- a/fs/notify/asagiri_inject.c
++++ b/fs/notify/asagiri_inject.c
+@@ -121,11 +121,6 @@
+ 			cached = NULL;
+ 			goto out;
+ 		}
+-		if ((!cached || !d_is_reg(cached)) &&
+-		    !fsnotify_sb_has_watchers(share->dentry->d_sb)) {
+-			err = 0;
+-			goto out;
+-		}
+ 	}
+ 	err = vfs_path_lookup(share->dentry, share->mnt, rel, ASAGIRI_SCOPED, &target);
+ 	if (err)
+@@ -136,10 +131,10 @@
+ 			      target.dentry, FSNOTIFY_EVENT_DENTRY, d_inode(parent.dentry), &name, 0);
+ 		break;
+ 	case 'M':
+-		/* A replacement keeps the old open inode intact. An in-place
+-		 * host write invalidates clean pages on the same inode. */
+-		if (cached && d_is_reg(target.dentry) &&
+-		    d_inode(cached) == d_inode(target.dentry))
++		/* The last edit may have unhashed a name still held open.
++		 * Use the fresh lookup's inode even without a cached name.
++		 * A replaced file's old inode is distinct and stays intact. */
++		if (d_is_reg(target.dentry))
+ 			invalidate_mapping_pages(d_inode(target.dentry)->i_mapping, 0, -1);
+ 		fsnotify_dentry(target.dentry, FS_MODIFY);
+ 		if (d_is_reg(target.dentry))
