@@ -1,4 +1,4 @@
-//! Read-only inventory before pausing workloads for a handoff.
+//! Checkpoint compatibility inventory and source handoff controls.
 use crate::client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -32,6 +32,13 @@ impl GuestPlatform {
         let destination = destination.cpu_features.as_ref()?;
         Some(source.difference(destination).cloned().collect())
     }
+}
+
+pub(crate) fn fence(args: &[String]) -> io::Result<()> {
+    let [action, name, containers @ ..] = args else { return Err(io::Error::other("usage: asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]")); };
+    if containers.is_empty() { return Err(io::Error::other("supply at least one source container")); }
+    let response = client::request("POST", &format!("/asagiri/checkpoint-{action}"), Some(&json!({"name": name, "containers": containers})))?;
+    if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
 fn local_platform() -> io::Result<Platform> {

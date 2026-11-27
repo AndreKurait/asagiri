@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use asagiri_image::{Image, Store};
 use asagiri_proto::{Stream, run_flags};
 
+mod checkpoint_fence;
+
 use super::network::Networks;
 use super::vmlink::{Event, VmLink};
 
@@ -531,6 +533,10 @@ pub struct Container {
     pub forwards: Option<super::ports::Forwards>,
     /// Actual host ports to restore when a live primary endpoint changes.
     detached_ports: Vec<super::ports::Binding>,
+    /// A paused checkpoint source held across daemon restarts until explicitly released.
+    pub checkpoint_fence: Option<String>,
+    /// Last successful capture during the current uninterrupted pause.
+    paused_checkpoint: Option<String>,
     /// Frozen by `docker pause`.
     pub paused: bool,
     /// Addresses on `spec.extra_networks` while running, as (network, ip).
@@ -626,6 +632,8 @@ struct Saved {
     vm_stopped: bool,
     stopped_by_user: bool,
     restart_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    checkpoint_fence: Option<String>,
     #[serde(default)]
     health: Option<super::health::Health>,
 }
@@ -836,7 +844,7 @@ fn ns(t: SystemTime) -> u64 {
 }
 
 fn recover_after_vm_loss(c: &Container) -> bool {
-    c.vm_stopped && c.status == Status::Exited && !c.stopped_by_user && !c.spec.auto_remove
+    c.checkpoint_fence.is_none() && c.vm_stopped && c.status == Status::Exited && !c.stopped_by_user && !c.spec.auto_remove
         && matches!(c.spec.restart.name.as_str(), "always" | "unless-stopped")
 }
 
@@ -1723,6 +1731,8 @@ impl Engine {
                     vm_stopped: was_running || s.vm_stopped,
                     stopped_by_user: s.stopped_by_user,
                     restart_count: s.restart_count,
+                    checkpoint_fence: s.checkpoint_fence,
+                    paused_checkpoint: None,
                     restart_pending: false,
                     exits: 0,
                     size: None,
@@ -1803,38 +1813,50 @@ impl Engine {
     }
 
     fn save_records(&self) -> std::io::Result<()> {
-        // Snapshot and replacement must follow the same writer order.
         let _one_writer = self.saving.lock().unwrap_or_else(|e| e.into_inner());
-        let json = {
-            let st = self.lock();
-            let saved: Vec<Saved> = st
-                .containers
-                .values()
-                .filter(|c| !c.spec.auto_remove)
-                .map(|c| Saved {
-                    id: c.id.clone(),
-                    name: c.name.clone(),
-                    spec: c.spec.clone(),
-                    layers: c.layers.clone(),
-                    created_ns: ns(c.created),
-                    status: c.status,
-                    started_ns: c.started.map(ns),
-                    finished_ns: c.finished.map(ns),
-                    exit_code: c.exit_code,
-                    start_error: c.start_error.clone(),
-                    oom_killed: c.oom_killed,
-                    vm_stopped: c.vm_stopped,
-                    stopped_by_user: c.stopped_by_user,
-                    restart_count: c.restart_count,
-                    health: st.health.get(&c.id).map(|h| h.health.clone()),
-                })
-                .collect();
-            serde_json::to_vec(&saved)
-        };
-        let json = json.map_err(std::io::Error::other)?;
+        let (json, fenced) = Self::encode_records(&self.lock())?;
+        self.write_records(&json, fenced)
+    }
+
+    fn encode_records(st: &State) -> std::io::Result<(Vec<u8>, bool)> {
+        let saved: Vec<Saved> = st
+            .containers
+            .values()
+            .filter(|c| !c.spec.auto_remove)
+            .map(|c| Saved {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                spec: c.spec.clone(),
+                layers: c.layers.clone(),
+                created_ns: ns(c.created),
+                status: c.status,
+                started_ns: c.started.map(ns),
+                finished_ns: c.finished.map(ns),
+                exit_code: c.exit_code,
+                start_error: c.start_error.clone(),
+                oom_killed: c.oom_killed,
+                vm_stopped: c.vm_stopped,
+                stopped_by_user: c.stopped_by_user,
+                restart_count: c.restart_count,
+                checkpoint_fence: c.checkpoint_fence.clone(),
+                health: st.health.get(&c.id).map(|h| h.health.clone()),
+            })
+            .collect();
+        // Later background saves must preserve the durability of a successful fence.
+        let fenced = saved.iter().any(|c| c.checkpoint_fence.is_some());
+        Ok((serde_json::to_vec(&saved)?, fenced))
+    }
+
+    // The caller holds the saving lock from snapshot through atomic replacement.
+    fn write_records(&self, json: &[u8], durable: bool) -> std::io::Result<()> {
+        use std::io::Write;
         let tmp = self.records.with_extension("json.tmp");
-        std::fs::write(&tmp, &json)?;
-        std::fs::rename(tmp, &self.records)
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(json)?;
+        if durable { file.sync_all()?; }
+        std::fs::rename(tmp, &self.records)?;
+        if durable { std::fs::File::open(self.records.parent().expect("container records have a parent"))?.sync_all()?; }
+        Ok(())
     }
 
     fn on_event(&self, ev: Event<'_>) {
@@ -1898,6 +1920,7 @@ impl Engine {
                         c.extra_ifs.clear();
                         self.release_ip6s(c);
                         c.paused = false;
+                        c.paused_checkpoint = None;
                         closed_ports = c.forwards.take();
                         c.finished = Some(SystemTime::now());
                         // Dropping the senders ends every attach stream.
@@ -1913,7 +1936,7 @@ impl Engine {
                         // Not for the engine's own stop (Stop, the VM's sleep on
                         // request): Start brings those back.
                         let engine_stop = SHUTTING_DOWN.load(std::sync::atomic::Ordering::SeqCst) || self.parking.load(std::sync::atomic::Ordering::SeqCst) || self.is_stopped();
-                        if wants && !c.spec.auto_remove && !engine_stop {
+                        if wants && !c.spec.auto_remove && !engine_stop && c.checkpoint_fence.is_none() {
                             let backoff = restart_backoff(c.restart_count);
                             c.restart_count = c.restart_count.saturating_add(1);
                             c.restart_pending = true;
@@ -1997,6 +2020,7 @@ impl Engine {
                     c.extra_ifs.clear();
                     self.release_ip6s(c);
                     c.paused = false;
+                    c.paused_checkpoint = None;
                     c.pid = 0;
                     if c.status == Status::Running {
                         c.status = Status::Exited;
@@ -2394,6 +2418,8 @@ impl Engine {
                 vm_stopped: false,
                 stopped_by_user: false,
                 restart_count: 0,
+                checkpoint_fence: None,
+                paused_checkpoint: None,
                 restart_pending: false,
                 exits: 0,
                 size: None,
@@ -2447,6 +2473,7 @@ impl Engine {
             let st = self.lock();
             let id = resolve(&st, key)?;
             let c = &st.containers[&id];
+            c.ensure_unfenced()?;
             if c.status == Status::Running || (reason == Start::VmRecovery && !recover_after_vm_loss(c))
                 || (reason == Start::Restart && c.stopped_by_user)
                 || (matches!(reason, Start::Restart | Start::DaemonRestart) && !c.restart_pending)
@@ -3610,6 +3637,7 @@ impl Engine {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.with(&id, Container::ensure_unfenced)??;
         let networks = self.lock_net().all().to_vec();
         let (running, mounts, network) = self.with(&id, |c| (
             c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks).to_string(),
@@ -3631,7 +3659,12 @@ impl Engine {
             return Err(Error::Conflict("checkpoint configuration exceeds the guest protocol limit".into()));
         }
         match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id: &id, name, leave_running: true, volume_mounts: &manifest, network: &network }) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.paused) {
+                    c.paused_checkpoint = Some(name.to_owned());
+                }
+                Ok(())
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(Error::Conflict(error.to_string())),
             Err(error) => Err(Error::Io(error)),
         }
@@ -3646,6 +3679,7 @@ impl Engine {
         {
             let st = self.lock();
             let c = st.containers.get(&id).ok_or_else(|| Error::NotFound(id.clone()))?;
+            if !paused { c.ensure_unfenced()?; }
             if c.status != Status::Running {
                 return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
             }
@@ -3656,6 +3690,7 @@ impl Engine {
         self.vm()?.freeze(&id, paused)?;
         if let Some(c) = self.lock().containers.get_mut(&id) {
             c.paused = paused;
+            c.paused_checkpoint = None;
         }
         // Docker probes only running, unpaused containers.
         if paused {
@@ -3862,6 +3897,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut stopping = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         *stopping = super::lifecycle_advance::advance(*stopping);
         self.thaw_for_signal(&id);
         let cancelled = self.mark_stopped(&id);
@@ -3922,6 +3958,7 @@ impl Engine {
                 if vm.freeze(id, false).is_ok() {
                     if let Some(c) = self.lock().containers.get_mut(id) {
                         c.paused = false;
+                        c.paused_checkpoint = None;
                     }
                     self.health_resume(id);
                 }
@@ -3955,6 +3992,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut killing = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         self.thaw_for_signal(&id);
         if !self.wait_started(&id) {
             if (signal == libc::SIGKILL as u32 || signal == libc::SIGTERM as u32)
@@ -4003,6 +4041,7 @@ impl Engine {
         let lifecycle = self.lifecycle(key)?;
         let mut removing = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.resolve(key)?;
+        self.with(&id, Container::ensure_unfenced)??;
         if self.is_running(&id) {
             if !force {
                 return Err(Error::Conflict(format!(
@@ -4371,6 +4410,7 @@ impl Engine {
     pub fn shutdown(&self) {
         crate::diag::info!("VM stopping for shutdown");
         SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _power = self.power.lock().unwrap_or_else(|e| e.into_inner());
         self.save();
         for log in self.each(|c| Some(c.log.clone())) {
             lock_log(&log).flush();
@@ -4628,7 +4668,7 @@ fn vm_end(sleeping: bool, shutting_down: bool) -> VmEnd {
 /// user stopped it (`docker stop`), as Docker's daemon does.
 fn comes_back(c: &Container) -> bool {
     let policy = c.spec.restart.name.as_str();
-    (policy == "always" || (policy == "unless-stopped" && !c.stopped_by_user)) && !c.spec.auto_remove
+    c.checkpoint_fence.is_none() && (policy == "always" || (policy == "unless-stopped" && !c.stopped_by_user)) && !c.spec.auto_remove
 }
 
 /// Containers that join another's network or link to others start after
@@ -4925,11 +4965,12 @@ impl Engine {
         // (id, when to SIGKILL it, when it was SIGKILLed)
         let mut pending: Vec<(String, std::time::Instant, Option<std::time::Instant>)> = Vec::new();
         for id in ids {
-            let Some((sig, secs)) = self.lock().containers.get(id).map(|c| (c.spec.stop_signal.unwrap_or(libc::SIGTERM as u32), c.spec.stop_timeout.unwrap_or(DEFAULT_STOP_TIMEOUT)))
+            let Some((sig, secs, fenced)) = self.lock().containers.get(id).map(|c| (c.spec.stop_signal.unwrap_or(libc::SIGTERM as u32), c.spec.stop_timeout.unwrap_or(DEFAULT_STOP_TIMEOUT), c.checkpoint_fence.is_some()))
             else {
                 continue;
             };
-            self.thaw_for_signal(id);
+            // A signal handler must never run after a source handoff. SIGKILL terminates frozen tasks.
+            let sig = if fenced { libc::SIGKILL as u32 } else { self.thaw_for_signal(id); sig };
             if engine {
                 self.emit_container("kill", id, &[("signal", sig.to_string())]);
             }

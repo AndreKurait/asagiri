@@ -45,6 +45,22 @@ python3 packaging/checkpoint/source.py --arm64 target/checkpoint/arm64.tar \
   --x86-64 target/checkpoint/x86_64.tar --output target/asagiri-checkpoint-source.tar
 ```
 
+## Fence the source during a handoff
+
+Run `asagiri checkpoint preflight` against the destination’s platform record. Pause **all** participating containers before capturing any of them. With the source still paused, create a checkpoint with the same name on each container. For example, for two retained containers named `web` and `worker`, run the following commands on the source.
+
+```sh
+set -e
+docker pause web worker
+docker checkpoint create --leave-running web migration
+docker checkpoint create --leave-running worker migration
+asagiri checkpoint fence migration web worker
+```
+
+Wait for `fence` to succeed before activating the destination. The source checks each container’s most recent capture against its current pause, then persists the entire selection. If a container ran again after capture, pause it and make fresh captures with a new name. A fenced source still supports checkpoint export. Docker unpause, stop, kill, restart and removal requests are refused. If the source engine shuts down, it terminates the frozen tasks without running their signal handlers, retains their checkpoints and prevents automatic or manual restart. The source engine’s container-inspect API exposes the fence name in `State.AsagiriCheckpointFence`.
+
+To roll back while the original source processes are still paused, first confirm that the destination is inactive or has stopped. Run `asagiri checkpoint release migration web worker`, then `docker unpause web worker`. Release clears the fence and leaves the processes paused until you unpause them. Once the source engine has shut down, recovering the original process memory requires restoring the saved checkpoints. Release and an ordinary container start launch a fresh process in that case. Source fencing is a local operation. The operator coordinates destination activation and rollback across hosts.
+
 ## Transfer a checkpoint privately
 
 A checkpoint can contain credentials, process memory and volume contents. To transfer an export with GnuPG, use a source signing key and a destination encryption key. Exchange and verify their full fingerprints through a trusted channel first. The source needs the destination’s trusted public key. The destination needs the source’s public key and a GnuPG installation that supports `--assert-signer`.

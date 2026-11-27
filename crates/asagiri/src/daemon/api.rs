@@ -157,6 +157,20 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
             version["Experimental"] = json!(engine.live_checkpoint());
             return reply(w, Ok(version), 200);
         }
+        ("POST", path @ ("/asagiri/checkpoint-fence" | "/asagiri/checkpoint-release")) => {
+            if !matches!(caller, super::caller::Caller::Host) {
+                http::error(w, 403, "host connection required")?;
+                return Ok(Next::Close);
+            }
+            #[derive(serde::Deserialize)]
+            struct SourceGroup { name: String, containers: Vec<String> }
+            let group = serde_json::from_slice::<SourceGroup>(&req.body).map_err(|e| Error::BadRequest(e.to_string()));
+            let result = group.and_then(|g| {
+                if !valid_checkpoint_name(&g.name) { return Err(Error::BadRequest("invalid checkpoint ID".into())); }
+                engine.checkpoint_fence(&g.name, &g.containers, path == "/asagiri/checkpoint-release")
+            });
+            return reply(w, result.map(|()| Value::Null), 204);
+        }
         ("GET", path) if let Some(key) = path.strip_prefix("/asagiri/checkpoint-mounts/") => {
             if !matches!(caller, super::caller::Caller::Host) {
                 http::error(w, 403, "host connection required")?;
@@ -3049,6 +3063,7 @@ fn inspect(c: &Container, nets: &[super::network::Network]) -> Value {
             "Status": state_word(c),
             "Running": c.status == Status::Running,
             "Paused": c.paused,
+            "AsagiriCheckpointFence": c.checkpoint_fence,
             "Restarting": false,
             "OOMKilled": c.oom_killed,
             "Dead": false,

@@ -125,6 +125,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
        asagiri checkpoint import CONTAINER NAME INPUT.tar
+       asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]
        asagiri checkpoint platform
        asagiri checkpoint preflight --destination PLATFORM.json CONTAINER [CONTAINER...]
        asagiri machine create NAME [--distro D] | list | shell NAME | stop | delete NAME
@@ -233,6 +234,8 @@ fn main() -> ExitCode {
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("import") => client::checkpoint_import(&args[2..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("export") => client::checkpoint_export(&args[2..]),
+        #[cfg(unix)]
+        Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("fence" | "release")) => checkpoint::fence(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("platform") && args.len() == 2 => checkpoint::print_platform(),
         #[cfg(unix)]
