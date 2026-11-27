@@ -9,6 +9,7 @@ regression limits, raw samples, and the public history by commit.
 
 Needs Rust and, for the kernel and disk template, a Docker engine. Asagiri can
 build its own kernel: `DOCKER_CONTEXT=asagiri cargo xtask kernel`.
+On macOS, `cargo xtask` also needs CMake to build the release archive compressor.
 
 ```sh
 cargo xtask kernel    # guest/out/Image
