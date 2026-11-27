@@ -3613,8 +3613,11 @@ impl Engine {
         if !self.with(&id, |c| c.status == Status::Running)? {
             return Err(Error::Conflict("checkpoint capture requires a running container".into()));
         }
-        self.vm()?.checkpoint_live(&id, name)?;
-        Ok(())
+        match self.vm()?.checkpoint_live(&id, name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(Error::Conflict(error.to_string())),
+            Err(error) => Err(Error::Io(error)),
+        }
     }
 
     /// `docker pause` / `docker unpause`.
