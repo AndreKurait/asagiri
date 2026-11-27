@@ -125,7 +125,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint ls CONTAINER
        asagiri checkpoint export CONTAINER NAME OUTPUT.tar
        asagiri checkpoint prepare-networks INPUT.tar [INPUT.tar...]
-       asagiri checkpoint create-receiver INPUT.tar CREATE.json
+       asagiri checkpoint create-receiver [--wait-for-restore] INPUT.tar CREATE.json
        asagiri checkpoint create [--external-network] CONTAINER NAME
        asagiri checkpoint import CONTAINER NAME INPUT.tar
        asagiri checkpoint restore-rootfs CONTAINER NAME

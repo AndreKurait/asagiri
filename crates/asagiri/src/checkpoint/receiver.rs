@@ -115,11 +115,16 @@ fn receiver(config: Value, inventory: &Inventory) -> io::Result<(String, Value)>
 }
 
 pub(crate) fn create_receiver(args: &[String]) -> io::Result<()> {
-    let [archive, request] = args else { return Err(invalid("usage: asagiri checkpoint create-receiver INPUT.tar CREATE.json")); };
+    let (wait, args) = match args {
+        [flag, rest @ ..] if flag == "--wait-for-restore" => (true, rest),
+        _ => (false, args),
+    };
+    let [archive, request] = args else { return Err(invalid("usage: asagiri checkpoint create-receiver [--wait-for-restore] INPUT.tar CREATE.json")); };
     let inventory = read_inventory(archive)?;
     let (name, body) = receiver(serde_json::from_reader(io::BufReader::new(File::open(request)?))?, &inventory)?;
     prepare_definitions(inventory.networks)?;
-    let response = client::request("POST", &format!("/asagiri/checkpoint-receivers?name={name}"), Some(&body))?;
+    let path = format!("/asagiri/checkpoint-receivers?name={name}&wait-for-restore={wait}");
+    let response = client::request("POST", &path, Some(&body))?;
     if !response.ok() { return Err(io::Error::other(format!("could not create receiver {name}: {}", response.error()))); }
     let result = response.json();
     let id = result["Id"].as_str().ok_or_else(|| invalid("destination engine returned no container ID"))?;

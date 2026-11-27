@@ -88,6 +88,8 @@ asagiri checkpoint restore-volume "$receiver" received "$source_volume" "$destin
 
 The engine claims the configured addresses and ports on start. A busy address or port can still prevent activation. An ordinary start runs the destination image’s command on the restored filesystem. Resuming the captured process still requires CRIU and binding its external mount references to the prepared receiver files and volumes.
 
+Pass `--wait-for-restore` to `create-receiver` to prepare a receiver without running image code. Starting or restarting that receiver sets up the configured mounts, networking and standard streams, then waits. The image command and health check stay inactive while the receiver waits.
+
 Run `asagiri checkpoint verify-receiver-mounts RECEIVER NAME` after starting the receiver for manual restore. It checks the installed writable layer receipt and verifies that the live network-file and volume mounts expose the expected backing files and directories. Volume mounts must also match the captured read-only or writable mode. The command can be repeated without changing the receiver.
 
 Import stores the checkpoint. Manual restore opens the prepared endpoint’s network namespace and passes that descriptor to CRIU with `--inherit-fd fd[N]:asagiri-network`, where `N` is the open descriptor number. In two-container ARM64 tests between Mac and Debian engines on one physical Mac, the frontend kept its TCP connection to the backend in both directions. The external client reconnected to the original published port after source shutdown. On live rollback, the same external client socket remained usable.

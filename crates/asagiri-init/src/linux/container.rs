@@ -167,6 +167,7 @@ struct Prepared {
     shm_size: u64,
     /// `--init`: PID 1 supervises the program instead of being it.
     init: bool,
+    checkpoint_wait: bool,
     /// Ulimits, groups and device nodes from the `opts` lines.
     host: HostApplied,
 }
@@ -270,7 +271,7 @@ fn finish_stdio(parent: ParentStdio, child: ChildStdio) -> io::Result<(Option<Ow
 }
 
 pub fn spawn(spec: &RunSpec<'_>, paths: &Paths, roots: &super::roots::Roots, net: NetCtx<'_>, donor_pid: impl Fn(&str) -> Option<libc::pid_t>) -> io::Result<Process> {
-    if spec.argv.is_empty() {
+    if spec.argv.is_empty() && spec.flags & run_flags::CHECKPOINT_WAIT == 0 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "no command to run"));
     }
     let mut host = super::hostopts::parse(spec.opts)?;
@@ -1093,6 +1094,7 @@ fn prepare(argv: StrList<'_>, env: StrList<'_>, cwd: &str, user: &str, hostname:
         readonly_rootfs: flags & run_flags::READONLY_ROOTFS != 0,
         shm_size: 64 << 20,
         init: flags & run_flags::INIT != 0,
+        checkpoint_wait: flags & run_flags::CHECKPOINT_WAIT != 0,
         host: HostApplied::default(),
     })
 }
@@ -1762,9 +1764,11 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
     // --init supervises without exec, so CLOEXEC cannot release the agent's
     // inherited sockets, pipes and namespace handles. Stdio is now in place;
     // close everything except its private setup reply before the limits/filter.
-    if console && p.init {
+    if console && (p.init || p.checkpoint_wait) {
         super::pid1::close_inherited(startup.fd()).unwrap_or_else(|e| fail("init descriptors", e));
-        super::pid1::adopt_orphans().unwrap_or_else(|e| fail("init subreaper", e));
+        if p.init && !p.checkpoint_wait {
+            super::pid1::adopt_orphans().unwrap_or_else(|e| fail("init subreaper", e));
+        }
     }
 
     // While still root with every capability: raising a hard limit needs
@@ -1816,6 +1820,26 @@ fn finish_child(p: &Prepared, io: &ChildStdio, console: bool, startup: &super::s
         }
     }
 
+    if console && p.checkpoint_wait {
+        // This child still has a copy of the agent's address space because it
+        // does not exec. Keep it inaccessible to other container processes.
+        // SAFETY: PR_SET_DUMPABLE with zero takes no pointer arguments.
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            fail("protect receiver memory", io::Error::last_os_error());
+        }
+        if p.no_new_privs { profile(); }
+        startup.ready().unwrap_or_else(|e| fail("receiver readiness", e));
+        // The receiver owns its stdio and namespaces until restore replaces it.
+        // Never read the input pipe, launch image code, or hold agent descriptors.
+        loop {
+            // SAFETY: a null descriptor array of length zero and a fixed sleep interval.
+            let timeout = libc::timespec { tv_sec: 3600, tv_nsec: 0 };
+            if unsafe { libc::ppoll(std::ptr::null_mut(), 0, &timeout, std::ptr::null()) } < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted { child_fail(2, "wait for restore", error); }
+            }
+        }
+    }
     if console && p.init {
         if p.no_new_privs { profile(); }
         // Docker has started tini at this point. Its program can still fail

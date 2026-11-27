@@ -2512,6 +2512,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
         m => m.to_owned(),
     };
     let receiver = req.path == "/asagiri/checkpoint-receivers";
+    let checkpoint_wait = receiver && req.flag("wait-for-restore");
     let network = match network_mode.strip_prefix("container:") {
         Some(target) => Some(container_network_mode(&body, engine, target)?),
         None => engine.lock_net().find(&network_mode).map(|n| n.name.clone()),
@@ -2609,12 +2610,12 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
     let (entrypoint, cmd) = command(strings(&body["Entrypoint"]), strings(&body["Cmd"]), &image.config.entrypoint, &image.config.cmd);
     // As in Docker: a create with nothing to run is refused here, not at start,
     // where `docker run --rm` would wait for a removal that never comes.
-    if entrypoint.is_empty() && cmd.is_empty() {
+    if !checkpoint_wait && entrypoint.is_empty() && cmd.is_empty() {
         return Err(Error::BadRequest("No command specified".into()));
     }
     // Checked before mounts, which may create volumes.
     let labels = labels_from(&body, &image_cfg)?;
-    let healthcheck = healthcheck_from(&body, &image_cfg)?;
+    let healthcheck = if checkpoint_wait { None } else { healthcheck_from(&body, &image_cfg)? };
     let ports = port_bindings(&body, &image_cfg)?;
     if super::ports::check_host_addresses(&ports, super::binds::wsl().is_some()).map_err(|e| Error::BadRequest(e.to_string()))? {
         warnings.push(super::ports::WSL_PUBLISH_WARNING.to_owned());
@@ -2646,6 +2647,7 @@ fn create_with_kind(req: &Request, engine: &Engine, engine_service: bool, wsl_di
     let spec = Spec {
         wsl_distro: record_distro,
         engine_service,
+        checkpoint_wait,
         image: image_name.to_owned(),
         image_id: image.config_digest.clone(),
         entrypoint,

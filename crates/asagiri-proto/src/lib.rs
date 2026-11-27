@@ -61,8 +61,9 @@ pub const ROOT_CLEANUP_PENDING: &str = "container root cleanup is pending";
 /// 16 adds an asynchronous oversized usage reply.
 /// 17 separates checkpoint admission from capture completion.
 /// 18 queries the running guest's kernel and architecture for checkpoint preflight.
+/// 19 prepares checkpoint receivers without executing their image command.
 /// Upgrade host and guest together.
-pub const PROTOCOL: u16 = 18;
+pub const PROTOCOL: u16 = 19;
 
 /// Host-only transport to the managed BuildKit service. Containers cannot
 /// create AF_VSOCK sockets, including privileged containers.
@@ -488,6 +489,8 @@ pub mod run_flags {
     /// program as its child, forwards signals to it, reaps orphans and exits
     /// with the program's status, as tini does for Docker.
     pub const INIT: u32 = 1 << 16;
+    /// Prepare a receiver without executing its image command.
+    pub const CHECKPOINT_WAIT: u32 = 1 << 17;
 }
 
 /// A container's network, as `Run` carries it.

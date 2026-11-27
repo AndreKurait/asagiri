@@ -150,6 +150,8 @@ pub struct Spec {
     /// set this; Docker request labels and fields never grant this status.
     #[serde(default)]
     pub engine_service: bool,
+    #[serde(default)]
+    pub checkpoint_wait: bool,
     pub image: String,
     pub image_id: String,
     pub entrypoint: Vec<String>,
@@ -2489,7 +2491,7 @@ impl Engine {
             {
                 return Ok(());
             }
-            if c.spec.entrypoint.is_empty() && c.spec.cmd.is_empty() {
+            if !c.spec.checkpoint_wait && c.spec.entrypoint.is_empty() && c.spec.cmd.is_empty() {
                 return Err(Error::BadRequest("no command specified".into()));
             }
         }
@@ -2548,7 +2550,7 @@ impl Engine {
                 return Ok(());
             }
             let argv = c.argv();
-            if argv.is_empty() {
+            if argv.is_empty() && !c.spec.checkpoint_wait {
                 return Err(Error::BadRequest("no command specified".into()));
             }
             #[cfg(target_os = "macos")]
@@ -2715,6 +2717,9 @@ impl Engine {
         }
         if spec.init == Some(true) {
             flags |= run_flags::INIT;
+        }
+        if spec.checkpoint_wait {
+            flags |= run_flags::CHECKPOINT_WAIT;
         }
         flags |= spec.security_flags();
         let hosts = hosts_lines(&spec.extra_hosts, links);
