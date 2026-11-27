@@ -1,0 +1,99 @@
+--- a/include/linux/pagemap.h
++++ b/include/linux/pagemap.h
+@@ -27,6 +27,7 @@
+ 	    S_ISLNK(inode->i_mode))
+ 		invalidate_mapping_pages(inode->i_mapping, 0, -1);
+ }
++void invalidate_clean_folios(struct address_space *mapping);
+ int invalidate_inode_pages2(struct address_space *mapping);
+ int invalidate_inode_pages2_range(struct address_space *mapping,
+ 		pgoff_t start, pgoff_t end);
+--- a/mm/truncate.c
++++ b/mm/truncate.c
+@@ -619,8 +619,8 @@
+  * shrink_folio_list() has a temp ref on them, or because they're transiently
+  * sitting in the folio_add_lru() caches.
+  */
+-int folio_unmap_invalidate(struct address_space *mapping, struct folio *folio,
+-			   gfp_t gfp)
++static int invalidate_folio(struct address_space *mapping, struct folio *folio,
++			    gfp_t gfp, bool clean_only)
+ {
+ 	void (*free_folio)(struct folio *);
+ 	int ret;
+@@ -631,9 +631,15 @@
+ 		unmap_mapping_folio(folio);
+ 	BUG_ON(folio_mapped(folio));
+ 
+-	ret = folio_launder(mapping, folio);
+-	if (ret)
+-		return ret;
++	if (clean_only) {
++		/* Unmapping can reveal a dirty PTE. Leave guest writes in cache. */
++		if (folio_test_dirty(folio) || folio_test_writeback(folio))
++			return -EBUSY;
++	} else {
++		ret = folio_launder(mapping, folio);
++		if (ret)
++			return ret;
++	}
+ 	if (folio->mapping != mapping)
+ 		return -EBUSY;
+ 	if (!filemap_release_folio(folio, gfp))
+@@ -660,6 +666,45 @@
+ 	xa_unlock_irq(&mapping->i_pages);
+ 	spin_unlock(&mapping->host->i_lock);
+ 	return -EBUSY;
++}
++
++int folio_unmap_invalidate(struct address_space *mapping, struct folio *folio,
++			   gfp_t gfp)
++{
++	return invalidate_folio(mapping, folio, gfp, false);
++}
++
++/**
++ * invalidate_clean_folios - discard cached data after a remote write
++ * @mapping: the regular file whose contents changed
++ *
++ * Wait for active readers and invalidate clean folios even while the LRU
++ * holds temporary references. Preserve guest writes: unmapping can reveal
++ * dirty PTEs, so test for dirty folios after unmapping and skip writeback.
++ */
++void invalidate_clean_folios(struct address_space *mapping)
++{
++	struct folio_batch batch;
++	pgoff_t index = 0;
++
++	if (mapping_empty(mapping))
++		return;
++	folio_batch_init(&batch);
++	while (filemap_get_folios(mapping, &index, (pgoff_t)-1, &batch)) {
++		unsigned int i;
++
++		for (i = 0; i < folio_batch_count(&batch); i++) {
++			struct folio *folio = batch.folios[i];
++
++			folio_lock(folio);
++			if (folio->mapping == mapping && !folio_test_writeback(folio) &&
++			    !folio_test_dirty(folio))
++				invalidate_folio(mapping, folio, GFP_KERNEL, true);
++			folio_unlock(folio);
++		}
++		folio_batch_release(&batch);
++		cond_resched();
++	}
+ }
+ 
+ /**
+--- a/fs/notify/asagiri_inject.c
++++ b/fs/notify/asagiri_inject.c
+@@ -135,7 +135,7 @@
+ 		 * Use the fresh lookup's inode even without a cached name.
+ 		 * A replaced file's old inode is distinct and stays intact. */
+ 		if (d_is_reg(target.dentry))
+-			invalidate_mapping_pages(d_inode(target.dentry)->i_mapping, 0, -1);
++			invalidate_clean_folios(d_inode(target.dentry)->i_mapping);
+ 		fsnotify_dentry(target.dentry, FS_MODIFY);
+ 		if (d_is_reg(target.dentry))
+ 			fsnotify_dentry(target.dentry, FS_CLOSE_WRITE);
