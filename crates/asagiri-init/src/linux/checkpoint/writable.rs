@@ -9,12 +9,14 @@ use std::process::{Command, Stdio};
 
 use super::super::{copy, sys};
 
+pub(super) const MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
+
 pub(super) fn prepare(images: &Path, top_first: &[String]) -> io::Result<()> {
     let root = images.join("rootfs");
     fs::create_dir(&root)?;
     let manifest = serde_json::json!({
         "baseLayers": top_first.iter().rev().collect::<Vec<_>>(),
-        "mediaType": "application/vnd.oci.image.layer.v1.tar",
+        "mediaType": MEDIA_TYPE,
     });
     serde_json::to_writer(File::create_new(root.join("manifest.json"))?, &manifest)?;
     Ok(())

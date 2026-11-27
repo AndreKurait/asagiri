@@ -246,13 +246,17 @@ fn send(method: &str, path: &str, body: Option<&Value>, extra: &str) -> io::Resu
     )?;
     let mut r = BufReader::new(s);
     let (status, len, chunked) = head(&mut r)?;
+    response_body(&mut r, status, len, chunked)
+}
+
+fn response_body(r: &mut impl BufRead, status: u16, len: Option<usize>, chunked: bool) -> io::Result<Response> {
     let mut body = Vec::new();
     // These never have a body, and the daemon keeps the connection open.
     if status == 204 || status == 304 {
         return Ok(Response { status, body });
     }
     if chunked {
-        while let Some(c) = chunk(&mut r)? {
+        while let Some(c) = chunk(r)? {
             body.extend_from_slice(&c);
         }
     } else if let Some(n) = len {
@@ -384,6 +388,34 @@ pub fn checkpoint_list(args: &[String]) -> io::Result<()> {
         println!("{name}");
     }
     Ok(())
+}
+
+/// Transfer the file into the destination engine's private checkpoint store.
+pub fn checkpoint_import(args: &[String]) -> io::Result<()> {
+    let [container, name, input] = args else {
+        return Err(io::Error::other("usage: asagiri checkpoint import CONTAINER NAME INPUT.tar"));
+    };
+    if !valid_checkpoint_component(container) || !valid_checkpoint_component(name) { return Err(io::Error::other("invalid container or checkpoint name")); }
+    let mut input = std::fs::File::open(input)?;
+    let metadata = input.metadata()?;
+    if !metadata.is_file() { return Err(io::Error::other("expected a regular checkpoint archive file")); }
+    let size = metadata.len();
+    if size == 0 { return Err(io::Error::other("empty checkpoint archive")); }
+    let mut socket = connect(Some(Duration::from_secs(120)))?;
+    write!(socket, "PUT /asagiri/checkpoints/{container}/{name} HTTP/1.1\r\nHost: asagiri\r\nConnection: close\r\nExpect: 100-continue\r\nContent-Type: application/x-tar\r\nContent-Length: {size}\r\n\r\n")?;
+    let mut reader = BufReader::new(socket);
+    let (mut status, mut len, mut chunked) = head(&mut reader)?;
+    if status == 100 {
+        let sent = io::copy(&mut (&mut input).take(size), reader.get_mut());
+        if sent.as_ref().is_ok_and(|&n| n != size) { return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "checkpoint file changed during upload")); }
+        // A guest that rejects a partial upload can return a diagnostic before the last write.
+        let _ = reader.get_ref().shutdown(std::net::Shutdown::Write);
+        (status, len, chunked) = head(&mut reader)?;
+        if status == 201 { sent?; return Ok(()); }
+    }
+    let response = response_body(&mut reader, status, len, chunked)?;
+    let message = response.error();
+    Err(io::Error::other(if message.is_empty() { format!("checkpoint import returned HTTP {status}") } else { message }))
 }
 
 /// Download the checkpoint without holding the process memory image in host RAM.

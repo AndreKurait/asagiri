@@ -77,7 +77,11 @@ pub fn serve_as(stream: UnixStream, engine: Arc<Engine>, caller: super::caller::
 
 /// Requests whose bodies can be any size: archives and image tarballs.
 fn streams_body(method: &str, path: &str) -> bool {
-    matches!((method, path), ("PUT", p) if p.starts_with("/containers/") && p.ends_with("/archive")) || (method == "POST" && (path == "/images/load" || path == "/images/create" || path == "/build"))
+    match method {
+        "PUT" => (path.starts_with("/containers/") && path.ends_with("/archive")) || path.starts_with("/asagiri/checkpoints/"),
+        "POST" => matches!(path, "/images/load" | "/images/create" | "/build"),
+        _ => false,
+    }
 }
 
 pub(super) enum Next {
@@ -126,14 +130,16 @@ fn route(req: &Request, engine: &Arc<Engine>, caller: &super::caller::Caller, w:
         super::storage::refuse_while_moving(w)?;
         return Ok(Next::Close);
     }
-    if req.method == "GET" && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
+    if matches!(req.method.as_str(), "GET" | "PUT") && let Some(rest) = req.path.strip_prefix("/asagiri/checkpoints/") && let Some((id, name)) = rest.split_once('/') {
         if !matches!(caller, super::caller::Caller::Host) {
             http::error(w, 403, "host connection required")?;
             return Ok(Next::Close);
         }
         if !valid_checkpoint_name(name) {
-            return reply(w, Err(Error::BadRequest("invalid checkpoint ID".into())), 200);
+            http::error(w, 400, "invalid checkpoint ID")?;
+            return Ok(Next::Close);
         }
+        if req.method == "PUT" { return checkpoint_import(req, engine, id, name, w, r); }
         return super::ops::export(engine, id, asagiri_proto::copy_op::CHECKPOINT_EXPORT, name, w);
     }
     if let Some(done) = super::ops::route(req, engine, w) {
@@ -504,6 +510,33 @@ pub(super) fn version() -> Value {
 
 fn valid_checkpoint_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 128 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn checkpoint_import(req: &Request, engine: &Engine, id: &str, name: &str, w: &mut UnixStream, r: &mut BufReader<UnixStream>) -> io::Result<Next> {
+    fn acknowledgement(guest: &mut std::fs::File) -> Result<(), Error> {
+        let frame = guest_frame(guest)?;
+        match asagiri_proto::decode(&frame) {
+            Ok(asagiri_proto::Msg::CopyDone) => Ok(()),
+            Ok(asagiri_proto::Msg::Error(message)) => {
+                if let Some(reason) = message.strip_prefix("conflict: ") { return Err(Error::Conflict(reason.into())); }
+                if let Some(reason) = message.strip_prefix("invalid checkpoint: ") { return Err(Error::BadRequest(reason.into())); }
+                Err(copy_error(message))
+            }
+            _ => Err(Error::Io(io::Error::other("invalid checkpoint import acknowledgement"))),
+        }
+    }
+    let result = (|| {
+        let stream = engine.copy(id, asagiri_proto::copy_op::CHECKPOINT_IMPORT, name, 0)?;
+        let mut guest = std::fs::File::from(stream.fd.try_clone()?);
+        acknowledgement(&mut guest)?;
+        send_chunks(&mut http::Body::new(req, r), &mut guest).map_err(|e| Error::BadRequest(e.to_string()))?;
+        acknowledgement(&mut guest)
+    })();
+    match result {
+        Ok(()) => http::empty(w, 201)?,
+        Err(e) => error_with(w, e, "Connection: close\r\n")?,
+    }
+    Ok(Next::Close)
 }
 
 fn checkpoint_list(req: &Request, engine: &Engine, id: &str) -> Result<Value, Error> {

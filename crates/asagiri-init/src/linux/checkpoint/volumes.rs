@@ -11,7 +11,7 @@ use super::super::{container::VOLUMES, inroot};
 use serde::{Deserialize, Serialize};
 
 pub(in super::super) const FILESYSTEM_HOOK: &str = ".asagiri-filesystem-hook";
-const MANIFEST: &str = "volume-mounts.json";
+pub(super) const MANIFEST: &str = "volume-mounts.json";
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,9 +24,9 @@ pub(super) struct Mount {
 impl Mount {
     fn source(&self) -> PathBuf { Path::new(VOLUMES).join(&self.name).join("_data") }
 
-    fn archive_dir(&self, images: &Path) -> PathBuf { images.join("volumes").join(&self.name) }
+    pub(super) fn archive_dir(&self, images: &Path) -> PathBuf { images.join("volumes").join(&self.name) }
 
-    fn validate(&self) -> io::Result<()> {
+    pub(super) fn validate(&self) -> io::Result<()> {
         if !self.name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
             || !self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) {
             return Err(io::Error::other("invalid checkpoint volume name"));

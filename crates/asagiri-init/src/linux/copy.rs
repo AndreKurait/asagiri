@@ -47,6 +47,13 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
         copy_op::STAT => copy_out(&mut reply, spec)?,
         copy_op::OUT => copy_out(conn, spec)?,
         copy_op::EXPORT => { done(conn)?; export(conn)?; }
+        copy_op::CHECKPOINT_IMPORT => {
+            super::checkpoint::receive(spec.path, spec.layers, || {
+                done(conn)?;
+                Ok(Chunks::new(conn))
+            })?;
+            Msg::CopyDone.encode(&mut reply);
+        }
         copy_op::CHECKPOINT_EXPORT => {
             done(conn)?;
             export(&mut CheckpointWriter { conn, frame: Vec::new() })?;

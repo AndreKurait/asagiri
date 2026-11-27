@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod receive;
+pub(super) use receive::receive;
 mod volumes;
 mod writable;
 pub(super) use volumes::{FILESYSTEM_HOOK, run_filesystem_hook};

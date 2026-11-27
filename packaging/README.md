@@ -53,6 +53,8 @@ For engine-managed directory volumes, the CRIU post-dump hook runs GNU tar while
 
 `asagiri checkpoint export` also includes a version 1 `network.json` for captures made with the current host and guest. It records the source network definitions, endpoint addresses and aliases, DNS and host overrides, exposed ports, requested bindings, and the host ports actually allocated. The engine records these while holding the container lifecycle lock. A later network change does not alter a saved checkpoint. Older checkpoints can lack this file. Destination network creation and connection restoration are still pending. Run `tests/checkpoint-network.sh` against an isolated engine with Alpine 3.21, `jq`, and `curl` to compare the export with Docker's inspection output.
 
+To receive an exported checkpoint, create the destination container from the same image and run `asagiri checkpoint import CONTAINER NAME INPUT.tar` on the destination host. The engine checks the captured base layer digests when a writable layer is present and publishes the name after the upload finishes. An interrupted upload can be retried with the same name. Use `asagiri checkpoint ls CONTAINER` to see the saved checkpoint. Import stores the process images, volume archives and metadata. Applying them and resuming the processes are separate handoff steps that remain open.
+
 ```sh
 packaging/linux/fetch-cli.sh target/linux-cli
 sh scripts/ci/build-linux.sh target/portable-bin target/portable-cache target/cargo-registry build

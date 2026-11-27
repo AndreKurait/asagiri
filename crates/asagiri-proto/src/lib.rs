@@ -277,6 +277,8 @@ pub mod copy_op {
     pub const COMMIT: u8 = 6;
     /// Framed archive: CopyDone, FsData chunks, then CopyDone or Error.
     pub const CHECKPOINT_EXPORT: u8 = 8;
+    /// Stream an exported checkpoint into the destination container's private checkpoint directory.
+    pub const CHECKPOINT_IMPORT: u8 = 9;
 }
 
 pub mod copy_flags {
