@@ -131,6 +131,7 @@ usage: asagiri COMMAND          docker's commands, on Asagiri: asagiri run, ps, 
        asagiri checkpoint restore-rootfs CONTAINER NAME
        asagiri checkpoint restore-network-files CONTAINER NAME
        asagiri checkpoint restore-volume CONTAINER NAME SOURCE_VOLUME NEW_VOLUME
+       asagiri checkpoint capture-group [--destination PLATFORM.json] [--external-network] NAME CONTAINER [CONTAINER...]
        asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]
        asagiri checkpoint platform
        asagiri checkpoint preflight --destination PLATFORM.json CONTAINER [CONTAINER...]
@@ -251,7 +252,7 @@ fn main() -> ExitCode {
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("export") => client::checkpoint_export(&args[2..]),
         #[cfg(unix)]
-        Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("fence" | "release")) => checkpoint::fence(&args[1..]),
+        Some("checkpoint") if matches!(args.get(1).map(String::as_str), Some("capture-group" | "fence" | "release")) => checkpoint::source_group(&args[1..]),
         #[cfg(unix)]
         Some("checkpoint") if args.get(1).map(String::as_str) == Some("platform") && args.len() == 2 => checkpoint::print_platform(),
         #[cfg(unix)]

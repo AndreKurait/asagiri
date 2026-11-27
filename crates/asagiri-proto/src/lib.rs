@@ -288,6 +288,8 @@ pub mod copy_op {
     /// Restore an imported source volume to a new directory volume. `user` carries
     /// the source volume name and `mounts` contains the single destination name.
     pub const CHECKPOINT_VOLUME: u8 = 12;
+    /// Remove a newly captured member while rolling back a failed source group.
+    pub const CHECKPOINT_DISCARD: u8 = 13;
 }
 
 pub mod copy_flags {

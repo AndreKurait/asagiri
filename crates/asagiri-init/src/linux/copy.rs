@@ -62,6 +62,11 @@ fn archive_job(conn: &mut fs::File, spec: &CopySpec<'_>) -> io::Result<Vec<u8>> 
             super::checkpoint::restore_network_files(spec.path)?;
             Msg::CopyDone.encode(&mut reply);
         }
+        copy_op::CHECKPOINT_DISCARD => {
+            container::valid_id(spec.path)?;
+            fs::remove_dir_all(spec.path)?;
+            Msg::CopyDone.encode(&mut reply);
+        }
         copy_op::CHECKPOINT_EXPORT => {
             done(conn)?;
             export(&mut CheckpointWriter { conn, frame: Vec::new() })?;

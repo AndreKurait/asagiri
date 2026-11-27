@@ -235,7 +235,16 @@ pub fn get_background(path: &str) -> io::Result<Value> {
 }
 
 fn send(method: &str, path: &str, body: Option<&Value>, extra: &str) -> io::Result<Response> {
-    let mut s = connect(Some(Duration::from_secs(120)))?;
+    send_with_timeout(method, path, body, extra, Some(Duration::from_secs(120)))
+}
+
+/// The daemon holds the source group until all captures and the durable fence finish.
+pub(crate) fn checkpoint_group_request(path: &str, body: &Value) -> io::Result<Response> {
+    send_with_timeout("POST", path, Some(body), "", None)
+}
+
+fn send_with_timeout(method: &str, path: &str, body: Option<&Value>, extra: &str, timeout: Option<Duration>) -> io::Result<Response> {
+    let mut s = connect(timeout)?;
     let payload = body.map(Value::to_string).unwrap_or_default();
     // The window's action this is part of, for the engine's log lines.
     let op = crate::diag::op_header();

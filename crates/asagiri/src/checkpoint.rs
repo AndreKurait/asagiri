@@ -52,10 +52,34 @@ pub(crate) fn create(args: &[String]) -> io::Result<()> {
     if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
-pub(crate) fn fence(args: &[String]) -> io::Result<()> {
-    let [action, name, containers @ ..] = args else { return Err(io::Error::other("usage: asagiri checkpoint fence|release NAME CONTAINER [CONTAINER...]")); };
+pub(crate) fn source_group(args: &[String]) -> io::Result<()> {
+    let Some((action, rest)) = args.split_first() else { return Err(io::Error::other("missing checkpoint action")); };
+    let mut rest = rest;
+    let mut external_network = false;
+    let mut destination = None;
+    while action == "capture-group" {
+        match rest {
+            [flag, tail @ ..] if flag == "--external-network" && !external_network => {
+                external_network = true;
+                rest = tail;
+            }
+            [flag, file, tail @ ..] if flag == "--destination" && destination.is_none() => {
+                destination = Some(file);
+                rest = tail;
+            }
+            [flag, ..] if flag.starts_with("--") => return Err(io::Error::other(format!("invalid or incomplete capture option {flag}"))),
+            _ => break,
+        }
+    }
+    let Some((name, containers)) = rest.split_first() else { return Err(io::Error::other("missing checkpoint name")); };
     if containers.is_empty() { return Err(io::Error::other("supply at least one source container")); }
-    let response = client::request("POST", &format!("/asagiri/checkpoint-{action}"), Some(&json!({"name": name, "containers": containers})))?;
+    // Bind the capture to the same immutable IDs whose dependencies were inspected.
+    let inspected = destination.map(|file| verify_destination(file, containers)).transpose()?;
+    let body = json!({"name": name, "containers": inspected.as_deref().unwrap_or(containers), "externalNetwork": external_network});
+    let path = format!("/asagiri/checkpoint-{action}");
+    let response = if action == "capture-group" {
+        client::checkpoint_group_request(&path, &body)?
+    } else { client::request("POST", &path, Some(&body))? };
     if response.ok() { Ok(()) } else { Err(io::Error::other(response.error())) }
 }
 
@@ -92,6 +116,10 @@ pub(crate) fn print_platform() -> io::Result<()> {
 pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     let [option, file, containers @ ..] = args else { return Err(usage()); };
     if option != "--destination" || containers.is_empty() { return Err(usage()); }
+    verify_destination(file, containers).map(|_| ())
+}
+
+fn verify_destination(file: &str, containers: &[String]) -> io::Result<Vec<String>> {
     let destination: Platform = serde_json::from_reader(File::open(file)?)?;
     if destination.guest.guest_architecture.is_empty() || destination.guest.guest_kernel.is_empty()
         || destination.engine_os.is_empty() || destination.engine_version.is_empty()
@@ -99,6 +127,7 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
         return Err(io::Error::other("incomplete destination platform record"));
     }
     let source = local_platform()?;
+    let mut ids = Vec::with_capacity(containers.len());
     let mut inventory = Vec::with_capacity(containers.len());
     let mut missing_mounts = BTreeSet::new();
     for container in containers {
@@ -108,6 +137,7 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
         let entry = client::get(&format!("/containers/{container}/json"))?;
         let id = entry["Id"].as_str().filter(|s| !s.is_empty())
             .ok_or_else(|| io::Error::other(format!("engine returned an incomplete inspection for {container}")))?;
+        ids.push(id.to_owned());
         let mounted: Option<BTreeSet<String>> = if source.guest.system_mount_targets.is_some() && entry["State"]["Running"] == true {
             Some(serde_json::from_value(client::get(&format!("/asagiri/checkpoint-mounts/{id}"))?)?)
         } else { None };
@@ -134,7 +164,7 @@ pub(crate) fn preflight(args: &[String]) -> io::Result<()> {
     if !missing_mounts.is_empty() {
         return Err(io::Error::other(format!("destination lacks required system mount targets: {}", missing_mounts.into_iter().collect::<Vec<_>>().join(", "))));
     }
-    Ok(())
+    Ok(ids)
 }
 
 fn usage() -> io::Error {

@@ -18,6 +18,7 @@ use asagiri_image::{Image, Store};
 use asagiri_proto::{Stream, run_flags};
 
 mod checkpoint_fence;
+pub(super) use checkpoint_fence::SourceAction;
 
 use super::network::Networks;
 use super::vmlink::{Event, VmLink};
@@ -3710,9 +3711,14 @@ impl Engine {
         let id = self.resolve(key)?;
         let lifecycle = self.lifecycle(&id)?;
         let _capture = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        self.with(&id, Container::ensure_unfenced)??;
+        let (volumes, network) = self.checkpoint_config(&id, name, external_network)?;
+        self.capture_prepared(&id, name, external_network, &volumes, &network)
+    }
+
+    fn checkpoint_config(&self, id: &str, name: &str, external_network: bool) -> Result<(String, String), Error> {
+        self.with(id, Container::ensure_unfenced)??;
         let networks = self.lock_net().all().to_vec();
-        let (running, mounts, mut network) = self.with(&id, |c| (
+        let (running, mounts, mut network) = self.with(id, |c| (
             c.status == Status::Running, c.spec.mount_info.clone(), super::api::checkpoint_network(c, &networks),
         ))?;
         if !running {
@@ -3739,9 +3745,13 @@ impl Engine {
         if manifest.len() + network.len() + id.len() + name.len() + 32 > asagiri_proto::MAX_FRAME {
             return Err(Error::Conflict("checkpoint configuration exceeds the guest protocol limit".into()));
         }
-        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id: &id, name, leave_running: true, volume_mounts: &manifest, network: &network, external_network }) {
+        Ok((manifest, network))
+    }
+
+    fn capture_prepared(&self, id: &str, name: &str, external_network: bool, volumes: &str, network: &str) -> Result<(), Error> {
+        match self.vm()?.checkpoint_live(asagiri_proto::CheckpointSpec { id, name, leave_running: true, volume_mounts: volumes, network, external_network }) {
             Ok(()) => {
-                if let Some(c) = self.lock().containers.get_mut(&id).filter(|c| c.paused) {
+                if let Some(c) = self.lock().containers.get_mut(id).filter(|c| c.paused) {
                     c.paused_checkpoint = Some(name.to_owned());
                 }
                 Ok(())
@@ -3757,9 +3767,13 @@ impl Engine {
         // Serialize freezer transitions with live capture and other lifecycle operations.
         let lifecycle = self.lifecycle(&id)?;
         let _transition = lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        self.pause_locked(&id, paused)
+    }
+
+    fn pause_locked(&self, id: &str, paused: bool) -> Result<(), Error> {
         {
             let st = self.lock();
-            let c = st.containers.get(&id).ok_or_else(|| Error::NotFound(id.clone()))?;
+            let c = st.containers.get(id).ok_or_else(|| Error::NotFound(id.to_owned()))?;
             if !paused { c.ensure_unfenced()?; }
             if c.status != Status::Running {
                 return Err(Error::Conflict(format!("Container {} is not running", &id[..12])));
@@ -3768,21 +3782,21 @@ impl Engine {
                 return Err(Error::Conflict(format!("Container {} is {}paused", &id[..12], if paused { "already " } else { "not " })));
             }
         }
-        self.vm()?.freeze(&id, paused)?;
-        if let Some(c) = self.lock().containers.get_mut(&id) {
+        self.vm()?.freeze(id, paused)?;
+        if let Some(c) = self.lock().containers.get_mut(id) {
             c.paused = paused;
             c.paused_checkpoint = None;
         }
         // Docker probes only running, unpaused containers.
         if paused {
-            if let Some(h) = self.lock().health.get_mut(&id) {
+            if let Some(h) = self.lock().health.get_mut(id) {
                 close_monitor(h);
             }
             self.changed.notify_all();
         } else {
-            self.health_resume(&id);
+            self.health_resume(id);
         }
-        self.emit_container(if paused { "pause" } else { "unpause" }, &id, &[]);
+        self.emit_container(if paused { "pause" } else { "unpause" }, id, &[]);
         Ok(())
     }
 

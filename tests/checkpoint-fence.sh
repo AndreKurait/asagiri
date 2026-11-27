@@ -42,15 +42,19 @@ prepare)
     docker pause "$b" >/dev/null
     reject "$asagiri" checkpoint fence group "$a" "$b"
     test -z "$(fence "$a")" && test -z "$(fence "$b")"
-    docker checkpoint create --leave-running "$a" fresh
-    docker checkpoint create --leave-running "$b" fresh
     if [ -n "${FENCE_TEST_RECORDS:-}" ]; then
         # A directory at the temporary-file path injects a save failure in this disposable store.
         mkdir "$FENCE_TEST_RECORDS.tmp"
-        reject "$asagiri" checkpoint fence fresh "$a" "$b"
+        reject "$asagiri" checkpoint capture-group fresh "$a" "$b"
         grep -q 'could not persist checkpoint fence' "$work/error"
         rmdir "$FENCE_TEST_RECORDS.tmp"
-        reject docker unpause "$a"
+        for id in "$a" "$b"; do
+            reject docker unpause "$id"
+            test "$(fence "$id")" = fresh
+            "$asagiri" checkpoint ls "$id" | grep -qx fresh
+        done
+    else
+        "$asagiri" checkpoint capture-group fresh "$a" "$b"
     fi
     "$asagiri" checkpoint fence fresh "$a" "$b"
     "$asagiri" checkpoint fence fresh "$b" "$a"

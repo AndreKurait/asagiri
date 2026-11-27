@@ -47,17 +47,15 @@ python3 packaging/checkpoint/source.py --arm64 target/checkpoint/arm64.tar \
 
 ## Fence the source during a handoff
 
-Run `asagiri checkpoint preflight` against the destination’s platform record. Pause **all** participating containers before capturing any of them. With the source still paused, create a checkpoint with the same name on each container. For example, for two retained containers named `web` and `worker`, run the following commands on the source.
+On the destination, save `asagiri checkpoint platform` to `destination.json` and copy the file to the source. Use `asagiri checkpoint preflight` to review the dependencies before pausing. Capture and fence the retained containers together on the source. For two containers on an engine-managed bridge, run
 
 ```sh
-set -e
-docker pause web worker
-docker checkpoint create --leave-running web migration
-docker checkpoint create --leave-running worker migration
-asagiri checkpoint fence migration web worker
+asagiri checkpoint capture-group --destination destination.json --external-network migration web worker
 ```
 
-Wait for `fence` to succeed before activating the destination. The source checks each container’s most recent capture against its current pause, then persists the entire selection. If a container ran again after capture, pause it and make fresh captures with a new name. A fenced source still supports checkpoint export. Docker unpause, stop, kill, restart and removal requests are refused. If the source engine shuts down, it terminates the frozen tasks without running their signal handlers, retains their checkpoints and prevents automatic or manual restart. The source engine’s container-inspect API exposes the fence name in `State.AsagiriCheckpointFence`.
+With `--destination`, the command prints the compatibility and dependency report and captures the inspected container IDs. An incompatible guest architecture or missing required system mount target stops the operation before it pauses any member. The engine checks the members and checkpoint names before pausing. It pauses every running member before the first capture, keeps previously paused members paused, and holds their lifecycle locks through capture and fence persistence. If a member fails to capture, the engine discards this attempt’s completed captures and resumes the members it paused. It reports any failed cleanup by container. If fence persistence fails, keep the destination inactive and retry `asagiri checkpoint fence migration web worker` before handoff. Wait for the group command or fence retry to succeed before activating the destination.
+
+For individual captures, pause all members first, capture each with the same name, then run `asagiri checkpoint fence migration web worker`. The engine checks each container’s most recent capture against its current pause. If a container ran again after capture, pause it and make fresh captures with a new name. A fenced source still supports checkpoint export. Docker unpause, stop, kill, restart and removal requests are refused. If the source engine shuts down, it terminates the frozen tasks without running their signal handlers, retains their checkpoints and prevents automatic or manual restart. The source engine’s container-inspect API exposes the fence name in `State.AsagiriCheckpointFence`.
 
 To roll back while the original source processes are still paused, first confirm that the destination is inactive or has stopped. Run `asagiri checkpoint release migration web worker`, then `docker unpause web worker`. Release clears the fence and leaves the processes paused until you unpause them. Once the source engine has shut down, recovering the original process memory requires restoring the saved checkpoints. Release and an ordinary container start launch a fresh process in that case. Source fencing is a local operation. The operator coordinates destination activation and rollback across hosts.
 
@@ -103,7 +101,7 @@ rustc --edition=2024 --target aarch64-unknown-linux-musl -C linker=rust-lld -O \
 bash tests/checkpoint-stream.sh rollback "$work/rollback" "$work/stream-probe"
 ```
 
-For a handoff, replace `rollback` with `capture` and give it a new output directory. When it prints `FENCED`, stop the disposable source engine. The probe checks that its original external connection ends. Transfer the two archives privately and retain the `expected` directory for comparison. Restore both workloads into matching destination endpoints, then run `bash tests/checkpoint-stream.sh verify /path/to/expected` on the destination. The test opens the published port, checks both RAM-only identities and counters, compares the TCP endpoints, and resolves the backend name from the restored frontend.
+For a handoff, replace `rollback` with `capture`, give it a new output directory and pass the destination platform file as the fourth argument. The probe saves the dependency report in `preflight.json`. When it prints `FENCED`, stop the disposable source engine. The probe checks that its original external connection ends. Transfer the two archives privately and retain the `expected` directory for comparison. Restore both workloads into matching destination endpoints, then run `bash tests/checkpoint-stream.sh verify /path/to/expected` on the destination. The test opens the published port, checks both RAM-only identities and counters, compares the TCP endpoints, and resolves the backend name from the restored frontend.
 
 After rebooting the destination, run `bash tests/checkpoint-stream.sh verify-volumes BACKEND_VOLUME FRONTEND_VOLUME` with the names of the two destination volumes. The check mounts each existing volume read-only in a fresh container and compares `/data/stream` byte for byte with `ABCD`.
 

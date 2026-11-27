@@ -55,6 +55,7 @@ capture|rollback) ;;
 esac
 
 probe=${3:?supply the static Linux stream_probe binary for the engine architecture}
+destination=${4:-}
 test -x "$probe"
 mkdir -m 700 "$work"
 expected=$work/expected
@@ -95,10 +96,57 @@ test "$reply" = "$front 2 $back 2"
 request '?'
 [[ $reply =~ ^10\.218\.47\.10:[1-9][0-9]*\ 10\.218\.47\.9:17061\ 10\.218\.47\.9:17061$ ]]
 printf '%s\n' "$reply" >"$expected/connection"
+if [[ $mode == rollback ]]; then
+    "$asagiri" checkpoint platform >"$work/local-platform.json"
+    destination=${destination:-"$work/local-platform.json"}
+    sed -E 's/("guestArchitecture"[[:space:]]*:[[:space:]]*")[^"]+/\1different/' "$work/local-platform.json" >"$work/incompatible.json"
+    if "$asagiri" checkpoint capture-group --destination "$work/incompatible.json" stream "${containers[@]}" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'incompatible guest architectures' "$work/error"
+    for id in "${containers[@]}"; do
+        test "$(docker inspect -f '{{.State.Paused}}' "$id")" = false
+        test -z "$("$asagiri" checkpoint ls "$id")"
+    done
+    echo 'PASS incompatible destination rejected before either workload was paused'
+    # The first member has an earlier capture in this pause. Keep its snapshot and pause on failure.
+    ordered=($(printf '%s\n' "${containers[@]}" | LC_ALL=C sort))
+    first=${ordered[0]}; second=${ordered[1]}
+    docker pause "$first" >/dev/null
+    "$asagiri" checkpoint create --external-network "$first" earlier
+    if "$asagiri" checkpoint capture-group earlier "$second" "$first" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'already exists' "$work/error"
+    if "$asagiri" checkpoint capture-group stream "$first" "${first:0:12}" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'duplicate source container' "$work/error"
+    # Keep an exec active in the second member through capture of the first.
+    docker exec "$second" sh -c 'echo ready >/tmp/exec-ready; while test ! -f /tmp/exec-done; do sleep .1; done' &
+    exec_pid=$!
+    docker exec "$second" sh -ec 'i=0; until test -f /tmp/exec-ready; do i=$((i+1)); test "$i" -lt 100; sleep .1; done'
+    if "$asagiri" checkpoint capture-group --external-network stream "$second" "$first" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'finish the active container exec' "$work/error"
+    test "$(docker inspect -f '{{.State.Paused}}' "$first")" = true
+    test "$(docker inspect -f '{{.State.Paused}}' "$second")" = false
+    test "$("$asagiri" checkpoint ls "$first")" = earlier
+    test -z "$("$asagiri" checkpoint ls "$second")"
+    "$asagiri" checkpoint fence earlier "$first"
+    "$asagiri" checkpoint release earlier "$first"
+    docker unpause "$first" >/dev/null
+    docker exec "$second" touch /tmp/exec-done
+    wait "$exec_pid"
+    request '?'
+    test "$reply" = "$(cat "$expected/connection")"
+    echo 'PASS failed second capture preserved the earlier capture, pause state and live connection'
+fi
 echo 'PAUSING both source workloads'
-docker pause "${containers[@]}" >/dev/null
-for id in "${containers[@]}"; do "$asagiri" checkpoint create --external-network "$id" stream; done
-"$asagiri" checkpoint fence stream "${containers[@]}"
+if [[ -n $destination ]]; then
+    "$asagiri" checkpoint capture-group --destination "$destination" --external-network stream "${containers[@]}" >"$work/preflight.json"
+    for id in "${containers[@]}"; do grep -Fq "$id" "$work/preflight.json"; done
+else
+    "$asagiri" checkpoint capture-group --external-network stream "${containers[@]}"
+fi
+for id in "${containers[@]}"; do
+    test "$(docker inspect -f '{{.State.Paused}}' "$id")" = true
+    if docker unpause "$id" >"$work/error" 2>&1; then exit 1; fi
+    grep -q 'fenced for checkpoint stream' "$work/error"
+done
 for i in 0 1; do "$asagiri" checkpoint export "${containers[$i]}" stream "$work/$i.tar"; done
 echo 'FENCED both source workloads and exported both archives'
 

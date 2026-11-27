@@ -281,7 +281,7 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
             let Some(directory) = roots.restore_directory(paths, spec.id)? else { return Ok(None) };
             Ok(directory)
         }
-        copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT => roots.hold_upper(paths, spec.id),
+        copy_op::DIFF | copy_op::COMMIT | copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD => roots.hold_upper(paths, spec.id),
         copy_op::IN | copy_op::OUT | copy_op::STAT | copy_op::EXPORT => roots.acquire(paths, spec.id, spec.layers),
         _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "unknown copy operation")),
     }?;
@@ -293,13 +293,13 @@ fn grant(roots: &Roots, paths: &Paths, request: &[u8], view: &impl Fn(&str) -> V
         } else if matches!(spec.op, copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES) {
             super::super::container::valid_id(spec.path)?;
             Ok(Grant::Root(File::open(root)?.into()))
-        } else if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT) {
+        } else if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD) {
             super::super::container::valid_id(spec.path)?;
             let mut dir = paths.containers.join(spec.id).join("checkpoints");
             if spec.op == copy_op::CHECKPOINT_IMPORT {
                 use std::os::unix::fs::DirBuilderExt;
                 std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-            } else {
+            } else if spec.op == copy_op::CHECKPOINT_EXPORT {
                 dir.push(spec.path);
             }
             Ok(Grant::Root(File::open(dir)?.into()))
@@ -346,7 +346,7 @@ fn job(client: OwnedFd, control: OwnedFd, paths: &Paths) -> io::Result<()> {
         let mut seen = std::collections::HashSet::new();
         let layers: Vec<&str> = spec.layers.iter().filter(|layer| seen.insert(*layer)).collect();
         let mut request = vec![b'R'];
-        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME) { spec.path } else { "" };
+        let name = if matches!(spec.op, copy_op::CHECKPOINT_EXPORT | copy_op::CHECKPOINT_IMPORT | copy_op::CHECKPOINT_DISCARD | copy_op::CHECKPOINT_ROOTFS | copy_op::CHECKPOINT_NETWORK_FILES | copy_op::CHECKPOINT_VOLUME) { spec.path } else { "" };
         let volumes: Vec<_> = if spec.op == copy_op::IN { spec.mounts.iter().filter_map(super::super::container::writable_volume).collect() } else { Vec::new() };
         asagiri_proto::encode_copy(&mut request, spec.op, spec.id, name, 0, &layers, "", &volumes);
         if request.len() > MAX_REQUEST {
