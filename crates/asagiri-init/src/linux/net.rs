@@ -72,6 +72,8 @@ pub struct Plug {
     pub internal: bool,
     /// IPv6-only: no IPv4 address on the container or the bridge.
     pub no_ipv4: bool,
+    /// Keep IPv6 available for addresses the container manages itself.
+    pub keep_ipv6: bool,
     /// The network's MTU option, when it has one.
     pub mtu: Option<u32>,
     /// `enable_icc=false`: the network's containers do not reach each other.
@@ -91,6 +93,7 @@ impl Plug {
             gw_priority: k::values(opts, k::GW_PRIORITY).next().and_then(|p| p.parse().ok()).unwrap_or_default(),
             internal: k::values(opts, k::INTERNAL).next().is_some(),
             no_ipv4: k::values(opts, k::NO_IPV4).next().is_some(),
+            keep_ipv6: k::values(opts, k::KEEP_IPV6).next().is_some(),
             mtu: k::values(opts, k::MTU).next().and_then(|m| m.parse().ok()),
             no_icc: k::values(opts, k::NO_ICC).next().is_some(),
             macvlan: k::values(opts, k::MACVLAN).next().map(macvlan_mode),
@@ -934,7 +937,7 @@ pub fn attach(bridges: &mut Bridges, bridge: &str, host_ifname: &str, pid: libc:
     let set = (|| -> io::Result<()> {
         // By name: a new namespace may have tunl0, gre0 … before it.
         let index = netlink::index_in(&netns, &ifname)?;
-        if v6.is_none() {
+        if v6.is_none() && !plug.keep_ipv6 {
             // Before it is up, so it never gets a link-local address. A kernel
             // without IPv6 has no such file, and nothing to turn off.
             let _ = netlink::in_netns(&netns, || sys::write_file(&format!("/proc/sys/net/ipv6/conf/{ifname}/disable_ipv6"), "1"));
@@ -1216,11 +1219,20 @@ mod tests {
     }
 
     #[test]
+    fn manual_ipv6_does_not_allocate_an_address() {
+        let mut buf = Vec::new();
+        asagiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &["keepipv6=1"]);
+        let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
+        assert!(Plug::from_opts(net.opts).keep_ipv6);
+        assert_eq!(Ip6::from_opts(net.opts), None);
+    }
+
+    #[test]
     fn the_mtu_comes_from_the_options() {
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "mtu=1400"]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
-        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, mtu: Some(1400), no_icc: false, macvlan: None, ipvlan: None });
+        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, keep_ipv6: false, mtu: Some(1400), no_icc: false, macvlan: None, ipvlan: None });
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
@@ -1232,7 +1244,7 @@ mod tests {
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &["web"], &["internal=1", "noicc=1"]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };
-        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, mtu: None, no_icc: true, macvlan: None, ipvlan: None });
+        assert_eq!(Plug::from_opts(net.opts), Plug { gw_priority: 0, internal: true, no_ipv4: false, keep_ipv6: false, mtu: None, no_icc: true, macvlan: None, ipvlan: None });
         let mut buf = Vec::new();
         asagiri_proto::encode_net_attach::<&str>(&mut buf, "c1", "eth1", "asagiri2", [10, 5, 0, 2], 24, [10, 5, 0, 1], &[], &[]);
         let Ok(asagiri_proto::Msg::NetAttach { net, .. }) = asagiri_proto::decode(&buf) else { panic!() };

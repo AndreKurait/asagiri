@@ -4,6 +4,7 @@ import ipaddress
 import http.client
 import io
 import json
+import re
 import socket
 import sys
 import tarfile
@@ -119,6 +120,28 @@ def check(path, image):
         assert resolves(late, tag + "-peer", peer_ip), sh(late, "nslookup -type=a " + tag + "-peer")
         assert resolves(peer, tag + "-late", address(late, name)), sh(peer, "nslookup -type=a " + tag + "-late")
         print("PASS a container on the default bridge resolves the network it joins", flush=True)
+        cases += 1
+
+        # A router can set its own IPv6 addresses on an IPv4-only bridge.
+        router = run(tag + "-manual-v6", {"CapAdd": ["NET_ADMIN"], "Sysctls": {
+            "net.ipv6.conf.all.disable_ipv6": "0",
+            "net.ipv6.conf.default.disable_ipv6": "0",
+        }})
+        join(network, router)
+        endpoint = request("GET", "/containers/" + router + "/json")["NetworkSettings"]["Networks"][name]
+        assert not endpoint["GlobalIPv6Address"], endpoint
+        mac = endpoint["MacAddress"]
+        assert re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", mac), endpoint
+        code, text = sh(router, f"""
+            set -e
+            dev=$(ip -o link show | awk -F ': ' '$0 ~ /{mac}/ {{sub(/@.*/, "", $2); print $2}}')
+            test -n "$dev"
+            ip -6 addr add fe80:ec2::1/64 dev "$dev"
+            ip -6 route add 2001:db8:ec2::/64 dev "$dev"
+            ip -6 addr show dev "$dev"
+        """)
+        assert code == 0 and "fe80:ec2::1/64" in text, (code, text)
+        print("PASS manually configured IPv6 on a hot-attached IPv4-only bridge", flush=True)
         cases += 1
 
         # Leaving the network takes its names away again; the resolver stays.

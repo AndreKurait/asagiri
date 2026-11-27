@@ -364,10 +364,9 @@ impl Spec {
         Ok(lines)
     }
 
-    /// Whether `--sysctl net.ipv6.conf.{all,default,<ifname>}.disable_ipv6=1`
-    /// turns IPv6 off on `ifname`: then it gets no IPv6 address (and no AAAA
-    /// record), as with Docker.
-    pub fn ipv6_disabled(&self, ifname: &str) -> bool {
+    /// Whether the container explicitly disables or enables IPv6 on `ifname`.
+    /// An explicitly disabled interface gets no IPv6 address or AAAA record.
+    pub fn ipv6_disabled(&self, ifname: &str) -> Option<bool> {
         super::hostopts::ipv6_disabled(&self.host_opts, ifname)
     }
 
@@ -2594,7 +2593,7 @@ impl Engine {
                         return Err(e);
                     }
                 };
-                let ip6 = if spec.ipv6_disabled("eth0") { Ok(None) } else { self.allocate_ip6(n, &spec.ipv6_address) };
+                let ip6 = if spec.ipv6_disabled("eth0") == Some(true) { Ok(None) } else { self.allocate_ip6(n, &spec.ipv6_address) };
                 match ip6 {
                     Ok(ip6) => {
                         if let Some(c) = self.lock().containers.get_mut(&id) {
@@ -3385,8 +3384,8 @@ impl Engine {
                 self.lock_networks().allocate_avoiding(&net.name, &avoid).ok_or_else(|| Error::Io(io::Error::other(format!("no free address left on network {}", net.name))))?
             }
         };
-        let off6 = self.lock().containers.get(id).is_some_and(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
-        let ip6 = match if off6 { Ok(None) } else { self.allocate_ip6(&net, &extra.ipv6_address) } {
+        let ipv6_disabled = self.lock().containers.get(id).and_then(|c| c.spec.ipv6_disabled(&format!("eth{n}")));
+        let ip6 = match if ipv6_disabled == Some(true) { Ok(None) } else { self.allocate_ip6(&net, &extra.ipv6_address) } {
             Ok(a) => a,
             Err(e) => {
                 self.lock_networks().release(&net.name, ip);
@@ -3399,6 +3398,10 @@ impl Engine {
         if let (Some(a), Some(v)) = (ip6, &net.v6) {
             opts.push(format!("{}={}/{}", asagiri_proto::net_opts::IP6, super::network::ip6_str(a), v.prefix));
             opts.push(format!("{}={}", asagiri_proto::net_opts::GW6, super::network::ip6_str(v.gateway)));
+        }
+        // Allow a manual link-local address without changing the network's IPAM.
+        if ipv6_disabled == Some(false) {
+            opts.push(format!("{}=1", asagiri_proto::net_opts::KEEP_IPV6));
         }
         if net.internal {
             opts.push(format!("{}=1", asagiri_proto::net_opts::INTERNAL));
