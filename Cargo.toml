@@ -33,3 +33,7 @@ strip = "debuginfo"
 
 [profile.dev]
 panic = "abort"
+
+# `cargo xtask` runs in the dev profile, including during release packaging.
+[profile.dev.package.libz-ng-sys]
+opt-level = 3

@@ -9,6 +9,7 @@ regression limits, raw samples, and the public history by commit.
 
 Needs Rust and, for the kernel and disk template, a Docker engine. Asagiri can
 build its own kernel: `DOCKER_CONTEXT=asagiri cargo xtask kernel`.
+On macOS, `cargo xtask` also needs CMake to build the release archive compressor.
 
 ```sh
 cargo xtask kernel    # guest/out/Image
@@ -96,6 +97,12 @@ asagiri UI ────┘
   No runc, no shim, no dockerd.
 - **Images**: pulled and pushed on the Mac (`crates/asagiri-image`), streamed
   into the guest once and unpacked there.
+
+The Linux kernel that runs containers must allow `clone3` with
+`CLONE_INTO_CGROUP`. This lets Asagiri create the container process directly
+in its target cgroup. If the kernel or a host policy blocks that operation,
+Asagiri stops startup before the workload runs. The error distinguishes an
+unavailable syscall (`ENOSYS`) from permission denial (`EPERM`).
 
 Host–agent control requests have a 1 MiB frame budget, including the header.
 Custom seccomp JSON shares that budget with arguments, environment variables,

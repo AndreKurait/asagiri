@@ -25,6 +25,7 @@ use sha2::{Digest, Sha256};
 #[path = "update_feed.rs"]
 mod feed;
 pub use feed::configured;
+mod archive;
 mod process;
 #[cfg(test)]
 #[path = "../../asagiri-win/src/update/wsl.rs"]
@@ -144,17 +145,23 @@ fn fetch_and_check(release: &Release, app: &Path, dir: &Path, progress: &mut dyn
         return Err(io::Error::new(io::ErrorKind::InvalidData, format!("download does not match its SHA-256 (got {sum})")));
     }
     let unpacked = dir.join("unpacked");
-    std::fs::create_dir_all(&unpacked)?;
-    // A sparse-aware tar: the VM's disk template inside is mostly holes.
-    if !Command::new("/usr/bin/tar").args(["-xzf"]).arg(&tgz).arg("-C").arg(&unpacked).status()?.success() {
-        return Err(io::Error::other("could not unpack the update"));
-    }
+    unpack_archive(&tgz, &unpacked)?;
     let _ = std::fs::remove_file(&tgz);
     let new_app = unpacked.join("Asagiri.app");
     check(&new_app, app, &release.version)?;
     std::fs::rename(&new_app, dir.join("Asagiri.app"))?;
     let _ = std::fs::remove_dir_all(&unpacked);
     std::fs::write(dir.join("version"), &release.version)?;
+    Ok(())
+}
+
+fn unpack_archive(tgz: &Path, unpacked: &Path) -> io::Result<()> {
+    archive::check(tgz)?;
+    std::fs::create_dir(unpacked)?;
+    // A sparse-aware tar: the VM's disk template inside is mostly holes.
+    if !Command::new("/usr/bin/tar").args(["-xzf"]).arg(tgz).arg("-C").arg(unpacked).status()?.success() {
+        return Err(io::Error::other("could not unpack the update"));
+    }
     Ok(())
 }
 
@@ -432,7 +439,42 @@ fn bundle_version(plist: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Release, bundle_version, has_cpu, newer, runs_here};
+    use super::{Command, Release, bundle_version, has_cpu, io, newer, runs_here, unpack_archive};
+
+    #[test]
+    fn archive_check_precedes_extraction() {
+        let fixture = std::env::temp_dir().join(format!("asagiri-update-archive-{}", std::process::id()));
+        std::fs::create_dir(&fixture).unwrap();
+        let source = fixture.join("source");
+        std::fs::create_dir_all(source.join("Asagiri.app/Contents")).unwrap();
+        std::fs::write(source.join("Asagiri.app/Contents/payload"), b"bundle data").unwrap();
+        std::fs::write(source.join("README.txt"), b"release notes").unwrap();
+        let archive = fixture.join("update.tgz");
+        let stage = fixture.join("stage");
+        let pack = |include_readme| {
+            let mut tar = Command::new("/usr/bin/tar");
+            tar.arg("-czf").arg(&archive).arg("-C").arg(&source).arg("Asagiri.app");
+            if include_readme {
+                tar.arg("README.txt");
+            }
+            assert!(tar.status().unwrap().success());
+        };
+        pack(true);
+        let rejected = unpack_archive(&archive, &stage);
+        let stage_created = stage.exists();
+        if stage_created {
+            std::fs::remove_dir_all(&stage).unwrap();
+        }
+        pack(false);
+        let accepted = unpack_archive(&archive, &stage);
+        let payload = std::fs::read(stage.join("Asagiri.app/Contents/payload"));
+        std::fs::remove_dir_all(fixture).unwrap();
+        assert_eq!(rejected.unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(!stage_created);
+        accepted.unwrap();
+        assert_eq!(payload.unwrap(), b"bundle data");
+    }
+
 
     #[cfg(target_os = "macos")]
     #[test]

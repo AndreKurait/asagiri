@@ -171,6 +171,21 @@ pub fn parse_mac(s: &str) -> Option<[u8; 6]> {
     parts.next().is_none().then_some(mac)
 }
 
+/// Hold this descriptor through host network teardown. Linux scopes abstract
+/// socket addresses to the network namespace, including across WSL distros.
+fn bind_network_claim(name: &[u8]) -> io::Result<std::os::unix::net::UnixDatagram> {
+    use std::os::linux::net::SocketAddrExt;
+    use std::os::unix::net::{SocketAddr, UnixDatagram};
+    UnixDatagram::bind_addr(&SocketAddr::from_abstract_name(name)?)
+}
+
+pub fn claim_host_network(name: &[u8]) -> io::Result<std::os::unix::net::UnixDatagram> {
+    bind_network_claim(name).map_err(|e| match e.kind() {
+        io::ErrorKind::AddrInUse => io::Error::new(e.kind(), "Asagiri's network namespace is already claimed; stop the other engine before starting this one"),
+        _ => e,
+    })
+}
+
 /// On a Linux host: the interface of the default route, already configured
 /// by the host, gets the masquerade and the host.docker.internal redirect.
 pub fn host_uplink() -> io::Result<()> {
@@ -598,9 +613,10 @@ impl Bridges {
             }
             None => {}
         }
-        let r = self.bring_up(name, gateway, prefix, v6);
+        let mut created = false;
+        let r = self.bring_up(name, gateway, prefix, v6, &mut created);
         if r.is_err() {
-            if let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
+            if created && let Ok(mut nl) = Netlink::open(libc::NETLINK_ROUTE) {
                 let _ = netlink::delete_link(&mut nl, name);
             }
             MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner()).retain(|m| m.name != name);
@@ -614,9 +630,9 @@ impl Bridges {
         r
     }
 
-    fn bring_up(&mut self, name: &str, gateway: Option<[u8; 4]>, prefix: u8, v6: Option<Ip6>) -> io::Result<i32> {
+    fn bring_up(&mut self, name: &str, gateway: Option<[u8; 4]>, prefix: u8, v6: Option<Ip6>, created: &mut bool) -> io::Result<i32> {
         let mut nl = Netlink::open(libc::NETLINK_ROUTE)?;
-        netlink::create_bridge(&mut nl, name)?;
+        *created = netlink::create_bridge(&mut nl, name)?;
         let mut made = MADE_BRIDGES.lock().unwrap_or_else(|e| e.into_inner());
         if !made.iter().any(|m| m.name == name) {
             let subnet = gateway.map(|addr| {
@@ -1104,6 +1120,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn network_claim_excludes_other_holders_until_teardown() {
+        let name = format!("asagiri-netns-test-{}", std::process::id());
+        let claim = claim_host_network(name.as_bytes()).unwrap();
+        assert_eq!(claim_host_network(name.as_bytes()).unwrap_err().kind(), io::ErrorKind::AddrInUse);
+        drop(claim);
+        claim_host_network(name.as_bytes()).unwrap();
+    }
+
+    #[test]
     fn host_relay_is_reachable_before_dhcp() {
         use std::io::{Read, Write};
         use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -1126,6 +1151,17 @@ mod tests {
         // namespace owns every link, route and nftables rule created below.
         assert_eq!(unsafe { libc::unshare(libc::CLONE_NEWNET) }, 0, "{}", io::Error::last_os_error());
         let mut nl = Netlink::open(libc::NETLINK_ROUTE).unwrap();
+        // A prefix outside IPv4's range forces address setup to fail after
+        // bridge creation. Roll back only the link created by this attempt.
+        let mut bridges = Bridges::default();
+        assert!(netlink::create_bridge(&mut nl, "preexisting").unwrap());
+        let original = netlink::index_of("preexisting").unwrap();
+        for name in ["preexisting", "newbridge"] {
+            let err = bridges.ensure(name, Some([192, 0, 2, 1]), 33, None).unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(libc::EINVAL));
+        }
+        assert_eq!(netlink::index_of("preexisting").unwrap(), original);
+        assert!(netlink::index_of("newbridge").is_err());
         let lo = netlink::index_of("lo").unwrap();
         netlink::set_up(&mut nl, lo).unwrap();
         let target = SocketAddr::from((HOST_ADDR, 12345));

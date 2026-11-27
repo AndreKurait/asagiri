@@ -131,9 +131,10 @@ fn write_stderr_all(mut bytes: &[u8]) {
 }
 
 fn run(init_start_ns: u64) -> io::Result<()> {
-    let paths = if transport::is_host_process() {
+    let (paths, _network_claim) = if transport::is_host_process() {
         // On a Linux host: the host's kernel filesystems, network and clock.
-        host_dirs()?
+        let (paths, claim) = host_dirs()?;
+        (paths, Some(claim))
     } else {
         leave_initramfs()?;
         mount_kernel_filesystems()?;
@@ -141,7 +142,7 @@ fn run(init_start_ns: u64) -> io::Result<()> {
         // Containers may bind the VM's /etc/hostname, as on a Linux host.
         let _ = std::fs::write("/etc/hostname", "asagiri\n");
         sys::loopback_up()?;
-        data_dirs()?
+        (data_dirs()?, None)
     };
 
     let served = serve(&paths, init_start_ns);
@@ -248,7 +249,7 @@ fn mount_kernel_filesystems() -> io::Result<()> {
 /// umask the containers' own processes start with must stay conventional
 /// (022), or nothing running as a non-root user in a container could read
 /// its own resolv.conf.
-fn host_dirs() -> io::Result<container::Paths> {
+fn host_dirs() -> io::Result<(container::Paths, std::os::unix::net::UnixDatagram)> {
     // SAFETY: umask only changes this process's file-creation mask.
     unsafe { libc::umask(0o022) };
     let root = PathBuf::from(DATA);
@@ -262,6 +263,7 @@ fn host_dirs() -> io::Result<container::Paths> {
     mkdir(&root, 0o710)?;
     mkdir(&root.join("volumes"), 0o700)?;
     take_over(&root)?;
+    let claim = net::claim_host_network(b"asagiri-engine-netns")?;
     let paths = container::Paths { layers: root.join("layers"), containers: root.join("containers"), cgroup: host_cgroup()? };
     mkdir(&paths.layers, 0o700)?;
     mkdir(&paths.containers, 0o700)?;
@@ -277,7 +279,7 @@ fn host_dirs() -> io::Result<container::Paths> {
     container::sweep(&paths, &paths.cgroup)?;
     std::fs::write(&record, paths.cgroup.as_os_str().as_encoded_bytes())?;
     std::env::set_current_dir(&paths.layers)?;
-    Ok(paths)
+    Ok((paths, claim))
 }
 
 /// Bind-mounts `src` (the chosen folder's `agent` directory, from

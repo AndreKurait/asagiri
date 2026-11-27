@@ -341,6 +341,11 @@ jobs:
         with:
           name: linux-jammy-inputs
           path: ${{ runner.temp }}/packages
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        # zizmor: ignore[cache-poisoning] release-only cache for the planned source revision
+        with:
+          cache-bin: false
+          shared-key: release-jammy-desktop-x86_64
       - name: Package and exercise the release window
         env:
           VERSION: ${{ needs.plan.outputs.version }}

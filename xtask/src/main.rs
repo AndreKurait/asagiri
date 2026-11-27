@@ -1063,7 +1063,7 @@ fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let suffix = arch.suffix();
     let tarball = root.join(format!("target/Asagiri-{version}{suffix}.tar.gz"));
-    run(Command::new("tar").args(["-cSzf"]).arg(&tarball).arg("-C").arg(app.parent().unwrap_or(root)).arg("Asagiri.app"))?;
+    write_macos_archive(&tarball, app.parent().unwrap_or(root))?;
     let sum = sha256(&tarball)?;
     let base = std::env::var("ASAGIRI_RELEASE_BASE").unwrap_or_else(|_| format!("https://github.com/AndreKurait/asagiri/releases/download/v{version}"));
     let extra = feed_notes()?;
@@ -1072,6 +1072,50 @@ fn release(root: &Path, app: &Path, arch: Arch) -> io::Result<()> {
     fs::write(&feed_path, &feed)?;
     println!("{} ({} KiB)\n{}", tarball.display(), fs::metadata(&tarball)?.len() / 1024, feed_path.display());
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn write_macos_archive(tarball: &Path, app_parent: &Path) -> io::Result<()> {
+    use gzp::{Compression, ZBuilder, deflate::Gzip};
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    // Publish the archive only after both tar and gzip finish successfully.
+    let output = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o666))
+        .tempfile_in(tarball.parent().unwrap())?;
+    let workers = std::thread::available_parallelism().map_or(1, |count| count.get().min(8));
+    let mut gzip = ZBuilder::<Gzip, _>::new()
+        .num_threads(workers)
+        .compression_level(Compression::new(6))
+        .from_writer(output.reopen()?);
+    let mut tar = Command::new("/usr/bin/tar")
+        .args(["-cSf", "-", "-C"])
+        .arg(app_parent)
+        .arg("Asagiri.app")
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut input = tar.stdout.take().unwrap();
+    let copied = io::copy(&mut input, &mut gzip);
+    drop(input);
+    if copied.is_err() {
+        let _ = tar.kill();
+    }
+    let status = tar.wait();
+    copied?;
+    let status = status?;
+    let finished = gzip.finish().map_err(io::Error::other);
+    if !status.success() {
+        return Err(io::Error::other(format!("could not archive Asagiri.app: tar exited with {status}")));
+    }
+    finished?;
+    output.persist(tarball)?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn write_macos_archive(tarball: &Path, app_parent: &Path) -> io::Result<()> {
+    run(Command::new("tar").args(["-cSzf"]).arg(tarball).arg("-C").arg(app_parent).arg("Asagiri.app"))
 }
 
 fn guest_elf(binary: &[u8], machine: u8) -> bool {
@@ -1263,5 +1307,22 @@ mod checkpoint_tests {
         })();
         fs::remove_dir_all(root)?;
         result
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_archive_tests {
+    use super::*;
+
+    #[test]
+    fn failed_pack_preserves_existing_archive() -> io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let archive = root.path().join("Asagiri.tar.gz");
+        fs::write(&archive, b"previous archive")?;
+        let error = write_macos_archive(&archive, root.path()).unwrap_err();
+        assert!(error.to_string().contains("tar exited"));
+        assert_eq!(fs::read(&archive)?, b"previous archive");
+        assert_eq!(fs::read_dir(root.path())?.count(), 1);
+        Ok(())
     }
 }

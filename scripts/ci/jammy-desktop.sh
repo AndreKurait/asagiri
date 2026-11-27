@@ -16,7 +16,7 @@ mkdir "$work/native" "$work/cli"
 cp "$work/input/usr/bin/"asagiri{,-init} "$work/native/"
 git rev-parse HEAD > "$work/native/SOURCE_COMMIT"
 cp "$work/input/usr/libexec/asagiri/bin/docker" "$work/input/usr/libexec/asagiri/cli-plugins/"docker-* "$work/cli/"
-cargo build --locked --release -p asagiri --features window
+time cargo build --locked --release -p asagiri --features window
 bash packaging/linux/build.sh "$work/native" "$work/out" x86_64 "$work/cli" "$PWD/target/release/asagiri"
 asset=$(basename "${inputs[0]}")
 sudo apt-get install -y "$work/out/$asset"
