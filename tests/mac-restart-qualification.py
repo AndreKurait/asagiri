@@ -99,9 +99,9 @@ def qualify():
         endpoint = work/'run/docker.sock'
         endpoint.parent.mkdir(mode=0o700)
         home = work/'home'
-        settings = home/'.asagiri'
-        settings.mkdir(parents=True)
-        (settings/'ui.json').write_text(json.dumps({'lang':'en','langAsked':True,'domainsAsked':True,
+        home.mkdir()
+        # The macOS GUI locates its settings two levels above the engine socket.
+        (endpoint.parent.parent/'ui.json').write_text(json.dumps({'lang':'en','langAsked':True,'domainsAsked':True,
             'setupSkip':True,'updateAuto':False,'stopEngineOnQuit':False}))
         env = {**os.environ, 'HOME':str(home), 'ASAGIRI_SOCKET':str(endpoint),
                'ASAGIRI_DATA_DIR':str(work/'store'), 'ASAGIRI_NO_FINDER':'1', 'ASAGIRI_IDLE_SECS':'0'}
