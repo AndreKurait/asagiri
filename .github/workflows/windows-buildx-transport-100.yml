@@ -1,7 +1,7 @@
 name: Verify published Windows Buildx through the installed MSI
 on:
   push:
-    branches: [qualification/stable-windows-buildx-100]
+    branches: [qualification/windows-buildx-v0.1.16]
     paths: [.github/workflows/windows-buildx-transport-100.yml]
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
       - name: Download and verify published x64 MSI
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v0.1.14-dev.329
+          RELEASE_TAG: v0.1.16
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:RELEASE_TAG.Substring(1)
@@ -23,7 +23,7 @@ jobs:
           if ($release.isDraft -or $entry.Count -ne 1) { throw 'Expected one published MSI' }
           gh release download $env:RELEASE_TAG -R AndreKurait/asagiri -p $asset -D $env:RUNNER_TEMP
           $digest = (Get-FileHash (Join-Path $env:RUNNER_TEMP $asset)).Hash.ToLower()
-          if ($entry[0].digest -ne "sha256:$digest") { throw 'Published MSI digest mismatch' }
+          if ($digest -ne 'd92a4056f1d9fd617ca7a3ab27615e9c750619cfa0b3767c526fc0564f5eae5c' -or $entry[0].digest -ne "sha256:$digest") { throw 'Published MSI digest mismatch' }
           Write-Host "Verified $asset sha256:$digest"
           "ASAGIRI_TEST_VERSION=$version" >> $env:GITHUB_ENV
       - name: Build and run an image through the Windows named pipe
@@ -106,5 +106,11 @@ jobs:
             Write-Host "PASS context, build secret, direct image load and runtime for $actual"
           } finally {
             if (!$bridge.HasExited) { Stop-Process -Id $bridge.Id -Force }
-            wsl.exe --terminate asagiri
+            if ($imported) {
+              wsl.exe --unregister asagiri
+              if ($LASTEXITCODE) { throw 'Could not remove the disposable WSL engine' }
+            }
+            $uninstall = Start-Process msiexec -ArgumentList "/x `"$env:RUNNER_TEMP\$asset`" /qn /norestart" -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed with $($uninstall.ExitCode)" }
+            Write-Host 'Removed the disposable WSL distribution and MSI.'
           }
