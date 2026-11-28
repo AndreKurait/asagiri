@@ -1,0 +1,27 @@
+name: Verify published stable MSI networking on WSL2
+
+on:
+  push:
+    branches: [qualification/wsl-network-114]
+
+permissions:
+  contents: read
+
+jobs:
+  released-wsl:
+    name: Network fixtures on the published x64 MSI
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out the exact release fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: f4686c5daf8b411a6255b61905bb9f8398f0604a
+          path: release-source
+          persist-credentials: false
+      - name: Verify published Windows MSI network behavior
+        shell: pwsh
+        run: ./tests/windows-published-network-114.ps1
